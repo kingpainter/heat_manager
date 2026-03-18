@@ -1,17 +1,8 @@
-"""
-Heat Manager — Integration setup.
-
-Lifecycle
----------
-async_setup_entry   Called when HA loads the config entry.
-                    Creates the coordinator, starts all engines,
-                    registers services, and registers the Lovelace
-                    frontend resource.
-async_unload_entry  Called when the user removes the integration.
-"""
+"""Heat Manager — Integration setup."""
 from __future__ import annotations
 
 import logging
+import pathlib
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -44,16 +35,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.runtime_data = coordinator
 
-    # Forward setup to all platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Register services
     _register_services(hass, coordinator)
-
-    # Register Lovelace frontend resource
     _register_frontend(hass)
 
-    # Listen for options updates
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     _LOGGER.info(
@@ -73,15 +59,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload when options change."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-# ── Service registration ──────────────────────────────────────────────────────
-
 def _register_services(hass: HomeAssistant, coordinator: HeatManagerCoordinator) -> None:
-    """Register all Heat Manager services."""
-
     async def handle_set_controller_state(call: ServiceCall) -> None:
         state_str = call.data["state"]
         try:
@@ -100,71 +81,40 @@ def _register_services(hass: HomeAssistant, coordinator: HeatManagerCoordinator)
         await coordinator.controller.resume()
 
     async def handle_force_room_on(call: ServiceCall) -> None:
-        room_name = call.data["room_name"]
-        await coordinator.presence_engine.force_room_on(room_name)
+        await coordinator.presence_engine.force_room_on(call.data["room_name"])
 
     hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_CONTROLLER_STATE,
-        handle_set_controller_state,
+        DOMAIN, SERVICE_SET_CONTROLLER_STATE, handle_set_controller_state,
+        schema=vol.Schema({vol.Required("state"): vol.In(CONTROLLER_STATE_OPTIONS)}),
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_PAUSE, handle_pause,
         schema=vol.Schema({
-            vol.Required("state"): vol.In(CONTROLLER_STATE_OPTIONS),
+            vol.Optional("duration_minutes", default=DEFAULT_PAUSE_DURATION_MIN):
+                vol.All(vol.Coerce(int), vol.Range(min=1, max=480)),
         }),
     )
-
     hass.services.async_register(
-        DOMAIN,
-        SERVICE_PAUSE,
-        handle_pause,
-        schema=vol.Schema({
-            vol.Optional("duration_minutes", default=DEFAULT_PAUSE_DURATION_MIN): vol.All(
-                vol.Coerce(int), vol.Range(min=1, max=480)
-            ),
-        }),
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_RESUME,
-        handle_resume,
+        DOMAIN, SERVICE_RESUME, handle_resume,
         schema=vol.Schema({}),
     )
-
     hass.services.async_register(
-        DOMAIN,
-        SERVICE_FORCE_ROOM_ON,
-        handle_force_room_on,
-        schema=vol.Schema({
-            vol.Required("room_name"): cv.string,
-        }),
+        DOMAIN, SERVICE_FORCE_ROOM_ON, handle_force_room_on,
+        schema=vol.Schema({vol.Required("room_name"): cv.string}),
     )
 
-
-# ── Lovelace frontend resource ────────────────────────────────────────────────
 
 def _register_frontend(hass: HomeAssistant) -> None:
-    """
-    Register the bundled Lovelace card as a static resource.
-    The JS file lives at custom_components/heat_manager/frontend/heat-manager-card.js
-    and is served at /heat_manager/heat-manager-card.js
-    """
-    import pathlib
-
-    frontend_dir = pathlib.Path(__file__).parent / "frontend"
-    if not frontend_dir.exists():
-        _LOGGER.debug(
-            "Frontend directory not yet present — skipping resource registration"
-        )
-        return
-
-    card_file = frontend_dir / "heat-manager-card.js"
+    card_file = pathlib.Path(__file__).parent / "frontend" / "heat-manager-card.js"
     if not card_file.exists():
-        _LOGGER.debug("heat-manager-card.js not found — skipping resource registration")
+        _LOGGER.debug("heat-manager-card.js not found — skipping")
         return
-
-    hass.http.register_static_path(
-        LOVELACE_RESOURCE_PATH,
-        str(card_file),
-        cache_headers=False,
-    )
-    _LOGGER.debug("Registered Lovelace resource at %s", LOVELACE_RESOURCE_PATH)
+    try:
+        hass.http.register_static_path(
+            LOVELACE_RESOURCE_PATH,
+            str(card_file),
+            cache_headers=False,
+        )
+        _LOGGER.info("Lovelace card registered at %s", LOVELACE_RESOURCE_PATH)
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Could not register Lovelace resource: %s", err)

@@ -1,0 +1,44 @@
+set_controller_state:
+  name: Set controller state
+  description: Set Heat Manager to on, pause, or off.
+  fields:
+    state:
+      name: State
+      description: "Target state: on, pause, or off"
+      required: true
+      selector:
+        select:
+          options:
+            - "on"
+            - "pause"
+            - "off"
+
+pause:
+  name: Pause
+  description: Pause all heating logic for a set duration. Room states are preserved and restored when the timer expires.
+  fields:
+    duration_minutes:
+      name: Duration (minutes)
+      description: How long to pause. Defaults to 120 minutes.
+      required: false
+      default: 120
+      selector:
+        number:
+          min: 1
+          max: 480
+          unit_of_measurement: min
+
+resume:
+  name: Resume
+  description: Immediately resume from pause back to on.
+
+force_room_on:
+  name: Force room heating on
+  description: Force a specific room back to schedule, regardless of window or away state.
+  fields:
+    room_name:
+      name: Room name
+      description: Name of the room as configured in Heat Manager.
+      required: true
+      selector:
+        text:
