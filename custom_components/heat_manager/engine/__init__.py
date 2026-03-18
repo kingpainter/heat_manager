@@ -1,0 +1,1 @@
+"""Heat Manager — engine package."""

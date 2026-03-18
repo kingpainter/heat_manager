@@ -15,16 +15,16 @@ CONF_AWAY_TEMP_OVERRIDE = "away_temp_override"
 
 CONF_PERSONS = "persons"
 CONF_PERSON_ENTITY = "person_entity"
-CONF_PERSON_TRACKING = "person_tracking"  # False for Sebastian-style entries
+CONF_PERSON_TRACKING = "person_tracking"
 
 CONF_ALARM_PANEL = "alarm_panel"
 CONF_WEATHER_ENTITY = "weather_entity"
 CONF_NOTIFY_SERVICE = "notify_service"
 CONF_PREHEAT_LEAD_TIME_MIN = "preheat_lead_time_min"
 
-CONF_AWAY_TEMP_MILD = "away_temp_mild"    # outdoor >= mild_threshold
-CONF_AWAY_TEMP_COLD = "away_temp_cold"    # outdoor < mild_threshold
-CONF_MILD_THRESHOLD = "mild_threshold"    # °C boundary between mild/cold
+CONF_AWAY_TEMP_MILD = "away_temp_mild"
+CONF_AWAY_TEMP_COLD = "away_temp_cold"
+CONF_MILD_THRESHOLD = "mild_threshold"
 
 CONF_GRACE_DAY_MIN = "grace_day_min"
 CONF_GRACE_NIGHT_MIN = "grace_night_min"
@@ -57,7 +57,7 @@ DEFAULT_AUTO_OFF_TEMP_THRESHOLD = 18.0
 DEFAULT_AUTO_OFF_TEMP_DAYS = 5
 DEFAULT_PAUSE_DURATION_MIN = 120
 
-# ── Controller state ─────────────────────────────────────────────────────────
+# ── Controller state ──────────────────────────────────────────────────────────
 
 class ControllerState(StrEnum):
     ON = "on"
@@ -84,20 +84,20 @@ class RoomState(StrEnum):
     PRE_HEAT = "pre_heat"
     OVERRIDE = "override"
 
-# ── Auto-off reason (stored as attribute on controller_state entity) ──────────
+# ── Auto-off reason ───────────────────────────────────────────────────────────
 
 class AutoOffReason(StrEnum):
     NONE = "none"
     SEASON = "season"
     TEMPERATURE = "temperature"
 
-# ── Preset modes (HA climate) ─────────────────────────────────────────────────
+# ── Preset modes ──────────────────────────────────────────────────────────────
 
 PRESET_AWAY = "away"
 PRESET_SCHEDULE = "schedule"
 HVAC_OFF = "off"
 
-# ── Notification action identifiers ──────────────────────────────────────────
+# ── Notification action identifiers ───────────────────────────────────────────
 
 ACTION_FORCE_HEATING_ON = "HM_FORCE_HEATING_ON"
 ACTION_VIEW_WINDOWS = "HM_VIEW_WINDOWS"
@@ -113,10 +113,12 @@ SERVICE_RESUME = "resume"
 SERVICE_FORCE_ROOM_ON = "force_room_on"
 
 # ── Platforms ─────────────────────────────────────────────────────────────────
+# Only platforms with implemented files are listed here.
+# sensor, binary_sensor, select, switch are added in uge 3.
 
-PLATFORMS = ["sensor", "binary_sensor", "select", "switch"]
+PLATFORMS: list[str] = []
 
-# ── Storage / coordinator update interval ────────────────────────────────────
+# ── Coordinator update interval ───────────────────────────────────────────────
 
 SCAN_INTERVAL_SECONDS = 60
 

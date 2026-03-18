@@ -1,0 +1,129 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Season & global settings",
+        "description": "Configure the global behaviour of Heat Manager.",
+        "data": {
+          "weather_entity": "Weather entity",
+          "notify_service": "Notification service (e.g. notify.mobile_app_my_phone)",
+          "away_temp_mild": "Away temperature — mild weather",
+          "away_temp_cold": "Away temperature — cold weather",
+          "mild_threshold": "Mild/cold boundary temperature",
+          "grace_day_min": "Grace period — daytime (minutes)",
+          "grace_night_min": "Grace period — night-time (minutes)",
+          "auto_off_temp_threshold": "Auto-off temperature threshold",
+          "auto_off_temp_days": "Auto-off sustained days"
+        }
+      },
+      "room": {
+        "title": "Add a room",
+        "description": "Rooms added so far: {room_count}. Fill in the room details and choose whether to add another.",
+        "data": {
+          "room_name": "Room name",
+          "climate_entity": "Climate entity",
+          "window_sensors": "Window / door sensors",
+          "window_delay_min": "Window open delay before acting (minutes)",
+          "away_temp_override": "Away temperature for this room"
+        }
+      },
+      "person": {
+        "title": "Add a person",
+        "description": "Persons added so far: {person_count}. Disable tracking for persons without a device tracker.",
+        "data": {
+          "person_entity": "Person entity",
+          "person_tracking": "Enable presence tracking",
+          "preheat_lead_time_min": "Pre-heat lead time (minutes before arrival)"
+        }
+      },
+      "presence_global": {
+        "title": "Alarm & presence",
+        "data": {
+          "alarm_panel": "Alarm panel entity (optional)"
+        }
+      },
+      "notifications": {
+        "title": "Notification preferences",
+        "data": {
+          "notify_presence": "Notify on presence changes",
+          "notify_windows": "Notify on window events",
+          "notify_window_warning_30": "Warn when window open 30+ minutes",
+          "notify_preheat": "Notify when pre-heat starts",
+          "energy_tracking": "Enable energy waste tracking"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entity not found. Please check the entity ID.",
+      "no_rooms": "At least one room must be added."
+    },
+    "abort": {
+      "already_configured": "Heat Manager is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Heat Manager options",
+        "data": {
+          "section": "What would you like to edit?"
+        }
+      },
+      "global": {
+        "title": "Season & global settings",
+        "data": {
+          "weather_entity": "Weather entity",
+          "notify_service": "Notification service",
+          "away_temp_mild": "Away temperature — mild weather",
+          "away_temp_cold": "Away temperature — cold weather",
+          "mild_threshold": "Mild/cold boundary temperature",
+          "grace_day_min": "Grace period — daytime (minutes)",
+          "grace_night_min": "Grace period — night-time (minutes)",
+          "auto_off_temp_threshold": "Auto-off temperature threshold",
+          "auto_off_temp_days": "Auto-off sustained days"
+        }
+      },
+      "notifications": {
+        "title": "Notification preferences",
+        "data": {
+          "notify_presence": "Notify on presence changes",
+          "notify_windows": "Notify on window events",
+          "notify_window_warning_30": "Warn when window open 30+ minutes",
+          "notify_preheat": "Notify when pre-heat starts",
+          "energy_tracking": "Enable energy waste tracking"
+        }
+      }
+    }
+  },
+  "entity": {
+    "select": {
+      "controller_state": {
+        "state": {
+          "on": "On",
+          "pause": "Pause",
+          "off": "Off"
+        }
+      },
+      "season_mode": {
+        "state": {
+          "auto": "Auto",
+          "winter": "Winter",
+          "summer": "Summer"
+        }
+      }
+    },
+    "sensor": {
+      "pause_remaining": { "name": "Pause remaining" },
+      "energy_wasted_today": { "name": "Energy wasted today" },
+      "efficiency_score": { "name": "Efficiency score" },
+      "preheat_eta": { "name": "Pre-heat ETA" }
+    },
+    "binary_sensor": {
+      "any_window_open": { "name": "Any window open" },
+      "heating_wasted": { "name": "Heating wasted" }
+    },
+    "switch": {
+      "room_override": { "name": "{room_name} override" }
+    }
+  }
+}
