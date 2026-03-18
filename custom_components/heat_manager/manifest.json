@@ -1,0 +1,12 @@
+{
+  "domain": "heat_manager",
+  "name": "Heat Manager",
+  "version": "0.1.0",
+  "documentation": "https://github.com/kingpainter/heat-manager",
+  "issue_tracker": "https://github.com/kingpainter/heat-manager/issues",
+  "codeowners": ["@kingpainter"],
+  "config_flow": true,
+  "iot_class": "local_push",
+  "dependencies": ["climate", "person", "weather"],
+  "requirements": []
+}
