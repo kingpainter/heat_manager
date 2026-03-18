@@ -1,364 +1,340 @@
-# Heat Manager — Claude/Cursor Ruleset
-# Based on: Home Assistant Integration Quality Scale (2026)
-# Target tier: Gold → Platinum
-# Project: custom_components/heat_manager
-# Author: @kingpainter | International release | English first
-
-# ════════════════════════════════════════════════════════════════════════════
-# 1. PROJECT IDENTITY & LANGUAGE
-# ════════════════════════════════════════════════════════════════════════════
-
-- All code, comments, docstrings, commit messages, PR descriptions, and
-  GitHub issues are written in English. No exceptions.
-- Danish is only permitted inside translation files:
-    custom_components/heat_manager/translations/da.json
-- The primary translation file is English (en.json). Danish (da.json) is
-  maintained in parallel. Every new string added to en.json must have a
-  corresponding entry in da.json in the same commit.
-
-# ════════════════════════════════════════════════════════════════════════════
-# 2. VERSION CONTROL — STRICT SEMVER
-# ════════════════════════════════════════════════════════════════════════════
-
-- Version follows Semantic Versioning: MAJOR.MINOR.PATCH
-    MAJOR — breaking change to config entry schema or behaviour
-    MINOR — new feature, new entity, new service, backwards compatible
-    PATCH — bug fix, translation update, documentation update
-- Version is declared in ONE place only: manifest.json ("version" key).
-  All other references (const.py VERSION, README badges) read from it or
-  are updated in the same commit.
-- Never commit a version bump without a matching CHANGELOG.md entry.
-- Never skip a version number.
-
-# ════════════════════════════════════════════════════════════════════════════
-# 3. GIT COMMIT CONVENTIONS
-# ════════════════════════════════════════════════════════════════════════════
-
-# Format: <type>(<scope>): <short description>
-# Max 72 characters on the first line. Body is optional, separated by blank line.
-
-# Types:
-#   feat      New feature or entity
-#   fix       Bug fix (reference bug number if known: "fix(window): B3 - ...")
-#   docs      README, CHANGELOG, docstrings only — no code change
-#   test      Adding or updating tests only
-#   refactor  Code change that neither fixes a bug nor adds a feature
-#   chore     Manifest, requirements, version bump, CI config
-#   trans     Translation strings only (en.json / da.json)
-#   style     Formatting, whitespace — no logic change (ruff format)
-
-# Scopes (use the module name):
-#   controller, presence, window, preheat, season, waste, coordinator,
-#   config_flow, entities, frontend, tests, docs, ci
-
-# Examples:
-#   feat(controller): add ON/PAUSE/OFF state machine with guard decorator
-#   fix(window): B3 - restore schedule only if presence active on close
-#   fix(window): B1 - remove leading dot from lukas_vindue_contact entity
-#   docs(readme): add installation instructions and HACS badge
-#   chore(manifest): bump version 0.1.0 → 0.1.1
-#   test(controller): add 13 unit tests for auto-off and guard decorator
-#   trans(da): add missing strings for controller_state select entity
-
-# Rules:
-# - Imperative mood: "add", "fix", "remove" — NOT "added", "fixes", "removed"
-# - No period at the end of the subject line
-# - Reference issue numbers in body: "Closes #12" or "Related to #8"
-# - One logical change per commit — do not bundle unrelated changes
-# - Never commit directly to main. Always use a feature branch.
-
-# ════════════════════════════════════════════════════════════════════════════
-# 4. BRANCHING STRATEGY
-# ════════════════════════════════════════════════════════════════════════════
-
-# main          — always release-ready. Tagged with version on every merge.
-# dev           — integration branch. All features merge here first.
-# feature/<name> — individual feature branches off dev
-# fix/<name>    — bug fix branches off dev (or main for hotfixes)
-# docs/<name>   — documentation-only changes
-
-# Branch naming examples:
-#   feature/preheat-engine
-#   feature/lovelace-card
-#   fix/b1-lukas-window-typo
-#   fix/b3-window-close-presence-check
-#   docs/readme-hacs-install
-
-# ════════════════════════════════════════════════════════════════════════════
-# 5. FILE & CODE STRUCTURE
-# ════════════════════════════════════════════════════════════════════════════
-
-- All integration files live under custom_components/heat_manager/
-- All logic that does NOT depend on homeassistant.* lives in engine/:
-    engine/controller.py     — ON/PAUSE/OFF state machine
-    engine/presence_engine.py
-    engine/window_engine.py
-    engine/preheat_engine.py
-    engine/season_engine.py
-    engine/waste_calculator.py
-  Engine files must be importable and testable without a running HA instance.
-- Platform files (sensor.py, binary_sensor.py, select.py, switch.py) contain
-  only entity class definitions and async_setup_entry. No logic.
-- coordinator.py is the single source of truth for shared state. It owns
-  the DataUpdateCoordinator and instantiates all engines.
-- const.py is the single source of truth for all constants. No magic
-  strings anywhere else in the codebase.
-- No circular imports. Dependency direction: platforms → coordinator → engines → const.
-
-# ════════════════════════════════════════════════════════════════════════════
-# 6. HOME ASSISTANT QUALITY SCALE — BRONZE (REQUIRED)
-# ════════════════════════════════════════════════════════════════════════════
-
-# All Bronze rules must be satisfied before any release.
-
-- config-flow:
-    Integration must be set up exclusively through the UI config flow.
-    No YAML setup. config_flow.py must implement async_step_user.
-
-- config-flow-test-coverage:
-    tests/components/heat_manager/test_config_flow.py must cover all steps
-    and all error paths. Run: pytest tests/ --cov=custom_components/heat_manager
-
-- unique-config-entry:
-    async_step_user must call self._async_abort_if_unique_id_configured()
-    after setting a stable unique ID. Only one Heat Manager instance allowed.
-
-- entity-unique-id:
-    Every entity must have a unique_id. Format:
-    f"{entry.entry_id}_{entity_suffix}"  e.g. "abc123_kitchen_state"
-
-- has-entity-name:
-    Every entity class must set: has_entity_name = True
-    Entity names come from strings.json translations, not hardcoded strings.
-
-- runtime-data:
-    The coordinator is stored in entry.runtime_data, not hass.data[DOMAIN].
-    Access pattern: coordinator = entry.runtime_data
-
-- action-setup:
-    All services (heat_manager.pause, heat_manager.resume, etc.) are
-    registered in async_setup_entry in __init__.py, not in async_setup.
-
-- test-before-configure:
-    Config flow validates that provided entity IDs exist in HA state machine
-    before creating the entry. Returns errors dict on failure.
-
-- test-before-setup:
-    async_setup_entry raises ConfigEntryNotReady if coordinator first
-    refresh fails (e.g. climate entities unavailable at startup).
-
-- entity-event-setup:
-    State change listeners are registered in async_added_to_hass(),
-    not in __init__. They are removed in async_will_remove_from_hass().
-
-- common-modules:
-    - coordinator.py — coordinator and shared data
-    - const.py       — all constants
-    - engine/        — all reusable logic
-
-- appropriate-polling:
-    SCAN_INTERVAL = timedelta(seconds=60) set in coordinator.py.
-    Justified: local state polling only, no external API calls.
-
-- dependency-transparency:
-    requirements = [] in manifest.json (no external libraries).
-    All HA built-ins used via homeassistant.* imports only.
-
-- brands:
-    custom_components/heat_manager/brands/ contains:
-      icon.png (256x256), icon@2x.png (512x512)
-    These are required for HACS display.
-
-- docs-*:
-    README.md must include:
-      - High-level description (what it does, why it exists)
-      - Step-by-step installation (HACS + manual)
-      - All configuration options with types and defaults
-      - All service actions with parameters
-      - Removal instructions
-
-# ════════════════════════════════════════════════════════════════════════════
-# 7. HOME ASSISTANT QUALITY SCALE — SILVER (TARGET)
-# ════════════════════════════════════════════════════════════════════════════
-
-- action-exceptions:
-    Service handlers raise ServiceValidationError (not generic Exception)
-    with a translatable message key. Never silently swallow errors.
-
-- config-entry-unloading:
-    async_unload_entry must unload all platforms and cancel all listeners.
-    Test: entry can be loaded, unloaded, and reloaded without side effects.
-
-- entity-unavailable:
-    If a climate entity goes unavailable (state == "unavailable"), mark the
-    corresponding Heat Manager sensor as unavailable too. Do not serve
-    stale data.
-
-- integration-owner:
-    codeowners = ["@kingpainter"] in manifest.json. Always kept current.
-
-- log-when-unavailable:
-    When a climate entity becomes unavailable, log once at WARNING level.
-    When it recovers, log once at INFO level. No repeated spam.
-
-- parallel-updates:
-    Set PARALLEL_UPDATES = 1 in each platform file (sensor.py etc.).
-    All updates go through the coordinator — no direct parallel polling.
-
-- test-coverage:
-    Target: >95% line coverage across all engine/ and platform files.
-    Measured with: pytest --cov=custom_components/heat_manager --cov-report=term-missing
-
-- reauthentication-flow:
-    N/A for this integration (no authentication). Document as exempt
-    in quality_scale.yaml with comment: "No authentication required."
-
-# ════════════════════════════════════════════════════════════════════════════
-# 8. HOME ASSISTANT QUALITY SCALE — GOLD (ASPIRATIONAL)
-# ════════════════════════════════════════════════════════════════════════════
-
-- entity-translations:
-    All entity names defined in strings.json and translations/*.json.
-    No hardcoded display names in Python code.
-
-- entity-device-class:
-    Use device classes wherever HA provides one:
-      sensor.energy_wasted_today → SensorDeviceClass.ENERGY
-      sensor.efficiency_score    → SensorDeviceClass.POWER_FACTOR (or None)
-      binary_sensor.any_window_open → BinarySensorDeviceClass.WINDOW
-      binary_sensor.heating_wasted  → BinarySensorDeviceClass.HEAT
-
-- entity-category:
-    Diagnostic sensors (pause_remaining, efficiency_score) →
-      EntityCategory.DIAGNOSTIC
-    Config switches (room overrides) →
-      EntityCategory.CONFIG
-
-- diagnostics:
-    Implement async_get_config_entry_diagnostics() in diagnostics.py.
-    Returns sanitized snapshot of all room states, controller state,
-    season mode, and config (no PII, no entity IDs redacted).
-
-- reconfiguration-flow:
-    Options flow allows editing global settings and notification prefs
-    post-setup. Already implemented via HeatManagerOptionsFlow.
-
-- repair-issues:
-    If a configured climate entity is not found at startup, raise a
-    RepairIssue with a link to reconfigure, rather than silently failing.
-
-- docs-use-cases:
-    README includes 3+ real-world automation examples using Heat Manager
-    services (e.g. voice command to pause, dashboard button to force heat).
-
-- docs-troubleshooting:
-    README includes a Troubleshooting section covering:
-      - "Heating not turning on after arriving home"
-      - "Controller auto-turned off unexpectedly"
-      - "Entities not showing in HA"
-      - How to enable debug logging for the integration
-
-# ════════════════════════════════════════════════════════════════════════════
-# 9. CODE QUALITY STANDARDS
-# ════════════════════════════════════════════════════════════════════════════
-
-- Formatter: ruff format (not black). Run before every commit.
-- Linter: ruff check with HA's ruleset. Zero warnings allowed.
-- Type annotations: all function signatures must be fully typed.
-  Return type None must be explicit. No bare "-> None" missing.
-- from __future__ import annotations at the top of every Python file.
-- No bare except: clauses. Always catch specific exception types.
-- No mutable default arguments in function signatures.
-- _LOGGER = logging.getLogger(__name__) in every module that logs.
-- Use f-strings for all string formatting (not % or .format()).
-- Maximum line length: 88 characters (ruff default).
-- All async functions that call hass.services.async_call use blocking=True
-  unless there is a documented reason not to.
-
-# ════════════════════════════════════════════════════════════════════════════
-# 10. TESTING RULES
-# ════════════════════════════════════════════════════════════════════════════
-
-- Every engine file has a corresponding test file:
-    engine/controller.py       → tests/.../test_controller_engine.py
-    engine/presence_engine.py  → tests/.../test_presence_engine.py
-    engine/window_engine.py    → tests/.../test_window_engine.py
-    engine/preheat_engine.py   → tests/.../test_preheat_engine.py
-    engine/waste_calculator.py → tests/.../test_waste_calculator.py
-- Every bug fix gets a regression test named test_bug_<BN>_<description>
-  e.g. test_bug_b1_lukas_window_never_shown()
-- Every new service gets at least one happy-path and one error-path test.
-- Tests use pytest-asyncio. All async tests decorated @pytest.mark.asyncio.
-- Tests use MagicMock / AsyncMock for HA dependencies. Never import
-  real HA core in engine tests.
-- Do not test implementation details — test observable behaviour.
-- Tests must be runnable offline with no HA instance.
-
-# ════════════════════════════════════════════════════════════════════════════
-# 11. CHANGELOG RULES
-# ════════════════════════════════════════════════════════════════════════════
-
-# CHANGELOG.md follows Keep a Changelog format: https://keepachangelog.com
-# Every version has exactly these sections (omit empty ones):
-#   ### Added
-#   ### Changed
-#   ### Fixed
-#   ### Removed
-#   ### Security
-
-# Rules:
-# - [Unreleased] section at the top always exists.
-# - On release: rename [Unreleased] to [X.Y.Z] - YYYY-MM-DD, add new [Unreleased].
-# - Every bug fix references its bug ID: "Fixed B1 - lukas_vindue typo"
-# - Every entry is a complete sentence ending with a period.
-# - Link version numbers to GitHub compare URLs.
-
-# ════════════════════════════════════════════════════════════════════════════
-# 12. README RULES
-# ════════════════════════════════════════════════════════════════════════════
-
-# README.md must always contain (in order):
-#   1. Title + one-line description
-#   2. Badges: version, HA min version, HACS, license
-#   3. What it does (non-technical, 2-3 paragraphs)
-#   4. Features list
-#   5. Requirements (HA version, entity types needed)
-#   6. Installation (HACS — preferred, Manual — fallback)
-#   7. Configuration (all options, types, defaults)
-#   8. Services reference (all 4 services with parameters)
-#   9. Entities reference (all auto-created entities)
-#  10. Lovelace card usage
-#  11. Automation examples (3+ real examples)
-#  12. Troubleshooting
-#  13. Known limitations
-#  14. Changelog link
-#  15. License
-
-# README is always in English. A separate README_da.md may exist but is
-# never the primary file.
-
-# ════════════════════════════════════════════════════════════════════════════
-# 13. QUALITY_SCALE.YAML
-# ════════════════════════════════════════════════════════════════════════════
-
-# quality_scale.yaml in custom_components/heat_manager/ tracks rule status.
-# Valid statuses: done | todo | exempt
-# Every rule must have an entry. Exempt rules require a comment explaining why.
-# This file is updated in the same commit as the implementing code.
-
-# ════════════════════════════════════════════════════════════════════════════
-# 14. WHAT CLAUDE MUST NEVER DO
-# ════════════════════════════════════════════════════════════════════════════
-
-- Never use hass.data[DOMAIN] to store the coordinator. Use runtime_data.
-- Never hardcode entity IDs in engine files. They come from config entry data.
-- Never write Danish in Python files, commit messages, or issue titles.
-- Never bump the version without updating CHANGELOG.md in the same commit.
-- Never add a new constant to a platform file. Add it to const.py.
-- Never write logic in a platform file. Logic belongs in engine/.
-- Never use time.sleep() or blocking I/O. Everything is async.
-- Never catch Exception broadly. Always catch the specific type.
-- Never commit with failing tests.
-- Never merge to main without a version bump and CHANGELOG entry.
-- Never write a test that requires a live HA instance.
-- Never add a TODO comment without a GitHub issue number referencing it.
+# Heat Manager — Development Rules
+
+This file defines how Claude and Cursor should behave when working on this
+project. It is based on the official Home Assistant Integration Quality Scale
+(Bronze through Platinum) and the specific needs of this project.
+
+Read this file before writing any code.
+
+---
+
+## 1. Project identity and language
+
+All code, comments, docstrings, commit messages, pull request descriptions,
+and GitHub issues are written in English without exception.
+
+Danish is only permitted inside the translation file
+`custom_components/heat_manager/translations/da.json`. Every new string added
+to `en.json` must have a corresponding entry in `da.json` in the same commit.
+
+The integration is built for international use. English is always the
+primary language.
+
+---
+
+## 2. Version control — strict semantic versioning
+
+Versions follow the format MAJOR.MINOR.PATCH.
+
+A MAJOR bump means a breaking change to the config entry schema or observable
+behaviour. A MINOR bump means a new feature, new entity, or new service that
+is backwards compatible. A PATCH bump means a bug fix, translation update, or
+documentation change only.
+
+The version is declared in exactly one place: the `"version"` key in
+`manifest.json`. All other references must match it and must be updated in the
+same commit.
+
+Never commit a version bump without a matching entry in `CHANGELOG.md`.
+Never skip a version number.
+
+---
+
+## 3. Git commit conventions
+
+Every commit message follows this format:
+
+    type(scope): short description of what you did
+
+The first line must be 72 characters or fewer. A body with more detail can
+follow after a blank line.
+
+**Allowed types:**
+- `feat` — new feature, entity, or service
+- `fix` — bug fix (reference the bug ID if one exists, e.g. "fix(window): B3 - ...")
+- `docs` — README, CHANGELOG, or docstrings only, no logic changed
+- `test` — adding or updating tests only
+- `refactor` — code cleaned up with no behaviour change
+- `chore` — version bump, manifest update, CI configuration
+- `trans` — translation strings only in en.json or da.json
+- `style` — formatting only after running ruff, no logic change
+
+**Allowed scopes** — use the name of the module or feature:
+`controller`, `presence`, `window`, `preheat`, `season`, `waste`,
+`coordinator`, `config_flow`, `entities`, `frontend`, `tests`, `docs`, `ci`
+
+**Real examples from this project:**
+
+    feat(controller): add ON/PAUSE/OFF state machine with guard decorator
+    fix(window): B3 - restore schedule only when presence is active on close
+    fix(window): B1 - remove leading dot from lukas_vindue_contact entity ID
+    docs(readme): add HACS installation instructions and service examples
+    chore(manifest): bump version 0.1.0 → 0.1.1
+    test(controller): add regression test for auto-off via season trigger
+    trans(da): add Danish strings for controller_state and season_mode
+
+Always use the imperative form: "add", "fix", "remove" — never "added" or
+"fixes". No period at the end of the subject line. One logical change per
+commit. If the commit closes a GitHub issue, add "Closes #12" on a line in
+the body.
+
+---
+
+## 4. Branching strategy
+
+`main` is always release-ready. Only merge here when releasing a tagged version.
+`dev` is the integration branch. All features and fixes merge here first.
+Feature branches are named `feature/<description>` and branch off `dev`.
+Bug fix branches are named `fix/<description>` and branch off `dev`.
+Documentation branches are named `docs/<description>` and branch off `dev`.
+
+Examples: `feature/preheat-engine`, `fix/b1-lukas-window-typo`,
+`docs/readme-hacs-install`
+
+---
+
+## 5. File and code structure
+
+All integration files live under `custom_components/heat_manager/`.
+
+All logic that does not depend on `homeassistant.*` lives in `engine/`. Engine
+files must be importable and unit-testable without a running Home Assistant
+instance. This is the most important architectural rule in the project.
+
+Platform files — `sensor.py`, `binary_sensor.py`, `select.py`, `switch.py` —
+contain only entity class definitions and `async_setup_entry`. No logic.
+
+`coordinator.py` is the single source of truth for shared state. It owns the
+`DataUpdateCoordinator` and instantiates all engines.
+
+`const.py` is the single source of truth for all constants. No magic strings
+anywhere else in the codebase. If you find yourself writing a string literal
+that looks like an entity ID, a service name, or a state value, it belongs in
+`const.py`.
+
+The dependency direction flows one way: platforms → coordinator → engines →
+const. Circular imports are never acceptable.
+
+---
+
+## 6. Home Assistant Quality Scale — Bronze (required before any release)
+
+These rules come directly from the official HA IQS Bronze tier and must all
+be satisfied before the 0.1.0 release.
+
+The integration must be set up exclusively through the UI config flow with no
+YAML setup supported. `config_flow.py` must implement `async_step_user`.
+
+The config flow test file must cover all steps and all error paths. Run with
+`pytest tests/ --cov=custom_components/heat_manager`.
+
+`async_step_user` must call `self._async_abort_if_unique_id_configured()` after
+setting a stable unique ID. Only one Heat Manager instance is allowed per HA
+installation.
+
+Every entity must have a `unique_id` using the format
+`f"{entry.entry_id}_{entity_suffix}"`, for example `"abc123_kitchen_state"`.
+
+Every entity class must set `has_entity_name = True`. Entity display names come
+from `strings.json` translations, never from hardcoded Python strings.
+
+The coordinator is stored in `entry.runtime_data`, not in `hass.data[DOMAIN]`.
+The access pattern everywhere is `coordinator = entry.runtime_data`.
+
+All services are registered in `async_setup_entry` inside `__init__.py`, not
+in `async_setup`.
+
+The config flow must validate that all provided entity IDs exist in the HA
+state machine before creating the entry. It returns an `errors` dict on failure.
+
+`async_setup_entry` must raise `ConfigEntryNotReady` if the coordinator's first
+refresh fails, for example if climate entities are unavailable at startup.
+
+State change listeners are registered in `async_added_to_hass()` and removed
+in `async_will_remove_from_hass()`, never in `__init__`.
+
+The polling interval is `timedelta(seconds=60)` set in `coordinator.py`. This
+is appropriate because the integration only polls local HA entity states with
+no external API calls.
+
+Since there are no external library dependencies, `requirements` is an empty
+list in `manifest.json`. All HA built-ins are used via `homeassistant.*` imports.
+
+The `brands/` directory must contain `icon.png` (256×256) and `icon@2x.png`
+(512×512) for HACS display.
+
+`README.md` must include a high-level description, step-by-step installation
+for both HACS and manual install, all configuration options with types and
+defaults, all service actions with parameters, and removal instructions.
+
+---
+
+## 7. Home Assistant Quality Scale — Silver (current target)
+
+Service handlers must raise `ServiceValidationError` with a translatable
+message key on failure. Never swallow errors silently or raise generic
+`Exception`.
+
+`async_unload_entry` must unload all platforms and cancel all listeners. The
+integration must be loadable, unloadable, and reloadable without side effects.
+
+If a configured climate entity reports state `"unavailable"`, the corresponding
+Heat Manager sensor must be marked unavailable too. Never serve stale data.
+
+`codeowners` in `manifest.json` must always reflect the current active
+maintainer. Currently `["@kingpainter"]`.
+
+When a climate entity becomes unavailable, log once at `WARNING` level. When
+it recovers, log once at `INFO` level. Repeated log spam is not acceptable.
+
+Set `PARALLEL_UPDATES = 1` in each platform file. All updates flow through
+the coordinator — no direct parallel polling from individual entities.
+
+Target test coverage is above 95% line coverage across all `engine/` and
+platform files. Measure with `pytest --cov=custom_components/heat_manager
+--cov-report=term-missing`.
+
+The reauthentication flow rule is exempt because this integration has no
+authentication. This is documented in `quality_scale.yaml`.
+
+---
+
+## 8. Home Assistant Quality Scale — Gold (aspirational)
+
+All entity names are defined in `strings.json` and `translations/*.json`.
+No hardcoded display names in Python.
+
+Use HA device classes wherever one applies. `sensor.energy_wasted_today` uses
+`SensorDeviceClass.ENERGY`. `binary_sensor.any_window_open` uses
+`BinarySensorDeviceClass.WINDOW`. `binary_sensor.heating_wasted` uses
+`BinarySensorDeviceClass.HEAT`.
+
+Diagnostic sensors such as `pause_remaining` and `efficiency_score` use
+`EntityCategory.DIAGNOSTIC`. Config switches such as room overrides use
+`EntityCategory.CONFIG`.
+
+`diagnostics.py` must implement `async_get_config_entry_diagnostics()` returning
+a sanitised snapshot of all room states, controller state, season mode, and
+config with no personally identifiable information.
+
+The options flow allows editing global settings and notification preferences
+after initial setup. This is already implemented via `HeatManagerOptionsFlow`.
+
+If a configured climate entity is not found at startup, raise a `RepairIssue`
+with a link to reconfigure rather than silently failing.
+
+The README must include at least three real-world automation examples using
+Heat Manager services, a troubleshooting section covering the four most common
+failure scenarios, and a section on known limitations.
+
+---
+
+## 9. Code quality standards
+
+Use `ruff format` for formatting, not black. Run it before every commit.
+Use `ruff check` with HA's ruleset. Zero warnings are allowed at commit time.
+
+All function signatures must be fully typed including explicit `-> None` return
+types. Use `from __future__ import annotations` at the top of every Python file.
+
+Never use bare `except:`. Always catch specific exception types. Never use
+mutable default arguments in function signatures.
+
+Every module that logs must have `_LOGGER = logging.getLogger(__name__)` at
+the top. Use f-strings for all string formatting, never `%` formatting or
+`.format()`. Maximum line length is 88 characters.
+
+All async functions that call `hass.services.async_call` must pass
+`blocking=True` unless there is a documented reason in a comment explaining
+why not.
+
+---
+
+## 10. Testing rules
+
+Every engine file has a corresponding test file following this naming pattern:
+`engine/controller.py` → `tests/.../test_controller_engine.py`.
+
+Every bug fix gets a regression test named after the bug ID:
+`test_bug_b1_lukas_window_never_shown()`, `test_bug_b3_window_close_ignores_presence()`.
+
+Every new service gets at least one happy-path test and one error-path test.
+
+All tests use `pytest-asyncio`. All async tests are decorated with
+`@pytest.mark.asyncio`. Tests use `MagicMock` and `AsyncMock` for HA
+dependencies. Never import real HA core in engine tests. Tests must run
+completely offline with no HA instance required.
+
+Test observable behaviour, not implementation details.
+
+---
+
+## 11. Changelog rules
+
+`CHANGELOG.md` follows the Keep a Changelog format from keepachangelog.com.
+Each version section contains only the headings that apply to that release:
+Added, Changed, Fixed, Removed, Security. Empty headings are omitted.
+
+The `[Unreleased]` section always exists at the top and is where new entries
+are written as work is done. On release, rename it to `[X.Y.Z] - YYYY-MM-DD`
+and create a fresh empty `[Unreleased]` section above it.
+
+Every bug fix entry references its bug ID: "Fixed B1 — lukas_vindue typo in
+Vis åbne vinduer automation". Every entry is a complete sentence ending with
+a period. Version numbers are linked to GitHub compare or release URLs.
+
+---
+
+## 12. README rules
+
+The README must always contain these sections in this order: title and one-line
+description, status badges (version, HA min version, HACS, license), what it
+does in plain language, features list, requirements, installation via HACS and
+manual, configuration with all options and defaults, services reference, entities
+reference, Lovelace card usage, at least three automation examples, troubleshooting,
+known limitations, changelog link, and license.
+
+The README is always in English. A `README_da.md` may exist as a companion but
+is never the primary file and is not linked from HACS.
+
+---
+
+## 13. quality_scale.yaml
+
+`quality_scale.yaml` inside `custom_components/heat_manager/` tracks the
+implementation status of every IQS rule. Valid statuses are `done`, `todo`,
+and `exempt`. Every rule must have an entry. Rules marked `exempt` must have
+a `comment` field explaining why the rule does not apply. This file is updated
+in the same commit as the code that satisfies the rule.
+
+---
+
+## 14. What Claude must never do
+
+Never store the coordinator in `hass.data[DOMAIN]`. Always use `runtime_data`.
+
+Never hardcode entity IDs inside engine files. Entity IDs come from the config
+entry data passed through the coordinator.
+
+Never write Danish in Python files, commit messages, or GitHub issue titles.
+
+Never bump the version in `manifest.json` without updating `CHANGELOG.md` in
+the same commit.
+
+Never add a new constant directly in a platform file. It belongs in `const.py`.
+
+Never write business logic in a platform file. Logic belongs in `engine/`.
+
+Never use `time.sleep()` or any blocking I/O. Everything must be async.
+
+Never catch `Exception` broadly without a specific reason documented in a
+comment with a `noqa` tag.
+
+Never commit with failing tests.
+
+Never merge to `main` without a version bump and a `CHANGELOG.md` entry.
+
+Never write a test that requires a live Home Assistant instance to run.
+
+Never add a TODO comment without a GitHub issue number in the format
+`# TODO(#42): description of what needs doing`.
