@@ -1,245 +1,224 @@
-import {
-  LitElement,
-  html,
-  css,
-} from "https://unpkg.com/lit-element@3.3.3/lit-element.js?module";
+// Heat Manager — Custom Lovelace Card
+// Version: 0.2.0
+//
+// Vanilla JS + Shadow DOM — no external imports.
+// Runs synchronously so window.customCards is registered before
+// HA's card picker scans the page.
 
-class HeatManagerCard extends LitElement {
-  static get properties() {
-    return {
-      hass: { type: Object },
-      config: { type: Object },
-      _pauseMinutes: { type: Number },
-    };
-  }
-
+class HeatManagerCard extends HTMLElement {
   constructor() {
     super();
+    this.attachShadow({ mode: "open" });
+    this._hass         = null;
+    this._config       = {};
     this._pauseMinutes = 120;
   }
 
+  // ── Lovelace lifecycle ────────────────────────────────────────────────────
+
   setConfig(config) {
-    this.config = config;
+    this._config = config || {};
+    this._render();
   }
 
-  static get styles() {
-    return css`
-      :host {
-        display: block;
-        font-family: var(--primary-font-family, sans-serif);
-      }
-      ha-card {
-        overflow: hidden;
-      }
-      .header {
-        padding: 14px 16px 10px;
-        border-bottom: 1px solid var(--divider-color);
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-      }
-      .header-title {
-        font-size: 15px;
-        font-weight: 500;
-        color: var(--primary-text-color);
-        margin: 0;
-      }
-      .header-sub {
-        font-size: 12px;
-        color: var(--secondary-text-color);
-        margin: 2px 0 0;
-      }
-      .season-badge {
-        font-size: 11px;
-        font-weight: 500;
-        padding: 3px 8px;
-        border-radius: 20px;
-        background: var(--info-color, #039be5);
-        color: #fff;
-      }
-      .section {
-        padding: 10px 16px;
-        border-bottom: 1px solid var(--divider-color);
-      }
-      .section-label {
-        font-size: 11px;
-        color: var(--secondary-text-color);
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        margin-bottom: 8px;
-      }
-      .btn-row {
-        display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
-        gap: 8px;
-      }
-      .btn {
-        padding: 9px 0;
-        border-radius: 8px;
-        border: 1px solid var(--divider-color);
-        background: transparent;
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-        color: var(--primary-text-color);
-        text-align: center;
-        transition: background 0.12s, border-color 0.12s, color 0.12s;
-      }
-      .btn:active { opacity: 0.75; }
-      .btn.active-on    { background:#EAF3DE; border-color:#3B6D11; color:#27500A; }
-      .btn.active-pause { background:#FAEEDA; border-color:#854F0B; color:#633806; }
-      .btn.active-off   { background:var(--secondary-background-color); border-color:var(--secondary-text-color); color:var(--secondary-text-color); }
-      .pause-duration {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-top: 8px;
-      }
-      .pause-duration label {
-        font-size: 12px;
-        color: var(--secondary-text-color);
-        white-space: nowrap;
-      }
-      .pause-duration select {
-        flex: 1;
-        font-size: 12px;
-        padding: 4px 6px;
-        border-radius: 6px;
-        border: 1px solid var(--divider-color);
-        background: var(--card-background-color);
-        color: var(--primary-text-color);
-      }
-      .pause-bar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 8px 16px;
-        background: #FAEEDA;
-        border-top: 1px solid #EF9F27;
-      }
-      .pause-bar span { font-size: 12px; color: #633806; }
-      .pause-cancel {
-        font-size: 11px;
-        font-weight: 500;
-        padding: 3px 8px;
-        border-radius: 6px;
-        border: 1px solid #854F0B;
-        background: transparent;
-        color: #633806;
-        cursor: pointer;
-      }
-      .room-row {
-        display: flex;
-        align-items: center;
-        padding: 8px 16px;
-        gap: 10px;
-        border-bottom: 1px solid var(--divider-color);
-      }
-      .room-row:last-child { border-bottom: none; }
-      .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-      .dot-normal   { background: #639922; }
-      .dot-away     { background: #888780; }
-      .dot-window   { background: #BA7517; }
-      .dot-pre_heat { background: #185FA5; }
-      .dot-override { background: #993556; }
-      .dot-unknown  { background: #888780; }
-      .room-name  { flex: 1; font-size: 13px; color: var(--primary-text-color); }
-      .room-state { font-size: 12px; color: var(--secondary-text-color); }
-      .room-state.window { color: #BA7517; }
-      .room-temp  { font-size: 13px; font-weight: 500; color: var(--primary-text-color); min-width: 36px; text-align: right; }
-      .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; border-top: 1px solid var(--divider-color); }
-      .stat { padding: 10px 16px; border-right: 1px solid var(--divider-color); }
-      .stat:last-child { border-right: none; }
-      .stat-label { font-size: 11px; color: var(--secondary-text-color); margin-bottom: 3px; }
-      .stat-val   { font-size: 16px; font-weight: 500; color: var(--primary-text-color); }
-      .stat-val.warn { color: #BA7517; }
-      .no-hass { padding: 24px 16px; text-align: center; color: var(--secondary-text-color); font-size: 13px; }
-    `;
+  set hass(h) {
+    this._hass = h;
+    this._updateInPlace();
   }
 
-  _state(id)    { return this.hass?.states?.[id]; }
-  _stateStr(id) { return this._state(id)?.state ?? "unknown"; }
-  _attr(id, a)  { return this._state(id)?.attributes?.[a]; }
+  getCardSize() { return 3; }
 
-  _ctrl()      { return this._stateStr("select.heat_manager_controller_state"); }
-  _season()    { return this._stateStr("select.heat_manager_season_mode"); }
-  _pauseLeft() { return parseInt(this._stateStr("sensor.heat_manager_pause_remaining") ?? "0", 10); }
+  // ── HA state helpers ──────────────────────────────────────────────────────
 
-  async _setCtrl(state) {
-    await this.hass.callService("heat_manager", "set_controller_state", { state });
+  _s(id)       { return this._hass?.states?.[id]; }
+  _sv(id)      { return this._s(id)?.state ?? "unknown"; }
+  _attr(id, a) { return this._s(id)?.attributes?.[a]; }
+
+  _ctrl()      { return this._sv("select.heat_manager_controller_state"); }
+  _season()    { return this._sv("select.heat_manager_season_mode"); }
+  _pauseLeft() { return parseInt(this._sv("sensor.heat_manager_pause_remaining") || "0", 10); }
+
+  _sensorVal(id) {
+    const s = this._s(id);
+    return (s && s.state !== "unknown" && s.state !== "unavailable") ? s.state : null;
   }
-  async _pause() {
-    await this.hass.callService("heat_manager", "pause", { duration_minutes: this._pauseMinutes });
-  }
-  async _resume() {
-    await this.hass.callService("heat_manager", "resume", {});
-  }
-
-  _rooms() { return this.config?.rooms ?? []; }
-
   _climateTemp(id) {
     const t = this._attr(id, "current_temperature");
-    return t != null ? `${Math.round(t * 10) / 10}°C` : "—";
-  }
-  _dotClass(s) {
-    return ({ normal:"dot-normal", away:"dot-away", window_open:"dot-window", pre_heat:"dot-pre_heat", override:"dot-override" })[s] ?? "dot-unknown";
-  }
-  _stateLabel(s) {
-    return ({ normal:"Schedule", away:"Away", window_open:"Vindue åbent", pre_heat:"Forvarmning", override:"Override" })[s] ?? (s ?? "—");
+    return t != null ? (Math.round(t * 10) / 10) + "°C" : "—";
   }
   _roomState(name) {
     const key = name.toLowerCase().replace(/\s+/g, "_");
-    return this._stateStr(`sensor.heat_manager_${key}_state`);
-  }
-  _sensorVal(id) {
-    const s = this._state(id);
-    return s && s.state !== "unknown" && s.state !== "unavailable" ? s.state : null;
+    return this._sv("sensor.heat_manager_" + key + "_state");
   }
   _outdoorTemp() {
-    const id = this.config?.weather_entity;
+    const id = this._config.weather_entity;
     if (!id) return null;
     const t = this._attr(id, "temperature");
-    return t != null ? `${Math.round(t)}°C ude` : null;
+    return t != null ? Math.round(t) + "°C ude" : null;
   }
 
-  render() {
-    if (!this.hass) {
-      return html`<ha-card><div class="no-hass">Heat Manager indlæser...</div></ha-card>`;
-    }
+  // ── Service calls ─────────────────────────────────────────────────────────
 
-    const ctrl      = this._ctrl();
-    const season    = this._season();
-    const pauseLeft = this._pauseLeft();
-    const rooms     = this._rooms();
-    const otemp     = this._outdoorTemp();
+  async _setCtrl(state) {
+    await this._hass.callService("heat_manager", "set_controller_state", { state });
+  }
+  async _pause() {
+    await this._hass.callService("heat_manager", "pause", { duration_minutes: this._pauseMinutes });
+  }
+  async _resume() {
+    await this._hass.callService("heat_manager", "resume", {});
+  }
 
-    const seasonLabel = ({ winter:"Vinter", summer:"Sommer", auto:"Auto" })[season] ?? season;
-    const subParts    = [seasonLabel, otemp].filter(Boolean).join(" · ");
+  // ── Label helpers ─────────────────────────────────────────────────────────
+
+  _seasonLabel(s) {
+    return { winter:"Vinter", summer:"Sommer", auto:"Auto" }[s] ?? s ?? "Auto";
+  }
+  _stateLabel(s) {
+    return { normal:"Schedule", away:"Away", window_open:"Vindue åbent", pre_heat:"Forvarmning", override:"Override" }[s] ?? (s || "—");
+  }
+  _dotColor(s) {
+    return { normal:"#639922", away:"#888780", window_open:"#BA7517", pre_heat:"#185FA5", override:"#993556" }[s] ?? "#888780";
+  }
+  _btnStyle(name, ctrl) {
+    if (ctrl !== name) return "";
+    const m = { on:"#EAF3DE,#3B6D11,#27500A", pause:"#FAEEDA,#854F0B,#633806", off:"var(--secondary-background-color),var(--secondary-text-color),var(--secondary-text-color)" };
+    const [bg, border, color] = (m[name] || "").split(",");
+    return `background:${bg};border-color:${border};color:${color};`;
+  }
+
+  // ── CSS ───────────────────────────────────────────────────────────────────
+
+  _css() {
+    return `
+      :host { display:block; }
+      ha-card, .card {
+        background:var(--card-background-color,#fff);
+        border-radius:var(--ha-card-border-radius,12px);
+        border:1px solid var(--divider-color,rgba(0,0,0,.12));
+        overflow:hidden;
+        box-shadow:var(--ha-card-box-shadow,none);
+      }
+      .hdr {
+        display:flex; justify-content:space-between; align-items:center;
+        padding:14px 16px 10px;
+        border-bottom:1px solid var(--divider-color,rgba(0,0,0,.12));
+      }
+      .hdr-title { font-size:15px; font-weight:500; color:var(--primary-text-color); margin:0; }
+      .hdr-sub   { font-size:12px; color:var(--secondary-text-color); margin:2px 0 0; }
+      .badge {
+        font-size:11px; font-weight:500; padding:3px 9px; border-radius:20px;
+        background:var(--info-color,#039be5); color:#fff;
+      }
+      .section { padding:10px 16px; border-bottom:1px solid var(--divider-color,rgba(0,0,0,.12)); }
+      .section-lbl {
+        font-size:11px; color:var(--secondary-text-color); text-transform:uppercase;
+        letter-spacing:.06em; margin-bottom:8px;
+      }
+      .btn-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+      .btn {
+        padding:9px 0; border-radius:8px; border:1px solid var(--divider-color,rgba(0,0,0,.12));
+        background:transparent; font-size:13px; font-weight:500; cursor:pointer;
+        color:var(--primary-text-color); text-align:center;
+        transition:background .12s, border-color .12s, color .12s;
+      }
+      .btn:active { opacity:.75; }
+      .pause-row {
+        display:flex; align-items:center; gap:8px; margin-top:8px;
+      }
+      .pause-row label { font-size:12px; color:var(--secondary-text-color); white-space:nowrap; }
+      .pause-row select {
+        flex:1; font-size:12px; padding:4px 8px; border-radius:6px;
+        border:1px solid var(--divider-color,rgba(0,0,0,.12));
+        background:var(--card-background-color,#fff); color:var(--primary-text-color);
+      }
+      .pause-bar {
+        display:flex; align-items:center; justify-content:space-between;
+        padding:8px 16px; background:#FAEEDA;
+        border-top:1px solid #EF9F27;
+      }
+      .pause-bar span { font-size:12px; color:#633806; }
+      .resume-btn {
+        font-size:11px; font-weight:500; padding:3px 9px; border-radius:6px;
+        border:1px solid #854F0B; background:transparent; color:#633806; cursor:pointer;
+      }
+      .room-row {
+        display:flex; align-items:center; padding:9px 16px; gap:10px;
+        border-bottom:1px solid var(--divider-color,rgba(0,0,0,.12));
+      }
+      .room-row:last-child { border-bottom:none; }
+      .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+      .room-name  { flex:1; font-size:13px; color:var(--primary-text-color); }
+      .room-state { font-size:12px; color:var(--secondary-text-color); }
+      .room-temp  { font-size:13px; font-weight:500; color:var(--primary-text-color); min-width:38px; text-align:right; }
+      .stats { display:grid; grid-template-columns:1fr 1fr 1fr; }
+      .stat { padding:10px 16px; border-right:1px solid var(--divider-color,rgba(0,0,0,.12)); }
+      .stat:last-child { border-right:none; }
+      .stat-lbl { font-size:11px; color:var(--secondary-text-color); margin-bottom:3px; }
+      .stat-val { font-size:16px; font-weight:500; color:var(--primary-text-color); }
+      .stat-val.warn { color:#BA7517; }
+      .loading { padding:24px 16px; text-align:center; color:var(--secondary-text-color); font-size:13px; }
+    `;
+  }
+
+  // ── Full render ───────────────────────────────────────────────────────────
+
+  _render() {
+    const ctrl        = this._ctrl();
+    const season      = this._season();
+    const pauseLeft   = this._pauseLeft();
+    const rooms       = this._config.rooms || [];
+    const seasonLabel = this._seasonLabel(season);
+    const otemp       = this._outdoorTemp();
+    const sub         = [seasonLabel, otemp].filter(Boolean).join(" · ");
 
     const savedToday  = this._sensorVal("sensor.heat_manager_energy_saved_today");
     const wastedToday = this._sensorVal("sensor.heat_manager_energy_wasted_today");
     const score       = this._sensorVal("sensor.heat_manager_efficiency_score");
 
-    return html`
-      <ha-card>
-        <div class="header">
+    const roomsHTML = rooms.map(room => {
+      const state = this._roomState(room.room_name || "");
+      const temp  = this._climateTemp(room.climate_entity || "");
+      const color = this._dotColor(state);
+      const stLbl = this._stateLabel(state);
+      const warn  = state === "window_open" ? "color:#BA7517;" : "";
+      return `
+        <div class="room-row">
+          <div class="dot" style="background:${color}"></div>
+          <span class="room-name">${this._esc(room.room_name || "")}</span>
+          <span class="room-state" style="${warn}">${stLbl}</span>
+          <span class="room-temp">${temp}</span>
+        </div>`;
+    }).join("");
+
+    const pauseBar = (ctrl === "pause" && pauseLeft > 0)
+      ? `<div class="pause-bar">
+           <span>Pause — ${pauseLeft} min tilbage</span>
+           <button class="resume-btn" id="resume-btn">Genoptag nu</button>
+         </div>`
+      : "";
+
+    this.shadowRoot.innerHTML = `
+      <style>${this._css()}</style>
+      <div class="card">
+        <div class="hdr">
           <div>
-            <p class="header-title">Heat Manager</p>
-            <p class="header-sub">${subParts}</p>
+            <p class="hdr-title">Heat Manager</p>
+            <p class="hdr-sub">${sub}</p>
           </div>
-          <span class="season-badge">${seasonLabel}</span>
+          <span class="badge" id="season-badge">${seasonLabel}</span>
         </div>
 
         <div class="section">
-          <div class="section-label">Controller</div>
+          <div class="section-lbl">Controller</div>
           <div class="btn-row">
-            <button class="btn ${ctrl === "on"    ? "active-on"    : ""}" @click=${() => this._setCtrl("on")}>On</button>
-            <button class="btn ${ctrl === "pause" ? "active-pause" : ""}" @click=${() => this._pause()}>Pause</button>
-            <button class="btn ${ctrl === "off"   ? "active-off"   : ""}" @click=${() => this._setCtrl("off")}>Off</button>
+            <button class="btn" id="btn-on"    style="${this._btnStyle("on",    ctrl)}">On</button>
+            <button class="btn" id="btn-pause" style="${this._btnStyle("pause", ctrl)}">Pause</button>
+            <button class="btn" id="btn-off"   style="${this._btnStyle("off",   ctrl)}">Off</button>
           </div>
-          <div class="pause-duration">
+          <div class="pause-row">
             <label>Pause i</label>
-            <select @change=${(e) => (this._pauseMinutes = parseInt(e.target.value, 10))}>
+            <select id="pause-dur">
               <option value="30">30 min</option>
               <option value="60">1 time</option>
               <option value="120" selected>2 timer</option>
@@ -249,46 +228,116 @@ class HeatManagerCard extends LitElement {
           </div>
         </div>
 
-        ${ctrl === "pause" && pauseLeft > 0 ? html`
-          <div class="pause-bar">
-            <span>Pause — ${pauseLeft} min tilbage</span>
-            <button class="pause-cancel" @click=${() => this._resume()}>Genoptag nu</button>
-          </div>
-        ` : ""}
+        ${pauseBar}
 
-        ${rooms.length ? html`
-          <div>
-            ${rooms.map(room => {
-              const state = this._roomState(room.room_name);
-              const temp  = this._climateTemp(room.climate_entity);
-              return html`
-                <div class="room-row">
-                  <div class="dot ${this._dotClass(state)}"></div>
-                  <span class="room-name">${room.room_name}</span>
-                  <span class="room-state ${state === "window_open" ? "window" : ""}">${this._stateLabel(state)}</span>
-                  <span class="room-temp">${temp}</span>
-                </div>`;
-            })}
-          </div>
-        ` : ""}
+        ${rooms.length ? `<div id="rooms">${roomsHTML}</div>` : ""}
 
         <div class="stats">
           <div class="stat">
-            <div class="stat-label">Sparet i dag</div>
-            <div class="stat-val">${savedToday ? savedToday + " kWh" : "—"}</div>
+            <div class="stat-lbl">Sparet i dag</div>
+            <div class="stat-val" id="stat-saved">${savedToday ? savedToday + " kWh" : "—"}</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Spildt i dag</div>
-            <div class="stat-val warn">${wastedToday ? wastedToday + " kWh" : "—"}</div>
+            <div class="stat-lbl">Spildt i dag</div>
+            <div class="stat-val warn" id="stat-wasted">${wastedToday ? wastedToday + " kWh" : "—"}</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Score</div>
-            <div class="stat-val">${score ? score + "/100" : "—"}</div>
+            <div class="stat-lbl">Score</div>
+            <div class="stat-val" id="stat-score">${score ? score + "/100" : "—"}</div>
           </div>
         </div>
-      </ha-card>
-    `;
+      </div>`;
+
+    this._attachEvents();
   }
+
+  // ── Surgical live update — no full re-render on hass update ───────────────
+
+  _updateInPlace() {
+    const root = this.shadowRoot;
+    if (!root || !root.querySelector(".card")) { this._render(); return; }
+
+    const ctrl      = this._ctrl();
+    const season    = this._season();
+    const pauseLeft = this._pauseLeft();
+    const otemp     = this._outdoorTemp();
+    const seasonLabel = this._seasonLabel(season);
+
+    // Header sub-line
+    const sub = root.querySelector(".hdr-sub");
+    if (sub) sub.textContent = [seasonLabel, otemp].filter(Boolean).join(" · ");
+
+    // Badge
+    const badge = root.querySelector("#season-badge");
+    if (badge) badge.textContent = seasonLabel;
+
+    // Buttons
+    for (const name of ["on", "pause", "off"]) {
+      const btn = root.querySelector("#btn-" + name);
+      if (btn) btn.style.cssText = this._btnStyle(name, ctrl);
+    }
+
+    // Pause bar — show/hide + text
+    const existingBar = root.querySelector(".pause-bar");
+    const showBar = ctrl === "pause" && pauseLeft > 0;
+    if (existingBar && !showBar) {
+      existingBar.remove();
+    } else if (!existingBar && showBar) {
+      const section = root.querySelector(".section");
+      const barEl = document.createElement("div");
+      barEl.className = "pause-bar";
+      barEl.innerHTML = `<span>Pause — ${pauseLeft} min tilbage</span><button class="resume-btn" id="resume-btn">Genoptag nu</button>`;
+      section.after(barEl);
+      barEl.querySelector("#resume-btn")?.addEventListener("click", () => this._resume());
+    } else if (existingBar && showBar) {
+      const txt = existingBar.querySelector("span");
+      if (txt) txt.textContent = "Pause — " + pauseLeft + " min tilbage";
+    }
+
+    // Room dots + temps
+    const rooms = this._config.rooms || [];
+    rooms.forEach((room, i) => {
+      const rows = root.querySelectorAll(".room-row");
+      if (!rows[i]) return;
+      const state = this._roomState(room.room_name || "");
+      const dot   = rows[i].querySelector(".dot");
+      const stEl  = rows[i].querySelector(".room-state");
+      const tEl   = rows[i].querySelector(".room-temp");
+      if (dot)  dot.style.background = this._dotColor(state);
+      if (stEl) { stEl.textContent = this._stateLabel(state); stEl.style.color = state === "window_open" ? "#BA7517" : ""; }
+      if (tEl)  tEl.textContent = this._climateTemp(room.climate_entity || "");
+    });
+
+    // Stats
+    const saved  = this._sensorVal("sensor.heat_manager_energy_saved_today");
+    const wasted = this._sensorVal("sensor.heat_manager_energy_wasted_today");
+    const score  = this._sensorVal("sensor.heat_manager_efficiency_score");
+    const sv = root.querySelector("#stat-saved");
+    const wv = root.querySelector("#stat-wasted");
+    const sc = root.querySelector("#stat-score");
+    if (sv) sv.textContent = saved  ? saved  + " kWh" : "—";
+    if (wv) wv.textContent = wasted ? wasted + " kWh" : "—";
+    if (sc) sc.textContent = score  ? score  + "/100" : "—";
+  }
+
+  // ── Event binding ─────────────────────────────────────────────────────────
+
+  _attachEvents() {
+    const root = this.shadowRoot;
+    root.querySelector("#btn-on")?.addEventListener("click",    () => this._setCtrl("on"));
+    root.querySelector("#btn-off")?.addEventListener("click",   () => this._setCtrl("off"));
+    root.querySelector("#resume-btn")?.addEventListener("click",() => this._resume());
+    root.querySelector("#pause-dur")?.addEventListener("change", e => {
+      this._pauseMinutes = parseInt(e.target.value, 10);
+    });
+    root.querySelector("#btn-pause")?.addEventListener("click", () => this._pause());
+  }
+
+  _esc(s) {
+    return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  // ── Card picker registration ──────────────────────────────────────────────
 
   static getConfigElement() {
     return document.createElement("heat-manager-card-editor");
@@ -323,9 +372,6 @@ if (!window.customCards.find(c => c.type === "heat-manager-card")) {
 
 
 // ── Heat Manager Card Editor ──────────────────────────────────────────────────
-// Shown when the user clicks the pencil icon on the card in Lovelace.
-// Vanilla JS + Shadow DOM — no LitElement dependency needed for the editor.
-// Fires "config-changed" events so Lovelace updates the preview live.
 
 class HeatManagerCardEditor extends HTMLElement {
   constructor() {
@@ -370,10 +416,7 @@ class HeatManagerCardEditor extends HTMLElement {
         background:var(--card-background-color,#fff);
         color:var(--primary-text-color,#212121);
       }
-      input:focus, select:focus {
-        outline:none; border-color:var(--primary-color,#03a9f4);
-        box-shadow:0 0 0 2px color-mix(in srgb, var(--primary-color,#03a9f4) 20%, transparent);
-      }
+      input:focus, select:focus { outline:none; border-color:var(--primary-color,#03a9f4); }
       .section-hdr {
         font-size:13px; font-weight:500; color:var(--primary-text-color,#212121);
         padding:14px 0 6px; border-top:1px solid var(--divider-color,#e0e0e0);
@@ -384,28 +427,22 @@ class HeatManagerCardEditor extends HTMLElement {
         font-size:12px; padding:4px 12px; border-radius:6px;
         border:1px solid var(--primary-color,#03a9f4);
         background:transparent; color:var(--primary-color,#03a9f4);
-        cursor:pointer; font-weight:500; white-space:nowrap;
+        cursor:pointer; font-weight:500;
       }
-      .add-btn:hover { background:color-mix(in srgb, var(--primary-color,#03a9f4) 10%, transparent); }
       .room-block {
         border:1px solid var(--divider-color,#e0e0e0); border-radius:8px;
         padding:10px 12px; margin-bottom:10px;
       }
-      .room-hdr {
-        display:flex; justify-content:space-between; align-items:center;
-        margin-bottom:10px;
-      }
+      .room-hdr { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
       .room-title { font-size:13px; font-weight:500; color:var(--primary-text-color,#212121); }
       .del-btn {
         font-size:11px; padding:3px 9px; border-radius:6px;
         border:1px solid var(--error-color,#db4437);
-        background:transparent; color:var(--error-color,#db4437);
-        cursor:pointer;
+        background:transparent; color:var(--error-color,#db4437); cursor:pointer;
       }
-      .del-btn:hover { background:color-mix(in srgb, var(--error-color,#db4437) 10%, transparent); }
       .field { margin-bottom:9px; }
       .field:last-child { margin-bottom:0; }
-      .hint { font-size:11px; color:var(--secondary-text-color,#727272); margin-top:3px; line-height:1.4; }
+      .hint { font-size:11px; color:var(--secondary-text-color,#727272); margin-top:3px; }
       .empty-rooms {
         padding:16px; text-align:center; color:var(--secondary-text-color,#727272);
         font-size:13px; border:1px dashed var(--divider-color,#ccc);
@@ -423,7 +460,7 @@ class HeatManagerCardEditor extends HTMLElement {
       ? r.map((room, i) => `
           <div class="room-block">
             <div class="room-hdr">
-              <span class="room-title">Rum ${i + 1}${room.room_name ? ` — ${this._esc(room.room_name)}` : ""}</span>
+              <span class="room-title">Rum ${i + 1}${room.room_name ? " — " + this._esc(room.room_name) : ""}</span>
               <button class="del-btn" data-del="${i}">Slet</button>
             </div>
             <div class="field">
@@ -435,10 +472,10 @@ class HeatManagerCardEditor extends HTMLElement {
               <label>Klimaenhed</label>
               <input class="room-climate" data-idx="${i}" type="text"
                 value="${this._esc(room.climate_entity || "")}" placeholder="climate.koekken">
-              <div class="hint">Entity ID — find det under Settings → Devices & Services → Entities</div>
+              <div class="hint">Settings → Devices & Services → Entities</div>
             </div>
           </div>`).join("")
-      : `<div class="empty-rooms">Ingen rum tilføjet endnu — klik "+ Tilføj rum"</div>`;
+      : `<div class="empty-rooms">Ingen rum — klik "+ Tilføj rum"</div>`;
 
     this.shadowRoot.innerHTML = `
       <style>${this._css()}</style>
@@ -446,100 +483,71 @@ class HeatManagerCardEditor extends HTMLElement {
       <div class="section-hdr first">Globale indstillinger</div>
 
       <div class="row">
-        <label>Vejr-entitet (entity ID)</label>
+        <label>Vejr-entitet</label>
         <input id="weather" type="text"
-          value="${this._esc(c.weather_entity || "")}"
-          placeholder="weather.forecast_home">
-        <div class="hint">Bruges til udetemperatur i kortets header</div>
+          value="${this._esc(c.weather_entity || "")}" placeholder="weather.forecast_home">
       </div>
-
       <div class="row">
-        <label>Away temperatur — mildt vejr (°C)</label>
-        <input id="away_mild" type="number" min="5" max="25" step="0.5"
-          value="${c.away_temp_mild ?? 17}">
+        <label>Away temp — mildt vejr (°C)</label>
+        <input id="away_mild" type="number" min="5" max="25" step="0.5" value="${c.away_temp_mild ?? 17}">
       </div>
-
       <div class="row">
-        <label>Away temperatur — koldt vejr (°C)</label>
-        <input id="away_cold" type="number" min="5" max="25" step="0.5"
-          value="${c.away_temp_cold ?? 15}">
+        <label>Away temp — koldt vejr (°C)</label>
+        <input id="away_cold" type="number" min="5" max="25" step="0.5" value="${c.away_temp_cold ?? 15}">
       </div>
-
       <div class="row">
-        <label>Nådeperiode — dag (minutter)</label>
-        <input id="grace_day" type="number" min="5" max="120" step="5"
-          value="${c.grace_day_min ?? 30}">
+        <label>Nådeperiode — dag (min)</label>
+        <input id="grace_day" type="number" min="5" max="120" step="5" value="${c.grace_day_min ?? 30}">
       </div>
-
       <div class="row">
-        <label>Nådeperiode — nat (minutter)</label>
-        <input id="grace_night" type="number" min="5" max="60" step="5"
-          value="${c.grace_night_min ?? 15}">
+        <label>Nådeperiode — nat (min)</label>
+        <input id="grace_night" type="number" min="5" max="60" step="5" value="${c.grace_night_min ?? 15}">
       </div>
 
       <div class="section-hdr">
-        Rum
-        <button class="add-btn" id="add-room">+ Tilføj rum</button>
+        Rum <button class="add-btn" id="add-room">+ Tilføj rum</button>
       </div>
-
       <div id="rooms-container">${roomsHTML}</div>`;
 
     this._attachEvents();
   }
 
   _esc(s) {
-    return String(s ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+    return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
 
   _attachEvents() {
     const root = this.shadowRoot;
-
-    // Scalar fields — fire on blur/change so user can finish typing
-    const scalar = {
+    const scalars = {
       "#weather":     v => { this._config.weather_entity  = v.trim(); },
       "#away_mild":   v => { this._config.away_temp_mild  = parseFloat(v); },
       "#away_cold":   v => { this._config.away_temp_cold  = parseFloat(v); },
       "#grace_day":   v => { this._config.grace_day_min   = parseInt(v, 10); },
       "#grace_night": v => { this._config.grace_night_min = parseInt(v, 10); },
     };
-    for (const [sel, fn] of Object.entries(scalar)) {
+    for (const [sel, fn] of Object.entries(scalars)) {
       root.querySelector(sel)?.addEventListener("change", e => { fn(e.target.value); this._fire(); });
     }
-
-    // Add room
     root.querySelector("#add-room")?.addEventListener("click", () => {
       this._rooms.push({ room_name: "", climate_entity: "" });
-      this._render();
-      this._fire();
+      this._render(); this._fire();
     });
-
-    // Per-room name
     root.querySelectorAll(".room-name").forEach(el => {
       el.addEventListener("change", e => {
         this._rooms[+e.target.dataset.idx].room_name = e.target.value.trim();
-        this._render();
-        this._fire();
+        this._render(); this._fire();
       });
     });
-
-    // Per-room climate entity
     root.querySelectorAll(".room-climate").forEach(el => {
       el.addEventListener("change", e => {
         this._rooms[+e.target.dataset.idx].climate_entity = e.target.value.trim();
         this._fire();
       });
     });
-
-    // Delete room
     root.querySelectorAll("[data-del]").forEach(btn => {
       btn.addEventListener("click", e => {
         this._rooms.splice(+e.target.dataset.del, 1);
-        this._render();
-        this._fire();
+        this._render(); this._fire();
       });
     });
   }

@@ -1,11 +1,11 @@
 """
 Heat Manager — Panel and Lovelace card registration.
 
-FIX: async_register_static_paths raises RuntimeError if the same URL is
-     registered twice in the same HA session (aiohttp routes cannot be
-     removed). We guard with a hass.data flag so registration only happens
-     once per HA session, regardless of how many times the config entry
-     is loaded or reloaded.
+FIX: CARDS_FILE corrected to "heat-manager-card.js" (no 's').
+FIX: async_register_static_paths raises RuntimeError if same URL is
+     registered twice — session-level flag prevents this on reload.
+FIX: _register_lovelace_resource now cleans up ALL existing heat_manager
+     card resources before adding the canonical one, preventing duplicates.
 """
 from __future__ import annotations
 
@@ -26,30 +26,30 @@ PANEL_NAME   = "heat-manager-panel"
 PANEL_TITLE  = "Heat Manager"
 PANEL_ICON   = "mdi:radiator"
 PANEL_FILE   = "heat-manager-panel.js"
-CARDS_FILE   = "heat-manager-cards.js"
+CARDS_FILE   = "heat-manager-card.js"
 FRONTEND_DIR = "frontend"
 
-# hass.data key for tracking what has already been registered this session
 _SESSION_KEY = f"{DOMAIN}_session_registered"
+
+# All URL prefixes that could belong to a previous registration of this card
+_CARD_URL_PREFIXES = (
+    f"/api/{DOMAIN}-cards",
+    f"/{DOMAIN}/heat-manager-card",
+    f"/{DOMAIN}/heat-manager-cards",
+)
 
 
 async def async_register_panel(hass: HomeAssistant) -> None:
-    """
-    Register sidebar panel and Lovelace card resource.
-
-    Static HTTP paths and the sidebar panel are registered at most once per
-    HA session. The _panel_registered flag in hass.data[DOMAIN] tracks
-    whether the panel entry itself has been created (it survives reloads
-    within the same session because it lives in frontend, not in the entry).
-    """
+    """Register sidebar panel and Lovelace card resource."""
     root_dir     = os.path.join(hass.config.path("custom_components"), DOMAIN)
     frontend_dir = os.path.join(root_dir, FRONTEND_DIR)
     panel_file   = os.path.join(frontend_dir, PANEL_FILE)
     cards_file   = os.path.join(frontend_dir, CARDS_FILE)
 
-    # ── Static HTTP paths — register once per HA session ─────────────────────
-    # aiohttp does not allow re-registering the same GET route. We use a
-    # session-level flag stored directly on hass.data to survive entry reloads.
+    _LOGGER.debug("Panel: %s exists=%s", panel_file, os.path.exists(panel_file))
+    _LOGGER.debug("Cards: %s exists=%s", cards_file, os.path.exists(cards_file))
+
+    # ── Static HTTP paths — once per HA session ───────────────────────────────
     if not hass.data.get(_SESSION_KEY, False):
         static_paths: list[StaticPathConfig] = []
         if os.path.exists(panel_file):
@@ -60,42 +60,38 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         if static_paths:
             try:
                 await hass.http.async_register_static_paths(static_paths)
-                _LOGGER.info("Registered %d static path(s) for Heat Manager", len(static_paths))
+                _LOGGER.info(
+                    "Registered static paths: %s",
+                    [p.url_path for p in static_paths],
+                )
             except RuntimeError as err:
-                # Path already registered from a previous load — safe to ignore
-                _LOGGER.debug("Static paths already registered (safe to ignore): %s", err)
+                _LOGGER.debug("Static paths already registered: %s", err)
 
         hass.data[_SESSION_KEY] = True
 
-    # ── Sidebar panel — register once per HA session ──────────────────────────
+    # ── Sidebar panel — once per session ──────────────────────────────────────
     hass.data.setdefault(DOMAIN, {})
-    if hass.data[DOMAIN].get("_panel_registered", False):
-        _LOGGER.debug("Panel already registered — skipping")
-        return
-
-    if not os.path.exists(panel_file):
-        _LOGGER.debug("Panel JS not found — skipping sidebar registration")
-        return
-
-    try:
-        panel_mtime = int(os.path.getmtime(panel_file))
-    except OSError:
-        panel_mtime = 0
-
-    try:
-        await panel_custom.async_register_panel(
-            hass,
-            webcomponent_name=PANEL_NAME,
-            frontend_url_path=DOMAIN,
-            module_url=f"{PANEL_URL}?v={VERSION}&m={panel_mtime}",
-            sidebar_title=PANEL_TITLE,
-            sidebar_icon=PANEL_ICON,
-            require_admin=False,
-            config={},
-        )
-        _LOGGER.info("Sidebar panel registered at /%s", DOMAIN)
-    except Exception as err:  # noqa: BLE001
-        _LOGGER.warning("Could not register sidebar panel: %s", err)
+    if not hass.data[DOMAIN].get("_panel_registered", False):
+        if os.path.exists(panel_file):
+            try:
+                panel_mtime = int(os.path.getmtime(panel_file))
+            except OSError:
+                panel_mtime = 0
+            try:
+                await panel_custom.async_register_panel(
+                    hass,
+                    webcomponent_name=PANEL_NAME,
+                    frontend_url_path=DOMAIN,
+                    module_url=f"{PANEL_URL}?v={VERSION}&m={panel_mtime}",
+                    sidebar_title=PANEL_TITLE,
+                    sidebar_icon=PANEL_ICON,
+                    require_admin=False,
+                    config={},
+                )
+                _LOGGER.info("Sidebar panel registered at /%s", DOMAIN)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Could not register sidebar panel: %s", err)
+        hass.data[DOMAIN]["_panel_registered"] = True
 
     # ── Lovelace resource ─────────────────────────────────────────────────────
     if os.path.exists(cards_file):
@@ -105,17 +101,23 @@ async def async_register_panel(hass: HomeAssistant) -> None:
             cards_mtime = 0
         await _register_lovelace_resource(
             hass,
-            url=f"{CARDS_URL}?v={VERSION}&m={cards_mtime}",
-            url_base=CARDS_URL,
+            canonical_url=f"{CARDS_URL}?v={VERSION}&m={cards_mtime}",
         )
-
-    hass.data[DOMAIN]["_panel_registered"] = True
+    else:
+        _LOGGER.warning("Card JS not found at %s", cards_file)
 
 
 async def _register_lovelace_resource(
-    hass: HomeAssistant, url: str, url_base: str
+    hass: HomeAssistant,
+    canonical_url: str,
 ) -> None:
-    """Add or update the cards JS as a Lovelace resource."""
+    """
+    Ensure exactly one Lovelace resource entry for the heat_manager card.
+
+    Removes ALL existing entries whose URL starts with any known prefix
+    for this card, then adds the single canonical URL. This prevents the
+    duplicate-resource problem visible in Settings → Dashboards → Resources.
+    """
     import asyncio
 
     try:
@@ -124,7 +126,8 @@ async def _register_lovelace_resource(
             lovelace = hass.data.get("lovelace")
             if lovelace is None:
                 _LOGGER.warning(
-                    "Lovelace not available — add '%s' manually as a JS module resource", url
+                    "Lovelace not available — add '%s' manually as a JS module resource",
+                    canonical_url,
                 )
                 return
             resources = getattr(lovelace, "resources", None)
@@ -133,31 +136,40 @@ async def _register_lovelace_resource(
             _LOGGER.warning("Cannot find Lovelace resource store")
             return
 
+        # Wait for resource store to load
         for _ in range(10):
             if getattr(resources, "loaded", True):
                 break
             await asyncio.sleep(1)
 
-        existing = [r for r in resources.async_items() if r["url"].startswith(url_base)]
-        if existing:
-            resource = existing[0]
-            if resource["url"] != url:
-                await resources.async_update_item(resource["id"], {"res_type": "module", "url": url})
-                _LOGGER.info("Updated Lovelace card resource: %s", url)
-        else:
-            await resources.async_create_item({"res_type": "module", "url": url})
-            _LOGGER.info("Registered Lovelace card resource: %s", url)
+        # Remove ALL existing entries for this card (any known prefix)
+        existing = [
+            r for r in resources.async_items()
+            if any(r["url"].startswith(prefix) for prefix in _CARD_URL_PREFIXES)
+        ]
+
+        for resource in existing:
+            if resource["url"] == canonical_url and len(existing) == 1:
+                # Already correct and no duplicates — nothing to do
+                _LOGGER.debug("Lovelace resource already up to date: %s", canonical_url)
+                return
+            await resources.async_delete_item(resource["id"])
+            _LOGGER.info("Removed stale Lovelace resource: %s", resource["url"])
+
+        # Add the single canonical entry
+        await resources.async_create_item({"res_type": "module", "url": canonical_url})
+        _LOGGER.info(
+            "Registered Lovelace card resource: %s — "
+            "heat-manager-card is now available in the card picker",
+            canonical_url,
+        )
 
     except Exception as err:  # noqa: BLE001
         _LOGGER.error("Failed to register Lovelace resource: %s", err)
 
 
 def async_unregister_panel(hass: HomeAssistant) -> None:
-    """
-    Remove the sidebar panel entry on config entry unload.
-    Does NOT clear the session-level static path flag — those routes
-    live for the entire HA session and cannot be removed from aiohttp.
-    """
+    """Remove the sidebar panel on config entry unload."""
     from homeassistant.components import frontend
 
     if hass.data.get(DOMAIN, {}).get("_panel_registered", False):
