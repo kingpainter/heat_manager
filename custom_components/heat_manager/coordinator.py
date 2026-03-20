@@ -68,17 +68,14 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.entry = entry
 
-        # ── Shared runtime state ──────────────────────────────────────────────
         # room_states: maps room_name → RoomState
-        # Engines read and write this dict. The coordinator never modifies it
-        # directly — mutations happen only inside engine methods.
+        # Only engines mutate this dict, never the coordinator directly.
         self.room_states: dict[str, RoomState] = {}
 
-        # Season mode is set by the season engine or manually via select entity.
-        # Starts as AUTO; season_engine will resolve it on first tick.
+        # Starts as AUTO; season_engine resolves it on first tick.
         self.season_mode: SeasonMode = SeasonMode.AUTO
 
-        # Cached outdoor temperature from weather entity (°C). None if unavailable.
+        # Cached outdoor temperature from weather entity (°C).
         self.outdoor_temperature: float | None = None
 
         # ── Engines ───────────────────────────────────────────────────────────
@@ -101,25 +98,21 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @property
     def rooms(self) -> list[dict[str, Any]]:
-        """List of room config dicts from the config entry."""
         return self.config.get(CONF_ROOMS, [])
 
     @property
     def persons(self) -> list[dict[str, Any]]:
-        """List of person config dicts from the config entry."""
         return self.config.get(CONF_PERSONS, [])
 
     @property
     def alarm_panel(self) -> str | None:
-        """Alarm panel entity ID, or None if not configured."""
         return self.config.get(CONF_ALARM_PANEL) or None
 
     @property
     def weather_entity(self) -> str | None:
-        """Weather entity ID, or None if not configured."""
         return self.config.get(CONF_WEATHER_ENTITY) or None
 
-    # ── State helpers used by entities ───────────────────────────────────────
+    # ── State helpers ─────────────────────────────────────────────────────────
 
     @property
     def controller_state(self) -> ControllerState:
@@ -146,14 +139,12 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_update_listeners()
 
     def get_climate_entity(self, room_name: str) -> str | None:
-        """Return the climate entity ID for a given room name."""
         for room in self.rooms:
             if room.get("room_name") == room_name:
                 return room.get(CONF_CLIMATE_ENTITY)
         return None
 
     def get_window_sensors(self, room_name: str) -> list[str]:
-        """Return the window sensor entity IDs for a given room name."""
         for room in self.rooms:
             if room.get("room_name") == room_name:
                 return room.get(CONF_WINDOW_SENSORS, [])
@@ -182,7 +173,6 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ── Outdoor temperature ───────────────────────────────────────────────────
 
     def _refresh_outdoor_temperature(self) -> None:
-        """Pull current outdoor temperature from the weather entity."""
         entity_id = self.weather_entity
         if not entity_id:
             return
@@ -197,12 +187,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Could not parse outdoor temperature from %s", entity_id)
 
     def get_away_temperature(self) -> float:
-        """
-        Return the appropriate away temperature based on outdoor conditions.
-
-        mild weather (outdoor >= mild_threshold) → away_temp_mild
-        cold weather (outdoor < mild_threshold)  → away_temp_cold
-        """
+        """Return the adaptive away temperature based on outdoor conditions."""
         mild_threshold = self.config.get(CONF_MILD_THRESHOLD, DEFAULT_MILD_THRESHOLD)
         if self.outdoor_temperature is not None and self.outdoor_temperature >= mild_threshold:
             return float(self.config.get(CONF_AWAY_TEMP_MILD, DEFAULT_AWAY_TEMP_MILD))
@@ -214,21 +199,16 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         Called every SCAN_INTERVAL_SECONDS by the DataUpdateCoordinator.
 
-        Order matters:
-          1. Refresh outdoor temperature (used by controller and presence engine)
-          2. Tick the controller (pause expiry, auto-off, auto-resume)
-          3. Tick the presence engine (grace period countdowns)
-          4. Tick the window engine (open-window warning escalation)
-
-        If any step raises an exception, UpdateFailed is raised so HA marks
-        the coordinator as unavailable — triggering entity unavailable state.
+        Order: outdoor temp → controller tick → presence tick → window tick.
+        Any unhandled exception is wrapped in UpdateFailed so HA marks
+        the coordinator unavailable and entities show as unavailable too.
         """
         try:
             self._refresh_outdoor_temperature()
             await self.controller.async_tick()
             await self.presence_engine.async_tick()
             await self.window_engine.async_tick()
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001
             raise UpdateFailed(f"Heat Manager update failed: {err}") from err
 
         return {

@@ -3,38 +3,37 @@
     "step": {
       "user": {
         "title": "Sæson & globale indstillinger",
-        "description": "Konfigurér den globale adfærd for Heat Manager.",
         "data": {
           "weather_entity": "Vejr-entitet",
-          "notify_service": "Notifikationstjeneste (f.eks. notify.mobile_app_flemming_mobil)",
+          "notify_service": "Notifikationstjeneste",
           "away_temp_mild": "Fraværstemperatur — mildt vejr",
           "away_temp_cold": "Fraværstemperatur — koldt vejr",
-          "mild_threshold": "Grænse mellem mildt og koldt",
-          "grace_day_min": "Nådeperiode — dagtid (minutter)",
-          "grace_night_min": "Nådeperiode — nattetid (minutter)",
+          "mild_threshold": "Grænse mildt/koldt",
+          "grace_day_min": "Nådeperiode — dag (minutter)",
+          "grace_night_min": "Nådeperiode — nat (minutter)",
           "auto_off_temp_threshold": "Auto-sluk temperaturgrænse",
-          "auto_off_temp_days": "Auto-sluk antal sammenhængende dage"
+          "auto_off_temp_days": "Auto-sluk dage"
         }
       },
       "room": {
         "title": "Tilføj et rum",
-        "description": "Rum tilføjet: {room_count}. Udfyld rummet og vælg om du vil tilføje endnu et.",
+        "description": "Rum tilføjet: {room_count}",
         "data": {
           "room_name": "Rumnavn",
           "climate_entity": "Klimaenhed",
           "window_sensors": "Vindue- / dørsensorer",
-          "window_delay_min": "Forsinkelse før handling ved åbent vindue (minutter)",
+          "window_delay_min": "Forsinkelse ved åbent vindue (minutter)",
           "away_temp_override": "Fraværstemperatur for dette rum",
           "_action": "Hvad nu?"
         }
       },
       "person": {
         "title": "Tilføj en person",
-        "description": "Personer tilføjet: {person_count}. Deaktivér tracking for personer uden enhedssporing.",
+        "description": "Personer tilføjet: {person_count}",
         "data": {
           "person_entity": "Person-entitet",
           "person_tracking": "Aktivér tilstedeværelsessporing",
-          "preheat_lead_time_min": "Forvarmning — forspring (minutter før ankomst)",
+          "preheat_lead_time_min": "Forvarmning — forspring (minutter)",
           "_action": "Hvad nu?"
         }
       },
@@ -49,15 +48,17 @@
         "data": {
           "notify_presence": "Notifikation ved tilstedeværelsesændringer",
           "notify_windows": "Notifikation ved vindues-hændelser",
-          "notify_window_warning_30": "Advar når vindue har været åbent 30+ minutter",
-          "notify_preheat": "Notifikation når forvarmning starter",
+          "notify_window_warning_30": "Advar når vindue åbent 30+ min",
+          "notify_preheat": "Notifikation ved forvarmning",
           "energy_tracking": "Aktivér energispildsregistrering"
         }
       }
     },
     "error": {
-      "entity_not_found": "Entitet ikke fundet. Kontrollér entitets-ID.",
-      "no_rooms": "Mindst ét rum skal tilføjes."
+      "entity_not_found": "Entitet ikke fundet — kontrollér ID.",
+      "no_rooms": "Mindst ét rum skal tilføjes.",
+      "duplicate_room": "Et rum med dette navn eksisterer allerede.",
+      "duplicate_person": "Denne person er allerede tilføjet."
     },
     "abort": {
       "already_configured": "Heat Manager er allerede konfigureret."
@@ -67,9 +68,7 @@
     "step": {
       "init": {
         "title": "Heat Manager indstillinger",
-        "data": {
-          "section": "Hvad vil du redigere?"
-        }
+        "data": { "section": "Hvad vil du redigere?" }
       },
       "global": {
         "title": "Sæson & globale indstillinger",
@@ -78,11 +77,39 @@
           "notify_service": "Notifikationstjeneste",
           "away_temp_mild": "Fraværstemperatur — mildt vejr",
           "away_temp_cold": "Fraværstemperatur — koldt vejr",
-          "mild_threshold": "Grænse mellem mildt og koldt",
-          "grace_day_min": "Nådeperiode — dagtid (minutter)",
-          "grace_night_min": "Nådeperiode — nattetid (minutter)",
+          "mild_threshold": "Grænse mildt/koldt",
+          "grace_day_min": "Nådeperiode — dag (minutter)",
+          "grace_night_min": "Nådeperiode — nat (minutter)",
           "auto_off_temp_threshold": "Auto-sluk temperaturgrænse",
-          "auto_off_temp_days": "Auto-sluk antal sammenhængende dage"
+          "auto_off_temp_days": "Auto-sluk dage"
+        }
+      },
+      "rooms_menu": {
+        "title": "Administrér rum",
+        "description": "Aktuelle rum: {room_count}. Vælg et rum for at slette det, eller tilføj et nyt.",
+        "data": { "action": "Handling" }
+      },
+      "room_add": {
+        "title": "Tilføj et rum",
+        "data": {
+          "room_name": "Rumnavn",
+          "climate_entity": "Klimaenhed",
+          "window_sensors": "Vindue- / dørsensorer",
+          "window_delay_min": "Forsinkelse ved åbent vindue (minutter)",
+          "away_temp_override": "Fraværstemperatur for dette rum"
+        }
+      },
+      "persons_menu": {
+        "title": "Administrér personer",
+        "description": "Aktuelle personer: {person_count}. Vælg en person for at slette, eller tilføj ny.",
+        "data": { "action": "Handling" }
+      },
+      "person_add": {
+        "title": "Tilføj en person",
+        "data": {
+          "person_entity": "Person-entitet",
+          "person_tracking": "Aktivér tilstedeværelsessporing",
+          "preheat_lead_time_min": "Forvarmning — forspring (minutter)"
         }
       },
       "notifications": {
@@ -90,42 +117,16 @@
         "data": {
           "notify_presence": "Notifikation ved tilstedeværelsesændringer",
           "notify_windows": "Notifikation ved vindues-hændelser",
-          "notify_window_warning_30": "Advar når vindue har været åbent 30+ minutter",
-          "notify_preheat": "Notifikation når forvarmning starter",
+          "notify_window_warning_30": "Advar når vindue åbent 30+ min",
+          "notify_preheat": "Notifikation ved forvarmning",
           "energy_tracking": "Aktivér energispildsregistrering"
         }
       }
-    }
-  },
-  "entity": {
-    "select": {
-      "controller_state": {
-        "state": {
-          "on": "Tændt",
-          "pause": "Pause",
-          "off": "Slukket"
-        }
-      },
-      "season_mode": {
-        "state": {
-          "auto": "Auto",
-          "winter": "Vinter",
-          "summer": "Sommer"
-        }
-      }
     },
-    "sensor": {
-      "pause_remaining": { "name": "Pause resterende" },
-      "energy_wasted_today": { "name": "Energispild i dag" },
-      "efficiency_score": { "name": "Effektivitetsscore" },
-      "preheat_eta": { "name": "Forvarmning ETA" }
-    },
-    "binary_sensor": {
-      "any_window_open": { "name": "Vindue åbent" },
-      "heating_wasted": { "name": "Varme spildes" }
-    },
-    "switch": {
-      "room_override": { "name": "{room_name} tilsidesættelse" }
+    "error": {
+      "entity_not_found": "Entitet ikke fundet — kontrollér ID.",
+      "duplicate_room": "Et rum med dette navn eksisterer allerede.",
+      "duplicate_person": "Denne person er allerede tilføjet."
     }
   }
 }

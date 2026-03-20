@@ -3,10 +3,9 @@
     "step": {
       "user": {
         "title": "Season & global settings",
-        "description": "Configure the global behaviour of Heat Manager.",
         "data": {
           "weather_entity": "Weather entity",
-          "notify_service": "Notification service (e.g. notify.mobile_app_my_phone)",
+          "notify_service": "Notification service",
           "away_temp_mild": "Away temperature — mild weather",
           "away_temp_cold": "Away temperature — cold weather",
           "mild_threshold": "Mild/cold boundary temperature",
@@ -18,23 +17,23 @@
       },
       "room": {
         "title": "Add a room",
-        "description": "Rooms added so far: {room_count}. Fill in the room details and choose whether to add another.",
+        "description": "Rooms added so far: {room_count}",
         "data": {
           "room_name": "Room name",
           "climate_entity": "Climate entity",
           "window_sensors": "Window / door sensors",
-          "window_delay_min": "Window open delay before acting (minutes)",
+          "window_delay_min": "Window open delay (minutes)",
           "away_temp_override": "Away temperature for this room",
           "_action": "What next?"
         }
       },
       "person": {
         "title": "Add a person",
-        "description": "Persons added so far: {person_count}. Disable tracking for persons without a device tracker.",
+        "description": "Persons added so far: {person_count}",
         "data": {
           "person_entity": "Person entity",
           "person_tracking": "Enable presence tracking",
-          "preheat_lead_time_min": "Pre-heat lead time (minutes before arrival)",
+          "preheat_lead_time_min": "Pre-heat lead time (minutes)",
           "_action": "What next?"
         }
       },
@@ -56,8 +55,10 @@
       }
     },
     "error": {
-      "entity_not_found": "Entity not found. Please check the entity ID.",
-      "no_rooms": "At least one room must be added."
+      "entity_not_found": "Entity not found — check the entity ID.",
+      "no_rooms": "At least one room must be added.",
+      "duplicate_room": "A room with this name already exists.",
+      "duplicate_person": "This person is already added."
     },
     "abort": {
       "already_configured": "Heat Manager is already configured."
@@ -67,9 +68,7 @@
     "step": {
       "init": {
         "title": "Heat Manager options",
-        "data": {
-          "section": "What would you like to edit?"
-        }
+        "data": { "section": "What would you like to edit?" }
       },
       "global": {
         "title": "Season & global settings",
@@ -85,6 +84,34 @@
           "auto_off_temp_days": "Auto-off sustained days"
         }
       },
+      "rooms_menu": {
+        "title": "Manage rooms",
+        "description": "Current rooms: {room_count}. Select a room to delete it, or add a new one.",
+        "data": { "action": "Action" }
+      },
+      "room_add": {
+        "title": "Add a room",
+        "data": {
+          "room_name": "Room name",
+          "climate_entity": "Climate entity",
+          "window_sensors": "Window / door sensors",
+          "window_delay_min": "Window open delay (minutes)",
+          "away_temp_override": "Away temperature for this room"
+        }
+      },
+      "persons_menu": {
+        "title": "Manage persons",
+        "description": "Current persons: {person_count}. Select a person to delete, or add a new one.",
+        "data": { "action": "Action" }
+      },
+      "person_add": {
+        "title": "Add a person",
+        "data": {
+          "person_entity": "Person entity",
+          "person_tracking": "Enable presence tracking",
+          "preheat_lead_time_min": "Pre-heat lead time (minutes)"
+        }
+      },
       "notifications": {
         "title": "Notification preferences",
         "data": {
@@ -95,37 +122,11 @@
           "energy_tracking": "Enable energy waste tracking"
         }
       }
-    }
-  },
-  "entity": {
-    "select": {
-      "controller_state": {
-        "state": {
-          "on": "On",
-          "pause": "Pause",
-          "off": "Off"
-        }
-      },
-      "season_mode": {
-        "state": {
-          "auto": "Auto",
-          "winter": "Winter",
-          "summer": "Summer"
-        }
-      }
     },
-    "sensor": {
-      "pause_remaining": { "name": "Pause remaining" },
-      "energy_wasted_today": { "name": "Energy wasted today" },
-      "efficiency_score": { "name": "Efficiency score" },
-      "preheat_eta": { "name": "Pre-heat ETA" }
-    },
-    "binary_sensor": {
-      "any_window_open": { "name": "Any window open" },
-      "heating_wasted": { "name": "Heating wasted" }
-    },
-    "switch": {
-      "room_override": { "name": "{room_name} override" }
+    "error": {
+      "entity_not_found": "Entity not found — check the entity ID.",
+      "duplicate_room": "A room with this name already exists.",
+      "duplicate_person": "This person is already added."
     }
   }
 }

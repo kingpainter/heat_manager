@@ -1,4 +1,6 @@
 """Constants for Heat Manager."""
+from __future__ import annotations
+
 from enum import StrEnum
 
 DOMAIN = "heat_manager"
@@ -113,10 +115,8 @@ SERVICE_RESUME = "resume"
 SERVICE_FORCE_ROOM_ON = "force_room_on"
 
 # ── Platforms ─────────────────────────────────────────────────────────────────
-# Only platforms with implemented files are listed here.
-# sensor, binary_sensor, select, switch are added in uge 3.
 
-PLATFORMS: list[str] = []
+PLATFORMS: list[str] = ["sensor", "binary_sensor", "select", "switch"]
 
 # ── Coordinator update interval ───────────────────────────────────────────────
 

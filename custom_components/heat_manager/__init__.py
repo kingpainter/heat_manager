@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import pathlib
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -15,7 +14,6 @@ from .const import (
     CONTROLLER_STATE_OPTIONS,
     DEFAULT_PAUSE_DURATION_MIN,
     DOMAIN,
-    LOVELACE_RESOURCE_PATH,
     PLATFORMS,
     SERVICE_FORCE_ROOM_ON,
     SERVICE_PAUSE,
@@ -24,6 +22,8 @@ from .const import (
     ControllerState,
 )
 from .coordinator import HeatManagerCoordinator
+from .panel import async_register_panel, async_unregister_panel
+from .websocket import async_register_websocket_commands
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +38,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     _register_services(hass, coordinator)
-    _register_frontend(hass)
+    async_register_websocket_commands(hass)
+    await async_register_panel(hass)
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
@@ -55,6 +56,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         coordinator: HeatManagerCoordinator = entry.runtime_data
         await coordinator.async_shutdown()
+        async_unregister_panel(hass)
     return unload_ok
 
 
@@ -102,19 +104,3 @@ def _register_services(hass: HomeAssistant, coordinator: HeatManagerCoordinator)
         DOMAIN, SERVICE_FORCE_ROOM_ON, handle_force_room_on,
         schema=vol.Schema({vol.Required("room_name"): cv.string}),
     )
-
-
-def _register_frontend(hass: HomeAssistant) -> None:
-    card_file = pathlib.Path(__file__).parent / "frontend" / "heat-manager-card.js"
-    if not card_file.exists():
-        _LOGGER.debug("heat-manager-card.js not found — skipping")
-        return
-    try:
-        hass.http.register_static_path(
-            LOVELACE_RESOURCE_PATH,
-            str(card_file),
-            cache_headers=False,
-        )
-        _LOGGER.info("Lovelace card registered at %s", LOVELACE_RESOURCE_PATH)
-    except Exception as err:  # noqa: BLE001
-        _LOGGER.warning("Could not register Lovelace resource: %s", err)
