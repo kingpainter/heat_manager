@@ -2,10 +2,14 @@ rules:
   # ── Bronze ────────────────────────────────────────────────────────────────
   action-setup: done
   appropriate-polling: done
-  brands: todo
+  brands:
+    status: deferred
+    comment: >
+      brands/icon.png deferred indefinitely. Integration works fully without it.
+      Required only for official HA integration listing, not for HACS or personal use.
   common-modules: done
   config-flow: done
-  config-flow-test-coverage: todo
+  config-flow-test-coverage: done  # test_config_flow.py — 16 tests covering all steps and errors
   dependency-transparency: done
   docs-actions: done
   docs-high-level-description: done
@@ -34,7 +38,7 @@ rules:
       Heat Manager does not connect to any external device or service.
       It only interacts with existing Home Assistant entities (climate,
       person, binary_sensor, weather). No authentication is required.
-  test-coverage: todo  # 58 tests — coverage not formally measured yet
+  test-coverage: done  # 74 tests across 6 files — pyproject.toml with --cov-fail-under=80
 
   # ── Gold ──────────────────────────────────────────────────────────────────
   devices: todo
