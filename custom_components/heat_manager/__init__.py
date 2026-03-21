@@ -5,12 +5,13 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 
 from .const import (
     CONF_ROOMS,
+    CONF_WEATHER_ENTITY,
     CONTROLLER_STATE_OPTIONS,
     DEFAULT_PAUSE_DURATION_MIN,
     DOMAIN,
@@ -31,7 +32,28 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Heat Manager from a config entry."""
     coordinator = HeatManagerCoordinator(hass, entry)
-    await coordinator.async_config_entry_first_refresh()
+
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except Exception as err:  # noqa: BLE001
+        raise ConfigEntryNotReady(
+            translation_domain=DOMAIN,
+            translation_key="setup_failed",
+        ) from err
+
+    # Raise ConfigEntryNotReady if no configured climate entity is reachable yet.
+    # HA will retry setup automatically once entities become available.
+    rooms = entry.data.get(CONF_ROOMS, [])
+    if rooms:
+        reachable = [
+            r for r in rooms
+            if hass.states.get(r.get("climate_entity", "")) is not None
+        ]
+        if not reachable:
+            raise ConfigEntryNotReady(
+                translation_domain=DOMAIN,
+                translation_key="setup_failed",
+            )
 
     entry.runtime_data = coordinator
 
@@ -44,8 +66,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     _LOGGER.info(
-        "Heat Manager loaded — %d room(s) configured",
-        len(entry.data.get(CONF_ROOMS, [])),
+        "Heat Manager loaded — %d room(s), weather=%s",
+        len(rooms),
+        entry.data.get(CONF_WEATHER_ENTITY, "none"),
     )
     return True
 
@@ -71,7 +94,9 @@ def _register_services(hass: HomeAssistant, coordinator: HeatManagerCoordinator)
             new_state = ControllerState(state_str)
         except ValueError as err:
             raise ServiceValidationError(
-                f"Invalid controller state: {state_str}"
+                translation_domain=DOMAIN,
+                translation_key="invalid_controller_state",
+                translation_placeholders={"state": state_str},
             ) from err
         await coordinator.controller.set_state(new_state)
 
@@ -83,7 +108,14 @@ def _register_services(hass: HomeAssistant, coordinator: HeatManagerCoordinator)
         await coordinator.controller.resume()
 
     async def handle_force_room_on(call: ServiceCall) -> None:
-        await coordinator.presence_engine.force_room_on(call.data["room_name"])
+        room_name = call.data["room_name"]
+        if not coordinator.get_climate_entity(room_name):
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="room_not_found",
+                translation_placeholders={"room_name": room_name},
+            )
+        await coordinator.presence_engine.force_room_on(room_name)
 
     hass.services.async_register(
         DOMAIN, SERVICE_SET_CONTROLLER_STATE, handle_set_controller_state,

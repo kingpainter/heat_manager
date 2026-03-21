@@ -19,13 +19,13 @@ The first line is max 72 characters. Add a blank line and more detail below if n
 
 | Type | When to use |
 |------|-------------|
-| `feat` | New feature, new entity, new service |
+| `feat` | New feature, new entity, new service, new engine |
 | `fix` | Bug fix |
-| `docs` | Only README, CHANGELOG, or code comments — no logic changed |
+| `docs` | Only README, CHANGELOG, GIT_WORKFLOW, STATUS, or code comments — no logic changed |
 | `test` | Adding or updating tests only |
 | `refactor` | Cleaned up code, no behaviour change |
-| `chore` | Version bump, manifest update, CI config |
-| `trans` | Translation strings only (en.json / da.json) |
+| `chore` | Version bump, manifest update, hacs.json, CI config |
+| `trans` | Translation strings only (en.json / da.json / strings.json) |
 | `style` | Formatting only — ran `ruff format`, nothing else |
 
 ### Scopes
@@ -33,18 +33,26 @@ The first line is max 72 characters. Add a blank line and more detail below if n
 Use the name of the file or feature you changed:
 
 `controller` · `presence` · `window` · `preheat` · `season` · `waste` ·
-`coordinator` · `config_flow` · `entities` · `frontend` · `tests` · `docs` · `ci`
+`coordinator` · `config_flow` · `entities` · `frontend` · `panel` · `card` ·
+`websocket` · `diagnostics` · `tests` · `docs` · `ci`
 
 ### Real examples
 
 ```
 feat(controller): add ON/PAUSE/OFF state machine with guard decorator
+feat(season): add SeasonEngine — AUTO resolves to WINTER/SUMMER from outdoor temp
+feat(waste): add WasteCalculator — proper kWh estimation with midnight reset
+feat(preheat): add PreheatEngine — fires on travel_time_home below lead time
+feat(diagnostics): add async_get_config_entry_diagnostics for Gold IQS
 fix(window): B3 - restore schedule only when presence is active on close
 fix(window): B1 - remove leading dot from lukas_vindue_contact entity ID
-docs(readme): add HACS installation instructions and service examples
-chore(manifest): bump version 0.1.0 → 0.1.1
-test(controller): add regression test for auto-off via season trigger
-trans(da): add Danish strings for controller_state and season_mode
+fix(frontend): eliminate FOUC — style-once pattern + replaceWith() in panel
+fix(panel): deduplicate Lovelace resources, fix CARDS_FILE typo
+fix(card): rewrite as vanilla JS — card now appears in Lovelace picker
+docs(readme): add pre-heat setup section and updated entity table
+chore(manifest): bump version 0.1.0 → 0.2.0
+test(season): add regression test for same-day double-count guard
+trans(da): add exceptions section with Danish error messages
 ```
 
 ### Rules
@@ -54,18 +62,19 @@ trans(da): add Danish strings for controller_state and season_mode
 - Bug fixes reference the bug ID: `fix(window): B1 - ...`
 - One logical change per commit — do not bundle unrelated changes
 - If the commit closes a GitHub issue, add `Closes #12` on a line in the body
+- Never bump the version without updating CHANGELOG.md in the same commit
 
 ---
 
 ## Branching
 
 | Branch | Purpose |
-|--------|---------|
+|--------|---------
 | `main` | Always release-ready. Only merge here when releasing a version. |
 | `dev` | All work-in-progress merges here first. |
-| `feature/<name>` | New features, branched from `dev` |
-| `fix/<name>` | Bug fixes, branched from `dev` |
-| `docs/<name>` | Documentation only, branched from `dev` |
+| `feature/<n>` | New features, branched from `dev` |
+| `fix/<n>` | Bug fixes, branched from `dev` |
+| `docs/<n>` | Documentation only, branched from `dev` |
 
 ### Creating a branch in GitHub Desktop
 
@@ -83,8 +92,11 @@ Run through this list before clicking **Commit** in GitHub Desktop:
 - [ ] Code is formatted: `ruff format custom_components/heat_manager`
 - [ ] No linting errors: `ruff check custom_components/heat_manager`
 - [ ] Tests pass: `pytest tests/`
-- [ ] If new string added: both `en.json` and `da.json` updated
+- [ ] If new translation string added: both `en.json` and `da.json` updated in same commit
+- [ ] If new entity added: `icons.json` updated with icon entry
+- [ ] If exception raised: `strings.json` / `en.json` / `da.json` have `exceptions` entry
 - [ ] If version bumped: `CHANGELOG.md` updated in same commit
+- [ ] `quality_scale.yaml` updated if an IQS rule was completed
 - [ ] Commit message follows the format above
 - [ ] Only one logical change in this commit
 
@@ -94,9 +106,10 @@ Run through this list before clicking **Commit** in GitHub Desktop:
 
 1. Move all entries from `[Unreleased]` in `CHANGELOG.md` to a new `[X.Y.Z] - YYYY-MM-DD` section.
 2. Update `"version"` in `manifest.json`.
-3. Commit: `chore(manifest): bump version X.X.X → X.Y.Z`
-4. Merge `dev` → `main` via a Pull Request on GitHub.
-5. On GitHub: create a new Release, tag it `vX.Y.Z`, paste the CHANGELOG section as release notes.
+3. Update `VERSION` in `const.py`.
+4. Commit on `dev`: `chore(manifest): bump version X.X.X → X.Y.Z`
+5. Merge `dev` → `main` via a Pull Request on GitHub.
+6. On GitHub: create a new Release, tag it `vX.Y.Z`, paste the CHANGELOG section as release notes.
 
 ### Version number rules
 
@@ -104,7 +117,7 @@ Run through this list before clicking **Commit** in GitHub Desktop:
 MAJOR.MINOR.PATCH
 
 MAJOR  Breaking change — config entry schema changed, entities renamed/removed
-MINOR  New feature, new entity, new service — backwards compatible
+MINOR  New feature, new entity, new service, new engine — backwards compatible
 PATCH  Bug fix, translation update, documentation only
 ```
 
@@ -112,7 +125,7 @@ PATCH  Bug fix, translation update, documentation only
 
 ## Version history quick reference
 
-| Version | Type | Description |
-|---------|------|-------------|
-| 0.1.0 | Initial | Foundation: manifest, const, controller engine, config flow, translations |
-
+| Version | Date | Type | Highlights |
+|---------|------|------|------------|
+| 0.1.0 | 2026-03-20 | Initial | Foundation: controller, presence, window engines, config flow, translations, 36 tests |
+| 0.2.0 | 2026-03-21 | Minor | Season, waste, preheat engines; Gold IQS; diagnostics; HACS; FOUC fixes; 58 tests |

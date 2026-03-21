@@ -5,8 +5,9 @@ Registers WS commands used by the sidebar panel:
   heat_manager/get_state    → full state snapshot
   heat_manager/get_history  → event log for the last N days
 
-FIX: Removed async_get_logbook_entries (does not exist in HA 2024+).
-FIX: hass.states.get() returns a State object, not a dict — use .state attribute.
+Phase 3: energy values now come directly from coordinator.waste_calculator.
+         Event log reads from coordinator._event_log (deque, newest first).
+         Daily energy chart shows live today + zeros for past days.
 """
 from __future__ import annotations
 
@@ -84,7 +85,6 @@ async def ws_get_state(
                     except (TypeError, ValueError):
                         pass
 
-        # FIX: State object uses .state attribute, not .get("state")
         windows_open = any(
             (s := hass.states.get(sid)) is not None and s.state == "on"
             for sid in sensors
@@ -123,27 +123,7 @@ async def ws_get_state(
         })
 
     # ── Outdoor temperature ───────────────────────────────────────────────────
-    outdoor_temp: float | None = None
-    weather_id = cfg.get(CONF_WEATHER_ENTITY)
-    if weather_id:
-        ws = hass.states.get(weather_id)
-        if ws:
-            t = ws.attributes.get("temperature")
-            if t is not None:
-                try:
-                    outdoor_temp = float(t)
-                except (TypeError, ValueError):
-                    pass
-
-    # ── Energy sensors ────────────────────────────────────────────────────────
-    def _sensor_float(eid: str) -> float | None:
-        s = hass.states.get(eid)
-        if s and s.state not in ("unknown", "unavailable"):
-            try:
-                return float(s.state)
-            except (TypeError, ValueError):
-                pass
-        return None
+    outdoor_temp: float | None = coordinator.outdoor_temperature
 
     # ── Config snapshot ────────────────────────────────────────────────────────
     config_snap = {
@@ -163,13 +143,14 @@ async def ws_get_state(
         "auto_off_reason":        ctrl.auto_off_reason.value,
         "pause_remaining":        ctrl.pause_remaining_minutes,
         "season_mode":            coordinator.season_mode.value,
+        "effective_season":       coordinator.effective_season.value,
         "outdoor_temp":           outdoor_temp,
         "rooms":                  rooms,
         "persons":                persons,
-        "energy_saved_today":     _sensor_float("sensor.heat_manager_energy_saved_today"),
-        "energy_wasted_today":    _sensor_float("sensor.heat_manager_energy_wasted_today"),
-        "efficiency_score":       _sensor_float("sensor.heat_manager_efficiency_score"),
-        "auto_off_days":          len(ctrl._outdoor_temp_history),
+        "energy_saved_today":     coordinator.energy_saved_today,
+        "energy_wasted_today":    coordinator.energy_wasted_today,
+        "efficiency_score":       coordinator.efficiency_score,
+        "auto_off_days":          coordinator.season_engine.days_above_threshold,
         "auto_off_days_required": cfg.get(CONF_AUTO_OFF_TEMP_DAYS, 5),
         "auto_off_threshold":     cfg.get(CONF_AUTO_OFF_TEMP_THRESHOLD, 18.0),
         "config":                 config_snap,
@@ -240,35 +221,42 @@ def _fmt_time(dt: datetime) -> str:
 
 
 def _get_event_log(coordinator: Any, days: int) -> list[dict]:
+    """Return events from coordinator._event_log deque, newest first, capped at 50."""
     from homeassistant.util.dt import now as ha_now
-    cutoff = ha_now() - timedelta(days=days)
-    event_log: list[dict] = getattr(coordinator, "_event_log", [])
-    return [e for e in event_log if _parse_event_time(e.get("time", "")) >= cutoff]
-
-
-def _parse_event_time(time_str: str) -> datetime:
-    from homeassistant.util.dt import now as ha_now, utc_from_timestamp
-    import re
-    try:
-        if re.match(r"^\d{2}:\d{2}$", time_str):
-            now = ha_now()
-            h, m = map(int, time_str.split(":"))
-            return now.replace(hour=h, minute=m, second=0, microsecond=0)
-    except (ValueError, AttributeError):
-        pass
-    return utc_from_timestamp(0)
+    cutoff    = ha_now() - timedelta(days=days)
+    event_log = list(getattr(coordinator, "_event_log", []))
+    result    = []
+    for e in event_log:
+        ts = e.get("timestamp")
+        if not ts:
+            result.append(e)
+            continue
+        try:
+            from datetime import datetime as _dt
+            dt = _dt.fromisoformat(ts)
+            if dt.tzinfo is None:
+                from homeassistant.util.dt import UTC
+                dt = dt.replace(tzinfo=UTC)
+            if dt >= cutoff:
+                result.append(e)
+        except (ValueError, TypeError):
+            result.append(e)
+    return result[:50]
 
 
 def _build_daily_energy(coordinator: Any, days: int) -> list[dict]:
+    """Today uses live WasteCalculator values; past days are 0 until persistent storage exists."""
     from homeassistant.util.dt import now as ha_now
     today      = ha_now().date()
     day_labels = ["man", "tir", "ons", "tor", "fre", "lør", "søn"]
-    return [
-        {
-            "label":  day_labels[(today - timedelta(days=i)).weekday()],
-            "date":   (today - timedelta(days=i)).isoformat(),
-            "saved":  0.0,
-            "wasted": 0.0,
-        }
-        for i in range(days - 1, -1, -1)
-    ]
+    result = []
+    for i in range(days - 1, -1, -1):
+        d        = today - timedelta(days=i)
+        is_today = (i == 0)
+        result.append({
+            "label":  day_labels[d.weekday()],
+            "date":   d.isoformat(),
+            "saved":  round(coordinator.energy_saved_today, 3) if is_today else 0.0,
+            "wasted": round(coordinator.energy_wasted_today, 3) if is_today else 0.0,
+        })
+    return result

@@ -7,12 +7,17 @@ Central hub that:
 - Runs the periodic tick that drives auto-off, pause expiry, and presence checks
 - Exposes helpers used by platform entities to read current state
 
-Engines never talk to each other directly — they read from and write to
-the coordinator. This prevents circular dependencies and makes testing simple.
+Phase 3 additions:
+- SeasonEngine: resolves AUTO → effective WINTER/SUMMER
+- WasteCalculator: proper energy waste/savings tracking
+- PreheatEngine: travel_time based pre-heat
+- log_event(): internal event log for History tab in sidebar panel
+- effective_season property: resolved season regardless of manual/auto
 """
 from __future__ import annotations
 
 import logging
+from collections import deque
 from datetime import timedelta
 from typing import Any
 
@@ -45,18 +50,24 @@ from .const import (
     SeasonMode,
 )
 from .engine.controller import ControllerEngine
+from .engine.preheat_engine import PreheatEngine
 from .engine.presence_engine import PresenceEngine
+from .engine.season_engine import SeasonEngine
+from .engine.waste_calculator import WasteCalculator
 from .engine.window_engine import WindowEngine
 
 _LOGGER = logging.getLogger(__name__)
+
+# Maximum number of events kept in the in-memory log (FIFO)
+_MAX_EVENT_LOG = 200
 
 
 class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """
     Central coordinator for Heat Manager.
 
-    All engines are instantiated here. The coordinator's _async_update_data
-    method is the single periodic tick that drives all time-based logic.
+    All engines are instantiated here. _async_update_data is the single
+    periodic tick driving all time-based logic.
     """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -68,20 +79,31 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.entry = entry
 
-        # room_states: maps room_name → RoomState
-        # Only engines mutate this dict, never the coordinator directly.
+        # ── Shared runtime state ──────────────────────────────────────────────
+        # room_states: only engines mutate this dict
         self.room_states: dict[str, RoomState] = {}
 
-        # Starts as AUTO; season_engine resolves it on first tick.
+        # season_mode: manual setting (Auto/Winter/Summer) from select entity
         self.season_mode: SeasonMode = SeasonMode.AUTO
 
-        # Cached outdoor temperature from weather entity (°C).
+        # effective_season: resolved by SeasonEngine each tick
+        # AUTO → WINTER or SUMMER based on outdoor temperature history
+        # WINTER/SUMMER manual → same value echoed here
+        self.effective_season: SeasonMode = SeasonMode.WINTER
+
+        # Cached outdoor temperature from weather entity (°C)
         self.outdoor_temperature: float | None = None
 
+        # In-memory event log — populated by log_event(), read by websocket
+        self._event_log: deque[dict[str, Any]] = deque(maxlen=_MAX_EVENT_LOG)
+
         # ── Engines ───────────────────────────────────────────────────────────
-        self.controller = ControllerEngine(self)
+        self.controller      = ControllerEngine(self)
         self.presence_engine = PresenceEngine(self)
-        self.window_engine = WindowEngine(self)
+        self.window_engine   = WindowEngine(self)
+        self.season_engine   = SeasonEngine(self)
+        self.waste_calculator = WasteCalculator(self)
+        self.preheat_engine  = PreheatEngine(self)
 
         _LOGGER.debug(
             "Coordinator initialised — %d room(s), %d person(s)",
@@ -170,6 +192,46 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return True
         return False
 
+    # ── Energy helpers (Phase 3) ──────────────────────────────────────────────
+
+    @property
+    def energy_wasted_today(self) -> float:
+        return self.waste_calculator.energy_wasted_today
+
+    @property
+    def energy_saved_today(self) -> float:
+        return self.waste_calculator.energy_saved_today
+
+    @property
+    def efficiency_score(self) -> int:
+        return self.waste_calculator.efficiency_score
+
+    # ── Event log (Phase 3) ───────────────────────────────────────────────────
+
+    def log_event(
+        self,
+        description: str,
+        reason: str = "",
+        event_type: str = "normal",
+    ) -> None:
+        """
+        Append an event to the in-memory log.
+        Called by engines whenever a significant state change occurs.
+        Read by websocket.py for the History tab.
+        """
+        from homeassistant.util.dt import now as ha_now
+        now = ha_now()
+        # Format time for display
+        time_str = now.strftime("%H:%M")
+        self._event_log.appendleft({
+            "time":        time_str,
+            "description": description,
+            "reason":      reason,
+            "type":        event_type,
+            "timestamp":   now.isoformat(),
+        })
+        _LOGGER.debug("Event logged: %s (%s)", description, reason)
+
     # ── Outdoor temperature ───────────────────────────────────────────────────
 
     def _refresh_outdoor_temperature(self) -> None:
@@ -197,26 +259,45 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         """
-        Called every SCAN_INTERVAL_SECONDS by the DataUpdateCoordinator.
+        Called every SCAN_INTERVAL_SECONDS.
 
-        Order: outdoor temp → controller tick → presence tick → window tick.
-        Any unhandled exception is wrapped in UpdateFailed so HA marks
-        the coordinator unavailable and entities show as unavailable too.
+        Tick order:
+          1. Refresh outdoor temperature
+          2. Season engine (resolve AUTO → WINTER/SUMMER)
+          3. Controller (pause expiry, auto-off, auto-resume)
+          4. Presence engine (grace period countdowns)
+          5. Window engine (open-window escalation warnings)
+          6. Waste calculator (energy accounting)
+          7. Preheat engine (travel_time polling no-op)
         """
         try:
             self._refresh_outdoor_temperature()
+
+            # Resolve effective season before controller auto-off checks
+            await self.season_engine.async_tick()
+            # Keep effective_season in sync with manual overrides
+            if self.season_mode != SeasonMode.AUTO:
+                self.effective_season = self.season_mode
+
             await self.controller.async_tick()
             await self.presence_engine.async_tick()
             await self.window_engine.async_tick()
+            await self.waste_calculator.async_tick()
+            await self.preheat_engine.async_tick()
+
         except Exception as err:  # noqa: BLE001
             raise UpdateFailed(f"Heat Manager update failed: {err}") from err
 
         return {
-            "controller_state": self.controller.state,
-            "season_mode": self.season_mode,
-            "outdoor_temperature": self.outdoor_temperature,
-            "room_states": dict(self.room_states),
+            "controller_state":     self.controller.state,
+            "season_mode":          self.season_mode,
+            "effective_season":     self.effective_season,
+            "outdoor_temperature":  self.outdoor_temperature,
+            "room_states":          dict(self.room_states),
             "pause_remaining_minutes": self.pause_remaining_minutes,
+            "energy_wasted_today":  self.energy_wasted_today,
+            "energy_saved_today":   self.energy_saved_today,
+            "efficiency_score":     self.efficiency_score,
         }
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -225,4 +306,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Clean up when the config entry is unloaded."""
         await self.presence_engine.async_shutdown()
         await self.window_engine.async_shutdown()
+        await self.season_engine.async_shutdown()
+        await self.waste_calculator.async_shutdown()
+        await self.preheat_engine.async_shutdown()
         _LOGGER.debug("Coordinator shut down cleanly")

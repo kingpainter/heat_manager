@@ -4,6 +4,11 @@
 // Vanilla JS + Shadow DOM — no external imports.
 // Runs synchronously so window.customCards is registered before
 // HA's card picker scans the page.
+//
+// Blink fixes v0.2.0:
+//   - <style> injected once via querySelector guard — no FOUC on hass updates
+//   - _render() replaces .card div via replaceWith() — no shadow root rebuild
+//   - _updateInPlace() handles all live state updates without any DOM rebuild
 
 class HeatManagerCard extends HTMLElement {
   constructor() {
@@ -13,8 +18,6 @@ class HeatManagerCard extends HTMLElement {
     this._config       = {};
     this._pauseMinutes = 120;
   }
-
-  // ── Lovelace lifecycle ────────────────────────────────────────────────────
 
   setConfig(config) {
     this._config = config || {};
@@ -27,8 +30,6 @@ class HeatManagerCard extends HTMLElement {
   }
 
   getCardSize() { return 3; }
-
-  // ── HA state helpers ──────────────────────────────────────────────────────
 
   _s(id)       { return this._hass?.states?.[id]; }
   _sv(id)      { return this._s(id)?.state ?? "unknown"; }
@@ -57,8 +58,6 @@ class HeatManagerCard extends HTMLElement {
     return t != null ? Math.round(t) + "°C ude" : null;
   }
 
-  // ── Service calls ─────────────────────────────────────────────────────────
-
   async _setCtrl(state) {
     await this._hass.callService("heat_manager", "set_controller_state", { state });
   }
@@ -68,8 +67,6 @@ class HeatManagerCard extends HTMLElement {
   async _resume() {
     await this._hass.callService("heat_manager", "resume", {});
   }
-
-  // ── Label helpers ─────────────────────────────────────────────────────────
 
   _seasonLabel(s) {
     return { winter:"Vinter", summer:"Sommer", auto:"Auto" }[s] ?? s ?? "Auto";
@@ -86,8 +83,6 @@ class HeatManagerCard extends HTMLElement {
     const [bg, border, color] = (m[name] || "").split(",");
     return `background:${bg};border-color:${border};color:${color};`;
   }
-
-  // ── CSS ───────────────────────────────────────────────────────────────────
 
   _css() {
     return `
@@ -123,9 +118,7 @@ class HeatManagerCard extends HTMLElement {
         transition:background .12s, border-color .12s, color .12s;
       }
       .btn:active { opacity:.75; }
-      .pause-row {
-        display:flex; align-items:center; gap:8px; margin-top:8px;
-      }
+      .pause-row { display:flex; align-items:center; gap:8px; margin-top:8px; }
       .pause-row label { font-size:12px; color:var(--secondary-text-color); white-space:nowrap; }
       .pause-row select {
         flex:1; font-size:12px; padding:4px 8px; border-radius:6px;
@@ -134,8 +127,7 @@ class HeatManagerCard extends HTMLElement {
       }
       .pause-bar {
         display:flex; align-items:center; justify-content:space-between;
-        padding:8px 16px; background:#FAEEDA;
-        border-top:1px solid #EF9F27;
+        padding:8px 16px; background:#FAEEDA; border-top:1px solid #EF9F27;
       }
       .pause-bar span { font-size:12px; color:#633806; }
       .resume-btn {
@@ -157,13 +149,20 @@ class HeatManagerCard extends HTMLElement {
       .stat-lbl { font-size:11px; color:var(--secondary-text-color); margin-bottom:3px; }
       .stat-val { font-size:16px; font-weight:500; color:var(--primary-text-color); }
       .stat-val.warn { color:#BA7517; }
-      .loading { padding:24px 16px; text-align:center; color:var(--secondary-text-color); font-size:13px; }
     `;
   }
 
-  // ── Full render ───────────────────────────────────────────────────────────
-
   _render() {
+    const rootEl = this.shadowRoot;
+
+    // Inject <style> once — re-injecting on every render causes FOUC.
+    // _updateInPlace() handles all live updates without touching <style>.
+    if (!rootEl.querySelector("style")) {
+      const st = document.createElement("style");
+      st.textContent = this._css();
+      rootEl.appendChild(st);
+    }
+
     const ctrl        = this._ctrl();
     const season      = this._season();
     const pauseLeft   = this._pauseLeft();
@@ -198,9 +197,7 @@ class HeatManagerCard extends HTMLElement {
          </div>`
       : "";
 
-    this.shadowRoot.innerHTML = `
-      <style>${this._css()}</style>
-      <div class="card">
+    const cardHTML = `<div class="card">
         <div class="hdr">
           <div>
             <p class="hdr-title">Heat Manager</p>
@@ -208,7 +205,6 @@ class HeatManagerCard extends HTMLElement {
           </div>
           <span class="badge" id="season-badge">${seasonLabel}</span>
         </div>
-
         <div class="section">
           <div class="section-lbl">Controller</div>
           <div class="btn-row">
@@ -227,11 +223,8 @@ class HeatManagerCard extends HTMLElement {
             </select>
           </div>
         </div>
-
         ${pauseBar}
-
         ${rooms.length ? `<div id="rooms">${roomsHTML}</div>` : ""}
-
         <div class="stats">
           <div class="stat">
             <div class="stat-lbl">Sparet i dag</div>
@@ -248,36 +241,40 @@ class HeatManagerCard extends HTMLElement {
         </div>
       </div>`;
 
+    // Replace existing .card in-place — never touch the <style> node
+    const existing = rootEl.querySelector(".card");
+    if (existing) {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = cardHTML;
+      existing.replaceWith(tmp.firstElementChild);
+    } else {
+      rootEl.insertAdjacentHTML("beforeend", cardHTML);
+    }
+
     this._attachEvents();
   }
-
-  // ── Surgical live update — no full re-render on hass update ───────────────
 
   _updateInPlace() {
     const root = this.shadowRoot;
     if (!root || !root.querySelector(".card")) { this._render(); return; }
 
-    const ctrl      = this._ctrl();
-    const season    = this._season();
-    const pauseLeft = this._pauseLeft();
-    const otemp     = this._outdoorTemp();
+    const ctrl        = this._ctrl();
+    const season      = this._season();
+    const pauseLeft   = this._pauseLeft();
     const seasonLabel = this._seasonLabel(season);
+    const otemp       = this._outdoorTemp();
 
-    // Header sub-line
     const sub = root.querySelector(".hdr-sub");
     if (sub) sub.textContent = [seasonLabel, otemp].filter(Boolean).join(" · ");
 
-    // Badge
     const badge = root.querySelector("#season-badge");
     if (badge) badge.textContent = seasonLabel;
 
-    // Buttons
     for (const name of ["on", "pause", "off"]) {
       const btn = root.querySelector("#btn-" + name);
       if (btn) btn.style.cssText = this._btnStyle(name, ctrl);
     }
 
-    // Pause bar — show/hide + text
     const existingBar = root.querySelector(".pause-bar");
     const showBar = ctrl === "pause" && pauseLeft > 0;
     if (existingBar && !showBar) {
@@ -294,7 +291,6 @@ class HeatManagerCard extends HTMLElement {
       if (txt) txt.textContent = "Pause — " + pauseLeft + " min tilbage";
     }
 
-    // Room dots + temps
     const rooms = this._config.rooms || [];
     rooms.forEach((room, i) => {
       const rows = root.querySelectorAll(".room-row");
@@ -308,7 +304,6 @@ class HeatManagerCard extends HTMLElement {
       if (tEl)  tEl.textContent = this._climateTemp(room.climate_entity || "");
     });
 
-    // Stats
     const saved  = this._sensorVal("sensor.heat_manager_energy_saved_today");
     const wasted = this._sensorVal("sensor.heat_manager_energy_wasted_today");
     const score  = this._sensorVal("sensor.heat_manager_efficiency_score");
@@ -319,8 +314,6 @@ class HeatManagerCard extends HTMLElement {
     if (wv) wv.textContent = wasted ? wasted + " kWh" : "—";
     if (sc) sc.textContent = score  ? score  + "/100" : "—";
   }
-
-  // ── Event binding ─────────────────────────────────────────────────────────
 
   _attachEvents() {
     const root = this.shadowRoot;
@@ -336,8 +329,6 @@ class HeatManagerCard extends HTMLElement {
   _esc(s) {
     return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   }
-
-  // ── Card picker registration ──────────────────────────────────────────────
 
   static getConfigElement() {
     return document.createElement("heat-manager-card-editor");
@@ -372,6 +363,9 @@ if (!window.customCards.find(c => c.type === "heat-manager-card")) {
 
 
 // ── Heat Manager Card Editor ──────────────────────────────────────────────────
+// Editor <style> is intentionally re-injected on each _render() call because
+// the editor is only shown in the card picker dialog (low frequency) and
+// the full shadowRoot.innerHTML pattern is simpler for a form-heavy component.
 
 class HeatManagerCardEditor extends HTMLElement {
   constructor() {
@@ -479,9 +473,7 @@ class HeatManagerCardEditor extends HTMLElement {
 
     this.shadowRoot.innerHTML = `
       <style>${this._css()}</style>
-
       <div class="section-hdr first">Globale indstillinger</div>
-
       <div class="row">
         <label>Vejr-entitet</label>
         <input id="weather" type="text"
@@ -503,7 +495,6 @@ class HeatManagerCardEditor extends HTMLElement {
         <label>Nådeperiode — nat (min)</label>
         <input id="grace_night" type="number" min="5" max="60" step="5" value="${c.grace_night_min ?? 15}">
       </div>
-
       <div class="section-hdr">
         Rum <button class="add-btn" id="add-room">+ Tilføj rum</button>
       </div>

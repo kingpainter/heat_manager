@@ -1,9 +1,8 @@
 """
 Heat Manager — Switch platform
 
-Entities
---------
-switch.heat_manager_<room>_override   Manual override per room
+Gold IQS: entity-disabled-by-default — override switches are CONFIG category
+and disabled by default (power users only).
 """
 from __future__ import annotations
 
@@ -45,15 +44,14 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
     """
     Manual override for a single room.
 
-    When turned ON:  forces room to schedule and marks state as OVERRIDE,
-                     bypassing presence and window logic.
-    When turned OFF: clears override, returns to coordinator-managed state.
+    ON  → forces room to schedule, marks OVERRIDE state (bypasses presence + window logic).
+    OFF → clears override, coordinator resumes normal logic on next tick.
     """
 
     _attr_has_entity_name = True
     _attr_translation_key = "room_override"
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_icon = "mdi:thermostat-auto"
+    _attr_entity_registry_enabled_default = False  # power-user feature — off by default
 
     def __init__(
         self,
@@ -62,7 +60,7 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
         room: dict,
     ) -> None:
         super().__init__(coordinator)
-        self._room_name = room["room_name"]
+        self._room_name  = room["room_name"]
         self._climate_id = room.get(CONF_CLIMATE_ENTITY, "")
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_override"
@@ -73,22 +71,25 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
         return self.coordinator.get_room_state(self._room_name) == RoomState.OVERRIDE
 
     async def async_turn_on(self, **kwargs) -> None:  # type: ignore[override]
-        """Force room to schedule and mark as overridden."""
         if not self._climate_id:
             return
         try:
             await self.coordinator.hass.services.async_call(
-                "climate",
-                "set_preset_mode",
+                "climate", "set_preset_mode",
                 {"entity_id": self._climate_id, "preset_mode": PRESET_SCHEDULE},
                 blocking=True,
             )
             self.coordinator.set_room_state(self._room_name, RoomState.OVERRIDE)
+            self.coordinator.log_event(
+                f"Override ON — {self._room_name}", "Override", "override"
+            )
             _LOGGER.info("Override ON: %s → schedule", self._room_name)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Override turn_on failed for %s: %s", self._room_name, err)
 
     async def async_turn_off(self, **kwargs) -> None:  # type: ignore[override]
-        """Clear override — coordinator resumes normal logic on next tick."""
         self.coordinator.set_room_state(self._room_name, RoomState.NORMAL)
+        self.coordinator.log_event(
+            f"Override OFF — {self._room_name} returning to normal", "Override", "normal"
+        )
         _LOGGER.info("Override OFF: %s — returning to normal", self._room_name)

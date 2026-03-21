@@ -1,6 +1,7 @@
 """
 Heat Manager — Window Engine
 
+Phase 3: log_event() calls added at every significant state transition.
 FIX: asyncio.ensure_future → hass.async_create_task throughout.
 FIX: task references stored correctly so cancel works reliably.
 """
@@ -58,12 +59,10 @@ class WindowEngine:
         self._build_sensor_map()
         self._register_listeners()
 
-    # ── Setup ─────────────────────────────────────────────────────────────────
-
     def _build_sensor_map(self) -> None:
         for room in self.coordinator.rooms:
-            room_name  = room.get("room_name", "")
-            away_temp  = float(room.get(CONF_AWAY_TEMP_OVERRIDE, 10.0))
+            room_name = room.get("room_name", "")
+            away_temp = float(room.get(CONF_AWAY_TEMP_OVERRIDE, 10.0))
             for sensor in room.get(CONF_WINDOW_SENSORS, []):
                 self._sensor_to_room[sensor]      = room_name
                 self._sensor_to_away_temp[sensor] = away_temp
@@ -80,8 +79,6 @@ class WindowEngine:
             )
         )
 
-    # ── State change handler ──────────────────────────────────────────────────
-
     @callback
     def _handle_sensor_change(self, event: Any) -> None:
         new_state = event.data.get("new_state")
@@ -93,7 +90,6 @@ class WindowEngine:
         entity_id = event.data.get("entity_id", "")
 
         if new == "on" and old != "on":
-            # FIX: async_create_task instead of ensure_future
             self.coordinator.hass.async_create_task(
                 self._schedule_open(entity_id),
                 name=f"heat_manager_window_open_{entity_id}",
@@ -104,20 +100,14 @@ class WindowEngine:
                 name=f"heat_manager_window_close_{entity_id}",
             )
 
-    # ── Window opened ─────────────────────────────────────────────────────────
-
     async def _schedule_open(self, sensor_id: str) -> None:
         room_name = self._sensor_to_room.get(sensor_id)
         if not room_name:
             return
-
         self._cancel_task(self._close_tasks, room_name)
         self._cancel_task(self._open_tasks, room_name)
-
         delay = self._get_open_delay(sensor_id)
         _LOGGER.debug("Window opened in '%s' — waiting %d min", room_name, delay)
-
-        # FIX: async_create_task with proper name for traceability
         self._open_tasks[room_name] = self.coordinator.hass.async_create_task(
             self._open_after_delay(sensor_id, room_name, delay),
             name=f"heat_manager_open_delay_{room_name}",
@@ -150,22 +140,21 @@ class WindowEngine:
             self._window_opened_at[room_name] = utcnow()
             self._warning_sent[room_name]     = False
             _LOGGER.info("Window open in '%s' — set %.1f°C", room_name, away_temp)
-
+            self.coordinator.log_event(
+                f"Window open in {room_name} — heating to {away_temp:.0f}°C",
+                "Window", "window_open",
+            )
             if self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
                 await self._notify(f"Window open — {room_name} set to {away_temp:.0f}°C")
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Failed to suppress heating in '%s': %s", room_name, err)
 
-    # ── Window closed ─────────────────────────────────────────────────────────
-
     async def _schedule_close(self, sensor_id: str) -> None:
         room_name = self._sensor_to_room.get(sensor_id)
         if not room_name:
             return
-
         self._cancel_task(self._open_tasks, room_name)
         self._cancel_task(self._close_tasks, room_name)
-
         self._close_tasks[room_name] = self.coordinator.hass.async_create_task(
             self._close_after_delay(sensor_id, room_name, DEFAULT_WINDOW_CLOSE_DELAY_MIN),
             name=f"heat_manager_close_delay_{room_name}",
@@ -173,9 +162,7 @@ class WindowEngine:
 
     @guarded
     async def _close_after_delay(self, sensor_id: str, room_name: str, delay_min: int) -> None:
-        """
-        B3 FIX: Only restore to schedule if someone is home.
-        """
+        """B3 FIX: Only restore to schedule if someone is home."""
         try:
             await asyncio.sleep(delay_min * 60)
         except asyncio.CancelledError:
@@ -183,13 +170,17 @@ class WindowEngine:
 
         state = self.coordinator.hass.states.get(sensor_id)
         if state and state.state == "on":
-            return  # window re-opened during delay
+            return
 
         self._window_opened_at.pop(room_name, None)
         self._warning_sent.pop(room_name, None)
 
         if not self.coordinator.someone_home():
             _LOGGER.info("Window closed in '%s' but nobody home — leaving AWAY", room_name)
+            self.coordinator.log_event(
+                f"Window closed in {room_name} — nobody home, staying away",
+                "Window", "away",
+            )
             self.coordinator.set_room_state(room_name, RoomState.AWAY)
             return
 
@@ -205,16 +196,17 @@ class WindowEngine:
             )
             self.coordinator.set_room_state(room_name, RoomState.NORMAL)
             _LOGGER.info("Window closed in '%s' — restored to schedule", room_name)
-
+            self.coordinator.log_event(
+                f"Window closed in {room_name} — heating resumed",
+                "Window", "normal",
+            )
             if self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
                 await self._notify(f"Window closed — {room_name} heating resumed")
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Failed to restore schedule in '%s': %s", room_name, err)
 
-    # ── 30-minute warning (fixes B2) ──────────────────────────────────────────
-
     async def async_tick(self) -> None:
-        """B2 FIX: Send escalation warning after threshold."""
+        """B2 FIX: Send 30-min escalation warning."""
         if not self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
             return
 
@@ -227,10 +219,14 @@ class WindowEngine:
             minutes_open = int((now - opened_at).total_seconds() / 60)
             if minutes_open >= threshold:
                 _LOGGER.info("Window in '%s' open %d min — sending warning", room_name, minutes_open)
-                await self._notify(f"Window still open in {room_name} ({minutes_open} min) — heating suppressed")
+                self.coordinator.log_event(
+                    f"Window open {minutes_open} min in {room_name}",
+                    "30-min warning", "window_open",
+                )
+                await self._notify(
+                    f"Window still open in {room_name} ({minutes_open} min) — heating suppressed"
+                )
                 self._warning_sent[room_name] = True
-
-    # ── Open window list ──────────────────────────────────────────────────────
 
     def get_open_windows(self) -> list[str]:
         open_rooms: list[str] = []
@@ -239,8 +235,6 @@ class WindowEngine:
             if state and state.state == "on":
                 open_rooms.append(room_name)
         return sorted(set(open_rooms))
-
-    # ── Notifications ─────────────────────────────────────────────────────────
 
     async def _notify(self, message: str) -> None:
         service = self.coordinator.config.get("notify_service", "")
@@ -258,8 +252,6 @@ class WindowEngine:
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Window notification failed: %s", err)
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
-
     def _get_open_delay(self, sensor_id: str) -> int:
         room_name = self._sensor_to_room.get(sensor_id)
         for room in self.coordinator.rooms:
@@ -271,8 +263,6 @@ class WindowEngine:
         task = task_dict.pop(key, None)
         if task and not task.done():
             task.cancel()
-
-    # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def async_shutdown(self) -> None:
         for task in list(self._open_tasks.values()) + list(self._close_tasks.values()):

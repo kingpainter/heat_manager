@@ -1,0 +1,7 @@
+{
+  "name": "Heat Manager",
+  "description": "Intelligent heating controller for Home Assistant. ON/PAUSE/OFF state machine with presence-based away mode, per-room window detection, seasonal auto-off, energy waste tracking, and pre-heat on arrival.",
+  "render_readme": true,
+  "homeassistant": "2025.1.0",
+  "iot_class": "local_push"
+}

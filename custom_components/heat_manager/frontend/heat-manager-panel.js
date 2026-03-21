@@ -3,6 +3,12 @@
 // Fix: controller box blink removed — _patchController() uses surgical
 //      style/textContent updates instead of outerHTML replacement.
 //      set hass(h) never touches the DOM directly.
+//
+// Blink fixes v0.2.0:
+//   - <style> injected once via querySelector guard — no FOUC on tab switches
+//   - _render() uses replaceWith() on .panel div — shadow root never wiped
+//   - connectedCallback shows skeleton without double render on first mount
+//   - setInterval calls _load() which calls _render() only after data arrives
 
 class HeatManagerPanel extends HTMLElement {
   constructor() {
@@ -21,16 +27,37 @@ class HeatManagerPanel extends HTMLElement {
     this._hass = h;
     if (first) this._load();
     else {
-      // Update data model from live entities — no DOM work here
       this._syncFromEntities();
-      // Patch only the specific nodes that can change on every HA tick
       this._patchController();
       this._patchTopbarBadge();
     }
   }
 
   connectedCallback() {
-    this._render();
+    // Only render immediately if we already have data (e.g. reconnect after tab switch).
+    // On first connect _data is null — _load() will render once data arrives,
+    // avoiding a double render and empty-content flash.
+    if (this._data) {
+      this._render();
+    } else {
+      // Show a minimal skeleton so the panel doesn't appear blank
+      // Inject style once, then show skeleton
+      const _sr = this.shadowRoot;
+      if (!_sr.querySelector("style")) {
+        const _st = document.createElement("style");
+        _st.textContent = this._css();
+        _sr.appendChild(_st);
+      }
+      _sr.insertAdjacentHTML("beforeend", `
+        <div class="panel">
+          ${this._topbarHTML()}
+          ${this._tabsHTML()}
+          <div class="content" style="padding:32px 16px;text-align:center;color:var(--secondary-text-color)">
+            Indlæser…
+          </div>
+        </div>`);
+      this._attachEvents();
+    }
     this._interval = setInterval(() => {
       if (this._errCount > 3) { clearInterval(this._interval); return; }
       if (document.visibilityState === "visible") this._load();
@@ -70,10 +97,10 @@ class HeatManagerPanel extends HTMLElement {
       rooms: [], persons: [],
       auto_off_reason: "none", auto_off_days: 0,
       auto_off_threshold: 18, auto_off_days_required: 5,
+      energy_saved_today: null, energy_wasted_today: null, efficiency_score: null,
     };
   }
 
-  // Update model only — called on every hass update, zero DOM work
   _syncFromEntities() {
     if (!this._data) return;
     const v = id => this._hass.states?.[id]?.state ?? "unknown";
@@ -82,7 +109,7 @@ class HeatManagerPanel extends HTMLElement {
     this._data.pause_remaining  = parseInt(v("sensor.heat_manager_pause_remaining") || "0", 10);
   }
 
-  // ── Surgical DOM patches — no innerHTML, no outerHTML ─────────────────────
+  // ── Surgical DOM patches ──────────────────────────────────────────────────
 
   _patchController() {
     const root = this.shadowRoot;
@@ -90,8 +117,8 @@ class HeatManagerPanel extends HTMLElement {
     const pauseLeft = this._data?.pause_remaining ?? 0;
 
     const styles = {
-      on:    { bg:"#EAF3DE", border:"#3B6D11",                  color:"#27500A" },
-      pause: { bg:"#FAEEDA", border:"#854F0B",                  color:"#633806" },
+      on:    { bg:"#EAF3DE", border:"#3B6D11",                       color:"#27500A" },
+      pause: { bg:"#FAEEDA", border:"#854F0B",                       color:"#633806" },
       off:   { bg:"var(--secondary-background-color)",
                border:"var(--secondary-text-color)",
                color:"var(--secondary-text-color)" },
@@ -102,14 +129,13 @@ class HeatManagerPanel extends HTMLElement {
       const btn = root.querySelector(`#ctrl-btn-${name}`);
       if (!btn) return;
       const s = ctrl === name ? (styles[name] ?? inactive) : inactive;
-      btn.style.background   = s.bg;
-      btn.style.borderColor  = s.border;
-      btn.style.color        = s.color;
+      btn.style.background  = s.bg;
+      btn.style.borderColor = s.border;
+      btn.style.color       = s.color;
     });
 
-    // Pause bar — show/hide + update text without DOM creation
-    const bar  = root.querySelector("#pause-bar");
-    const txt  = root.querySelector("#pause-bar-text");
+    const bar = root.querySelector("#pause-bar");
+    const txt = root.querySelector("#pause-bar-text");
     if (bar) {
       const show = ctrl === "pause" && pauseLeft > 0;
       bar.style.display = show ? "flex" : "none";
@@ -123,7 +149,7 @@ class HeatManagerPanel extends HTMLElement {
     const badge = root.querySelector("#topbar-badge");
     if (!badge) return;
     const labels = { on:"On", pause:"Pause", off:"Off" };
-    badge.textContent   = labels[ctrl] ?? ctrl;
+    badge.textContent  = labels[ctrl] ?? ctrl;
     badge.style.background  = this._ctrlBg(ctrl);
     badge.style.color        = this._ctrlColor(ctrl);
     badge.style.borderColor  = this._ctrlBorder(ctrl);
@@ -316,9 +342,8 @@ class HeatManagerPanel extends HTMLElement {
     ].map(t => `<button class="tab${this._tab===t.id?" active":""}" data-tab="${t.id}">${t.label}</button>`).join("")}</div>`;
   }
 
-  // Controller card — stable IDs on every element that _patchController() targets
   _controllerHTML() {
-    const ctrl     = this._data?.controller_state ?? "unknown";
+    const ctrl      = this._data?.controller_state ?? "unknown";
     const pauseLeft = this._data?.pause_remaining ?? 0;
     const showPause = ctrl === "pause" && pauseLeft > 0;
 
@@ -399,7 +424,7 @@ class HeatManagerPanel extends HTMLElement {
 
   _fakeDays() {
     return ["man","tir","ons","tor","fre","lør","søn"].map(l =>
-      ({ label:l, saved:Math.random()*0.5, wasted:Math.random()*0.2 }));
+      ({ label:l, saved:0, wasted:0 }));
   }
 
   _historyHTML() {
@@ -465,10 +490,9 @@ class HeatManagerPanel extends HTMLElement {
   _overviewHTML() {
     const d     = this._data;
     const rooms = d?.rooms ?? [];
-    const sv    = id => { const s = this._hass?.states?.[id]; return s && s.state !== "unknown" && s.state !== "unavailable" ? s.state : null; };
-    const savedT  = sv("sensor.heat_manager_energy_saved_today");
-    const wastT   = sv("sensor.heat_manager_energy_wasted_today");
-    const scoreT  = sv("sensor.heat_manager_efficiency_score");
+    const savedT  = d?.energy_saved_today  != null ? d.energy_saved_today.toFixed(2)  + " kWh" : "—";
+    const wastT   = d?.energy_wasted_today != null ? d.energy_wasted_today.toFixed(2) + " kWh" : "—";
+    const scoreT  = d?.efficiency_score   != null ? d.efficiency_score + "/100"       : "—";
     const pauseL  = d?.pause_remaining ?? 0;
     return `
       ${this._controllerHTML()}
@@ -476,9 +500,9 @@ class HeatManagerPanel extends HTMLElement {
         <div class="card-hdr"><span class="card-title">Rum</span><span class="card-sub">${rooms.length} konfigureret</span></div>
         ${this._roomsListHTML(rooms, true)}
         <div class="stats-grid">
-          <div class="stat"><div class="stat-label">Sparet i dag</div><div class="stat-val">${savedT ? savedT + " kWh" : "—"}</div></div>
-          <div class="stat"><div class="stat-label">Spildt i dag</div><div class="stat-val warn">${wastT ? wastT + " kWh" : "—"}</div></div>
-          <div class="stat"><div class="stat-label">Score</div><div class="stat-val">${scoreT ? scoreT + "/100" : "—"}</div></div>
+          <div class="stat"><div class="stat-label">Sparet i dag</div><div class="stat-val">${savedT}</div></div>
+          <div class="stat"><div class="stat-label">Spildt i dag</div><div class="stat-val warn">${wastT}</div></div>
+          <div class="stat"><div class="stat-label">Score</div><div class="stat-val">${scoreT}</div></div>
           <div class="stat"><div class="stat-label">Pause tilbage</div><div class="stat-val">${pauseL > 0 ? pauseL + " min" : "—"}</div></div>
         </div>
       </div>
@@ -545,13 +569,33 @@ class HeatManagerPanel extends HTMLElement {
       config:   () => this._configTabHTML(),
     }[this._tab]?.() ?? "";
 
-    this.shadowRoot.innerHTML = `
-      <style>${this._css()}</style>
+    // Inject <style> only once — subsequent renders reuse the existing node.
+    // Re-injecting <style> on every render causes FOUC on tab switches.
+    const root = this.shadowRoot;
+    if (!root.querySelector("style")) {
+      const style = document.createElement("style");
+      style.textContent = this._css();
+      root.appendChild(style);
+    }
+
+    // Replace the panel div in-place rather than wiping the whole shadow root.
+    // This preserves the <style> node and avoids a full repaint.
+    const existing = root.querySelector(".panel");
+    const html = `
       <div class="panel">
         ${this._topbarHTML()}
         ${this._tabsHTML()}
         <div class="content">${content}</div>
       </div>`;
+
+    if (existing) {
+      // replaceWith instead of outerHTML — doesn't detach <style> node
+      const _tmp = document.createElement("div");
+      _tmp.innerHTML = html;
+      existing.replaceWith(_tmp.firstElementChild);
+    } else {
+      root.insertAdjacentHTML("beforeend", html);
+    }
 
     this._attachEvents();
   }

@@ -11,34 +11,34 @@ rules:
   docs-high-level-description: done
   docs-installation-instructions: done
   docs-removal-instructions: done
-  entity-event-setup: todo
-  entity-unique-id: todo
-  has-entity-name: todo
-  runtime-data: todo
+  entity-event-setup: done
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data: done
   test-before-configure: done
-  test-before-setup: todo
-  unique-config-entry: todo
+  test-before-setup: done  # ConfigEntryNotReady raised when climate entities unreachable
+  unique-config-entry: done
 
   # ── Silver ────────────────────────────────────────────────────────────────
   action-exceptions: done
   config-entry-unloading: done
   docs-configuration-parameters: done
   docs-installation-parameters: done
-  entity-unavailable: todo
+  entity-unavailable: done  # unavailable climate → RoomStateSensor marks unavailable
   integration-owner: done
-  log-when-unavailable: todo
-  parallel-updates: todo
+  log-when-unavailable: done  # single WARNING on unavailable, INFO on recovery in sensor.py
+  parallel-updates: done
   reauthentication-flow:
     status: exempt
     comment: >
       Heat Manager does not connect to any external device or service.
       It only interacts with existing Home Assistant entities (climate,
       person, binary_sensor, weather). No authentication is required.
-  test-coverage: todo
+  test-coverage: todo  # 58 tests — coverage not formally measured yet
 
   # ── Gold ──────────────────────────────────────────────────────────────────
   devices: todo
-  diagnostics: todo
+  diagnostics: done  # diagnostics.py — async_get_config_entry_diagnostics()
   discovery:
     status: exempt
     comment: >
@@ -47,7 +47,7 @@ rules:
   discovery-update-info:
     status: exempt
     comment: Same reason as discovery — no network devices.
-  docs-data-update: todo
+  docs-data-update: done
   docs-examples: done
   docs-known-limitations: done
   docs-supported-devices:
@@ -59,12 +59,12 @@ rules:
   docs-troubleshooting: done
   docs-use-cases: done
   dynamic-devices: todo
-  entity-category: todo
-  entity-device-class: todo
-  entity-disabled-by-default: todo
+  entity-category: done
+  entity-device-class: done
+  entity-disabled-by-default: done  # diagnostic/config entities off by default in all platforms
   entity-translations: done
-  exception-translations: todo
-  icon-translations: todo
+  exception-translations: done  # ServiceValidationError and ConfigEntryNotReady with translation_key
+  icon-translations: done  # icons.json with entity icon overrides
   reconfiguration-flow: done
   repair-issues: todo
   stale-devices: todo

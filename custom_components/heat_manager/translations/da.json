@@ -68,7 +68,7 @@
     "step": {
       "init": {
         "title": "Heat Manager indstillinger",
-        "data": { "section": "Hvad vil du redigere?" }
+        "data": {"section": "Hvad vil du redigere?"}
       },
       "global": {
         "title": "Sæson & globale indstillinger",
@@ -87,7 +87,7 @@
       "rooms_menu": {
         "title": "Administrér rum",
         "description": "Aktuelle rum: {room_count}. Vælg et rum for at slette det, eller tilføj et nyt.",
-        "data": { "action": "Handling" }
+        "data": {"action": "Handling"}
       },
       "room_add": {
         "title": "Tilføj et rum",
@@ -102,7 +102,7 @@
       "persons_menu": {
         "title": "Administrér personer",
         "description": "Aktuelle personer: {person_count}. Vælg en person for at slette, eller tilføj ny.",
-        "data": { "action": "Handling" }
+        "data": {"action": "Handling"}
       },
       "person_add": {
         "title": "Tilføj en person",
@@ -127,6 +127,42 @@
       "entity_not_found": "Entitet ikke fundet — kontrollér ID.",
       "duplicate_room": "Et rum med dette navn eksisterer allerede.",
       "duplicate_person": "Denne person er allerede tilføjet."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "pause_remaining":     {"name": "Pause tilbage"},
+      "energy_wasted_today": {"name": "Energi spildt i dag"},
+      "energy_saved_today":  {"name": "Energi sparet i dag"},
+      "efficiency_score":    {"name": "Effektivitetsscore"}
+    },
+    "select": {
+      "controller_state": {
+        "name": "Controllertilstand",
+        "state": {"on": "Til", "pause": "Pause", "off": "Fra"}
+      },
+      "season_mode": {
+        "name": "Sæsontilstand",
+        "state": {"auto": "Auto", "winter": "Vinter", "summer": "Sommer"}
+      }
+    },
+    "binary_sensor": {
+      "any_window_open": {"name": "Et eller flere vinduer åbne"},
+      "heating_wasted":  {"name": "Opvarmning spildt"}
+    },
+    "switch": {
+      "room_override": {"name": "Tilsidesæt"}
+    }
+  },
+  "exceptions": {
+    "invalid_controller_state": {
+      "message": "Ugyldig controllertilstand: {state}. Gyldige værdier: on, pause, off."
+    },
+    "room_not_found": {
+      "message": "Rum '{room_name}' findes ikke i Heat Manager-konfigurationen."
+    },
+    "setup_failed": {
+      "message": "Heat Manager kunne ikke fuldføre opstart — ingen klimaenheder er tilgængelige endnu."
     }
   }
 }

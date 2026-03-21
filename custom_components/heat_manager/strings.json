@@ -68,7 +68,7 @@
     "step": {
       "init": {
         "title": "Heat Manager options",
-        "data": { "section": "What would you like to edit?" }
+        "data": {"section": "What would you like to edit?"}
       },
       "global": {
         "title": "Season & global settings",
@@ -87,7 +87,7 @@
       "rooms_menu": {
         "title": "Manage rooms",
         "description": "Current rooms: {room_count}. Select a room to delete it, or add a new one.",
-        "data": { "action": "Action" }
+        "data": {"action": "Action"}
       },
       "room_add": {
         "title": "Add a room",
@@ -102,7 +102,7 @@
       "persons_menu": {
         "title": "Manage persons",
         "description": "Current persons: {person_count}. Select a person to delete, or add a new one.",
-        "data": { "action": "Action" }
+        "data": {"action": "Action"}
       },
       "person_add": {
         "title": "Add a person",
@@ -127,6 +127,42 @@
       "entity_not_found": "Entity not found — check the entity ID.",
       "duplicate_room": "A room with this name already exists.",
       "duplicate_person": "This person is already added."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "pause_remaining":     {"name": "Pause remaining"},
+      "energy_wasted_today": {"name": "Energy wasted today"},
+      "energy_saved_today":  {"name": "Energy saved today"},
+      "efficiency_score":    {"name": "Efficiency score"}
+    },
+    "select": {
+      "controller_state": {
+        "name": "Controller state",
+        "state": {"on": "On", "pause": "Pause", "off": "Off"}
+      },
+      "season_mode": {
+        "name": "Season mode",
+        "state": {"auto": "Auto", "winter": "Winter", "summer": "Summer"}
+      }
+    },
+    "binary_sensor": {
+      "any_window_open": {"name": "Any window open"},
+      "heating_wasted":  {"name": "Heating wasted"}
+    },
+    "switch": {
+      "room_override": {"name": "Override"}
+    }
+  },
+  "exceptions": {
+    "invalid_controller_state": {
+      "message": "Invalid controller state: {state}. Valid values: on, pause, off."
+    },
+    "room_not_found": {
+      "message": "Room '{room_name}' not found in Heat Manager configuration."
+    },
+    "setup_failed": {
+      "message": "Heat Manager could not complete startup — no climate entities are reachable yet."
     }
   }
 }

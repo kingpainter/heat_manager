@@ -3,11 +3,17 @@ Heat Manager — Sensor platform
 
 Entities
 --------
-sensor.heat_manager_pause_remaining          Minutes left in pause (0 when not paused)
-sensor.heat_manager_energy_wasted_today      kWh wasted (window open + heating running)
-sensor.heat_manager_efficiency_score         Daily score 0-100
+sensor.heat_manager_pause_remaining          Minutes left in pause
+sensor.heat_manager_energy_wasted_today      kWh wasted today (WasteCalculator)
+sensor.heat_manager_energy_saved_today       kWh saved today (WasteCalculator)
+sensor.heat_manager_efficiency_score         Daily score 0–100 (WasteCalculator)
 sensor.heat_manager_<room>_state             Per-room state string
 sensor.heat_manager_<room>_window_duration   Minutes window open today (diagnostic)
+
+Gold IQS:
+- entity-disabled-by-default: diagnostic sensors off by default
+- log-when-unavailable: single WARNING when climate unavailable, INFO on recovery
+- entity-unavailable: unavailable climate → unavailable per-room state sensor
 """
 from __future__ import annotations
 
@@ -28,6 +34,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util.dt import utcnow
 
 from .const import (
+    CONF_CLIMATE_ENTITY,
     CONF_WINDOW_SENSORS,
     DOMAIN,
     RoomState,
@@ -49,6 +56,7 @@ async def async_setup_entry(
     entities: list[SensorEntity] = [
         PauseRemainingSensor(coordinator, entry),
         EnergyWastedSensor(coordinator, entry),
+        EnergySavedSensor(coordinator, entry),
         EfficiencyScoreSensor(coordinator, entry),
     ]
 
@@ -71,7 +79,7 @@ class PauseRemainingSensor(CoordinatorEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:timer-pause"
+    _attr_entity_registry_enabled_default = False  # off by default — only needed for debugging
 
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -83,12 +91,7 @@ class PauseRemainingSensor(CoordinatorEntity, SensorEntity):
 
 
 class EnergyWastedSensor(CoordinatorEntity, SensorEntity):
-    """
-    Estimated kWh wasted today due to windows being open while heating runs.
-
-    Simple accumulator: 0.3 kW × open-window rooms × tick duration.
-    Resets at midnight. Placeholder until waste_calculator engine is written.
-    """
+    """kWh wasted today — windows open while heating runs."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "energy_wasted_today"
@@ -96,42 +99,39 @@ class EnergyWastedSensor(CoordinatorEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_suggested_display_precision = 2
-    _attr_icon = "mdi:fire-alert"
+    _attr_entity_registry_enabled_default = True  # shown by default — useful for dashboards
 
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_energy_wasted_today"
-        self._wasted_kwh: float = 0.0
-        self._last_reset_day: int = -1
 
     @property
     def native_value(self) -> float:
-        return round(self._wasted_kwh, 3)
+        return self.coordinator.energy_wasted_today
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        now = utcnow()
-        # Reset at start of new day
-        if now.day != self._last_reset_day:
-            self._wasted_kwh = 0.0
-            self._last_reset_day = now.day
 
-        window_rooms = sum(
-            1 for room in self.coordinator.rooms
-            if self.coordinator.get_room_state(room.get("room_name", "")) == RoomState.WINDOW_OPEN
-        )
-        # 0.3 kW per open-window room, tick = 60 seconds
-        tick_hours = 60 / 3600
-        self._wasted_kwh += window_rooms * 0.3 * tick_hours
+class EnergySavedSensor(CoordinatorEntity, SensorEntity):
+    """kWh saved today — away mode during expected heating hours."""
 
-        super()._handle_coordinator_update()
+    _attr_has_entity_name = True
+    _attr_translation_key = "energy_saved_today"
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_suggested_display_precision = 2
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_energy_saved_today"
+
+    @property
+    def native_value(self) -> float:
+        return self.coordinator.energy_saved_today
 
 
 class EfficiencyScoreSensor(CoordinatorEntity, SensorEntity):
-    """
-    Daily efficiency score 0-100.
-    Drops 10 points per 0.1 kWh wasted, floor at 0.
-    """
+    """Daily efficiency score 0–100."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "efficiency_score"
@@ -139,7 +139,7 @@ class EfficiencyScoreSensor(CoordinatorEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_suggested_display_precision = 0
-    _attr_icon = "mdi:gauge"
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -147,25 +147,22 @@ class EfficiencyScoreSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> int:
-        wasted_state = self.hass.states.get(
-            f"sensor.{DOMAIN}_energy_wasted_today"
-        )
-        if wasted_state and wasted_state.state not in ("unknown", "unavailable"):
-            try:
-                wasted = float(wasted_state.state)
-                return max(0, min(100, 100 - int(wasted * 100)))
-            except (TypeError, ValueError):
-                pass
-        return 100
+        return self.coordinator.efficiency_score
 
 
 # ── Per-room sensors ──────────────────────────────────────────────────────────
 
 class RoomStateSensor(CoordinatorEntity, SensorEntity):
-    """Current state of a single room."""
+    """
+    Current state of a single room.
+
+    Gold IQS — entity-unavailable + log-when-unavailable:
+    When the room's climate entity is unavailable, this sensor marks itself
+    unavailable too. Logs WARNING once on unavailable, INFO once on recovery.
+    """
 
     _attr_has_entity_name = True
-    _attr_icon = "mdi:radiator"
+    _attr_entity_registry_enabled_default = True
 
     def __init__(
         self,
@@ -174,10 +171,20 @@ class RoomStateSensor(CoordinatorEntity, SensorEntity):
         room: dict,
     ) -> None:
         super().__init__(coordinator)
-        self._room_name = room["room_name"]
+        self._room_name  = room["room_name"]
+        self._climate_id = room.get(CONF_CLIMATE_ENTITY, "")
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_state"
         self._attr_name = f"{self._room_name} state"
+        self._was_unavailable: bool = False
+
+    @property
+    def available(self) -> bool:
+        """Unavailable when the backing climate entity is unavailable."""
+        if not self._climate_id:
+            return True
+        s = self.coordinator.hass.states.get(self._climate_id)
+        return s is not None and s.state not in ("unavailable", "unknown")
 
     @property
     def native_value(self) -> str:
@@ -186,6 +193,25 @@ class RoomStateSensor(CoordinatorEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {"room_name": self._room_name}
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Log once on unavailable, once on recovery — never spam."""
+        is_unavailable = not self.available
+        if is_unavailable and not self._was_unavailable:
+            _LOGGER.warning(
+                "Heat Manager: climate entity %s is unavailable — "
+                "%s state sensor marked unavailable",
+                self._climate_id, self._room_name,
+            )
+        elif not is_unavailable and self._was_unavailable:
+            _LOGGER.info(
+                "Heat Manager: climate entity %s recovered — "
+                "%s state sensor available again",
+                self._climate_id, self._room_name,
+            )
+        self._was_unavailable = is_unavailable
+        super()._handle_coordinator_update()
 
 
 class RoomWindowDurationSensor(CoordinatorEntity, SensorEntity):
@@ -196,7 +222,7 @@ class RoomWindowDurationSensor(CoordinatorEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:window-open-variant"
+    _attr_entity_registry_enabled_default = False  # diagnostic — off by default
 
     def __init__(
         self,
@@ -223,18 +249,15 @@ class RoomWindowDurationSensor(CoordinatorEntity, SensorEntity):
         is_open = self.coordinator.get_room_state(self._room_name) == RoomState.WINDOW_OPEN
         now = utcnow()
 
-        # Reset at start of new day
         if now.day != self._last_reset_day:
-            self._total_minutes = 0
-            self._was_open = False
-            self._opened_at = None
+            self._total_minutes  = 0
+            self._was_open       = False
+            self._opened_at      = None
             self._last_reset_day = now.day
 
         if is_open and not self._was_open:
-            # Window just opened
             self._opened_at = now
         elif not is_open and self._was_open and self._opened_at is not None:
-            # Window just closed — add elapsed minutes
             elapsed = int((now - self._opened_at).total_seconds() / 60)
             self._total_minutes += elapsed
             self._opened_at = None

@@ -1,11 +1,7 @@
 """
 Heat Manager — Binary sensor platform
 
-Entities
---------
-binary_sensor.heat_manager_any_window_open   True when any configured window is open
-binary_sensor.heat_manager_heating_wasted    True when window open AND heating running
-binary_sensor.heat_manager_<room>_window     True when that specific room's window is open
+Gold IQS: entity-disabled-by-default applied to diagnostic sensors.
 """
 from __future__ import annotations
 
@@ -43,7 +39,6 @@ async def async_setup_entry(
         AnyWindowOpenSensor(coordinator, entry),
         HeatingWastedSensor(coordinator, entry),
     ]
-    # One per-room window sensor for rooms that have window sensors configured
     for room in coordinator.rooms:
         if room.get(CONF_WINDOW_SENSORS):
             entities.append(RoomWindowSensor(coordinator, entry, room))
@@ -57,7 +52,7 @@ class AnyWindowOpenSensor(CoordinatorEntity, BinarySensorEntity):
     _attr_has_entity_name = True
     _attr_translation_key = "any_window_open"
     _attr_device_class = BinarySensorDeviceClass.WINDOW
-    _attr_icon = "mdi:window-open"
+    _attr_entity_registry_enabled_default = True  # useful for automations
 
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -70,15 +65,14 @@ class AnyWindowOpenSensor(CoordinatorEntity, BinarySensorEntity):
 
 class HeatingWastedSensor(CoordinatorEntity, BinarySensorEntity):
     """
-    True when at least one window is open AND the corresponding room
-    climate entity is actively heating (not in away/off state).
-    This indicates energy waste.
+    True when a window is open AND the climate entity is actively heating.
+    Indicates energy waste in real time.
     """
 
     _attr_has_entity_name = True
     _attr_translation_key = "heating_wasted"
     _attr_device_class = BinarySensorDeviceClass.HEAT
-    _attr_icon = "mdi:fire-alert"
+    _attr_entity_registry_enabled_default = False  # diagnostic — off by default
 
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -86,24 +80,16 @@ class HeatingWastedSensor(CoordinatorEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool:
-        """
-        True if any room is in WINDOW_OPEN state AND the climate entity
-        is not already at the suppressed temperature (i.e. is still heating).
-        """
         for room in self.coordinator.rooms:
             room_name  = room.get("room_name", "")
             climate_id = room.get(CONF_CLIMATE_ENTITY, "")
             if not climate_id:
                 continue
-            room_state = self.coordinator.get_room_state(room_name)
-            if room_state != RoomState.WINDOW_OPEN:
+            if self.coordinator.get_room_state(room_name) != RoomState.WINDOW_OPEN:
                 continue
-            # Check if climate is actually running (hvac_action == "heating")
             cs = self.coordinator.hass.states.get(climate_id)
-            if cs:
-                hvac_action = cs.attributes.get("hvac_action", "")
-                if hvac_action == "heating":
-                    return True
+            if cs and cs.attributes.get("hvac_action") == "heating":
+                return True
         return False
 
 
@@ -112,6 +98,7 @@ class RoomWindowSensor(CoordinatorEntity, BinarySensorEntity):
 
     _attr_has_entity_name = True
     _attr_device_class = BinarySensorDeviceClass.WINDOW
+    _attr_entity_registry_enabled_default = False  # per-room detail — off by default
 
     def __init__(
         self,
@@ -129,6 +116,6 @@ class RoomWindowSensor(CoordinatorEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         return any(
-            (self.coordinator.hass.states.get(sid) or object()).state == "on"
+            (s := self.coordinator.hass.states.get(sid)) is not None and s.state == "on"
             for sid in self._sensors
         )

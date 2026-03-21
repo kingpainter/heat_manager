@@ -1,16 +1,14 @@
 """
 Heat Manager — Presence Engine
 
+Phase 3: log_event() calls added at every significant state transition.
 FIX: asyncio.ensure_future → hass.async_create_task throughout.
-     ensure_future is deprecated in HA context; async_create_task
-     properly ties the task lifetime to the HA event loop and gives
-     better traceability in logs.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import callback
@@ -93,7 +91,6 @@ class PresenceEngine:
 
     @callback
     def _handle_person_change(self, event: Any) -> None:
-        """FIX: Use async_create_task instead of ensure_future."""
         self.coordinator.hass.async_create_task(
             self._async_handle_person_change(event),
             name="heat_manager_person_change",
@@ -131,7 +128,6 @@ class PresenceEngine:
             self._all_left_at = utcnow()
             grace = self._grace_period_minutes()
             _LOGGER.info("Everyone left — starting %d min grace period", grace)
-            # FIX: async_create_task instead of ensure_future
             self._grace_timer_task = self.coordinator.hass.async_create_task(
                 self._grace_period_task(grace),
                 name="heat_manager_grace_timer",
@@ -144,6 +140,11 @@ class PresenceEngine:
             return
         if not self.coordinator.someone_home():
             await self._set_all_away()
+            self.coordinator.log_event(
+                f"Away mode — nobody home for {minutes} min",
+                "Grace period",
+                "away",
+            )
             if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
                 await self._notify(
                     title="Heat Manager",
@@ -154,7 +155,6 @@ class PresenceEngine:
 
     @callback
     def _handle_alarm_change(self, event: Any) -> None:
-        """FIX: Use async_create_task instead of ensure_future."""
         self.coordinator.hass.async_create_task(
             self._async_handle_alarm_change(event),
             name="heat_manager_alarm_change",
@@ -173,6 +173,7 @@ class PresenceEngine:
             async with self._lock:
                 self._cancel_grace_timer()
             await self._set_all_away()
+            self.coordinator.log_event("Heating off — alarm armed", "Alarm", "away")
             if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
                 await self._notify(
                     title="Heat Manager",
@@ -185,6 +186,9 @@ class PresenceEngine:
                 if self.coordinator.any_window_open():
                     await self._notify_windows_blocking_heat()
                 else:
+                    self.coordinator.log_event(
+                        "Heating resumed — alarm disarmed", "Alarm", "normal"
+                    )
                     await self._restore_all_schedule()
                     if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
                         await self._notify(
@@ -212,6 +216,9 @@ class PresenceEngine:
                     blocking=True,
                 )
                 self.coordinator.set_room_state(room_name, RoomState.AWAY)
+                self.coordinator.log_event(
+                    f"Away mode — {room_name}", "Presence", "away"
+                )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Failed to set away on %s: %s", entity_id, err)
 
@@ -235,6 +242,7 @@ class PresenceEngine:
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Failed to restore schedule on %s: %s", entity_id, err)
 
+        self.coordinator.log_event("Heating resumed — welcome home", "Presence", "normal")
         if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
             await self._notify(title="Heat Manager", message="Heating resumed — welcome home.")
 
@@ -253,7 +261,13 @@ class PresenceEngine:
             self.coordinator.set_room_state(room_name, RoomState.NORMAL)
             _LOGGER.info("Force-on: %s → schedule", entity_id)
             window_warn = " (windows still open — may be costly!)" if self.coordinator.any_window_open() else ""
-            await self._notify(title="Heat Manager", message=f"Heating forced on for {room_name}{window_warn}")
+            self.coordinator.log_event(
+                f"Heating forced on for {room_name}{window_warn}", "Override", "override"
+            )
+            await self._notify(
+                title="Heat Manager",
+                message=f"Heating forced on for {room_name}{window_warn}",
+            )
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("force_room_on failed for %s: %s", room_name, err)
 
@@ -284,7 +298,9 @@ class PresenceEngine:
         if actions:
             data["data"] = {"actions": actions}
         try:
-            await self.coordinator.hass.services.async_call(domain, service_name, data, blocking=True)
+            await self.coordinator.hass.services.async_call(
+                domain, service_name, data, blocking=True
+            )
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Notification failed (%s): %s", service, err)
 
@@ -295,7 +311,7 @@ class PresenceEngine:
         night_start = self.coordinator.config.get(CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR)
         night_end   = self.coordinator.config.get(CONF_NIGHT_END_HOUR,   DEFAULT_NIGHT_END_HOUR)
         is_night    = hour >= night_start or hour < night_end
-        key = CONF_GRACE_NIGHT_MIN if is_night else CONF_GRACE_DAY_MIN
+        key     = CONF_GRACE_NIGHT_MIN if is_night else CONF_GRACE_DAY_MIN
         default = DEFAULT_GRACE_NIGHT_MIN if is_night else DEFAULT_GRACE_DAY_MIN
         return int(self.coordinator.config.get(key, default))
 
@@ -307,7 +323,7 @@ class PresenceEngine:
         self._all_left_at = None
 
     async def async_tick(self) -> None:
-        """No-op — all presence logic is event-driven. Reserved for pre-heat ETA."""
+        """No-op — all presence logic is event-driven."""
 
     async def async_shutdown(self) -> None:
         self._cancel_grace_timer()

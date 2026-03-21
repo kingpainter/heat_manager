@@ -1,0 +1,21 @@
+{
+  "entity": {
+    "sensor": {
+      "pause_remaining":     {"default": "mdi:timer-pause"},
+      "energy_wasted_today": {"default": "mdi:fire-alert"},
+      "energy_saved_today":  {"default": "mdi:leaf"},
+      "efficiency_score":    {"default": "mdi:gauge"}
+    },
+    "select": {
+      "controller_state": {"default": "mdi:radiator"},
+      "season_mode":      {"default": "mdi:weather-partly-cloudy"}
+    },
+    "binary_sensor": {
+      "any_window_open": {"default": "mdi:window-open"},
+      "heating_wasted":  {"default": "mdi:fire-alert"}
+    },
+    "switch": {
+      "room_override": {"default": "mdi:thermostat-auto"}
+    }
+  }
+}
