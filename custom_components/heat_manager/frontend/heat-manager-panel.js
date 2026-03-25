@@ -1,14 +1,10 @@
 // Heat Manager Panel
-// Version: 0.2.0
-// Fix: controller box blink removed — _patchController() uses surgical
-//      style/textContent updates instead of outerHTML replacement.
-//      set hass(h) never touches the DOM directly.
-//
-// Blink fixes v0.2.0:
-//   - <style> injected once via querySelector guard — no FOUC on tab switches
-//   - _render() uses replaceWith() on .panel div — shadow root never wiped
-//   - connectedCallback shows skeleton without double render on first mount
-//   - setInterval calls _load() which calls _render() only after data arrives
+// Version: 0.2.1
+// Fix: replace insertAdjacentHTML on ShadowRoot with _srAppendHTML() helper.
+//      ShadowRoot.insertAdjacentHTML is not supported in WebKit (iOS 18/Safari).
+//      Both call sites (connectedCallback skeleton + _render fallback) now use
+//      the compatible helper which creates a <div>, sets innerHTML, then appends
+//      each child node individually — no insertAdjacentHTML on the root.
 
 class HeatManagerPanel extends HTMLElement {
   constructor() {
@@ -40,15 +36,16 @@ class HeatManagerPanel extends HTMLElement {
     if (this._data) {
       this._render();
     } else {
-      // Show a minimal skeleton so the panel doesn't appear blank
-      // Inject style once, then show skeleton
+      // Show a minimal skeleton so the panel doesn't appear blank.
       const _sr = this.shadowRoot;
       if (!_sr.querySelector("style")) {
         const _st = document.createElement("style");
         _st.textContent = this._css();
         _sr.appendChild(_st);
       }
-      _sr.insertAdjacentHTML("beforeend", `
+      // Use _srAppendHTML instead of insertAdjacentHTML — WebKit does not
+      // support insertAdjacentHTML on ShadowRoot (iOS 18 / Safari).
+      this._srAppendHTML(`
         <div class="panel">
           ${this._topbarHTML()}
           ${this._tabsHTML()}
@@ -65,6 +62,18 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   disconnectedCallback() { clearInterval(this._interval); }
+
+  // ── Safari-safe shadow root helper ────────────────────────────────────────
+
+  // ShadowRoot does not support insertAdjacentHTML in WebKit (Safari/iOS).
+  // This helper parses HTML into a temporary <div> and appends each
+  // top-level child node to the shadow root individually.
+  _srAppendHTML(html) {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html;
+    const root = this.shadowRoot;
+    while (tmp.firstChild) root.appendChild(tmp.firstChild);
+  }
 
   // ── Data ──────────────────────────────────────────────────────────────────
 
@@ -590,11 +599,13 @@ class HeatManagerPanel extends HTMLElement {
 
     if (existing) {
       // replaceWith instead of outerHTML — doesn't detach <style> node
-      const _tmp = document.createElement("div");
-      _tmp.innerHTML = html;
-      existing.replaceWith(_tmp.firstElementChild);
+      const tmp = document.createElement("div");
+      tmp.innerHTML = html;
+      existing.replaceWith(tmp.firstElementChild);
     } else {
-      root.insertAdjacentHTML("beforeend", html);
+      // insertAdjacentHTML is not supported on ShadowRoot in WebKit (iOS/Safari).
+      // Use _srAppendHTML which parses via a temporary <div> and appends nodes.
+      this._srAppendHTML(html);
     }
 
     this._attachEvents();
