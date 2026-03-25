@@ -1,55 +1,82 @@
 // Heat Manager Panel
-// Version: 0.2.2
+// Version: 0.2.3
 //
-// Blink fixes v0.2.2:
-//   - connectedCallback no longer renders a skeleton with buttons.
-//     It only injects <style> + an empty loading placeholder div.
-//     This eliminates the skeleton→full-render flash that caused the
-//     ON button (and other ctrl buttons) to blink on first load.
-//   - _render() still does a full replaceWith() on tab switches and
-//     first data arrival, but _patchController() is always called
-//     immediately after _render() so button colours are applied
-//     surgically on top of the freshly-rendered DOM — never via
-//     string interpolation inside _controllerHTML().
-//   - _controllerHTML() no longer bakes active button styles into
-//     inline style="" attributes. All three buttons are rendered
-//     unstyled; _patchController() is the single source of truth
-//     for button colours. This prevents the double-paint that
-//     caused the blink (render sets style A, patch corrects to B).
-//   - set hass() path unchanged: non-first updates still go through
-//     _syncFromEntities → _patchController → _patchTopbarBadge
-//     without touching the DOM structure at all.
-//   - iOS/Safari fix from v0.2.1 retained:
-//     ShadowRoot.insertAdjacentHTML replaced with _srAppendHTML().
+// Blink root cause (found in 0.2.3 analysis):
+//   HA's ha-panel-custom sets `hass` on the element multiple times during
+//   panel boot — sometimes 3-6 times in rapid succession. The previous
+//   guard (`const first = !this._hass`) only called _load() once, but
+//   _load() is async. While it awaited the WS response, additional hass
+//   sets arrived and called _patchController() on a DOM that did not yet
+//   have buttons (data was null). Those were no-ops. However _load() then
+//   completed and called _render() + _patchController(), painting the
+//   correct colour. The visible blink came from a subtler source:
+//
+//   HA fires a `state_changed` event for select.heat_manager_controller_state
+//   immediately after setup. That event triggers yet another `set hass()`,
+//   which ran _syncFromEntities() + _patchController() correctly — but then
+//   HA called _render() a second time via the 30s interval landing early,
+//   OR a second `_load()` was in-flight because _hass was already set but
+//   _data was null when a rapid second hass arrived before the WS completed.
+//
+// Fixes applied in 0.2.3:
+//   1. _loadInFlight flag — prevents concurrent _load() calls.
+//      If hass arrives a second time while a WS fetch is pending,
+//      the new hass is stored but no second _load() is started.
+//   2. set hass() compares new controller_state to previous before
+//      calling _patchController/_patchTopbarBadge — avoids a no-op
+//      DOM write that still flushes a style recalc in some browsers.
+//   3. _render() is debounced via requestAnimationFrame — if _render()
+//      is called twice in the same JS task (e.g. _load() completes and
+//      a hass set also triggers a patch in the same microtask queue),
+//      only one actual DOM replacement executes per frame.
+//   4. connectedCallback never renders UI — only <style> + empty .panel.
+//      (retained from 0.2.2)
+//   5. _controllerHTML() never bakes active-state colours into HTML.
+//      _patchController() is sole colour authority. (retained from 0.2.2)
+//   6. No CSS transition on .ctrl-btn — avoids animated flash.
+//      (retained from 0.2.2)
+//   7. ShadowRoot.insertAdjacentHTML replaced with _srAppendHTML().
+//      (retained from 0.2.1)
 
 class HeatManagerPanel extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._hass     = null;
-    this._tab      = "overview";
-    this._data     = null;
-    this._history  = null;
-    this._errCount = 0;
-    this._interval = null;
+    this._hass          = null;
+    this._tab           = "overview";
+    this._data          = null;
+    this._history       = null;
+    this._errCount      = 0;
+    this._interval      = null;
+    this._loadInFlight  = false;   // prevents concurrent WS fetches
+    this._renderPending = false;   // rAF debounce flag
+    this._lastCtrlState = null;    // tracks last painted controller state
   }
 
   set hass(h) {
-    const first = !this._hass;
+    const wasNull = !this._hass;
     this._hass = h;
-    if (first) this._load();
-    else {
-      this._syncFromEntities();
+
+    if (wasNull) {
+      // First hass — kick off the initial WS fetch.
+      this._load();
+      return;
+    }
+
+    // Subsequent hass sets: sync state and patch only if value changed.
+    if (!this._data) return;   // still waiting for first WS response
+    this._syncFromEntities();
+    const newCtrl = this._data.controller_state;
+    if (newCtrl !== this._lastCtrlState) {
+      this._lastCtrlState = newCtrl;
       this._patchController();
       this._patchTopbarBadge();
     }
   }
 
   connectedCallback() {
-    // Inject <style> once and show a neutral loading placeholder.
-    // We do NOT render buttons or controller UI here — that would
-    // produce a blink because the skeleton has no active-state
-    // colours and _render() would immediately replace it.
+    // Only inject <style> and an empty .panel shell.
+    // No buttons, no controller HTML — avoids skeleton→full-render flash.
     const root = this.shadowRoot;
     if (!root.querySelector("style")) {
       const st = document.createElement("style");
@@ -59,10 +86,8 @@ class HeatManagerPanel extends HTMLElement {
     if (!root.querySelector(".panel")) {
       this._srAppendHTML(`<div class="panel"><div class="loading-placeholder"></div></div>`);
     }
-
-    // If we already have data (e.g. panel reconnected after navigation),
-    // render immediately so the panel is not blank on return.
-    if (this._data) this._render();
+    // Re-render if we already have data (panel reconnected after navigation).
+    if (this._data) this._scheduleRender();
 
     this._interval = setInterval(() => {
       if (this._errCount > 3) { clearInterval(this._interval); return; }
@@ -73,9 +98,6 @@ class HeatManagerPanel extends HTMLElement {
   disconnectedCallback() { clearInterval(this._interval); }
 
   // ── Safari-safe shadow root helper ────────────────────────────────────────
-
-  // ShadowRoot.insertAdjacentHTML is not supported in WebKit (iOS 18/Safari).
-  // Parse HTML via a temporary <div> and move child nodes to the shadow root.
   _srAppendHTML(html) {
     const tmp = document.createElement("div");
     tmp.innerHTML = html;
@@ -83,19 +105,36 @@ class HeatManagerPanel extends HTMLElement {
     while (tmp.firstChild) root.appendChild(tmp.firstChild);
   }
 
+  // ── rAF render debounce ───────────────────────────────────────────────────
+  // Coalesces multiple _render() calls in the same task into one DOM write.
+  _scheduleRender() {
+    if (this._renderPending) return;
+    this._renderPending = true;
+    requestAnimationFrame(() => {
+      this._renderPending = false;
+      this._render();
+    });
+  }
+
   // ── Data ──────────────────────────────────────────────────────────────────
 
   async _load() {
     if (!this._hass) return;
+    if (this._loadInFlight) return;   // drop concurrent fetch
+    this._loadInFlight = true;
     try {
       this._data     = await this._hass.callWS({ type: "heat_manager/get_state" });
       this._errCount = 0;
     } catch (e) {
       this._errCount++;
       this._data = this._entitiesSnapshot();
+    } finally {
+      this._loadInFlight = false;
     }
     if (this._tab === "history" && !this._history) await this._loadHistory();
-    this._render();
+    // Record the state we are about to paint so the hass setter can diff against it.
+    this._lastCtrlState = this._data?.controller_state ?? null;
+    this._scheduleRender();
   }
 
   async _loadHistory() {
@@ -176,6 +215,7 @@ class HeatManagerPanel extends HTMLElement {
     try {
       await this._hass.callService("heat_manager", "set_controller_state", { state });
       if (this._data) this._data.controller_state = state;
+      this._lastCtrlState = state;
       this._patchController();
       this._patchTopbarBadge();
     } catch (e) { console.error("[HeatManager]", e); }
@@ -185,6 +225,7 @@ class HeatManagerPanel extends HTMLElement {
     try {
       await this._hass.callService("heat_manager", "pause", { duration_minutes: minutes });
       if (this._data) { this._data.controller_state = "pause"; this._data.pause_remaining = minutes; }
+      this._lastCtrlState = "pause";
       this._patchController();
       this._patchTopbarBadge();
     } catch (e) { console.error("[HeatManager]", e); }
@@ -194,6 +235,7 @@ class HeatManagerPanel extends HTMLElement {
     try {
       await this._hass.callService("heat_manager", "resume", {});
       if (this._data) { this._data.controller_state = "on"; this._data.pause_remaining = 0; }
+      this._lastCtrlState = "on";
       this._patchController();
       this._patchTopbarBadge();
     } catch (e) { console.error("[HeatManager]", e); }
@@ -357,14 +399,11 @@ class HeatManagerPanel extends HTMLElement {
     ].map(t => `<button class="tab${this._tab===t.id?" active":""}" data-tab="${t.id}">${t.label}</button>`).join("")}</div>`;
   }
 
-  // NOTE: _controllerHTML() renders buttons WITHOUT any active-state inline
-  // styles. _patchController() is always called after _render() and is the
-  // sole place that sets button colours. This prevents the double-paint blink
-  // that occurred when string interpolation baked one colour into the HTML
-  // and _patchController() then immediately wrote a different value.
+  // Buttons are rendered WITHOUT active-state inline styles.
+  // _patchController() is the sole colour authority, called after every _render().
   _controllerHTML() {
-    const pauseLeft = this._data?.pause_remaining ?? 0;
     const ctrl      = this._data?.controller_state ?? "unknown";
+    const pauseLeft = this._data?.pause_remaining ?? 0;
     const showPause = ctrl === "pause" && pauseLeft > 0;
     return `
       <div class="card" id="ctrl-card">
@@ -582,7 +621,6 @@ class HeatManagerPanel extends HTMLElement {
       config:   () => this._configTabHTML(),
     }[this._tab]?.() ?? "";
 
-    // Inject <style> only once — reuse on subsequent renders to prevent FOUC.
     const root = this.shadowRoot;
     if (!root.querySelector("style")) {
       const style = document.createElement("style");
@@ -599,18 +637,15 @@ class HeatManagerPanel extends HTMLElement {
 
     const existing = root.querySelector(".panel");
     if (existing) {
-      // Replace in-place to preserve the <style> node.
       const tmp = document.createElement("div");
       tmp.innerHTML = html;
       existing.replaceWith(tmp.firstElementChild);
     } else {
-      // First render — ShadowRoot.insertAdjacentHTML unsupported in WebKit.
       this._srAppendHTML(html);
     }
 
-    // Always apply button colours after structural render.
-    // _controllerHTML() renders buttons without inline styles deliberately —
-    // _patchController() is the single source of truth for active colours.
+    // _patchController() is the sole source of button colours.
+    // Called synchronously here — buttons exist in DOM at this point.
     this._patchController();
     this._attachEvents();
   }
@@ -619,8 +654,8 @@ class HeatManagerPanel extends HTMLElement {
     const root = this.shadowRoot;
     root.querySelectorAll(".tab").forEach(btn => btn.addEventListener("click", () => {
       this._tab = btn.dataset.tab;
-      if (this._tab === "history" && !this._history) this._loadHistory().then(() => this._render());
-      else this._render();
+      if (this._tab === "history" && !this._history) this._loadHistory().then(() => this._scheduleRender());
+      else this._scheduleRender();
     }));
     root.querySelector("[data-action='refresh']")?.addEventListener("click", () => this._load());
     root.querySelector("[data-action='on']")?.addEventListener("click",     () => this._setController("on"));
