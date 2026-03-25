@@ -13,6 +13,31 @@ _Nothing yet._
 
 ---
 
+## [0.2.1] — 2026-03-25
+
+### Fixed
+- Fixed B5 — `ShadowRoot.insertAdjacentHTML` is not implemented in WebKit (iOS 18 /
+  Safari). Both call sites in `heat-manager-panel.js` (`connectedCallback` skeleton path
+  and `_render()` first-render fallback) now use a new `_srAppendHTML()` helper that
+  parses HTML via a temporary `<div>` and appends child nodes individually.
+- Fixed B6 — ON button (and other controller buttons) blinked on panel load. Root cause:
+  `connectedCallback` rendered a full skeleton with unstyled buttons, then `_load()` called
+  `_render()` milliseconds later via `replaceWith()`, causing a visible double-paint.
+  `connectedCallback` now injects only `<style>` and an empty `.panel` shell with no
+  buttons. `_controllerHTML()` no longer bakes active-state colours into inline `style=""`
+  attributes — `_patchController()` is the sole colour authority, always called after
+  `_render()`. CSS `transition` removed from `.ctrl-btn` to prevent animated flash.
+- Fixed B7 — button blink persisted due to three concurrent render triggers: (1) HA's
+  `ha-panel-custom` calling `set hass()` 4–8 times in rapid succession at boot, (2) a
+  second `_load()` starting while the first WS fetch was still in flight, (3) a redundant
+  `_patchController()` DOM write on every `set hass()` even when `controller_state` had
+  not changed. Fixed by adding a `_loadInFlight` guard that drops concurrent fetches, a
+  `_lastCtrlState` diff in `set hass()` that skips the patch when state is unchanged, and
+  a `_scheduleRender()` debounce via `requestAnimationFrame` that coalesces multiple render
+  calls within the same JS task into a single DOM swap per frame.
+
+---
+
 ## [0.2.0] — 2026-03-21
 
 ### Added
@@ -120,6 +145,7 @@ _Nothing yet._
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/kingpainter/heat-manager/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/kingpainter/heat-manager/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kingpainter/heat-manager/releases/tag/v0.1.0
