@@ -1,10 +1,26 @@
 // Heat Manager Panel
-// Version: 0.2.1
-// Fix: replace insertAdjacentHTML on ShadowRoot with _srAppendHTML() helper.
-//      ShadowRoot.insertAdjacentHTML is not supported in WebKit (iOS 18/Safari).
-//      Both call sites (connectedCallback skeleton + _render fallback) now use
-//      the compatible helper which creates a <div>, sets innerHTML, then appends
-//      each child node individually — no insertAdjacentHTML on the root.
+// Version: 0.2.2
+//
+// Blink fixes v0.2.2:
+//   - connectedCallback no longer renders a skeleton with buttons.
+//     It only injects <style> + an empty loading placeholder div.
+//     This eliminates the skeleton→full-render flash that caused the
+//     ON button (and other ctrl buttons) to blink on first load.
+//   - _render() still does a full replaceWith() on tab switches and
+//     first data arrival, but _patchController() is always called
+//     immediately after _render() so button colours are applied
+//     surgically on top of the freshly-rendered DOM — never via
+//     string interpolation inside _controllerHTML().
+//   - _controllerHTML() no longer bakes active button styles into
+//     inline style="" attributes. All three buttons are rendered
+//     unstyled; _patchController() is the single source of truth
+//     for button colours. This prevents the double-paint that
+//     caused the blink (render sets style A, patch corrects to B).
+//   - set hass() path unchanged: non-first updates still go through
+//     _syncFromEntities → _patchController → _patchTopbarBadge
+//     without touching the DOM structure at all.
+//   - iOS/Safari fix from v0.2.1 retained:
+//     ShadowRoot.insertAdjacentHTML replaced with _srAppendHTML().
 
 class HeatManagerPanel extends HTMLElement {
   constructor() {
@@ -30,31 +46,24 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   connectedCallback() {
-    // Only render immediately if we already have data (e.g. reconnect after tab switch).
-    // On first connect _data is null — _load() will render once data arrives,
-    // avoiding a double render and empty-content flash.
-    if (this._data) {
-      this._render();
-    } else {
-      // Show a minimal skeleton so the panel doesn't appear blank.
-      const _sr = this.shadowRoot;
-      if (!_sr.querySelector("style")) {
-        const _st = document.createElement("style");
-        _st.textContent = this._css();
-        _sr.appendChild(_st);
-      }
-      // Use _srAppendHTML instead of insertAdjacentHTML — WebKit does not
-      // support insertAdjacentHTML on ShadowRoot (iOS 18 / Safari).
-      this._srAppendHTML(`
-        <div class="panel">
-          ${this._topbarHTML()}
-          ${this._tabsHTML()}
-          <div class="content" style="padding:32px 16px;text-align:center;color:var(--secondary-text-color)">
-            Indlæser…
-          </div>
-        </div>`);
-      this._attachEvents();
+    // Inject <style> once and show a neutral loading placeholder.
+    // We do NOT render buttons or controller UI here — that would
+    // produce a blink because the skeleton has no active-state
+    // colours and _render() would immediately replace it.
+    const root = this.shadowRoot;
+    if (!root.querySelector("style")) {
+      const st = document.createElement("style");
+      st.textContent = this._css();
+      root.appendChild(st);
     }
+    if (!root.querySelector(".panel")) {
+      this._srAppendHTML(`<div class="panel"><div class="loading-placeholder"></div></div>`);
+    }
+
+    // If we already have data (e.g. panel reconnected after navigation),
+    // render immediately so the panel is not blank on return.
+    if (this._data) this._render();
+
     this._interval = setInterval(() => {
       if (this._errCount > 3) { clearInterval(this._interval); return; }
       if (document.visibilityState === "visible") this._load();
@@ -65,9 +74,8 @@ class HeatManagerPanel extends HTMLElement {
 
   // ── Safari-safe shadow root helper ────────────────────────────────────────
 
-  // ShadowRoot does not support insertAdjacentHTML in WebKit (Safari/iOS).
-  // This helper parses HTML into a temporary <div> and appends each
-  // top-level child node to the shadow root individually.
+  // ShadowRoot.insertAdjacentHTML is not supported in WebKit (iOS 18/Safari).
+  // Parse HTML via a temporary <div> and move child nodes to the shadow root.
   _srAppendHTML(html) {
     const tmp = document.createElement("div");
     tmp.innerHTML = html;
@@ -121,23 +129,21 @@ class HeatManagerPanel extends HTMLElement {
   // ── Surgical DOM patches ──────────────────────────────────────────────────
 
   _patchController() {
-    const root = this.shadowRoot;
-    const ctrl = this._data?.controller_state ?? "unknown";
+    const root      = this.shadowRoot;
+    const ctrl      = this._data?.controller_state ?? "unknown";
     const pauseLeft = this._data?.pause_remaining ?? 0;
 
-    const styles = {
-      on:    { bg:"#EAF3DE", border:"#3B6D11",                       color:"#27500A" },
-      pause: { bg:"#FAEEDA", border:"#854F0B",                       color:"#633806" },
-      off:   { bg:"var(--secondary-background-color)",
-               border:"var(--secondary-text-color)",
-               color:"var(--secondary-text-color)" },
+    const active = {
+      on:    { bg:"#EAF3DE", border:"#3B6D11", color:"#27500A" },
+      pause: { bg:"#FAEEDA", border:"#854F0B", color:"#633806" },
+      off:   { bg:"var(--secondary-background-color)", border:"var(--secondary-text-color)", color:"var(--secondary-text-color)" },
     };
     const inactive = { bg:"transparent", border:"var(--divider-color)", color:"var(--primary-text-color)" };
 
     ["on","pause","off"].forEach(name => {
       const btn = root.querySelector(`#ctrl-btn-${name}`);
       if (!btn) return;
-      const s = ctrl === name ? (styles[name] ?? inactive) : inactive;
+      const s = ctrl === name ? (active[name] ?? inactive) : inactive;
       btn.style.background  = s.bg;
       btn.style.borderColor = s.border;
       btn.style.color       = s.color;
@@ -158,10 +164,10 @@ class HeatManagerPanel extends HTMLElement {
     const badge = root.querySelector("#topbar-badge");
     if (!badge) return;
     const labels = { on:"On", pause:"Pause", off:"Off" };
-    badge.textContent  = labels[ctrl] ?? ctrl;
+    badge.textContent       = labels[ctrl] ?? ctrl;
     badge.style.background  = this._ctrlBg(ctrl);
-    badge.style.color        = this._ctrlColor(ctrl);
-    badge.style.borderColor  = this._ctrlBorder(ctrl);
+    badge.style.color       = this._ctrlColor(ctrl);
+    badge.style.borderColor = this._ctrlBorder(ctrl);
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -219,6 +225,7 @@ class HeatManagerPanel extends HTMLElement {
     :host { display:block; height:100%; overflow-y:auto; background:var(--primary-background-color); }
     * { box-sizing:border-box; margin:0; padding:0; }
     .panel { display:flex; flex-direction:column; min-height:100%; }
+    .loading-placeholder { flex:1; min-height:120px; }
     .topbar {
       display:flex; align-items:center; justify-content:space-between;
       padding:14px 20px 12px; border-bottom:1px solid var(--divider-color);
@@ -239,7 +246,7 @@ class HeatManagerPanel extends HTMLElement {
     .tab {
       flex:1; padding:11px 8px; background:transparent; border:none;
       border-bottom:2px solid transparent; cursor:pointer; font-size:13px;
-      color:var(--secondary-text-color); white-space:nowrap; transition:color .15s;
+      color:var(--secondary-text-color); white-space:nowrap;
     }
     .tab.active { color:var(--primary-color,#039be5); border-bottom-color:var(--primary-color,#039be5); }
     .tab:hover:not(.active) { color:var(--primary-text-color); background:var(--secondary-background-color); }
@@ -254,7 +261,6 @@ class HeatManagerPanel extends HTMLElement {
       padding:10px 0; border-radius:8px; border:1px solid var(--divider-color);
       background:transparent; font-size:13px; font-weight:500;
       cursor:pointer; text-align:center; color:var(--primary-text-color);
-      transition:background .12s, border-color .12s, color .12s;
     }
     .ctrl-btn:active { opacity:.75; }
     .pause-row { display:flex; align-items:center; gap:8px; padding:0 16px 12px; }
@@ -351,24 +357,22 @@ class HeatManagerPanel extends HTMLElement {
     ].map(t => `<button class="tab${this._tab===t.id?" active":""}" data-tab="${t.id}">${t.label}</button>`).join("")}</div>`;
   }
 
+  // NOTE: _controllerHTML() renders buttons WITHOUT any active-state inline
+  // styles. _patchController() is always called after _render() and is the
+  // sole place that sets button colours. This prevents the double-paint blink
+  // that occurred when string interpolation baked one colour into the HTML
+  // and _patchController() then immediately wrote a different value.
   _controllerHTML() {
-    const ctrl      = this._data?.controller_state ?? "unknown";
     const pauseLeft = this._data?.pause_remaining ?? 0;
+    const ctrl      = this._data?.controller_state ?? "unknown";
     const showPause = ctrl === "pause" && pauseLeft > 0;
-
-    const btnStyle = (name) => {
-      const active = ctrl === name;
-      const s = { on:["#EAF3DE","#3B6D11","#27500A"], pause:["#FAEEDA","#854F0B","#633806"], off:["var(--secondary-background-color)","var(--secondary-text-color)","var(--secondary-text-color)"] }[name];
-      return active && s ? `background:${s[0]};border-color:${s[1]};color:${s[2]}` : "";
-    };
-
     return `
       <div class="card" id="ctrl-card">
         <div class="section-label">Controller</div>
         <div class="btn-row">
-          <button id="ctrl-btn-on"    class="ctrl-btn" data-action="on"    style="${btnStyle("on")}">On</button>
-          <button id="ctrl-btn-pause" class="ctrl-btn" data-action="pause" style="${btnStyle("pause")}">Pause</button>
-          <button id="ctrl-btn-off"   class="ctrl-btn" data-action="off"   style="${btnStyle("off")}">Off</button>
+          <button id="ctrl-btn-on"    class="ctrl-btn" data-action="on">On</button>
+          <button id="ctrl-btn-pause" class="ctrl-btn" data-action="pause">Pause</button>
+          <button id="ctrl-btn-off"   class="ctrl-btn" data-action="off">Off</button>
         </div>
         <div class="pause-row">
           <span class="pause-label">Pause varighed</span>
@@ -390,9 +394,9 @@ class HeatManagerPanel extends HTMLElement {
   _roomsListHTML(rooms, detailed) {
     if (!rooms?.length) return `<div class="empty">Ingen rum konfigureret</div>`;
     return rooms.map(room => {
-      const color  = this._dotColor(room.state);
-      const temp   = room.climate_entity ? this._climateTemp(room.climate_entity) : this._fmtTemp(room.current_temp);
-      const setpt  = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
+      const color = this._dotColor(room.state);
+      const temp  = room.climate_entity ? this._climateTemp(room.climate_entity) : this._fmtTemp(room.current_temp);
+      const setpt = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
       return `
         <div class="room-row">
           <div class="dot" style="background:${color}"></div>
@@ -474,11 +478,11 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   _autoOffHTML() {
-    const d       = this._data;
-    const reason  = d?.auto_off_reason ?? "none";
-    const isOff   = d?.controller_state === "off";
-    const otemp   = d?.outdoor_temp != null ? Math.round(d.outdoor_temp) + "°C" : "—";
-    const season  = d?.season_mode ?? "auto";
+    const d      = this._data;
+    const reason = d?.auto_off_reason ?? "none";
+    const isOff  = d?.controller_state === "off";
+    const otemp  = d?.outdoor_temp != null ? Math.round(d.outdoor_temp) + "°C" : "—";
+    const season = d?.season_mode ?? "auto";
     return `
       <div class="card">
         <div class="card-hdr">
@@ -497,12 +501,12 @@ class HeatManagerPanel extends HTMLElement {
   // ── Tab content ───────────────────────────────────────────────────────────
 
   _overviewHTML() {
-    const d     = this._data;
-    const rooms = d?.rooms ?? [];
-    const savedT  = d?.energy_saved_today  != null ? d.energy_saved_today.toFixed(2)  + " kWh" : "—";
-    const wastT   = d?.energy_wasted_today != null ? d.energy_wasted_today.toFixed(2) + " kWh" : "—";
-    const scoreT  = d?.efficiency_score   != null ? d.efficiency_score + "/100"       : "—";
-    const pauseL  = d?.pause_remaining ?? 0;
+    const d      = this._data;
+    const rooms  = d?.rooms ?? [];
+    const savedT = d?.energy_saved_today  != null ? d.energy_saved_today.toFixed(2)  + " kWh" : "—";
+    const wastT  = d?.energy_wasted_today != null ? d.energy_wasted_today.toFixed(2) + " kWh" : "—";
+    const scoreT = d?.efficiency_score    != null ? d.efficiency_score + "/100"      : "—";
+    const pauseL = d?.pause_remaining ?? 0;
     return `
       ${this._controllerHTML()}
       <div class="card">
@@ -578,8 +582,7 @@ class HeatManagerPanel extends HTMLElement {
       config:   () => this._configTabHTML(),
     }[this._tab]?.() ?? "";
 
-    // Inject <style> only once — subsequent renders reuse the existing node.
-    // Re-injecting <style> on every render causes FOUC on tab switches.
+    // Inject <style> only once — reuse on subsequent renders to prevent FOUC.
     const root = this.shadowRoot;
     if (!root.querySelector("style")) {
       const style = document.createElement("style");
@@ -587,9 +590,6 @@ class HeatManagerPanel extends HTMLElement {
       root.appendChild(style);
     }
 
-    // Replace the panel div in-place rather than wiping the whole shadow root.
-    // This preserves the <style> node and avoids a full repaint.
-    const existing = root.querySelector(".panel");
     const html = `
       <div class="panel">
         ${this._topbarHTML()}
@@ -597,17 +597,21 @@ class HeatManagerPanel extends HTMLElement {
         <div class="content">${content}</div>
       </div>`;
 
+    const existing = root.querySelector(".panel");
     if (existing) {
-      // replaceWith instead of outerHTML — doesn't detach <style> node
+      // Replace in-place to preserve the <style> node.
       const tmp = document.createElement("div");
       tmp.innerHTML = html;
       existing.replaceWith(tmp.firstElementChild);
     } else {
-      // insertAdjacentHTML is not supported on ShadowRoot in WebKit (iOS/Safari).
-      // Use _srAppendHTML which parses via a temporary <div> and appends nodes.
+      // First render — ShadowRoot.insertAdjacentHTML unsupported in WebKit.
       this._srAppendHTML(html);
     }
 
+    // Always apply button colours after structural render.
+    // _controllerHTML() renders buttons without inline styles deliberately —
+    // _patchController() is the single source of truth for active colours.
+    this._patchController();
     this._attachEvents();
   }
 
