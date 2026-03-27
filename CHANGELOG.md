@@ -13,6 +13,39 @@ _Nothing yet._
 
 ---
 
+## [0.2.8] — 2026-03-28
+
+### Fixed
+- Fixed B-CONFIG-2 — `homekit_climate_entity` and `pi_demand_entity` config flow fields
+  used HA `entity` selectors, which reject empty strings even for optional fields. Both
+  fields now use `text` selectors so Zigbee TRV rooms (which have no HomeKit entity)
+  can be saved without a validation error. Engines continue to guard with `or None` at
+  read time. This unblocked Badeværelse (Zigbee Z2M TRV) room configuration.
+- Fixed B-429 — Netatmo API returned HTTP 429 on `setthermmode` when Heat Manager
+  called `set_preset_mode` on all four Netatmo rooms nearly simultaneously. Added
+  `asyncio.sleep(0.6)` between each room in both `_set_all_away()` and
+  `_restore_all_schedule()` in `presence_engine.py`. Staggering the calls 600 ms
+  apart brings burst traffic well within Netatmo's tolerance.
+- Fixed B-PANEL-ENTITY-ID — after reinstalling the integration the config entry ID
+  changes, making entity IDs like `select.heat_manager_controller_state` stale (new
+  format: `select.heat_manager_01km1bjqb193y3hf2aec3x66w3_controller_state`). The
+  panel's `_syncFromEntities()` and `_entitiesSnapshot()` hardcoded the old IDs and
+  therefore always read `"unknown"`. Fixed by `_resolveEntityIds()` which scans
+  `hass.states` once on first use and finds the three panel entities by suffix
+  (`_controller_state`, `_season_mode`, `_pause_remaining`). Resolves the
+  On / Pause / Off buttons never rendering after reinstall.
+- Fixed B-PANEL-RAF — `_scheduleRender()` used `requestAnimationFrame` which stalls
+  in HA's panel context when the panel is not the active viewport, leaving
+  `_renderPending = true` permanently and the panel blank. Switched to `setTimeout(0)`.
+
+### Changed
+- `frontend/heat-manager-panel.js` — `_seasonTriggerLabel(season, reason)` method
+  added. Replaces the inline ternary `season==='summer' ? 'Sommer — aktiv' : 'Vinter
+  — inaktiv'` with context-aware labels: `Vinter — kører normalt`, `Vinter — slået
+  fra`, `Sommer — auto-off klar`, `Sommer — slået fra`, `Auto — overvåger ude-temp`.
+
+---
+
 ## [0.2.7] — 2026-03-27
 
 ### Added
@@ -255,7 +288,9 @@ _Nothing yet._
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.2.8...HEAD
+[0.2.8]: https://github.com/kingpainter/heat-manager/compare/v0.2.7...v0.2.8
+[0.2.7]: https://github.com/kingpainter/heat-manager/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/kingpainter/heat-manager/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/kingpainter/heat-manager/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/kingpainter/heat-manager/compare/v0.2.1...v0.2.4
