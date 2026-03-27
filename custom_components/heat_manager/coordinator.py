@@ -312,6 +312,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
           5. Window engine (open-window escalation warnings)
           6. Waste calculator (energy accounting)
           7. Preheat engine (travel_time polling no-op)
+          8. PID tick (proportional TRV setpoints for NORMAL rooms)
         """
         try:
             self._refresh_outdoor_temperature()
@@ -328,6 +329,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.waste_calculator.async_tick()
             await self.preheat_engine.async_tick()
 
+            # PID last — needs all state from above to be settled first
+            await self._async_pid_tick()
+
         except Exception as err:  # noqa: BLE001
             raise UpdateFailed(f"Heat Manager update failed: {err}") from err
 
@@ -342,6 +346,106 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "energy_saved_today":   self.energy_saved_today,
             "efficiency_score":     self.efficiency_score,
         }
+
+    async def _async_pid_tick(self) -> None:
+        """
+        Drive the PID controller for every room currently in NORMAL state.
+
+        Guard conditions (all must be true to run PID for a room):
+        - pid_enabled is True (global toggle)
+        - controller_state is ON (not PAUSE or OFF)
+        - effective_season is WINTER (no TRV control in summer)
+        - room_state is NORMAL (not AWAY / WINDOW_OPEN / PRE_HEAT / OVERRIDE)
+        - climate entity is available and has current_temperature
+        - climate entity has a target_temperature (the schedule setpoint)
+
+        On any other state the PID is reset so integral debt cannot
+        accumulate while the controller is not in authority.
+        """
+        if not self.pid_enabled:
+            return
+        if self.controller_state != ControllerState.ON:
+            # Reset all PIDs when controller is paused or off
+            for pid in self.pid_controllers.values():
+                pid.reset()
+            return
+        if self.effective_season != SeasonMode.WINTER:
+            for pid in self.pid_controllers.values():
+                pid.reset()
+            return
+
+        for room in self.rooms:
+            room_name  = room.get("room_name", "")
+            climate_id = room.get(CONF_CLIMATE_ENTITY, "")
+            if not room_name or not climate_id:
+                continue
+
+            pid = self.pid_controllers.get(room_name)
+            if pid is None:
+                continue
+
+            room_state = self.get_room_state(room_name)
+
+            # Only drive PID in NORMAL state — reset on everything else
+            if room_state != RoomState.NORMAL:
+                pid.reset()
+                continue
+
+            # Read climate entity state
+            climate_state = self.hass.states.get(climate_id)
+            if climate_state is None or climate_state.state in (
+                "unavailable", "unknown", "off"
+            ):
+                pid.reset()
+                continue
+
+            attrs = climate_state.attributes
+            current_temp = attrs.get("current_temperature")
+            target_temp  = attrs.get("temperature")
+
+            if current_temp is None or target_temp is None:
+                # No sensor data — skip this tick without resetting
+                # (avoids integral drop on brief unavailability)
+                continue
+
+            try:
+                current_temp = float(current_temp)
+                target_temp  = float(target_temp)
+            except (TypeError, ValueError):
+                continue
+
+            # Run one PID tick → power fraction 0..1
+            power = pid.update(setpoint=target_temp, current=current_temp)
+
+            # Map power fraction to TRV setpoint
+            trv_setpoint = PidController.power_to_setpoint(
+                power=power,
+                current_temp=current_temp,
+                trv_max=self.trv_max_temp,
+                trv_min=float(room.get("away_temp_override", 10.0)),
+            )
+
+            # Only send a command if the setpoint has changed by ≥ 0.5 °C
+            # to avoid flooding the TRV with identical commands every 60 s
+            current_setpoint = attrs.get("temperature", 0.0)
+            if abs(trv_setpoint - float(current_setpoint)) < 0.5:
+                continue
+
+            try:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {"entity_id": climate_id, "temperature": trv_setpoint},
+                    blocking=True,
+                )
+                _LOGGER.debug(
+                    "PID tick [%s]: sp=%.1f cur=%.1f pwr=%.2f → TRV %.1f°C",
+                    room_name, target_temp, current_temp, power, trv_setpoint,
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "PID setpoint failed for '%s': %s", room_name, err
+                )
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 

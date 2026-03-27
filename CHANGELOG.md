@@ -13,6 +13,28 @@ _Nothing yet._
 
 ---
 
+## [0.2.5] — 2026-03-27
+
+### Added
+- Added `_async_pid_tick()` to `HeatManagerCoordinator`, called at position 8 in the
+  periodic tick after all other engines have settled state. Drives the PID controller
+  for every room in `NORMAL` state each 60-second tick, computing a proportional TRV
+  setpoint from `climate.current_temperature` and `climate.temperature`.
+- Added `tests/test_pid_tick.py` with 12 offline tests covering all guard conditions
+  (pid disabled, controller paused/off, summer season, room AWAY/WINDOW_OPEN/PRE_HEAT,
+  climate unavailable, missing temperature attributes) plus happy-path and regression
+  B-PID-2 (delta threshold prevents TRV command spam).
+
+### Changed
+- `coordinator._async_update_data()` docstring updated to list PID tick as step 8.
+- PID resets on every non-NORMAL state so integral debt cannot accumulate while the
+  controller is not in authority.
+- Setpoint commands are suppressed when the computed TRV setpoint is within 0.5 °C of
+  the current `climate.temperature` attribute to prevent flooding TRVs with redundant
+  commands every 60 seconds.
+
+---
+
 ## [0.2.4] — 2026-03-27
 
 ### Added

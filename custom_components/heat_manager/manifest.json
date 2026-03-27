@@ -1,7 +1,7 @@
 {
   "domain": "heat_manager",
   "name": "Heat Manager",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "documentation": "https://github.com/kingpainter/heat-manager",
   "issue_tracker": "https://github.com/kingpainter/heat-manager/issues",
   "codeowners": ["@kingpainter"],
