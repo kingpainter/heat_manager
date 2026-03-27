@@ -143,12 +143,31 @@ class HeatManagerPanel extends HTMLElement {
     } catch (e) { this._history = { events: [], days: [] }; }
   }
 
+  // Resolve entity IDs dynamically — the entry_id prefix varies per installation.
+  // Scan hass.states once for the three entities we need.
+  _resolveEntityIds() {
+    if (this._ctrlEntityId) return;  // already resolved
+    const states = this._hass?.states ?? {};
+    for (const id of Object.keys(states)) {
+      if (id.startsWith('select.') && id.endsWith('_controller_state')) {
+        this._ctrlEntityId   = id;
+      }
+      if (id.startsWith('select.') && id.endsWith('_season_mode')) {
+        this._seasonEntityId = id;
+      }
+      if (id.startsWith('sensor.') && id.endsWith('_pause_remaining')) {
+        this._pauseEntityId  = id;
+      }
+    }
+  }
+
   _entitiesSnapshot() {
-    const v = id => this._hass.states?.[id]?.state ?? "unknown";
+    this._resolveEntityIds();
+    const v = id => (id ? this._hass.states?.[id]?.state : null) ?? "unknown";
     return {
-      controller_state: v("select.heat_manager_controller_state"),
-      season_mode:      v("select.heat_manager_season_mode"),
-      pause_remaining:  parseInt(v("sensor.heat_manager_pause_remaining") || "0", 10),
+      controller_state: v(this._ctrlEntityId),
+      season_mode:      v(this._seasonEntityId),
+      pause_remaining:  parseInt((this._pauseEntityId ? this._hass.states?.[this._pauseEntityId]?.state : null) || "0", 10),
       outdoor_temp:     null,
       rooms: [], persons: [],
       auto_off_reason: "none", auto_off_days: 0,
@@ -159,10 +178,11 @@ class HeatManagerPanel extends HTMLElement {
 
   _syncFromEntities() {
     if (!this._data) return;
-    const v = id => this._hass.states?.[id]?.state ?? "unknown";
-    this._data.controller_state = v("select.heat_manager_controller_state");
-    this._data.season_mode      = v("select.heat_manager_season_mode");
-    this._data.pause_remaining  = parseInt(v("sensor.heat_manager_pause_remaining") || "0", 10);
+    this._resolveEntityIds();
+    const v = id => (id ? this._hass.states?.[id]?.state : null) ?? "unknown";
+    this._data.controller_state = v(this._ctrlEntityId);
+    this._data.season_mode      = v(this._seasonEntityId);
+    this._data.pause_remaining  = parseInt((this._pauseEntityId ? this._hass.states?.[this._pauseEntityId]?.state : null) || "0", 10);
   }
 
   // ── Surgical DOM patches ──────────────────────────────────────────────────
