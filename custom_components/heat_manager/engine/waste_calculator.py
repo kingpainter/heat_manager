@@ -1,37 +1,50 @@
 """
-Heat Manager — Waste Calculator Engine (Phase 3)
+Heat Manager — Waste Calculator Engine (Phase 4)
 
-Replaces the tick-accumulator placeholder in sensor.py with a proper
-per-room energy waste estimate based on:
+Tracks per-room energy waste and savings using real Netatmo data.
 
-  - climate entity's current_temperature and target temperature
-  - duration the room has been in WINDOW_OPEN state
-  - a configurable per-room wattage estimate (default: 1000 W)
+Phase 4 changes vs Phase 3
+---------------------------
+Phase 3 used a fixed fictional constant (0.1 kWh/°C/h) to estimate energy.
+Phase 4 uses the actual `heating_power_request` attribute (0–100 %) that
+Netatmo's cloud exposes on every NRV climate entity, combined with a
+per-room rated wattage (default 1000 W).
 
-Formula per room:
-  waste_kWh = Δtemp × duration_hours × efficiency_factor
+Formula per room per tick:
+    actual_kWh = (heating_power_request / 100) × room_watts × tick_hours
 
-Where:
-  Δtemp            = target_setpoint - current_temp (°C) when window is open
-  duration_hours   = seconds in WINDOW_OPEN / 3600
-  efficiency_factor = assumed 0.1 kWh/°C/hour (typical radiator panel)
+This is real measured heating power, not a proxy for temperature difference.
 
-The engine accumulates values each coordinator tick and resets at midnight.
-Results are exposed via coordinator.energy_wasted_today and
-coordinator.energy_saved_today (away mode savings vs baseline).
+Waste (window open):
+    The room is actively drawing power (heating_power_request > 0) while
+    losing heat through an open window.
 
-Called on every coordinator tick.
+Saved (away mode during heating hours):
+    Power that *would* have been drawn if the room were in normal schedule,
+    estimated as the average of the last known non-zero heating_power_request
+    for that room.  Falls back to 50% × room_watts if no history exists.
+
+Efficiency score (0–100):
+    Starts at 100.  Each 0.01 kWh wasted costs 1 point.
+    Score floor is 0.
+
+Fallback:
+    If `heating_power_request` is not present (non-Netatmo climate entity),
+    the engine falls back to the Phase 3 Δtemp × 0.1 kWh/°C/h formula so
+    non-Netatmo rooms still get an estimate.
 """
 from __future__ import annotations
 
 import logging
 from datetime import date
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from homeassistant.util.dt import now as ha_now
 
 from ..const import (
     CONF_CLIMATE_ENTITY,
+    CONF_ROOM_WATTAGE,
+    DEFAULT_ROOM_WATTAGE,
     RoomState,
 )
 
@@ -40,11 +53,13 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# kWh saved or wasted per °C per hour — approximate for a typical panel radiator
+# Fallback constant when heating_power_request is not available
+# (non-Netatmo rooms) — kWh per °C per hour
 _KWH_PER_DEGC_PER_HOUR: float = 0.1
 
-# Baseline heating hours per day (used for "saved" calculation)
-_BASELINE_HOURS_PER_DAY: float = 8.0
+# Heating hours during which away-savings are counted (inclusive start)
+_HEATING_HOURS_START: int = 6
+_HEATING_HOURS_END: int = 23
 
 
 class WasteCalculator:
@@ -57,8 +72,9 @@ class WasteCalculator:
         self._today: date = ha_now().date()
         self._wasted_kwh: float = 0.0
         self._saved_kwh: float = 0.0
-        # Track how long each room has been in WINDOW_OPEN this tick
-        self._window_seconds: dict[str, float] = {}
+        # Last known non-zero heating_power_request per room (0–100)
+        # Used to estimate savings when room is in AWAY mode
+        self._last_power_pct: dict[str, float] = {}
 
     # ── Public read-only properties ───────────────────────────────────────────
 
@@ -72,11 +88,7 @@ class WasteCalculator:
 
     @property
     def efficiency_score(self) -> int:
-        """
-        Score 0–100.
-        Starts at 100, loses 10 points per 0.1 kWh wasted, floor 0.
-        Gains are not reflected (score can only decrease on waste).
-        """
+        """Score 0–100. Starts at 100, loses 1 point per 0.01 kWh wasted."""
         return max(0, min(100, 100 - int(self._wasted_kwh * 100)))
 
     # ── Tick ──────────────────────────────────────────────────────────────────
@@ -87,13 +99,13 @@ class WasteCalculator:
 
         # Midnight reset
         if today != self._today:
-            self._today          = today
-            self._wasted_kwh     = 0.0
-            self._saved_kwh      = 0.0
-            self._window_seconds = {}
+            self._today      = today
+            self._wasted_kwh = 0.0
+            self._saved_kwh  = 0.0
+            # Keep _last_power_pct across midnight — it's a rolling estimate
             _LOGGER.debug("WasteCalculator: reset for new day %s", today)
 
-        tick_hours = 60.0 / 3600.0  # coordinator ticks every 60 s
+        tick_hours = 60.0 / 3600.0  # 60-second coordinator tick
 
         for room in self.coordinator.rooms:
             room_name  = room.get("room_name", "")
@@ -101,59 +113,107 @@ class WasteCalculator:
             if not room_name or not climate_id:
                 continue
 
+            room_watts = float(room.get(CONF_ROOM_WATTAGE, DEFAULT_ROOM_WATTAGE))
             room_state = self.coordinator.get_room_state(room_name)
 
-            # ── Energy wasted (window open) ───────────────────────────────────
+            # Read heating_power_request from cloud entity (Netatmo-specific)
+            power_pct = self._get_heating_power_pct(climate_id)
+
+            # Keep rolling history of non-zero power for savings estimation
+            if power_pct is not None and power_pct > 0:
+                self._last_power_pct[room_name] = power_pct
+
+            # ── Waste: window open while room is heating ──────────────────────
             if room_state == RoomState.WINDOW_OPEN:
-                delta = self._temp_delta(climate_id)
-                if delta > 0:
-                    waste = delta * tick_hours * _KWH_PER_DEGC_PER_HOUR
-                    self._wasted_kwh += waste
+                waste_kwh = self._calc_waste_kwh(
+                    climate_id, room_watts, power_pct, tick_hours
+                )
+                if waste_kwh > 0:
+                    self._wasted_kwh += waste_kwh
                     _LOGGER.debug(
-                        "Waste +%.4f kWh — %s Δtemp=%.1f°C",
-                        waste, room_name, delta,
+                        "Waste +%.4f kWh — %s (power_pct=%s)",
+                        waste_kwh, room_name,
+                        f"{power_pct:.0f}%" if power_pct is not None else "n/a",
                     )
 
-            # ── Energy saved (away mode during expected heating hours) ─────────
+            # ── Saved: away mode during normal heating hours ──────────────────
             if room_state == RoomState.AWAY:
                 hour = ha_now().hour
-                # Only count savings during typical heating hours (6–23)
-                if 6 <= hour < 23:
-                    baseline_delta = self._baseline_delta(climate_id)
-                    if baseline_delta > 0:
-                        saved = baseline_delta * tick_hours * _KWH_PER_DEGC_PER_HOUR
-                        self._saved_kwh += saved
+                if _HEATING_HOURS_START <= hour < _HEATING_HOURS_END:
+                    saved_kwh = self._calc_saved_kwh(
+                        room_name, room_watts, tick_hours
+                    )
+                    if saved_kwh > 0:
+                        self._saved_kwh += saved_kwh
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
-    def _temp_delta(self, climate_id: str) -> float:
+    def _get_heating_power_pct(self, climate_id: str) -> float | None:
         """
-        Δtemp = setpoint - current_temp when window is open.
-        Positive means the room is trying to heat despite the open window.
+        Read `heating_power_request` (0–100) from the climate entity.
+        Returns None if the attribute is absent (non-Netatmo entity).
+        """
+        state = self.coordinator.hass.states.get(climate_id)
+        if not state:
+            return None
+        raw = state.attributes.get("heating_power_request")
+        if raw is None:
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    def _calc_waste_kwh(
+        self,
+        climate_id: str,
+        room_watts: float,
+        power_pct: float | None,
+        tick_hours: float,
+    ) -> float:
+        """
+        Energy wasted this tick (window open while heating).
+
+        Uses heating_power_request when available (Netatmo); falls back to
+        Δtemp × 0.1 kWh/°C/h for non-Netatmo entities.
+        """
+        if power_pct is not None:
+            # Real data path: actual watts × time
+            return (power_pct / 100.0) * room_watts / 1000.0 * tick_hours
+
+        # Fallback: Δtemp proxy for non-Netatmo rooms
+        return self._legacy_delta_kwh(climate_id, tick_hours)
+
+    def _calc_saved_kwh(
+        self,
+        room_name: str,
+        room_watts: float,
+        tick_hours: float,
+    ) -> float:
+        """
+        Energy saved this tick (away mode during heating hours).
+
+        Estimate: last known heating_power_request for this room, or 50%
+        of rated wattage if no history exists.
+        """
+        last_pct = self._last_power_pct.get(room_name, 50.0)
+        return (last_pct / 100.0) * room_watts / 1000.0 * tick_hours
+
+    def _legacy_delta_kwh(self, climate_id: str, tick_hours: float) -> float:
+        """
+        Phase 3 fallback: Δtemp × 0.1 kWh/°C/h.
+        Used for non-Netatmo climate entities that lack heating_power_request.
         """
         state = self.coordinator.hass.states.get(climate_id)
         if not state:
             return 0.0
-        setpoint = state.attributes.get("temperature")
-        current  = state.attributes.get("current_temperature")
-        if setpoint is None or current is None:
-            return 0.0
         try:
-            delta = float(setpoint) - float(current)
-            return max(0.0, delta)
+            setpoint = float(state.attributes.get("temperature", 0))
+            current  = float(state.attributes.get("current_temperature", 0))
         except (TypeError, ValueError):
             return 0.0
-
-    def _baseline_delta(self, climate_id: str) -> float:
-        """
-        Expected Δtemp if the room were at normal schedule.
-        Uses (21°C baseline - current outdoor temp) as a proxy.
-        """
-        outdoor = self.coordinator.outdoor_temperature
-        if outdoor is None:
-            return 0.0
-        delta = 21.0 - outdoor
-        return max(0.0, delta)
+        delta = setpoint - current
+        return max(0.0, delta * tick_hours * _KWH_PER_DEGC_PER_HOUR)
 
     async def async_shutdown(self) -> None:
         _LOGGER.debug("WasteCalculator shut down")

@@ -13,6 +13,40 @@ _Nothing yet._
 
 ---
 
+## [0.2.6] — 2026-03-27
+
+### Added
+- Added `CONF_HOMEKIT_CLIMATE_ENTITY` (`homekit_climate_entity`) per-room config key.
+  When set, `_async_pid_tick()` reads `current_temperature` from this entity (Netatmo
+  Relay via HomeKit Accessory Protocol on LAN, <100 ms) and writes `set_temperature`
+  here instead of the Netatmo cloud entity.
+- Added `CONF_ROOM_WATTAGE` / `DEFAULT_ROOM_WATTAGE` (1000 W) per-room config key for
+  energy calculations.
+
+### Changed
+- `coordinator._async_pid_tick()` fully reworked for Netatmo NRV architecture:
+  - Reads schedule setpoint from cloud entity (`climate_entity`) — Netatmo's own MPC
+    target from the active schedule.
+  - Reads `current_temperature` from HomeKit entity (local HAP) — fresher, no cloud.
+  - Writes `set_temperature` to HomeKit entity only — never to cloud entity, so
+    Netatmo's schedule and preset system is not disturbed.
+  - If no `homekit_climate_entity` is configured for a room, PID is silently skipped
+    for that room (Netatmo's own MPC remains in full control).
+  - Debug log now includes `heating_power_request` from cloud entity for easy tuning.
+- `engine/waste_calculator.py` rewritten for Phase 4:
+  - Uses `heating_power_request` (0–100%) × `room_wattage` for real kWh calculation
+    instead of the fictional 0.1 kWh/°C/h constant.
+  - Keeps a rolling `_last_power_pct` history per room to estimate away-mode savings.
+  - Falls back to Phase 3 Δtemp formula for non-Netatmo rooms without
+    `heating_power_request`.
+  - `efficiency_score` recalibrated: 1 point lost per 0.01 kWh wasted (was per 0.1).
+- `config_flow.py` room schema extended with two new optional fields: `homekit_climate_entity`
+  (entity selector, domain `climate`) and `room_wattage` (number selector, 100–5000 W,
+  default 1000 W). Both fields appear in the setup wizard and in the options flow
+  room-add step, pre-filled with current values when editing.
+
+---
+
 ## [0.2.5] — 2026-03-27
 
 ### Added
@@ -193,7 +227,10 @@ _Nothing yet._
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/kingpainter/heat-manager/compare/v0.2.5...v0.2.6
+[0.2.5]: https://github.com/kingpainter/heat-manager/compare/v0.2.4...v0.2.5
+[0.2.4]: https://github.com/kingpainter/heat-manager/compare/v0.2.1...v0.2.4
 [0.2.1]: https://github.com/kingpainter/heat-manager/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/kingpainter/heat-manager/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kingpainter/heat-manager/releases/tag/v0.1.0

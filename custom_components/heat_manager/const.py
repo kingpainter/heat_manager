@@ -4,7 +4,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 DOMAIN = "heat_manager"
-VERSION = "0.2.5"
+VERSION = "0.2.6"
 
 # ── Config entry keys ────────────────────────────────────────────────────────
 
@@ -50,6 +50,15 @@ CONF_PID_KD = "pid_kd"
 CONF_TRV_MAX_TEMP = "trv_max_temp"
 CONF_PID_ENABLED = "pid_enabled"
 
+# Per-room Netatmo HomeKit local entity (optional)
+# If set: PID writes set_temperature here (local HAP, <100 ms)
+# Cloud entity is still used for preset_mode and heating_power_request
+CONF_HOMEKIT_CLIMATE_ENTITY = "homekit_climate_entity"
+
+# Per-room rated wattage for energy calculations
+# Used by WasteCalculator with heating_power_request to get real kWh
+CONF_ROOM_WATTAGE = "room_wattage"
+
 # ── Defaults ─────────────────────────────────────────────────────────────────
 
 DEFAULT_WINDOW_DELAY_MIN = 5
@@ -72,6 +81,7 @@ DEFAULT_PID_KP: float = 0.5
 DEFAULT_PID_KI: float = 0.02
 DEFAULT_PID_KD: float = 0.0
 DEFAULT_TRV_MAX_TEMP: float = 28.0
+DEFAULT_ROOM_WATTAGE: int = 1000  # watts — typical panel radiator
 
 # ── Controller state ──────────────────────────────────────────────────────────
 

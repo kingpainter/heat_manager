@@ -34,6 +34,7 @@ from .const import (
     CONF_CLIMATE_ENTITY,
     CONF_MILD_THRESHOLD,
     CONF_PERSONS,
+    CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_PID_ENABLED,
     CONF_PID_KD,
     CONF_PID_KI,
@@ -209,6 +210,25 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Return the PidController for a room, or None if not found."""
         return self.pid_controllers.get(room_name)
 
+    def get_homekit_climate_entity(self, room_name: str) -> str | None:
+        """
+        Return the HomeKit local climate entity for a room, if configured.
+
+        When present, _async_pid_tick() writes set_temperature here instead
+        of the Netatmo cloud entity.  The HomeKit entity talks directly to
+        the Netatmo Relay on LAN via HAP (192.168.40.201:5001) with <100 ms
+        latency and no cloud dependency.
+
+        The cloud entity (climate_entity) is still used for:
+        - preset_mode writes (away/schedule) by presence_engine
+        - heating_power_request reads by waste_calculator
+        - window suppression by window_engine
+        """
+        for room in self.rooms:
+            if room.get("room_name") == room_name:
+                return room.get(CONF_HOMEKIT_CLIMATE_ENTITY) or None
+        return None
+
     def get_window_sensors(self, room_name: str) -> list[str]:
         for room in self.rooms:
             if room.get("room_name") == room_name:
@@ -351,21 +371,35 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         Drive the PID controller for every room currently in NORMAL state.
 
-        Guard conditions (all must be true to run PID for a room):
-        - pid_enabled is True (global toggle)
-        - controller_state is ON (not PAUSE or OFF)
-        - effective_season is WINTER (no TRV control in summer)
-        - room_state is NORMAL (not AWAY / WINDOW_OPEN / PRE_HEAT / OVERRIDE)
-        - climate entity is available and has current_temperature
-        - climate entity has a target_temperature (the schedule setpoint)
+        Entity routing
+        --------------
+        Netatmo NRV rooms have two climate entities:
 
-        On any other state the PID is reset so integral debt cannot
-        accumulate while the controller is not in authority.
+        cloud_id  (CONF_CLIMATE_ENTITY)          — Netatmo cloud via HTTPS
+            └─ preset_mode writes  (presence/window engines)       stay here
+            └─ heating_power_request read  (waste_calculator)      stays here
+            └─ schedule setpoint read  (target_temp for PID)       read here
+
+        hk_id  (CONF_HOMEKIT_CLIMATE_ENTITY, optional)  — HAP local LAN
+            └─ set_temperature writes  (PID output)               go here
+            └─ current_temperature read  (fresher, local polling)  read here
+
+        If no homekit entity is configured for a room the PID is skipped
+        entirely for that room — we do NOT write set_temperature to the cloud
+        entity because that would override Netatmo's own MPC and break the
+        schedule system.
+
+        Guard conditions (all must be true to run PID for a room):
+        - pid_enabled is True
+        - controller_state is ON
+        - effective_season is WINTER
+        - room_state is NORMAL
+        - homekit entity is configured, available, and has current_temperature
+        - cloud entity has a target_temperature (schedule setpoint)
         """
         if not self.pid_enabled:
             return
         if self.controller_state != ControllerState.ON:
-            # Reset all PIDs when controller is paused or off
             for pid in self.pid_controllers.values():
                 pid.reset()
             return
@@ -376,37 +410,49 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         for room in self.rooms:
             room_name  = room.get("room_name", "")
-            climate_id = room.get(CONF_CLIMATE_ENTITY, "")
-            if not room_name or not climate_id:
+            cloud_id   = room.get(CONF_CLIMATE_ENTITY, "")
+            if not room_name or not cloud_id:
                 continue
 
             pid = self.pid_controllers.get(room_name)
             if pid is None:
                 continue
 
-            room_state = self.get_room_state(room_name)
-
             # Only drive PID in NORMAL state — reset on everything else
-            if room_state != RoomState.NORMAL:
+            if self.get_room_state(room_name) != RoomState.NORMAL:
                 pid.reset()
                 continue
 
-            # Read climate entity state
-            climate_state = self.hass.states.get(climate_id)
-            if climate_state is None or climate_state.state in (
+            # Require a HomeKit entity — we never write to the cloud entity
+            hk_id = self.get_homekit_climate_entity(room_name)
+            if not hk_id:
+                # No HomeKit entity configured — skip silently (no reset,
+                # room is NORMAL but we just have no local write channel)
+                continue
+
+            # ── Read current temperature from HomeKit entity (local/fresh) ──
+            hk_state = self.hass.states.get(hk_id)
+            if hk_state is None or hk_state.state in (
                 "unavailable", "unknown", "off"
             ):
                 pid.reset()
                 continue
 
-            attrs = climate_state.attributes
-            current_temp = attrs.get("current_temperature")
-            target_temp  = attrs.get("temperature")
+            current_temp = hk_state.attributes.get("current_temperature")
+            if current_temp is None:
+                continue  # skip tick, don't reset
 
-            if current_temp is None or target_temp is None:
-                # No sensor data — skip this tick without resetting
-                # (avoids integral drop on brief unavailability)
+            # ── Read schedule setpoint from cloud entity ──────────────────
+            cloud_state = self.hass.states.get(cloud_id)
+            if cloud_state is None or cloud_state.state in (
+                "unavailable", "unknown"
+            ):
+                pid.reset()
                 continue
+
+            target_temp = cloud_state.attributes.get("temperature")
+            if target_temp is None:
+                continue  # skip tick, don't reset
 
             try:
                 current_temp = float(current_temp)
@@ -414,10 +460,10 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except (TypeError, ValueError):
                 continue
 
-            # Run one PID tick → power fraction 0..1
+            # ── PID tick → power fraction 0..1 ──────────────────────────
             power = pid.update(setpoint=target_temp, current=current_temp)
 
-            # Map power fraction to TRV setpoint
+            # ── Map power → TRV setpoint ─────────────────────────────────
             trv_setpoint = PidController.power_to_setpoint(
                 power=power,
                 current_temp=current_temp,
@@ -425,26 +471,29 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 trv_min=float(room.get("away_temp_override", 10.0)),
             )
 
-            # Only send a command if the setpoint has changed by ≥ 0.5 °C
-            # to avoid flooding the TRV with identical commands every 60 s
-            current_setpoint = attrs.get("temperature", 0.0)
-            if abs(trv_setpoint - float(current_setpoint)) < 0.5:
+            # Suppress command if change < 0.5 °C (prevents TRV spam)
+            # Compare against HomeKit entity's current target, not cloud
+            hk_current_setpoint = hk_state.attributes.get("temperature", 0.0)
+            if abs(trv_setpoint - float(hk_current_setpoint)) < 0.5:
                 continue
 
             try:
                 await self.hass.services.async_call(
                     "climate",
                     "set_temperature",
-                    {"entity_id": climate_id, "temperature": trv_setpoint},
+                    {"entity_id": hk_id, "temperature": trv_setpoint},
                     blocking=True,
                 )
                 _LOGGER.debug(
-                    "PID tick [%s]: sp=%.1f cur=%.1f pwr=%.2f → TRV %.1f°C",
+                    "PID tick [%s]: schedule_sp=%.1f hk_cur=%.1f pwr=%.2f "
+                    "→ HAP %.1f°C  (heating_power_request=%s%%)",
                     room_name, target_temp, current_temp, power, trv_setpoint,
+                    cloud_state.attributes.get("heating_power_request", "?"),
                 )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning(
-                    "PID setpoint failed for '%s': %s", room_name, err
+                    "PID setpoint failed for '%s' via HomeKit: %s",
+                    room_name, err
                 )
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────

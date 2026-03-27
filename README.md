@@ -6,7 +6,7 @@ Heat Manager replaces manual YAML automations with a fully configurable
 custom integration. It manages presence-based heating, open window detection,
 pre-heating on arrival, and seasonal on/off control — all from the UI.
 
-[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/kingpainter/heat-manager/releases)
+[![Version](https://img.shields.io/badge/version-0.2.6-blue)](https://github.com/kingpainter/heat-manager/releases)
 [![HA min version](https://img.shields.io/badge/Home%20Assistant-%3E%3D2025.1-blue)](https://www.home-assistant.io)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange)](https://hacs.xyz)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -38,8 +38,10 @@ Off shuts everything down permanently — with the correct fallback per season.
 - **Adaptive away temperature** — warmer setpoint on mild days, cooler on cold days
 - **ON / PAUSE / OFF controller** — manual and automatic (season + outdoor temp)
 - **Pre-heat engine** — starts heating before you arrive using `sensor.<person>_travel_time_home`
-- **Energy waste tracking** — estimates kWh lost from open windows while heating runs
-- **Energy savings tracking** — estimates kWh saved from away mode during heating hours
+- **PID controller** — discrete-time PI controller sends proportional setpoints to TRVs every 60 seconds, replacing binary on/off with smooth graduated heating
+- **Netatmo HomeKit local path** — PID setpoints written directly to the Netatmo Relay via HomeKit Accessory Protocol on LAN (<100 ms, no cloud), keeping Netatmo's own schedule system intact
+- **Energy waste tracking** — uses Netatmo's real `heating_power_request` (0–100 %) × room wattage for accurate kWh; falls back to Δtemp proxy for non-Netatmo rooms
+- **Energy savings tracking** — estimates kWh saved from away mode using last-known heating power as baseline
 - **Efficiency score** — daily 0–100 score based on waste vs. savings
 - **Sidebar panel** — Heat Manager panel with 4 tabs: Overview, Rooms, History, Configuration
 - **Lovelace card** — bundled custom card, auto-registered in the card picker
@@ -104,10 +106,12 @@ Add one entry per room. You can add as many rooms as needed.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `room_name` | string | — | Display name (e.g. "Kitchen") |
-| `climate_entity` | entity | — | The climate entity for this room |
+| `climate_entity` | entity | — | Cloud/primary climate entity. Used for preset_mode writes and schedule setpoint reads |
+| `homekit_climate_entity` | entity | — | **Optional.** HomeKit local entity (Netatmo Relay via HAP). PID setpoints are written here directly over LAN. Recommended for Netatmo NRV users |
 | `window_sensors` | entity list | [] | Window and/or door sensors for this room |
-| `window_delay_min` | min | 5 | Minutes a window must be open before the heating drops |
-| `away_temp_override` | °C | 10.0 | Temperature to set when the window opens in this room |
+| `window_delay_min` | min | 5 | Minutes a window must be open before heating drops |
+| `away_temp_override` | °C | 10.0 | Frost-guard floor temperature when window opens |
+| `room_wattage` | W | 1000 | Rated heating power for energy calculations (use with `heating_power_request`) |
 
 ### Step 3 — Persons (repeatable)
 
@@ -321,9 +325,11 @@ logger:
 
 - Pre-heat requires a `sensor.<person>_travel_time_home` sensor in HA. Without it
   the engine is a no-op.
-- Energy waste and savings are estimates based on temperature deltas — not a
-  real power meter reading. Accuracy depends on how well the Δtemp proxy matches
-  your actual heating system.
+- Energy waste and savings use Netatmo's `heating_power_request` when available (accurate
+  for typical panel radiators). For non-Netatmo rooms the Δtemp × constant proxy is used.
+- PID via HomeKit requires the Netatmo Relay paired as HomeKit Controller in HA. Without
+  `homekit_climate_entity` configured, PID is silently skipped and Netatmo's own MPC
+  remains in full control.
 - Non-tracked persons (tracking disabled) always follow the house global state
   and cannot trigger room-level pre-heat individually.
 - Daily energy history resets on HA restart — persistent storage across restarts

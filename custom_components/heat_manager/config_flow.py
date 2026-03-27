@@ -33,6 +33,7 @@ from .const import (
     CONF_ENERGY_TRACKING,
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
+    CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_MILD_THRESHOLD,
     CONF_NOTIFY_PRESENCE,
     CONF_NOTIFY_PREHEAT,
@@ -44,6 +45,7 @@ from .const import (
     CONF_PERSONS,
     CONF_PREHEAT_LEAD_TIME_MIN,
     CONF_ROOM_NAME,
+    CONF_ROOM_WATTAGE,
     CONF_ROOMS,
     CONF_WEATHER_ENTITY,
     CONF_WINDOW_DELAY_MIN,
@@ -56,6 +58,7 @@ from .const import (
     DEFAULT_GRACE_NIGHT_MIN,
     DEFAULT_MILD_THRESHOLD,
     DEFAULT_PREHEAT_LEAD_TIME_MIN,
+    DEFAULT_ROOM_WATTAGE,
     DEFAULT_WINDOW_DELAY_MIN,
     DOMAIN,
 )
@@ -94,12 +97,16 @@ def _room_schema(defaults: dict = {}) -> vol.Schema:
             selector.selector({"text": {}}),
         vol.Required(CONF_CLIMATE_ENTITY, default=defaults.get(CONF_CLIMATE_ENTITY, "")):
             selector.selector({"entity": {"domain": "climate"}}),
+        vol.Optional(CONF_HOMEKIT_CLIMATE_ENTITY, default=defaults.get(CONF_HOMEKIT_CLIMATE_ENTITY, "")):
+            selector.selector({"entity": {"domain": "climate"}}),
         vol.Optional(CONF_WINDOW_SENSORS, default=defaults.get(CONF_WINDOW_SENSORS, [])):
             selector.selector({"entity": {"domain": "binary_sensor", "multiple": True}}),
         vol.Optional(CONF_WINDOW_DELAY_MIN, default=defaults.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)):
             selector.selector({"number": {"min": 1, "max": 30, "step": 1, "unit_of_measurement": "min"}}),
         vol.Optional(CONF_AWAY_TEMP_OVERRIDE, default=defaults.get(CONF_AWAY_TEMP_OVERRIDE, 10)):
             selector.selector({"number": {"min": 5, "max": 20, "step": 0.5, "unit_of_measurement": "°C"}}),
+        vol.Optional(CONF_ROOM_WATTAGE, default=defaults.get(CONF_ROOM_WATTAGE, DEFAULT_ROOM_WATTAGE)):
+            selector.selector({"number": {"min": 100, "max": 5000, "step": 100, "unit_of_measurement": "W"}}),
     })
 
 
