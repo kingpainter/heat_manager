@@ -13,6 +13,34 @@ _Nothing yet._
 
 ---
 
+## [0.2.7] — 2026-03-27
+
+### Added
+- Added `CONF_TRV_TYPE` (`trv_type`) per-room config field with two options:
+  `netatmo` (default, existing behaviour) and `zigbee` (Zigbee2MQTT TRVs without
+  preset_mode concept). Added `TRV_TYPE_NETATMO`, `TRV_TYPE_ZIGBEE`,
+  `TRV_TYPE_OPTIONS` string constants.
+- Added `CONF_PI_DEMAND_ENTITY` (`pi_demand_entity`) per-room config field.
+  Optional dedicated sensor entity for Z2M TRVs that expose `pi_heating_demand`
+  as a separate `sensor.*` entity (e.g. `sensor.bad_varme_test_trv_pi_heating_demand`).
+- Added both fields to `config_flow._room_schema()`: `trv_type` as a select
+  widget and `pi_demand_entity` as a sensor entity selector.
+
+### Changed
+- `presence_engine._set_all_away()`: branches on `trv_type`.
+  Zigbee rooms receive `climate.set_hvac_mode hvac_mode=off`;
+  Netatmo rooms receive `climate.set_preset_mode preset_mode=away` (unchanged).
+- `presence_engine._restore_all_schedule()`: branches on `trv_type`.
+  Zigbee rooms receive `climate.set_hvac_mode hvac_mode=heat`;
+  Netatmo rooms receive `climate.set_preset_mode preset_mode=schedule` (unchanged).
+- `presence_engine.force_room_on()`: branches on `trv_type` the same way.
+- `waste_calculator._get_heating_power_pct()`: now accepts optional `pi_entity`
+  parameter. Priority: (1) dedicated Z2M sensor state, (2) `heating_power_request`
+  climate attribute (Netatmo), (3) None → Δtemp fallback. Existing Netatmo rooms
+  are completely unaffected.
+
+---
+
 ## [0.2.6] — 2026-03-27
 
 ### Added

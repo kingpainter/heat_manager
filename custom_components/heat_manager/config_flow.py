@@ -35,6 +35,10 @@ from .const import (
     CONF_GRACE_NIGHT_MIN,
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_MILD_THRESHOLD,
+    CONF_PI_DEMAND_ENTITY,
+    CONF_TRV_TYPE,
+    TRV_TYPE_NETATMO,
+    TRV_TYPE_OPTIONS,
     CONF_NOTIFY_PRESENCE,
     CONF_NOTIFY_PREHEAT,
     CONF_NOTIFY_SERVICE,
@@ -62,6 +66,7 @@ from .const import (
     DEFAULT_WINDOW_DELAY_MIN,
     DOMAIN,
 )
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -107,6 +112,13 @@ def _room_schema(defaults: dict = {}) -> vol.Schema:
             selector.selector({"number": {"min": 5, "max": 20, "step": 0.5, "unit_of_measurement": "°C"}}),
         vol.Optional(CONF_ROOM_WATTAGE, default=defaults.get(CONF_ROOM_WATTAGE, DEFAULT_ROOM_WATTAGE)):
             selector.selector({"number": {"min": 100, "max": 5000, "step": 100, "unit_of_measurement": "W"}}),
+        vol.Optional(CONF_TRV_TYPE, default=defaults.get(CONF_TRV_TYPE, TRV_TYPE_NETATMO)):
+            selector.selector({"select": {"options": [
+                {"value": "netatmo", "label": "Netatmo NRV (preset_mode: away/schedule)"},
+                {"value": "zigbee",  "label": "Zigbee TRV via Z2M (hvac_mode: off/heat)"},
+            ]}}),
+        vol.Optional(CONF_PI_DEMAND_ENTITY, default=defaults.get(CONF_PI_DEMAND_ENTITY, "")):
+            selector.selector({"entity": {"domain": "sensor"}}),
     })
 
 

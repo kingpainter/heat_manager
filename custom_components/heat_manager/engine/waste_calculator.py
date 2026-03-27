@@ -43,6 +43,7 @@ from homeassistant.util.dt import now as ha_now
 
 from ..const import (
     CONF_CLIMATE_ENTITY,
+    CONF_PI_DEMAND_ENTITY,
     CONF_ROOM_WATTAGE,
     DEFAULT_ROOM_WATTAGE,
     RoomState,
@@ -116,8 +117,9 @@ class WasteCalculator:
             room_watts = float(room.get(CONF_ROOM_WATTAGE, DEFAULT_ROOM_WATTAGE))
             room_state = self.coordinator.get_room_state(room_name)
 
-            # Read heating_power_request from cloud entity (Netatmo-specific)
-            power_pct = self._get_heating_power_pct(climate_id)
+            # Read heating power — Netatmo attr or Z2M dedicated sensor
+            pi_entity = room.get(CONF_PI_DEMAND_ENTITY, "")
+            power_pct = self._get_heating_power_pct(climate_id, pi_entity or None)
 
             # Keep rolling history of non-zero power for savings estimation
             if power_pct is not None and power_pct > 0:
@@ -148,11 +150,30 @@ class WasteCalculator:
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
-    def _get_heating_power_pct(self, climate_id: str) -> float | None:
+    def _get_heating_power_pct(
+        self, climate_id: str, pi_entity: str | None = None
+    ) -> float | None:
         """
-        Read `heating_power_request` (0–100) from the climate entity.
-        Returns None if the attribute is absent (non-Netatmo entity).
+        Read heating demand (0–100 %) from the best available source.
+
+        Priority order:
+        1. Dedicated sensor (pi_demand_entity) — Z2M TRVs expose
+           `pi_heating_demand` as `sensor.<name>_pi_heating_demand`.
+           This is the most reliable source for Zigbee TRVs.
+        2. `heating_power_request` attribute on the climate entity
+           (Netatmo cloud integration).
+        3. None — fallback to Δtemp proxy in _calc_waste_kwh.
         """
+        # 1. Dedicated Z2M sensor
+        if pi_entity:
+            state = self.coordinator.hass.states.get(pi_entity)
+            if state and state.state not in ("unknown", "unavailable"):
+                try:
+                    return float(state.state)
+                except (TypeError, ValueError):
+                    pass
+
+        # 2. Netatmo heating_power_request climate attribute
         state = self.coordinator.hass.states.get(climate_id)
         if not state:
             return None

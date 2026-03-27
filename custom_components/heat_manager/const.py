@@ -4,7 +4,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 DOMAIN = "heat_manager"
-VERSION = "0.2.6"
+VERSION = "0.2.7"
 
 # ── Config entry keys ────────────────────────────────────────────────────────
 
@@ -58,6 +58,19 @@ CONF_HOMEKIT_CLIMATE_ENTITY = "homekit_climate_entity"
 # Per-room rated wattage for energy calculations
 # Used by WasteCalculator with heating_power_request to get real kWh
 CONF_ROOM_WATTAGE = "room_wattage"
+
+# Per-room TRV type
+# "netatmo" (default) — uses preset_mode: away/schedule
+# "zigbee"            — uses hvac_mode: off/heat (Z2M / no preset concept)
+CONF_TRV_TYPE = "trv_type"
+TRV_TYPE_NETATMO = "netatmo"
+TRV_TYPE_ZIGBEE  = "zigbee"
+TRV_TYPE_OPTIONS = [TRV_TYPE_NETATMO, TRV_TYPE_ZIGBEE]
+
+# Per-room Z2M pi_heating_demand sensor entity (optional)
+# If set: WasteCalculator reads this sensor instead of climate attribute
+# Use for Zigbee TRVs where pi_heating_demand is a separate sensor entity
+CONF_PI_DEMAND_ENTITY = "pi_demand_entity"
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 
