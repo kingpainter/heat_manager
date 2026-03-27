@@ -110,10 +110,9 @@ class HeatManagerPanel extends HTMLElement {
   _scheduleRender() {
     if (this._renderPending) return;
     this._renderPending = true;
-    requestAnimationFrame(() => {
-      this._renderPending = false;
-      this._render();
-    });
+    // Use setTimeout instead of rAF — rAF can stall in HA's panel context
+    // when the panel is not the active viewport or is inside a shadow root.
+    setTimeout(() => { this._renderPending = false; this._render(); }, 0);
   }
 
   // ── Data ──────────────────────────────────────────────────────────────────
