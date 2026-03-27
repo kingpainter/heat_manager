@@ -250,6 +250,18 @@ class HeatManagerPanel extends HTMLElement {
   _ctrlBg(s)     { return ({on:"#EAF3DE",pause:"#FAEEDA",off:"var(--secondary-background-color)"})[s] ?? "var(--secondary-background-color)"; }
   _ctrlBorder(s) { return ({on:"#3B6D11",pause:"#854F0B",off:"var(--secondary-text-color)"})[s] ?? "var(--divider-color)"; }
   _reasonLabel(r){ return ({season:"Sæson — sommer",temperature:"Udetemperatur over grænse",none:"Manuel"})[r] ?? r ?? "—"; }
+
+  _seasonTriggerLabel(season, reason) {
+    // "reason" is the auto_off_reason — tells us if season actually caused a shut-off
+    if (season === "summer") {
+      return reason === "season" ? "Sommer — slået fra" : "Sommer — auto-off klar";
+    }
+    if (season === "auto") {
+      return "Auto — overvåger ude-temp";
+    }
+    // winter
+    return reason === "season" ? "Vinter — slået fra" : "Vinter — kører normalt";
+  }
   _fmtTemp(t)    { return t != null ? (Math.round(t * 10) / 10) + "°C" : "—"; }
 
   _climateTemp(id) {
@@ -529,7 +541,7 @@ class HeatManagerPanel extends HTMLElement {
           <span style="font-size:12px;font-weight:500;color:${isOff?"#BA7517":"#27500A"}">${isOff?"Slukket":"Aktiv"}</span>
         </div>
         <div class="metric-grid">
-          <div class="metric-box"><div class="metric-lbl">Sæson trigger</div><div class="metric-val">${season==="summer"?"Sommer — aktiv":"Vinter — inaktiv"}</div></div>
+          <div class="metric-box"><div class="metric-lbl">Sæson trigger</div><div class="metric-val">${this._seasonTriggerLabel(season, reason)}</div></div>
           <div class="metric-box"><div class="metric-lbl">Udetemperatur</div><div class="metric-val">${otemp} / ${d?.auto_off_threshold ?? 18}°C grænse</div></div>
           <div class="metric-box"><div class="metric-lbl">Dage over grænse</div><div class="metric-val">${d?.auto_off_days ?? 0} / ${d?.auto_off_days_required ?? 5} dage</div></div>
           <div class="metric-box"><div class="metric-lbl">Årsag til sluk</div><div class="metric-val">${isOff ? this._reasonLabel(reason) : "—"}</div></div>

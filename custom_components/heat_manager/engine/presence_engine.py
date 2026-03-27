@@ -253,6 +253,9 @@ class PresenceEngine:
                     )
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning("Failed to set away on %s: %s", entity_id, err)
+            # Netatmo API rate limit: 200 calls/10 min, burst sensitivity on setthermmode.
+            # Small delay between rooms prevents 429 errors when all rooms are updated at once.
+            await asyncio.sleep(0.6)
 
     @guarded
     async def _restore_all_schedule(self) -> None:
@@ -289,6 +292,8 @@ class PresenceEngine:
                 self.coordinator.set_room_state(room_name, RoomState.NORMAL)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Failed to restore schedule on %s: %s", entity_id, err)
+            # Netatmo API rate limit: stagger calls to avoid 429 on setthermmode.
+            await asyncio.sleep(0.6)
 
         self.coordinator.log_event("Heating resumed — welcome home", "Presence", "normal")
         if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):

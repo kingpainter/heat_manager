@@ -226,7 +226,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         for room in self.rooms:
             if room.get("room_name") == room_name:
-                return room.get(CONF_HOMEKIT_CLIMATE_ENTITY) or None
+                val = room.get(CONF_HOMEKIT_CLIMATE_ENTITY)
+                # Guard against empty string stored by old config entries
+                return val if val else None
         return None
 
     def get_window_sensors(self, room_name: str) -> list[str]:

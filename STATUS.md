@@ -88,7 +88,7 @@ heat_manager/
 
 ## Architecture: Netatmo NRV dual-entity routing
 
-Netatmo NRV rooms are served by two HA entities simultaneously:
+Netatmo TRV rooms are served by two HA entities simultaneously:
 
 ```
 Netatmo cloud  ──HTTPS──►  climate.kitchen          (cloud entity)

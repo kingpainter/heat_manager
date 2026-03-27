@@ -118,8 +118,8 @@ class WasteCalculator:
             room_state = self.coordinator.get_room_state(room_name)
 
             # Read heating power — Netatmo attr or Z2M dedicated sensor
-            pi_entity = room.get(CONF_PI_DEMAND_ENTITY, "")
-            power_pct = self._get_heating_power_pct(climate_id, pi_entity or None)
+            pi_entity = room.get(CONF_PI_DEMAND_ENTITY) or None
+            power_pct = self._get_heating_power_pct(climate_id, pi_entity)
 
             # Keep rolling history of non-zero power for savings estimation
             if power_pct is not None and power_pct > 0:
