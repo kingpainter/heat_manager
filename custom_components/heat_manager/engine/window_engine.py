@@ -29,6 +29,7 @@ from ..const import (
     RoomState,
 )
 from .controller import guarded
+from .pid_controller import PidController
 
 if TYPE_CHECKING:
     from ..coordinator import HeatManagerCoordinator
@@ -131,21 +132,26 @@ class WindowEngine:
             return
 
         try:
+            target_temp = self._window_open_setpoint(room_name, climate_id, away_temp)
             await self.coordinator.hass.services.async_call(
                 "climate", "set_temperature",
-                {"entity_id": climate_id, "temperature": away_temp},
+                {"entity_id": climate_id, "temperature": target_temp},
                 blocking=True,
             )
+            # Reset PID so integral debt doesn't accumulate while window is open
+            pid = self.coordinator.get_pid(room_name)
+            if pid:
+                pid.reset()
             self.coordinator.set_room_state(room_name, RoomState.WINDOW_OPEN)
             self._window_opened_at[room_name] = utcnow()
             self._warning_sent[room_name]     = False
-            _LOGGER.info("Window open in '%s' — set %.1f°C", room_name, away_temp)
+            _LOGGER.info("Window open in '%s' — set %.1f°C", room_name, target_temp)
             self.coordinator.log_event(
-                f"Window open in {room_name} — heating to {away_temp:.0f}°C",
+                f"Window open in {room_name} — heating to {target_temp:.0f}°C",
                 "Window", "window_open",
             )
             if self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
-                await self._notify(f"Window open — {room_name} set to {away_temp:.0f}°C")
+                await self._notify(f"Window open — {room_name} set to {target_temp:.0f}°C")
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Failed to suppress heating in '%s': %s", room_name, err)
 
@@ -251,6 +257,40 @@ class WindowEngine:
             )
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Window notification failed: %s", err)
+
+    def _window_open_setpoint(
+        self, room_name: str, climate_id: str, fallback_temp: float
+    ) -> float:
+        """
+        Compute the setpoint to send when a window opens.
+
+        If PID is enabled and a current_temperature reading is available,
+        use power_to_setpoint(0) — which returns trv_min — as the floor.
+        This is equivalent to the legacy away_temp_override but is now
+        routed through the PID mapper so everything uses the same code path.
+
+        If PID is disabled, fall back to the per-room away_temp_override.
+        """
+        if not self.coordinator.pid_enabled:
+            return fallback_temp
+        # Power = 0 → TRV minimum temperature (suppress heating without
+        # completely cutting off frost protection)
+        return PidController.power_to_setpoint(
+            power=0.0,
+            current_temp=self._get_current_temp(climate_id),
+            trv_max=self.coordinator.trv_max_temp,
+            trv_min=fallback_temp,   # honour per-room override as the floor
+        )
+
+    def _get_current_temp(self, climate_id: str) -> float:
+        """Read current_temperature from the climate entity, fallback 20 °C."""
+        state = self.coordinator.hass.states.get(climate_id)
+        if state:
+            try:
+                return float(state.attributes.get("current_temperature", 20.0))
+            except (TypeError, ValueError):
+                pass
+        return 20.0
 
     def _get_open_delay(self, sensor_id: str) -> int:
         room_name = self._sensor_to_room.get(sensor_id)

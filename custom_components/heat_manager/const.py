@@ -4,7 +4,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 DOMAIN = "heat_manager"
-VERSION = "0.2.1"
+VERSION = "0.2.4"
 
 # ── Config entry keys ────────────────────────────────────────────────────────
 
@@ -42,6 +42,14 @@ CONF_NOTIFY_PREHEAT = "notify_preheat"
 CONF_NOTIFY_WINDOW_WARNING_30 = "notify_window_warning_30"
 CONF_ENERGY_TRACKING = "energy_tracking"
 
+# ── PID controller ───────────────────────────────────────────────────────────
+
+CONF_PID_KP = "pid_kp"
+CONF_PID_KI = "pid_ki"
+CONF_PID_KD = "pid_kd"
+CONF_TRV_MAX_TEMP = "trv_max_temp"
+CONF_PID_ENABLED = "pid_enabled"
+
 # ── Defaults ─────────────────────────────────────────────────────────────────
 
 DEFAULT_WINDOW_DELAY_MIN = 5
@@ -58,6 +66,12 @@ DEFAULT_PREHEAT_LEAD_TIME_MIN = 20
 DEFAULT_AUTO_OFF_TEMP_THRESHOLD = 18.0
 DEFAULT_AUTO_OFF_TEMP_DAYS = 5
 DEFAULT_PAUSE_DURATION_MIN = 120
+
+# PID defaults
+DEFAULT_PID_KP: float = 0.5
+DEFAULT_PID_KI: float = 0.02
+DEFAULT_PID_KD: float = 0.0
+DEFAULT_TRV_MAX_TEMP: float = 28.0
 
 # ── Controller state ──────────────────────────────────────────────────────────
 

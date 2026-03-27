@@ -13,6 +13,32 @@ _Nothing yet._
 
 ---
 
+## [0.2.4] — 2026-03-27
+
+### Added
+- Added `engine/pid_controller.py` — a discrete-time PI(D) controller that converts a
+  room temperature error into a proportional heating power fraction (0.0–1.0), then maps
+  that fraction to a graduated TRV setpoint via `power_to_setpoint()`. Replaces the
+  previous binary on/off approach and the hardcoded 10 °C window floor.
+- Added `CONF_PID_KP`, `CONF_PID_KI`, `CONF_PID_KD`, `CONF_PID_ENABLED`, and
+  `CONF_TRV_MAX_TEMP` constants plus matching defaults in `const.py`.
+- Added `pid_controllers` dict, `_init_pid_controllers()`, `get_pid()`, `pid_enabled`,
+  and `trv_max_temp` to `HeatManagerCoordinator` — one `PidController` instance per room.
+- Added `tests/test_pid_controller.py` with 24 offline tests covering P/I/D terms,
+  anti-windup clamping, `power_to_setpoint` edge cases, reset behaviour, and regression
+  test B-PID-1 (integral does not wind up during away/window-open periods).
+
+### Changed
+- `window_engine.py` now uses `_window_open_setpoint()` instead of writing the hardcoded
+  `away_temp_override` directly. When PID is enabled the setpoint is computed via
+  `PidController.power_to_setpoint(power=0.0, ...)`, honouring the per-room
+  `away_temp_override` as the `trv_min` floor. When PID is disabled the previous
+  behaviour is preserved exactly.
+- `window_engine.py` calls `pid.reset()` immediately after a window opens, preventing
+  integral windup debt from accumulating while the TRV is suppressed.
+
+---
+
 ## [0.2.1] — 2026-03-25
 
 ### Fixed

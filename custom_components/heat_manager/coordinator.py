@@ -34,7 +34,12 @@ from .const import (
     CONF_CLIMATE_ENTITY,
     CONF_MILD_THRESHOLD,
     CONF_PERSONS,
+    CONF_PID_ENABLED,
+    CONF_PID_KD,
+    CONF_PID_KI,
+    CONF_PID_KP,
     CONF_ROOMS,
+    CONF_TRV_MAX_TEMP,
     CONF_WEATHER_ENTITY,
     CONF_WINDOW_SENSORS,
     DEFAULT_AUTO_OFF_TEMP_DAYS,
@@ -42,6 +47,10 @@ from .const import (
     DEFAULT_AWAY_TEMP_COLD,
     DEFAULT_AWAY_TEMP_MILD,
     DEFAULT_MILD_THRESHOLD,
+    DEFAULT_PID_KD,
+    DEFAULT_PID_KI,
+    DEFAULT_PID_KP,
+    DEFAULT_TRV_MAX_TEMP,
     DOMAIN,
     SCAN_INTERVAL_SECONDS,
     AutoOffReason,
@@ -50,6 +59,7 @@ from .const import (
     SeasonMode,
 )
 from .engine.controller import ControllerEngine
+from .engine.pid_controller import PidController
 from .engine.preheat_engine import PreheatEngine
 from .engine.presence_engine import PresenceEngine
 from .engine.season_engine import SeasonEngine
@@ -104,6 +114,10 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.season_engine   = SeasonEngine(self)
         self.waste_calculator = WasteCalculator(self)
         self.preheat_engine  = PreheatEngine(self)
+
+        # Per-room PID controllers — keyed by room_name
+        self.pid_controllers: dict[str, PidController] = {}
+        self._init_pid_controllers()
 
         _LOGGER.debug(
             "Coordinator initialised — %d room(s), %d person(s)",
@@ -165,6 +179,35 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if room.get("room_name") == room_name:
                 return room.get(CONF_CLIMATE_ENTITY)
         return None
+
+    def _init_pid_controllers(self) -> None:
+        """Create one PidController per room using config gains."""
+        kp  = float(self.config.get(CONF_PID_KP,  DEFAULT_PID_KP))
+        ki  = float(self.config.get(CONF_PID_KI,  DEFAULT_PID_KI))
+        kd  = float(self.config.get(CONF_PID_KD,  DEFAULT_PID_KD))
+        for room in self.rooms:
+            name = room.get("room_name", "")
+            if name:
+                self.pid_controllers[name] = PidController(
+                    kp=kp, ki=ki, kd=kd, room_name=name
+                )
+        _LOGGER.debug(
+            "PID controllers initialised for %d room(s)", len(self.pid_controllers)
+        )
+
+    @property
+    def pid_enabled(self) -> bool:
+        """True when PID proportional setpoints are active (default True)."""
+        return bool(self.config.get(CONF_PID_ENABLED, True))
+
+    @property
+    def trv_max_temp(self) -> float:
+        """TRV setpoint ceiling used by PID mapper."""
+        return float(self.config.get(CONF_TRV_MAX_TEMP, DEFAULT_TRV_MAX_TEMP))
+
+    def get_pid(self, room_name: str) -> PidController | None:
+        """Return the PidController for a room, or None if not found."""
+        return self.pid_controllers.get(room_name)
 
     def get_window_sensors(self, room_name: str) -> list[str]:
         for room in self.rooms:
