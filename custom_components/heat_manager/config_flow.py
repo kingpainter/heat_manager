@@ -102,8 +102,8 @@ def _room_schema(defaults: dict = {}) -> vol.Schema:
             selector.selector({"text": {}}),
         vol.Required(CONF_CLIMATE_ENTITY, default=defaults.get(CONF_CLIMATE_ENTITY, "")):
             selector.selector({"entity": {"domain": "climate"}}),
-        vol.Optional(CONF_HOMEKIT_CLIMATE_ENTITY):
-            selector.selector({"entity": {"domain": "climate", "multiple": False}}),
+        vol.Optional(CONF_HOMEKIT_CLIMATE_ENTITY, default=defaults.get(CONF_HOMEKIT_CLIMATE_ENTITY, "")):
+            selector.selector({"text": {}}),  # entity selector rejects empty — text allows blank
         vol.Optional(CONF_WINDOW_SENSORS, default=defaults.get(CONF_WINDOW_SENSORS, [])):
             selector.selector({"entity": {"domain": "binary_sensor", "multiple": True}}),
         vol.Optional(CONF_WINDOW_DELAY_MIN, default=defaults.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)):
@@ -117,8 +117,8 @@ def _room_schema(defaults: dict = {}) -> vol.Schema:
                 {"value": "netatmo", "label": "Netatmo NRV (preset_mode: away/schedule)"},
                 {"value": "zigbee",  "label": "Zigbee TRV via Z2M (hvac_mode: off/heat)"},
             ]}}),
-        vol.Optional(CONF_PI_DEMAND_ENTITY):
-            selector.selector({"entity": {"domain": "sensor", "multiple": False}}),
+        vol.Optional(CONF_PI_DEMAND_ENTITY, default=defaults.get(CONF_PI_DEMAND_ENTITY, "")):
+            selector.selector({"text": {}}),   # entity selector rejects empty — text allows blank
     })
 
 
