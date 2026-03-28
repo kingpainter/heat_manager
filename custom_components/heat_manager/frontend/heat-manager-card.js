@@ -1,25 +1,18 @@
 // Heat Manager — Custom Lovelace Card
-// Version: 0.3.0
+// Version: 0.3.1
 //
-// Design: Unified with Indeklima — same dark palette, DM Sans/DM Mono,
-// card system, severity ring, section structure and chip components.
-// Palette: amber/orange for active heat, teal for pre-heat, red for waste/window.
+// Fix B-CARD-IAH: _render() used optional-chaining syntax on replaceWith()
+// that is invalid in some JS engines. Replaced with explicit null check.
+// Also adds _srAppendHTML() helper (WebKit-safe, same as panel) so the
+// first-render path never calls insertAdjacentHTML on a ShadowRoot.
 //
-// Blink guards retained from 0.2.0:
-//   - <style> injected once via querySelector guard
-//   - _render() replaces .card div via replaceWith()
-//   - _updateInPlace() handles all live state without DOM rebuild
+// Design: Unified with Indeklima — DM Sans/DM Mono, section-box system,
+// SVG efficiency ring, amber/orange heat palette.
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
 function _hmEsc(s) {
   return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-}
-
-function _hmFmt(val, unit, decimals = 0) {
-  if (val == null) return "\u2013";
-  const n = parseFloat(val);
-  return isNaN(n) ? "\u2013" : n.toFixed(decimals) + "\u00a0" + unit;
 }
 
 function _hmStateColor(s) {
@@ -45,12 +38,11 @@ function _hmEffColor(score) {
   return "#ef4444";
 }
 
-// SVG efficiency ring — same pattern as Indeklima severity ring
 function _hmRingHTML(score, size) {
-  const s  = size || 80;
-  const r  = Math.round(s * 0.38);
-  const cx = Math.round(s / 2);
-  const c  = _hmEffColor(score);
+  const s    = size || 80;
+  const r    = Math.round(s * 0.38);
+  const cx   = Math.round(s / 2);
+  const c    = _hmEffColor(score);
   const circ = 2 * Math.PI * r;
   const pct  = score != null ? Math.min(100, score) / 100 : 0;
   const fill = pct * circ;
@@ -75,7 +67,6 @@ function _hmRingHTML(score, size) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // heat-manager-card
-// Config: rooms[] (optional), weather_entity (optional)
 // ─────────────────────────────────────────────────────────────────────────────
 
 class HeatManagerCard extends HTMLElement {
@@ -103,14 +94,18 @@ class HeatManagerCard extends HTMLElement {
 
   getCardSize() { return 4; }
 
+  // WebKit-safe helper — ShadowRoot does not support insertAdjacentHTML
+  _srAppend(html) {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html;
+    while (tmp.firstChild) this.shadowRoot.appendChild(tmp.firstChild);
+  }
+
   // ── State helpers ─────────────────────────────────────────────────────────
 
-  _s(id)       { return this._hass?.states?.[id]; }
-  _sv(id)      { return this._s(id)?.state ?? "unknown"; }
-  _attr(id, a) { return this._s(id)?.attributes?.[a]; }
+  _attr(id, a) { return this._hass?.states?.[id]?.attributes?.[a]; }
 
-  _ctrl()      {
-    // Support both naming formats (with and without entry_id prefix)
+  _ctrl() {
     const states = this._hass?.states ?? {};
     for (const id of Object.keys(states)) {
       if (id.startsWith("select.") && id.endsWith("_controller_state")) return states[id].state;
@@ -159,8 +154,7 @@ class HeatManagerCard extends HTMLElement {
 
   _roomState(name) {
     const states = this._hass?.states ?? {};
-    const key = name.toLowerCase().replace(/\s+/g,"_");
-    // Try suffix-based matching first (handles entry_id prefix)
+    const key = name.toLowerCase().replace(/\s+/g, "_");
     for (const id of Object.keys(states)) {
       if (id.startsWith("sensor.") && id.endsWith("_" + key + "_state")) return states[id].state;
     }
@@ -181,13 +175,13 @@ class HeatManagerCard extends HTMLElement {
   // ── Actions ───────────────────────────────────────────────────────────────
 
   async _setCtrl(state) {
-    await this._hass.callService("heat_manager","set_controller_state",{ state });
+    await this._hass.callService("heat_manager", "set_controller_state", { state });
   }
   async _pause() {
-    await this._hass.callService("heat_manager","pause",{ duration_minutes: this._pauseMinutes });
+    await this._hass.callService("heat_manager", "pause", { duration_minutes: this._pauseMinutes });
   }
   async _resume() {
-    await this._hass.callService("heat_manager","resume",{});
+    await this._hass.callService("heat_manager", "resume", {});
   }
 
   // ── CSS ───────────────────────────────────────────────────────────────────
@@ -208,16 +202,14 @@ class HeatManagerCard extends HTMLElement {
         --teal:  #0ea5e9;
         --green: #10b981;
         --red:   #ef4444;
-        --card-radius: 16px;
         font-family: 'DM Sans', var(--paper-font-body1_-_font-family, sans-serif);
       }
 
       * { box-sizing: border-box; margin: 0; padding: 0; }
 
-      /* ── Card shell ── */
       ha-card, .card {
         background: var(--bg);
-        border-radius: var(--card-radius);
+        border-radius: var(--ha-card-border-radius, 16px);
         color: var(--text);
         overflow: hidden;
         box-shadow: var(--ha-card-box-shadow, 0 2px 8px rgba(0,0,0,.18));
@@ -231,8 +223,7 @@ class HeatManagerCard extends HTMLElement {
         position: relative; overflow: hidden;
       }
       .card-header::before {
-        content: '';
-        position: absolute; inset: 0;
+        content: ''; position: absolute; inset: 0;
         background: radial-gradient(ellipse at top left, rgba(249,115,22,0.07) 0%, transparent 60%);
         pointer-events: none;
       }
@@ -260,10 +251,8 @@ class HeatManagerCard extends HTMLElement {
         50%      { opacity:.5; transform:scale(1.4); }
       }
 
-      /* ── Section box (Indeklima system) ── */
-      .section-box {
-        border-bottom: 1px solid var(--div);
-      }
+      /* ── Section box ── */
+      .section-box { border-bottom: 1px solid var(--div); }
       .section-box:last-child { border-bottom: none; }
       .section-header {
         display: flex; align-items: center; gap: 8px;
@@ -300,7 +289,7 @@ class HeatManagerCard extends HTMLElement {
         font-family: 'DM Sans', sans-serif;
       }
       .pause-bar {
-        margin: 8px 14px 0;
+        margin-top: 8px;
         display: flex; align-items: center; justify-content: space-between;
         padding: 8px 12px;
         background: rgba(234,179,8,0.1);
@@ -314,11 +303,10 @@ class HeatManagerCard extends HTMLElement {
         background: transparent; color: #fef08a; cursor: pointer;
         font-family: 'DM Sans', sans-serif;
       }
-      .resume-btn:hover { background: rgba(234,179,8,0.1); }
 
-      /* ── Efficiency ring + energy chips ── */
+      /* ── Energy ring ── */
       .energy-row { display: flex; align-items: center; gap: 14px; }
-      .ring-wrap   { position: relative; flex-shrink: 0; }
+      .ring-wrap { position: relative; flex-shrink: 0; }
       .ring-center {
         position: absolute; inset: 0;
         display: flex; flex-direction: column;
@@ -347,8 +335,7 @@ class HeatManagerCard extends HTMLElement {
       .room-state-pill {
         font-size: 9px; font-weight: 700;
         padding: 2px 7px; border-radius: 20px;
-        text-transform: uppercase; letter-spacing: .4px;
-        flex-shrink: 0;
+        text-transform: uppercase; letter-spacing: .4px; flex-shrink: 0;
       }
       .room-card.state-window_open .room-state-pill,
       .room-card.state-pre_heat .room-state-pill {
@@ -356,7 +343,7 @@ class HeatManagerCard extends HTMLElement {
       }
       @keyframes badge-pulse { 0%,100%{opacity:1}50%{opacity:.55} }
       .room-temps { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex-shrink: 0; }
-      .room-temp-current { font-size: 13px; font-weight: 700; font-family: 'DM Mono', monospace; }
+      .room-temp-current  { font-size: 13px; font-weight: 700; font-family: 'DM Mono', monospace; }
       .room-temp-setpoint { font-size: 10px; color: var(--sub); }
     `;
   }
@@ -365,6 +352,8 @@ class HeatManagerCard extends HTMLElement {
 
   _render() {
     const root = this.shadowRoot;
+
+    // Inject <style> once
     if (!root.querySelector("style")) {
       const st = document.createElement("style");
       st.textContent = this._css();
@@ -372,15 +361,16 @@ class HeatManagerCard extends HTMLElement {
     }
 
     const html = `<ha-card><div class="card">${this._cardHTML()}</div></ha-card>`;
-    const existing = root.querySelector(".card");
+
+    const existing = root.querySelector("ha-card");
     if (existing) {
+      // Replace existing ha-card safely via DOM, no insertAdjacentHTML
       const tmp = document.createElement("div");
       tmp.innerHTML = html;
-      existing.closest("ha-card")?.replaceWith?.(tmp.firstElementChild) || existing.replaceWith(tmp.firstElementChild);
+      existing.replaceWith(tmp.firstElementChild);
     } else {
-      const tmp = document.createElement("div");
-      tmp.innerHTML = html;
-      root.appendChild(tmp.firstElementChild);
+      // First render — use WebKit-safe helper (no insertAdjacentHTML on ShadowRoot)
+      this._srAppend(html);
     }
 
     this._attachEvents();
@@ -400,7 +390,6 @@ class HeatManagerCard extends HTMLElement {
     const sub       = [this._seasonLabel(season), otemp ? otemp + " ude" : null].filter(Boolean).join(" · ");
     const showPause = ctrl === "pause" && pauseLeft > 0;
 
-    // Controller button active styles baked in — _updateInPlace patches them live
     const btnStyle = (name) => {
       if (ctrl !== name) return "";
       const styles = {
@@ -411,17 +400,17 @@ class HeatManagerCard extends HTMLElement {
       return styles[name] ?? "";
     };
 
-    // Rooms
     const rooms = this._config.rooms ?? [];
     const roomsHTML = rooms.length
       ? rooms.map(room => {
-          const state   = this._roomState(room.room_name ?? "");
-          const color   = _hmStateColor(state);
-          const label   = _hmStateLabel(state);
-          const temp    = this._climateTemp(room.climate_entity ?? "");
-          const setpt   = this._climateSetpoint(room.climate_entity ?? "");
+          const state = this._roomState(room.room_name ?? "");
+          const color = _hmStateColor(state);
+          const label = _hmStateLabel(state);
+          const temp  = this._climateTemp(room.climate_entity ?? "");
+          const setpt = this._climateSetpoint(room.climate_entity ?? "");
           return `
-            <div class="room-card state-${state}" style="border-left-color:${color};background-image:linear-gradient(90deg,${color}0e 0%,transparent 40%);">
+            <div class="room-card state-${state}"
+              style="border-left-color:${color};background-image:linear-gradient(90deg,${color}0e 0%,transparent 40%);">
               <div class="room-card-name">${_hmEsc(room.room_name ?? "")}</div>
               <div class="room-state-pill" style="background:${color}22;color:${color}">${label}</div>
               <div class="room-temps">
@@ -433,7 +422,6 @@ class HeatManagerCard extends HTMLElement {
       : `<div style="color:var(--sub);font-size:12px;padding:4px 0;">Ingen rum konfigureret i kortet</div>`;
 
     return `
-      <!-- Header -->
       <div class="card-header">
         <div class="header-icon">🔥</div>
         <div class="header-text">
@@ -447,14 +435,11 @@ class HeatManagerCard extends HTMLElement {
         </div>
       </div>
 
-      <!-- Controller section -->
       <div class="section-box">
         <div class="section-header">
           <div class="section-title">Controller</div>
           <div class="section-badge" id="ctrl-state-badge"
-            style="background:${ctrlColor}20;color:${ctrlColor}">
-            ${_hmCtrlLabel(ctrl)}
-          </div>
+            style="background:${ctrlColor}20;color:${ctrlColor}">${_hmCtrlLabel(ctrl)}</div>
         </div>
         <div class="section-body">
           <div class="ctrl-btn-row">
@@ -479,7 +464,6 @@ class HeatManagerCard extends HTMLElement {
         </div>
       </div>
 
-      <!-- Rooms section -->
       ${rooms.length ? `
       <div class="section-box">
         <div class="section-header">
@@ -493,7 +477,6 @@ class HeatManagerCard extends HTMLElement {
         </div>
       </div>` : ""}
 
-      <!-- Energy section -->
       <div class="section-box">
         <div class="section-header">
           <div class="section-title">Energi i dag</div>
@@ -520,7 +503,7 @@ class HeatManagerCard extends HTMLElement {
       </div>`;
   }
 
-  // ── In-place live update — no DOM rebuild ─────────────────────────────────
+  // ── In-place live update ──────────────────────────────────────────────────
 
   _updateInPlace() {
     const root = this.shadowRoot;
@@ -534,38 +517,33 @@ class HeatManagerCard extends HTMLElement {
     const wasted    = this._energySensor("_energy_wasted_today");
     const score     = this._energySensor("_efficiency_score");
     const scoreInt  = score != null ? parseInt(score, 10) : null;
-
     const ctrlColor = _hmCtrlColor(ctrl);
     const sub       = [this._seasonLabel(season), otemp ? otemp + " ude" : null].filter(Boolean).join(" · ");
     const showPause = ctrl === "pause" && pauseLeft > 0;
 
-    // Header sub
     const subEl = root.querySelector("#hdr-sub");
     if (subEl) subEl.textContent = sub;
 
-    // Ctrl badge (header + section)
     for (const id of ["ctrl-badge", "ctrl-state-badge"]) {
       const el = root.querySelector("#" + id);
       if (!el) continue;
       el.textContent = _hmCtrlLabel(ctrl);
-      el.style.background   = ctrlColor + "20";
-      el.style.color        = ctrlColor;
-      el.style.borderColor  = ctrlColor;
+      el.style.background  = ctrlColor + "20";
+      el.style.color       = ctrlColor;
+      el.style.borderColor = ctrlColor;
     }
 
-    // Ctrl button active styles
     const btnStyles = {
       on:    "background:rgba(249,115,22,0.18);border-color:#f97316;color:#fed7aa;",
       pause: "background:rgba(234,179,8,0.15);border-color:#ca8a04;color:#fef08a;",
       off:   "background:rgba(148,163,184,0.12);border-color:rgba(148,163,184,0.4);color:#94a3b8;",
     };
     const inactive = "background:transparent;border-color:rgba(148,163,184,0.2);color:var(--sub);";
-    for (const name of ["on","pause","off"]) {
+    for (const name of ["on", "pause", "off"]) {
       const btn = root.querySelector("#btn-" + name);
       if (btn) btn.style.cssText = ctrl === name ? (btnStyles[name] ?? inactive) : inactive;
     }
 
-    // Pause bar
     const bar  = root.querySelector("#pause-bar");
     const btxt = root.querySelector("#pause-bar-text");
     if (bar) {
@@ -573,16 +551,15 @@ class HeatManagerCard extends HTMLElement {
       if (btxt && showPause) btxt.textContent = "⏸ Pause — " + pauseLeft + " min tilbage";
     }
 
-    // Rooms
     const rooms = this._config.rooms ?? [];
     rooms.forEach((room, i) => {
       const cards = root.querySelectorAll(".room-card");
       if (!cards[i]) return;
-      const state  = this._roomState(room.room_name ?? "");
-      const color  = _hmStateColor(state);
-      const label  = _hmStateLabel(state);
-      const temp   = this._climateTemp(room.climate_entity ?? "");
-      const setpt  = this._climateSetpoint(room.climate_entity ?? "");
+      const state = this._roomState(room.room_name ?? "");
+      const color = _hmStateColor(state);
+      const label = _hmStateLabel(state);
+      const temp  = this._climateTemp(room.climate_entity ?? "");
+      const setpt = this._climateSetpoint(room.climate_entity ?? "");
       cards[i].style.borderLeftColor = color;
       cards[i].style.backgroundImage = `linear-gradient(90deg,${color}0e 0%,transparent 40%)`;
       cards[i].className = "room-card state-" + state;
@@ -594,7 +571,6 @@ class HeatManagerCard extends HTMLElement {
       if (ts) ts.textContent = setpt ? "→ " + setpt : "";
     });
 
-    // Energy
     const sv = root.querySelector("#stat-saved");
     const wv = root.querySelector("#stat-wasted");
     const sc = root.querySelector("#stat-score");
@@ -683,7 +659,6 @@ class HeatManagerCardEditor extends HTMLElement {
         --div:  var(--divider-color, rgba(148,163,184,0.12));
       }
       * { box-sizing: border-box; margin: 0; padding: 0; }
-
       .section-title {
         font-size: 11px; font-weight: 700; text-transform: uppercase;
         letter-spacing: 1px; color: var(--sub);
@@ -692,31 +667,25 @@ class HeatManagerCardEditor extends HTMLElement {
         justify-content: space-between; align-items: center;
       }
       .section-title.first { border-top: none; padding-top: 4px; }
-
       .field { margin-bottom: 10px; }
       label  { display: block; font-size: 12px; color: var(--sub); margin-bottom: 5px; }
       input, select {
         width: 100%; padding: 8px 10px; font-size: 13px;
         border: 1px solid var(--div); border-radius: 8px;
-        background: var(--bg2); color: var(--text);
-        font-family: inherit;
+        background: var(--bg2); color: var(--text); font-family: inherit;
       }
       input:focus, select:focus {
         outline: none; border-color: #f97316;
         box-shadow: 0 0 0 2px rgba(249,115,22,0.15);
       }
-
       .add-btn {
         font-size: 11px; padding: 4px 11px; border-radius: 6px;
         border: 1px solid #f97316; background: rgba(249,115,22,0.1);
         color: #f97316; cursor: pointer; font-weight: 600;
       }
-      .add-btn:hover { background: rgba(249,115,22,0.2); }
-
       .room-block {
         border: 1px solid var(--div); border-radius: 10px;
-        padding: 10px 12px; margin-bottom: 8px;
-        background: var(--bg2);
+        padding: 10px 12px; margin-bottom: 8px; background: var(--bg2);
       }
       .room-hdr {
         display: flex; justify-content: space-between; align-items: center;
@@ -728,8 +697,6 @@ class HeatManagerCardEditor extends HTMLElement {
         border: 1px solid rgba(239,68,68,0.4); background: transparent;
         color: #ef4444; cursor: pointer;
       }
-      .del-btn:hover { background: rgba(239,68,68,0.1); }
-
       .hint { font-size: 10px; color: var(--sub); margin-top: 3px; }
       .empty-rooms {
         padding: 14px; text-align: center; color: var(--sub);
@@ -769,6 +736,7 @@ class HeatManagerCardEditor extends HTMLElement {
           </div>`).join("")
       : `<div class="empty-rooms">Ingen rum endnu — klik "+ Tilføj rum"</div>`;
 
+    // Editor uses innerHTML — fine here since it's not the card's ShadowRoot
     this.shadowRoot.innerHTML = `
       <style>${this._css()}</style>
       <div class="section-title first">Globale indstillinger</div>
@@ -778,8 +746,7 @@ class HeatManagerCardEditor extends HTMLElement {
           value="${this._esc(c.weather_entity || "")}" placeholder="weather.forecast_home">
       </div>
       <div class="section-title">
-        Rum
-        <button class="add-btn" id="add-room">+ Tilføj rum</button>
+        Rum <button class="add-btn" id="add-room">+ Tilføj rum</button>
       </div>
       <div id="rooms-container">${roomsHTML}</div>`;
 
