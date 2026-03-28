@@ -30,12 +30,15 @@ from .const import (
     CONF_AWAY_TEMP_MILD,
     CONF_AWAY_TEMP_OVERRIDE,
     CONF_CLIMATE_ENTITY,
+    CONF_CO2_SENSOR,
     CONF_ENERGY_TRACKING,
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_MILD_THRESHOLD,
+    CONF_OUTDOOR_TEMP_SENSOR,
     CONF_PI_DEMAND_ENTITY,
+    CONF_ROOM_TEMP_SENSOR,
     CONF_TRV_TYPE,
     TRV_TYPE_NETATMO,
     TRV_TYPE_OPTIONS,
@@ -77,6 +80,8 @@ def _step1_schema(defaults: dict = {}) -> vol.Schema:
     return vol.Schema({
         vol.Optional(CONF_WEATHER_ENTITY, default=defaults.get(CONF_WEATHER_ENTITY, "")):
             selector.selector({"entity": {"domain": "weather"}}),
+        vol.Optional(CONF_OUTDOOR_TEMP_SENSOR, default=defaults.get(CONF_OUTDOOR_TEMP_SENSOR, "")):
+            selector.selector({"text": {}}),  # text allows blank; entity selector rejects empty
         vol.Optional(CONF_NOTIFY_SERVICE, default=defaults.get(CONF_NOTIFY_SERVICE, "")):
             selector.selector({"text": {}}),
         vol.Optional(CONF_AWAY_TEMP_MILD, default=defaults.get(CONF_AWAY_TEMP_MILD, DEFAULT_AWAY_TEMP_MILD)):
@@ -103,7 +108,7 @@ def _room_schema(defaults: dict = {}) -> vol.Schema:
         vol.Required(CONF_CLIMATE_ENTITY, default=defaults.get(CONF_CLIMATE_ENTITY, "")):
             selector.selector({"entity": {"domain": "climate"}}),
         vol.Optional(CONF_HOMEKIT_CLIMATE_ENTITY, default=defaults.get(CONF_HOMEKIT_CLIMATE_ENTITY, "")):
-            selector.selector({"text": {}}),  # entity selector rejects empty — text allows blank
+            selector.selector({"text": {}}),
         vol.Optional(CONF_WINDOW_SENSORS, default=defaults.get(CONF_WINDOW_SENSORS, [])):
             selector.selector({"entity": {"domain": "binary_sensor", "multiple": True}}),
         vol.Optional(CONF_WINDOW_DELAY_MIN, default=defaults.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)):
@@ -118,7 +123,12 @@ def _room_schema(defaults: dict = {}) -> vol.Schema:
                 {"value": "zigbee",  "label": "Zigbee TRV via Z2M (hvac_mode: off/heat)"},
             ]}}),
         vol.Optional(CONF_PI_DEMAND_ENTITY, default=defaults.get(CONF_PI_DEMAND_ENTITY, "")):
-            selector.selector({"text": {}}),   # entity selector rejects empty — text allows blank
+            selector.selector({"text": {}}),
+        # ── New sensor inputs ─────────────────────────────────────────────────
+        vol.Optional(CONF_CO2_SENSOR, default=defaults.get(CONF_CO2_SENSOR, "")):
+            selector.selector({"text": {}}),  # sensor.* — CO₂ in ppm
+        vol.Optional(CONF_ROOM_TEMP_SENSOR, default=defaults.get(CONF_ROOM_TEMP_SENSOR, "")):
+            selector.selector({"text": {}}),  # sensor.* — room temperature in °C
     })
 
 

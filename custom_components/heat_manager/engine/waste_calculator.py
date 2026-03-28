@@ -13,20 +13,21 @@ per-room rated wattage (default 1000 W).
 Formula per room per tick:
     actual_kWh = (heating_power_request / 100) × room_watts × tick_hours
 
-This is real measured heating power, not a proxy for temperature difference.
+v0.2.9 — CO₂-weighted waste
+-----------------------------
+When CONF_CO2_SENSOR is configured for a room, waste attribution is reduced
+when CO₂ is elevated.  The rationale: if CO₂ ≥ DEFAULT_CO2_VENTILATION_THRESHOLD
+the open window is purposeful ventilation, not careless heat loss.  A 50 %
+reduction is applied to waste_kWh in that case so the efficiency score
+stays fair and the energy-wasted sensor reflects true wasted heat rather
+than penalising necessary ventilation.
 
-Waste (window open):
-    The room is actively drawing power (heating_power_request > 0) while
-    losing heat through an open window.
-
-Saved (away mode during heating hours):
-    Power that *would* have been drawn if the room were in normal schedule,
-    estimated as the average of the last known non-zero heating_power_request
-    for that room.  Falls back to 50% × room_watts if no history exists.
-
-Efficiency score (0–100):
-    Starts at 100.  Each 0.01 kWh wasted costs 1 point.
-    Score floor is 0.
+Waste weight table
+  CO₂ (ppm)         waste_weight
+  ─────────────────────────────
+  no sensor          1.00  (unchanged behaviour)
+  < threshold        1.00  (window open without ventilation need — full waste)
+  ≥ threshold        0.50  (ventilation justified — half waste)
 
 Fallback:
     If `heating_power_request` is not present (non-Netatmo climate entity),
@@ -45,6 +46,7 @@ from ..const import (
     CONF_CLIMATE_ENTITY,
     CONF_PI_DEMAND_ENTITY,
     CONF_ROOM_WATTAGE,
+    DEFAULT_CO2_VENTILATION_THRESHOLD,
     DEFAULT_ROOM_WATTAGE,
     RoomState,
 )
@@ -54,27 +56,22 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Fallback constant when heating_power_request is not available
-# (non-Netatmo rooms) — kWh per °C per hour
 _KWH_PER_DEGC_PER_HOUR: float = 0.1
-
-# Heating hours during which away-savings are counted (inclusive start)
 _HEATING_HOURS_START: int = 6
 _HEATING_HOURS_END: int = 23
 
+# Waste weight when CO₂ is elevated — window open for ventilation, not heat loss
+_WASTE_WEIGHT_VENTILATION: float = 0.50
+
 
 class WasteCalculator:
-    """
-    Tracks per-room energy waste and savings, resets at midnight.
-    """
+    """Tracks per-room energy waste and savings, resets at midnight."""
 
     def __init__(self, coordinator: HeatManagerCoordinator) -> None:
         self.coordinator = coordinator
         self._today: date = ha_now().date()
         self._wasted_kwh: float = 0.0
         self._saved_kwh: float = 0.0
-        # Last known non-zero heating_power_request per room (0–100)
-        # Used to estimate savings when room is in AWAY mode
         self._last_power_pct: dict[str, float] = {}
 
     # ── Public read-only properties ───────────────────────────────────────────
@@ -98,15 +95,13 @@ class WasteCalculator:
         """Called every SCAN_INTERVAL_SECONDS by coordinator."""
         today = ha_now().date()
 
-        # Midnight reset
         if today != self._today:
             self._today      = today
             self._wasted_kwh = 0.0
             self._saved_kwh  = 0.0
-            # Keep _last_power_pct across midnight — it's a rolling estimate
             _LOGGER.debug("WasteCalculator: reset for new day %s", today)
 
-        tick_hours = 60.0 / 3600.0  # 60-second coordinator tick
+        tick_hours = 60.0 / 3600.0
 
         for room in self.coordinator.rooms:
             room_name  = room.get("room_name", "")
@@ -117,54 +112,58 @@ class WasteCalculator:
             room_watts = float(room.get(CONF_ROOM_WATTAGE, DEFAULT_ROOM_WATTAGE))
             room_state = self.coordinator.get_room_state(room_name)
 
-            # Read heating power — Netatmo attr or Z2M dedicated sensor
-            pi_entity = room.get(CONF_PI_DEMAND_ENTITY) or None
-            power_pct = self._get_heating_power_pct(climate_id, pi_entity)
+            pi_entity  = room.get(CONF_PI_DEMAND_ENTITY) or None
+            power_pct  = self._get_heating_power_pct(climate_id, pi_entity)
 
-            # Keep rolling history of non-zero power for savings estimation
             if power_pct is not None and power_pct > 0:
                 self._last_power_pct[room_name] = power_pct
 
-            # ── Waste: window open while room is heating ──────────────────────
+            # ── Waste: window open while room is heating ──────────────────
             if room_state == RoomState.WINDOW_OPEN:
-                waste_kwh = self._calc_waste_kwh(
+                raw_waste_kwh = self._calc_waste_kwh(
                     climate_id, room_watts, power_pct, tick_hours
                 )
-                if waste_kwh > 0:
+                if raw_waste_kwh > 0:
+                    # v0.2.9 — apply CO₂ weight: ventilation reduces waste attribution
+                    weight    = self._co2_waste_weight(room_name)
+                    waste_kwh = raw_waste_kwh * weight
                     self._wasted_kwh += waste_kwh
                     _LOGGER.debug(
-                        "Waste +%.4f kWh — %s (power_pct=%s)",
+                        "Waste +%.4f kWh — %s (power=%s%%, co2_weight=%.2f)",
                         waste_kwh, room_name,
-                        f"{power_pct:.0f}%" if power_pct is not None else "n/a",
+                        f"{power_pct:.0f}" if power_pct is not None else "n/a",
+                        weight,
                     )
 
-            # ── Saved: away mode during normal heating hours ──────────────────
+            # ── Saved: away mode during normal heating hours ──────────────
             if room_state == RoomState.AWAY:
                 hour = ha_now().hour
                 if _HEATING_HOURS_START <= hour < _HEATING_HOURS_END:
-                    saved_kwh = self._calc_saved_kwh(
-                        room_name, room_watts, tick_hours
-                    )
+                    saved_kwh = self._calc_saved_kwh(room_name, room_watts, tick_hours)
                     if saved_kwh > 0:
                         self._saved_kwh += saved_kwh
+
+    # ── CO₂ waste weighting (v0.2.9) ─────────────────────────────────────────
+
+    def _co2_waste_weight(self, room_name: str) -> float:
+        """
+        Return a multiplier (0.0–1.0) for waste attribution based on CO₂.
+
+        1.00 → full waste (no sensor, or CO₂ below ventilation threshold)
+        0.50 → half waste (CO₂ elevated — window open for ventilation)
+        """
+        co2 = self.coordinator.get_room_co2(room_name)
+        if co2 is None:
+            return 1.0
+        if co2 >= DEFAULT_CO2_VENTILATION_THRESHOLD:
+            return _WASTE_WEIGHT_VENTILATION
+        return 1.0
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _get_heating_power_pct(
         self, climate_id: str, pi_entity: str | None = None
     ) -> float | None:
-        """
-        Read heating demand (0–100 %) from the best available source.
-
-        Priority order:
-        1. Dedicated sensor (pi_demand_entity) — Z2M TRVs expose
-           `pi_heating_demand` as `sensor.<name>_pi_heating_demand`.
-           This is the most reliable source for Zigbee TRVs.
-        2. `heating_power_request` attribute on the climate entity
-           (Netatmo cloud integration).
-        3. None — fallback to Δtemp proxy in _calc_waste_kwh.
-        """
-        # 1. Dedicated Z2M sensor
         if pi_entity:
             state = self.coordinator.hass.states.get(pi_entity)
             if state and state.state not in ("unknown", "unavailable"):
@@ -173,7 +172,6 @@ class WasteCalculator:
                 except (TypeError, ValueError):
                     pass
 
-        # 2. Netatmo heating_power_request climate attribute
         state = self.coordinator.hass.states.get(climate_id)
         if not state:
             return None
@@ -192,17 +190,8 @@ class WasteCalculator:
         power_pct: float | None,
         tick_hours: float,
     ) -> float:
-        """
-        Energy wasted this tick (window open while heating).
-
-        Uses heating_power_request when available (Netatmo); falls back to
-        Δtemp × 0.1 kWh/°C/h for non-Netatmo entities.
-        """
         if power_pct is not None:
-            # Real data path: actual watts × time
             return (power_pct / 100.0) * room_watts / 1000.0 * tick_hours
-
-        # Fallback: Δtemp proxy for non-Netatmo rooms
         return self._legacy_delta_kwh(climate_id, tick_hours)
 
     def _calc_saved_kwh(
@@ -211,20 +200,10 @@ class WasteCalculator:
         room_watts: float,
         tick_hours: float,
     ) -> float:
-        """
-        Energy saved this tick (away mode during heating hours).
-
-        Estimate: last known heating_power_request for this room, or 50%
-        of rated wattage if no history exists.
-        """
         last_pct = self._last_power_pct.get(room_name, 50.0)
         return (last_pct / 100.0) * room_watts / 1000.0 * tick_hours
 
     def _legacy_delta_kwh(self, climate_id: str, tick_hours: float) -> float:
-        """
-        Phase 3 fallback: Δtemp × 0.1 kWh/°C/h.
-        Used for non-Netatmo climate entities that lack heating_power_request.
-        """
         state = self.coordinator.hass.states.get(climate_id)
         if not state:
             return 0.0

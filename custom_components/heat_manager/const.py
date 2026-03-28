@@ -4,7 +4,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 DOMAIN = "heat_manager"
-VERSION = "0.2.7"
+VERSION = "0.2.9"
 
 # ── Config entry keys ────────────────────────────────────────────────────────
 
@@ -51,26 +51,39 @@ CONF_TRV_MAX_TEMP = "trv_max_temp"
 CONF_PID_ENABLED = "pid_enabled"
 
 # Per-room Netatmo HomeKit local entity (optional)
-# If set: PID writes set_temperature here (local HAP, <100 ms)
-# Cloud entity is still used for preset_mode and heating_power_request
 CONF_HOMEKIT_CLIMATE_ENTITY = "homekit_climate_entity"
 
 # Per-room rated wattage for energy calculations
-# Used by WasteCalculator with heating_power_request to get real kWh
 CONF_ROOM_WATTAGE = "room_wattage"
 
 # Per-room TRV type
-# "netatmo" (default) — uses preset_mode: away/schedule
-# "zigbee"            — uses hvac_mode: off/heat (Z2M / no preset concept)
 CONF_TRV_TYPE = "trv_type"
 TRV_TYPE_NETATMO = "netatmo"
 TRV_TYPE_ZIGBEE  = "zigbee"
 TRV_TYPE_OPTIONS = [TRV_TYPE_NETATMO, TRV_TYPE_ZIGBEE]
 
 # Per-room Z2M pi_heating_demand sensor entity (optional)
-# If set: WasteCalculator reads this sensor instead of climate attribute
-# Use for Zigbee TRVs where pi_heating_demand is a separate sensor entity
 CONF_PI_DEMAND_ENTITY = "pi_demand_entity"
+
+# ── Sensor inputs (optional, per-room) ───────────────────────────────────────
+
+# CO₂ sensor — used for context-aware window notifications and waste
+# classification.  When set, Heat Manager knows whether an open window is
+# purposeful ventilation (high CO₂) or unnecessary heat loss (low CO₂).
+CONF_CO2_SENSOR = "co2_sensor"
+
+# Room temperature sensor — external, independent of the TRV's own probe.
+# When set, the PID controller reads current_temperature from here instead
+# of from the climate entity.  Improves accuracy for Zigbee TRVs whose
+# built-in probe sits on the hot radiator body (typically 1–3 °C high).
+CONF_ROOM_TEMP_SENSOR = "room_temp_sensor"
+
+# Outdoor temperature sensor — local weather station, Netatmo outdoor
+# module, Aqara, etc.  When set, overrides the temperature attribute read
+# from the weather entity for all outdoor-temperature decisions
+# (adaptive away setpoint, SeasonEngine, auto-off).
+# Falls back to weather entity if this sensor is unavailable.
+CONF_OUTDOOR_TEMP_SENSOR = "outdoor_temp_sensor"
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 
@@ -95,6 +108,11 @@ DEFAULT_PID_KI: float = 0.02
 DEFAULT_PID_KD: float = 0.0
 DEFAULT_TRV_MAX_TEMP: float = 28.0
 DEFAULT_ROOM_WATTAGE: int = 1000  # watts — typical panel radiator
+
+# CO₂ threshold — above this level an open window is considered intentional
+# ventilation rather than pure heat waste.  Used by WindowEngine to select
+# notification wording and by WasteCalculator to reduce waste attribution.
+DEFAULT_CO2_VENTILATION_THRESHOLD: int = 900  # ppm
 
 # ── Controller state ──────────────────────────────────────────────────────────
 

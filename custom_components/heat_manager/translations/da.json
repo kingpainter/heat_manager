@@ -5,6 +5,7 @@
         "title": "Sæson & globale indstillinger",
         "data": {
           "weather_entity": "Vejr-entitet",
+          "outdoor_temp_sensor": "Udendørs temperatursensor (valgfrit)",
           "notify_service": "Notifikationstjeneste",
           "away_temp_mild": "Fraværstemperatur — mildt vejr",
           "away_temp_cold": "Fraværstemperatur — koldt vejr",
@@ -13,6 +14,9 @@
           "grace_night_min": "Nådeperiode — nat (minutter)",
           "auto_off_temp_threshold": "Auto-sluk temperaturgrænse",
           "auto_off_temp_days": "Auto-sluk dage"
+        },
+        "data_description": {
+          "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul (fx Netatmo, Aqara). Overskriver vejr-entitetens temperatur ved beregning af fraværstemperatur og sæsondetektering. Lad feltet stå tomt for at bruge vejr-entiteten."
         }
       },
       "room": {
@@ -24,7 +28,13 @@
           "window_sensors": "Vindue- / dørsensorer",
           "window_delay_min": "Forsinkelse ved åbent vindue (minutter)",
           "away_temp_override": "Fraværstemperatur for dette rum",
+          "co2_sensor": "CO\u2082-sensor (valgfrit)",
+          "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
           "_action": "Hvad nu?"
+        },
+        "data_description": {
+          "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO\u2082 er høj, registreres et åbent vindue som ventilation frem for varmespild.",
+          "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering. Anbefales til Zigbee TRV'er, hvis indbyggede sensor sidder på radiatorlegemet (typisk 1\u20133\u00b0C for høj)."
         }
       },
       "person": {
@@ -74,6 +84,7 @@
         "title": "Sæson & globale indstillinger",
         "data": {
           "weather_entity": "Vejr-entitet",
+          "outdoor_temp_sensor": "Udendørs temperatursensor (valgfrit)",
           "notify_service": "Notifikationstjeneste",
           "away_temp_mild": "Fraværstemperatur — mildt vejr",
           "away_temp_cold": "Fraværstemperatur — koldt vejr",
@@ -82,6 +93,9 @@
           "grace_night_min": "Nådeperiode — nat (minutter)",
           "auto_off_temp_threshold": "Auto-sluk temperaturgrænse",
           "auto_off_temp_days": "Auto-sluk dage"
+        },
+        "data_description": {
+          "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul. Overskriver vejr-entitetens temperatur. Lad feltet stå tomt for at bruge vejr-entiteten."
         }
       },
       "rooms_menu": {
@@ -96,7 +110,13 @@
           "climate_entity": "Klimaenhed",
           "window_sensors": "Vindue- / dørsensorer",
           "window_delay_min": "Forsinkelse ved åbent vindue (minutter)",
-          "away_temp_override": "Fraværstemperatur for dette rum"
+          "away_temp_override": "Fraværstemperatur for dette rum",
+          "co2_sensor": "CO\u2082-sensor (valgfrit)",
+          "room_temp_sensor": "Rumtemperatursensor (valgfrit)"
+        },
+        "data_description": {
+          "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering.",
+          "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering."
         }
       },
       "persons_menu": {

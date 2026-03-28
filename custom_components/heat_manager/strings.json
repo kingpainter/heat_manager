@@ -5,6 +5,7 @@
         "title": "Season & global settings",
         "data": {
           "weather_entity": "Weather entity",
+          "outdoor_temp_sensor": "Outdoor temperature sensor (optional)",
           "notify_service": "Notification service",
           "away_temp_mild": "Away temperature — mild weather",
           "away_temp_cold": "Away temperature — cold weather",
@@ -13,6 +14,9 @@
           "grace_night_min": "Grace period — night-time (minutes)",
           "auto_off_temp_threshold": "Auto-off temperature threshold",
           "auto_off_temp_days": "Auto-off sustained days"
+        },
+        "data_description": {
+          "outdoor_temp_sensor": "Local weather station or outdoor module (e.g. Netatmo, Aqara). Overrides the weather entity temperature for adaptive away setpoint and season detection. Leave blank to use the weather entity."
         }
       },
       "room": {
@@ -24,7 +28,13 @@
           "window_sensors": "Window / door sensors",
           "window_delay_min": "Window open delay (minutes)",
           "away_temp_override": "Away temperature for this room",
+          "co2_sensor": "CO\u2082 sensor (optional)",
+          "room_temp_sensor": "Room temperature sensor (optional)",
           "_action": "What next?"
+        },
+        "data_description": {
+          "co2_sensor": "Used for context-aware window notifications and energy waste classification. When CO\u2082 is high, an open window is marked as ventilation rather than heat loss.",
+          "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1\u20133\u00b0C too high)."
         }
       },
       "person": {
@@ -74,6 +84,7 @@
         "title": "Season & global settings",
         "data": {
           "weather_entity": "Weather entity",
+          "outdoor_temp_sensor": "Outdoor temperature sensor (optional)",
           "notify_service": "Notification service",
           "away_temp_mild": "Away temperature — mild weather",
           "away_temp_cold": "Away temperature — cold weather",
@@ -82,6 +93,9 @@
           "grace_night_min": "Grace period — night-time (minutes)",
           "auto_off_temp_threshold": "Auto-off temperature threshold",
           "auto_off_temp_days": "Auto-off sustained days"
+        },
+        "data_description": {
+          "outdoor_temp_sensor": "Local weather station or outdoor module. Overrides the weather entity temperature. Leave blank to use the weather entity."
         }
       },
       "rooms_menu": {
@@ -96,7 +110,13 @@
           "climate_entity": "Climate entity",
           "window_sensors": "Window / door sensors",
           "window_delay_min": "Window open delay (minutes)",
-          "away_temp_override": "Away temperature for this room"
+          "away_temp_override": "Away temperature for this room",
+          "co2_sensor": "CO\u2082 sensor (optional)",
+          "room_temp_sensor": "Room temperature sensor (optional)"
+        },
+        "data_description": {
+          "co2_sensor": "Used for context-aware window notifications and energy waste classification.",
+          "room_temp_sensor": "Independent room probe for PID temperature feedback."
         }
       },
       "persons_menu": {

@@ -13,6 +13,68 @@ _Nothing yet._
 
 ---
 
+## [0.2.9] — 2026-03-28
+
+### Added
+
+- Added `CONF_CO2_SENSOR` (`co2_sensor`) per-room optional config field.
+  When set, `WindowEngine` includes the current CO₂ level and a contextual
+  label ("ventilation" vs "heat loss") in all window-related notifications —
+  open, close, and the 30-minute escalation warning. Threshold is
+  `DEFAULT_CO2_VENTILATION_THRESHOLD = 900 ppm`; above this the window is
+  considered purposeful ventilation rather than careless heat loss.
+- Added `CONF_ROOM_TEMP_SENSOR` (`room_temp_sensor`) per-room optional config
+  field. When set, the PID controller reads `current_temperature` from this
+  independent probe instead of from the TRV's own built-in sensor. Particularly
+  beneficial for Zigbee TRVs (Z2M) whose sensor sits on the hot radiator body
+  and typically reads 1–3 °C above actual room temperature, causing the PID to
+  under-heat. Netatmo rooms also benefit — the external sensor may be better
+  positioned than the NRV valve.
+- Added `CONF_OUTDOOR_TEMP_SENSOR` (`outdoor_temp_sensor`) global optional
+  config field (Step 1 / global settings). When set, overrides the temperature
+  attribute read from the `weather.*` entity for all outdoor-temperature
+  decisions: adaptive away setpoint, SeasonEngine day-counter, and controller
+  auto-off. Falls back to the weather entity if the sensor is unavailable.
+  Useful when a local weather station (Netatmo outdoor module, Aqara, etc.)
+  is available for more accurate microclimate data.
+- Added `DEFAULT_CO2_VENTILATION_THRESHOLD = 900` ppm constant to `const.py`.
+
+### Changed
+
+- `coordinator.py` — `_refresh_outdoor_temperature()` now checks
+  `CONF_OUTDOOR_TEMP_SENSOR` first and falls back to the weather entity.
+  Existing installations without a dedicated sensor are completely unaffected.
+- `coordinator.py` — new `get_room_co2(room_name)` helper. Returns current CO₂
+  in ppm as `float | None`. Returns `None` when no sensor is configured or the
+  sensor is unavailable.
+- `coordinator.py` — new `get_room_current_temp(room_name, climate_id)` helper
+  with three-tier priority: (1) `CONF_ROOM_TEMP_SENSOR`, (2) HomeKit entity
+  `current_temperature` (Netatmo local HAP), (3) cloud entity
+  `current_temperature`. `_async_pid_tick()` now calls this helper instead of
+  reading the HomeKit entity directly, so Zigbee rooms with an external probe
+  benefit from PID accuracy without requiring a HomeKit entity.
+- `engine/window_engine.py` — new `_co2_context_label(co2_ppm)` private method.
+  Returns `""` (no sensor), `"  (CO₂: N ppm — ventilation)"` (≥ threshold), or
+  `"  (CO₂: N ppm — heat loss)"` (< threshold). Appended to open, close, and
+  30-min warning notification messages. `_get_current_temp()` now delegates to
+  `coordinator.get_room_current_temp()` instead of reading the climate entity
+  directly.
+- `engine/waste_calculator.py` — new `_co2_waste_weight(room_name)` method.
+  Returns `1.0` when no CO₂ sensor is configured or CO₂ is below threshold;
+  returns `0.50` when CO₂ ≥ `DEFAULT_CO2_VENTILATION_THRESHOLD`. Applied to
+  `waste_kwh` each tick so that ventilation-justified window openings count as
+  only 50 % waste in the efficiency score and energy-wasted sensor.
+- `config_flow.py` — Step 1 / global schema gains `outdoor_temp_sensor` text
+  field. Room schema gains `co2_sensor` and `room_temp_sensor` text fields with
+  `data_description` help text on both. All three fields also appear in the
+  options flow global and room-add steps.
+- `strings.json`, `translations/en.json`, `translations/da.json` — new labels
+  and `data_description` entries for all three fields in both languages.
+- `manifest.json` — version `0.2.8` → `0.2.9`.
+- `const.py` — version string `0.2.8` → `0.2.9`.
+
+---
+
 ## [0.2.8] — 2026-03-28
 
 ### Fixed
@@ -288,7 +350,8 @@ _Nothing yet._
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.2.8...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.2.9...HEAD
+[0.2.9]: https://github.com/kingpainter/heat-manager/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/kingpainter/heat-manager/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/kingpainter/heat-manager/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/kingpainter/heat-manager/compare/v0.2.5...v0.2.6

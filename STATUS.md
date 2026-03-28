@@ -1,7 +1,7 @@
 # Heat Manager — Project Status
 
-**Last updated:** 2026-03-27
-**Version:** 0.2.6
+**Last updated:** 2026-03-28
+**Version:** 0.2.9
 **Target:** Home Assistant 2025.1+
 **Language:** English primary · Danish translations included
 
@@ -13,13 +13,13 @@
 heat_manager/
 ├── .cursorrules               14-section development ruleset (IQS Bronze–Platinum)
 ├── README.md                  Full English docs: install, config, services, entities
-├── CHANGELOG.md               Keep a Changelog format — [0.2.6] through [0.1.0]
+├── CHANGELOG.md               Keep a Changelog format — [0.2.9] through [0.1.0]
 ├── GIT_WORKFLOW.md            GitHub Desktop guide for Windows
 ├── STATUS.md                  This file
 ├── hacs.json                  HACS distribution metadata
 ├── custom_components/
-│   └── heat_manager/          ~115 KB — 16 Python files + 2 JS files
-│       ├── engine/            ~70 KB — 8 engine files
+│   └── heat_manager/          ~125 KB — 16 Python files + 2 JS files
+│       ├── engine/            ~75 KB — 8 engine files
 │       └── frontend/          ~53 KB — panel.js (31 KB) + card.js (22 KB)
 └── tests/
     └── components/heat_manager/   ~60 KB — 7 test files, 60+ tests
@@ -34,10 +34,10 @@ heat_manager/
 | File | Description |
 |------|-------------|
 | `__init__.py` | Setup, ConfigEntryNotReady, service registration with translation keys |
-| `manifest.json` | v0.2.6, config_flow: true, iot_class: local_push |
-| `const.py` | All constants and enums. Includes PID gains, HomeKit entity key, room wattage |
-| `coordinator.py` | DataUpdateCoordinator — 6 engines + PID tick, dual-entity Netatmo routing |
-| `config_flow.py` | 4-step setup wizard + options flow. Room schema includes homekit_climate_entity and room_wattage |
+| `manifest.json` | v0.2.9, config_flow: true, iot_class: local_push |
+| `const.py` | All constants and enums. Includes PID gains, sensor input keys, CO₂ threshold |
+| `coordinator.py` | DataUpdateCoordinator — 6 engines + PID tick, unified temp/CO₂ helpers |
+| `config_flow.py` | 4-step setup wizard + options flow. Room schema includes co2_sensor, room_temp_sensor; global schema includes outdoor_temp_sensor |
 | `diagnostics.py` | async_get_config_entry_diagnostics() — Gold IQS |
 | `panel.py` | Sidebar panel + Lovelace card resource registration, duplicate cleanup |
 | `websocket.py` | get_state + get_history — live energy from WasteCalculator, ISO timestamp event log |
@@ -58,9 +58,9 @@ heat_manager/
 |------|-------------|
 | `engine/controller.py` | ON/PAUSE/OFF state machine, @guarded, auto-off/resume |
 | `engine/presence_engine.py` | Presence logic, grace periods, alarm integration, log_event() |
-| `engine/window_engine.py` | Per-room window detection, PID-routed setpoint on open, pid.reset() on open |
+| `engine/window_engine.py` | Per-room window detection, CO₂-aware notifications, PID-routed setpoint, pid.reset() on open |
 | `engine/season_engine.py` | AUTO → WINTER/SUMMER via outdoor temp day-counter |
-| `engine/waste_calculator.py` | Phase 4: heating_power_request × room_wattage; Δtemp fallback for non-Netatmo |
+| `engine/waste_calculator.py` | Phase 4 + CO₂ weighting: heating_power_request × room_wattage; ventilation reduces waste 50%; Δtemp fallback for non-Netatmo |
 | `engine/preheat_engine.py` | sensor.`<person>`_travel_time_home listener, arming/disarming, lead time |
 | `engine/pid_controller.py` | Discrete-time PI(D) controller. power_to_setpoint() mapper. Anti-windup clamp |
 
@@ -86,6 +86,38 @@ heat_manager/
 
 ---
 
+## Architecture: sensor input hierarchy (v0.2.9)
+
+### Outdoor temperature priority
+
+```
+1. CONF_OUTDOOR_TEMP_SENSOR   sensor.*  — local station, updates every 5 min
+   └─ SeasonEngine day-counter
+   └─ get_away_temperature()
+   └─ ControllerEngine auto-off
+
+2. weather.* attribute         — forecast grid point, fallback when sensor absent/unavailable
+```
+
+### Room current temperature priority (PID feedback)
+
+```
+1. CONF_ROOM_TEMP_SENSOR       sensor.*  — wall probe, best accuracy
+2. homekit_climate_entity      climate.* — Netatmo local HAP, <100 ms
+3. climate_entity              climate.* — cloud entity, last resort
+```
+
+### CO₂ context (window notifications + waste weighting)
+
+```
+CONF_CO2_SENSOR  sensor.*  — ppm
+  WindowEngine  → notification label: "ventilation" (≥900 ppm) or "heat loss" (<900 ppm)
+  WasteCalc     → waste_weight: 0.50 (≥900 ppm) or 1.00 (<900 ppm)
+  absent        → no label appended, waste_weight = 1.00 (unchanged behaviour)
+```
+
+---
+
 ## Architecture: Netatmo NRV dual-entity routing
 
 Netatmo TRV rooms are served by two HA entities simultaneously:
@@ -97,7 +129,7 @@ Netatmo cloud  ──HTTPS──►  climate.kitchen          (cloud entity)
                              └─ schedule target temp  (PID setpoint source)
 
 Netatmo Relay  ◄──HAP/LAN──  climate.netatmo_valve_1  (HomeKit entity)
-192.168.40.201:5001            └─ current_temperature  (PID feedback)
+192.168.40.201:5001            └─ current_temperature  (PID feedback — unless room_temp_sensor set)
                                └─ set_temperature      (PID output, <100 ms)
 ```
 
@@ -124,9 +156,11 @@ A discrete-time PI(D) controller runs per room every 60 seconds.
 Anti-windup clamp: ±5.0 integral units. PID resets automatically on:
 AWAY, WINDOW_OPEN, PRE_HEAT, PAUSE, OFF, SUMMER, HomeKit unavailable.
 
+Temperature feedback source: `room_temp_sensor` (if set) → HomeKit entity → cloud entity.
+
 ---
 
-## Energy accounting (Phase 4)
+## Energy accounting (Phase 4 + CO₂ weighting)
 
 WasteCalculator uses real Netatmo data when available:
 
@@ -134,10 +168,55 @@ WasteCalculator uses real Netatmo data when available:
 actual_kWh = (heating_power_request / 100) × room_wattage × tick_hours
 ```
 
+CO₂ waste weight (v0.2.9):
+```
+waste_kWh_attributed = actual_kWh × waste_weight
+
+waste_weight:
+  no CO₂ sensor  → 1.00  (unchanged)
+  CO₂ < 900 ppm  → 1.00  (heat loss — full attribution)
+  CO₂ ≥ 900 ppm  → 0.50  (ventilation — half attribution)
+```
+
 Fallback for non-Netatmo rooms: `Δtemp × 0.1 kWh/°C/h`
 
 Away-savings use last known non-zero `heating_power_request` as baseline
 (falls back to 50 % of `room_wattage` if no history).
+
+---
+
+## Room configuration fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `room_name` | string | — | Display name |
+| `climate_entity` | entity | — | Cloud/primary climate entity (preset_mode + schedule setpoint) |
+| `homekit_climate_entity` | entity | — | **Optional.** Local HomeKit entity (HAP). PID writes here |
+| `window_sensors` | entity list | [] | Window/door sensors |
+| `window_delay_min` | min | 5 | Minutes before heating drops on window open |
+| `away_temp_override` | °C | 10.0 | Frost-guard floor (window open / PID trv_min) |
+| `room_wattage` | W | 1000 | Rated heating power for energy calculations |
+| `trv_type` | string | netatmo | `netatmo` or `zigbee` — routes presence commands correctly |
+| `pi_demand_entity` | entity | — | **Optional.** Z2M `pi_heating_demand` sensor for Zigbee TRVs |
+| `co2_sensor` | entity | — | **Optional.** CO₂ sensor — enriches window notifications and weights waste |
+| `room_temp_sensor` | entity | — | **Optional.** External room probe — improves PID accuracy |
+
+---
+
+## Global configuration fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `weather_entity` | entity | — | Weather entity for outdoor temp and season |
+| `outdoor_temp_sensor` | entity | — | **Optional.** Local outdoor sensor — overrides weather entity temp |
+| `notify_service` | string | — | HA notify service |
+| `away_temp_mild` | °C | 17.0 | Away setpoint — mild weather |
+| `away_temp_cold` | °C | 15.0 | Away setpoint — cold weather |
+| `mild_threshold` | °C | 8.0 | Mild/cold boundary |
+| `grace_day_min` | min | 30 | Grace period — daytime |
+| `grace_night_min` | min | 15 | Grace period — night-time |
+| `auto_off_temp_threshold` | °C | 18.0 | Sustained outdoor temp for auto-off |
+| `auto_off_temp_days` | days | 5 | Days above threshold before auto-off fires |
 
 ---
 
@@ -148,7 +227,7 @@ Away-savings use last known non-zero `heating_power_request` as baseline
 | `select.heat_manager_controller_state` | Select | enabled | On / Pause / Off |
 | `select.heat_manager_season_mode` | Select | **disabled** | Auto / Winter / Summer (CONFIG) |
 | `sensor.heat_manager_pause_remaining` | Sensor | **disabled** | Minutes left in pause (DIAGNOSTIC) |
-| `sensor.heat_manager_energy_wasted_today` | Sensor | enabled | kWh wasted today |
+| `sensor.heat_manager_energy_wasted_today` | Sensor | enabled | kWh wasted today (CO₂-weighted) |
 | `sensor.heat_manager_energy_saved_today` | Sensor | enabled | kWh saved today |
 | `sensor.heat_manager_efficiency_score` | Sensor | **disabled** | Daily score 0–100 (DIAGNOSTIC) |
 | `sensor.heat_manager_<room>_state` | Sensor | enabled | normal / away / window_open / pre_heat / override |
@@ -171,20 +250,6 @@ Away-savings use last known non-zero `heating_power_request` as baseline
 
 ---
 
-## Room configuration fields
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `room_name` | string | — | Display name |
-| `climate_entity` | entity | — | Cloud/primary climate entity (preset_mode + schedule setpoint) |
-| `homekit_climate_entity` | entity | — | **Optional.** Local HomeKit entity (HAP). PID writes here |
-| `window_sensors` | entity list | [] | Window/door sensors |
-| `window_delay_min` | min | 5 | Minutes before heating drops on window open |
-| `away_temp_override` | °C | 10.0 | Frost-guard floor (window open / PID trv_min) |
-| `room_wattage` | W | 1000 | Rated heating power for energy calculations |
-
----
-
 ## Bug fix history
 
 | ID | Engine | Description |
@@ -198,6 +263,10 @@ Away-savings use last known non-zero `heating_power_request` as baseline
 | B7 | `panel.js` | Persistent blink from concurrent `_load()` calls |
 | B-PID-1 | `pid_controller.py` | Anti-windup must prevent integral buildup during away |
 | B-PID-2 | `coordinator.py` | Delta threshold must suppress TRV command spam |
+| B-CONFIG-2 | `config_flow.py` | entity selectors reject empty strings for optional fields |
+| B-429 | `presence_engine.py` | Netatmo API 429 on simultaneous setthermmode calls |
+| B-PANEL-ENTITY-ID | `panel.js` | Entity IDs stale after reinstall (config entry ID changes) |
+| B-PANEL-RAF | `panel.js` | requestAnimationFrame stalls when panel not in active viewport |
 
 ---
 
@@ -251,6 +320,7 @@ All Silver rules complete.
 | `strict-typing` | Low | Full mypy pass |
 | `config-flow-test-coverage` | Low | Test file for config_flow steps not written |
 | Persistent energy history | Low | Daily kWh resets on HA restart |
+| CO₂ threshold configurable | Low | Currently fixed at 900 ppm — could be a per-room option |
 | EKF thermal model | Future | Replace fixed PID gains with per-room learned heat loss rate |
 | Mold risk sensor | Future | DIN 4108-2 surface humidity binary_sensor per room |
 | Solar gain in SeasonEngine | Future | Sun angle + cloud cover reduces unnecessary heating |

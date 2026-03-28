@@ -4,6 +4,12 @@ Heat Manager — Window Engine
 Phase 3: log_event() calls added at every significant state transition.
 FIX: asyncio.ensure_future → hass.async_create_task throughout.
 FIX: task references stored correctly so cancel works reliably.
+
+v0.2.9: CO₂-aware notifications.
+  When CONF_CO2_SENSOR is configured for a room, window open/close messages
+  and the 30-min escalation warning include the current CO₂ level and a
+  brief contextual label so the user immediately understands whether the
+  open window is doing useful work or just losing heat.
 """
 from __future__ import annotations
 
@@ -22,6 +28,7 @@ from ..const import (
     CONF_NOTIFY_WINDOWS,
     CONF_WINDOW_DELAY_MIN,
     CONF_WINDOW_SENSORS,
+    DEFAULT_CO2_VENTILATION_THRESHOLD,
     DEFAULT_WINDOW_CLOSE_DELAY_MIN,
     DEFAULT_WINDOW_DELAY_MIN,
     DEFAULT_WINDOW_WARNING_MIN,
@@ -138,20 +145,26 @@ class WindowEngine:
                 {"entity_id": climate_id, "temperature": target_temp},
                 blocking=True,
             )
-            # Reset PID so integral debt doesn't accumulate while window is open
             pid = self.coordinator.get_pid(room_name)
             if pid:
                 pid.reset()
             self.coordinator.set_room_state(room_name, RoomState.WINDOW_OPEN)
             self._window_opened_at[room_name] = utcnow()
             self._warning_sent[room_name]     = False
-            _LOGGER.info("Window open in '%s' — set %.1f°C", room_name, target_temp)
-            self.coordinator.log_event(
-                f"Window open in {room_name} — heating to {target_temp:.0f}°C",
-                "Window", "window_open",
+
+            # ── CO₂-aware open notification ───────────────────────────────
+            co2_ppm   = self.coordinator.get_room_co2(room_name)
+            co2_label = self._co2_context_label(co2_ppm)
+            log_msg   = f"Window open in {room_name} — heating to {target_temp:.0f}°C"
+            notif_msg = (
+                f"Window open — {room_name} set to {target_temp:.0f}°C{co2_label}"
             )
+
+            _LOGGER.info("%s%s", log_msg, f"  CO₂: {co2_ppm:.0f} ppm" if co2_ppm else "")
+            self.coordinator.log_event(log_msg, "Window", "window_open")
+
             if self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
-                await self._notify(f"Window open — {room_name} set to {target_temp:.0f}°C")
+                await self._notify(notif_msg)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Failed to suppress heating in '%s': %s", room_name, err)
 
@@ -201,18 +214,23 @@ class WindowEngine:
                 blocking=True,
             )
             self.coordinator.set_room_state(room_name, RoomState.NORMAL)
+
+            # ── CO₂-aware close notification ──────────────────────────────
+            co2_ppm   = self.coordinator.get_room_co2(room_name)
+            co2_label = self._co2_context_label(co2_ppm)
+            notif_msg = f"Window closed — {room_name} heating resumed{co2_label}"
+
             _LOGGER.info("Window closed in '%s' — restored to schedule", room_name)
             self.coordinator.log_event(
-                f"Window closed in {room_name} — heating resumed",
-                "Window", "normal",
+                f"Window closed in {room_name} — heating resumed", "Window", "normal"
             )
             if self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
-                await self._notify(f"Window closed — {room_name} heating resumed")
+                await self._notify(notif_msg)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Failed to restore schedule in '%s': %s", room_name, err)
 
     async def async_tick(self) -> None:
-        """B2 FIX: Send 30-min escalation warning."""
+        """B2 FIX: Send 30-min escalation warning with CO₂ context."""
         if not self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
             return
 
@@ -224,15 +242,45 @@ class WindowEngine:
                 continue
             minutes_open = int((now - opened_at).total_seconds() / 60)
             if minutes_open >= threshold:
-                _LOGGER.info("Window in '%s' open %d min — sending warning", room_name, minutes_open)
-                self.coordinator.log_event(
-                    f"Window open {minutes_open} min in {room_name}",
-                    "30-min warning", "window_open",
+                co2_ppm   = self.coordinator.get_room_co2(room_name)
+                co2_label = self._co2_context_label(co2_ppm)
+
+                log_msg   = f"Window open {minutes_open} min in {room_name}"
+                notif_msg = (
+                    f"Window still open in {room_name} ({minutes_open} min)"
+                    f" — heating suppressed{co2_label}"
                 )
-                await self._notify(
-                    f"Window still open in {room_name} ({minutes_open} min) — heating suppressed"
+
+                _LOGGER.info(
+                    "Window in '%s' open %d min%s — sending warning",
+                    room_name, minutes_open,
+                    f"  CO₂: {co2_ppm:.0f} ppm" if co2_ppm else "",
                 )
+                self.coordinator.log_event(log_msg, "30-min warning", "window_open")
+                await self._notify(notif_msg)
                 self._warning_sent[room_name] = True
+
+    # ── CO₂ context helpers ───────────────────────────────────────────────────
+
+    def _co2_context_label(self, co2_ppm: float | None) -> str:
+        """
+        Return a short parenthetical string describing CO₂ context for
+        inclusion in notification messages.
+
+        Examples
+        --------
+        co2_ppm = None   → ""                              (no sensor)
+        co2_ppm = 1380   → "  (CO₂: 1380 ppm — ventilation)"
+        co2_ppm = 640    → "  (CO₂: 640 ppm — heat loss)"
+        """
+        if co2_ppm is None:
+            return ""
+        threshold = DEFAULT_CO2_VENTILATION_THRESHOLD
+        if co2_ppm >= threshold:
+            return f"  (CO₂: {co2_ppm:.0f} ppm — ventilation)"
+        return f"  (CO₂: {co2_ppm:.0f} ppm — heat loss)"
+
+    # ── Remaining helpers (unchanged) ─────────────────────────────────────────
 
     def get_open_windows(self) -> list[str]:
         open_rooms: list[str] = []
@@ -261,36 +309,22 @@ class WindowEngine:
     def _window_open_setpoint(
         self, room_name: str, climate_id: str, fallback_temp: float
     ) -> float:
-        """
-        Compute the setpoint to send when a window opens.
-
-        If PID is enabled and a current_temperature reading is available,
-        use power_to_setpoint(0) — which returns trv_min — as the floor.
-        This is equivalent to the legacy away_temp_override but is now
-        routed through the PID mapper so everything uses the same code path.
-
-        If PID is disabled, fall back to the per-room away_temp_override.
-        """
         if not self.coordinator.pid_enabled:
             return fallback_temp
-        # Power = 0 → TRV minimum temperature (suppress heating without
-        # completely cutting off frost protection)
         return PidController.power_to_setpoint(
             power=0.0,
-            current_temp=self._get_current_temp(climate_id),
+            current_temp=self._get_current_temp(room_name, climate_id),
             trv_max=self.coordinator.trv_max_temp,
-            trv_min=fallback_temp,   # honour per-room override as the floor
+            trv_min=fallback_temp,
         )
 
-    def _get_current_temp(self, climate_id: str) -> float:
-        """Read current_temperature from the climate entity, fallback 20 °C."""
-        state = self.coordinator.hass.states.get(climate_id)
-        if state:
-            try:
-                return float(state.attributes.get("current_temperature", 20.0))
-            except (TypeError, ValueError):
-                pass
-        return 20.0
+    def _get_current_temp(self, room_name: str, climate_id: str) -> float:
+        """
+        Read current temperature via the coordinator's unified helper.
+        Falls back to 20 °C if all sources are unavailable.
+        """
+        temp = self.coordinator.get_room_current_temp(room_name, climate_id)
+        return temp if temp is not None else 20.0
 
     def _get_open_delay(self, sensor_id: str) -> int:
         room_name = self._sensor_to_room.get(sensor_id)

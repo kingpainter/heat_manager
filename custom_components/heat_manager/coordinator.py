@@ -13,6 +13,12 @@ Phase 3 additions:
 - PreheatEngine: travel_time based pre-heat
 - log_event(): internal event log for History tab in sidebar panel
 - effective_season property: resolved season regardless of manual/auto
+
+v0.2.9 additions:
+- CONF_OUTDOOR_TEMP_SENSOR: local sensor overrides weather entity temperature
+- CONF_CO2_SENSOR per room: get_room_co2() helper for WindowEngine/WasteCalculator
+- CONF_ROOM_TEMP_SENSOR per room: get_room_current_temp() feeds PID with an
+  independent probe instead of the TRV's own (radiator-biased) sensor
 """
 from __future__ import annotations
 
@@ -32,13 +38,16 @@ from .const import (
     CONF_AWAY_TEMP_COLD,
     CONF_AWAY_TEMP_MILD,
     CONF_CLIMATE_ENTITY,
+    CONF_CO2_SENSOR,
     CONF_MILD_THRESHOLD,
+    CONF_OUTDOOR_TEMP_SENSOR,
     CONF_PERSONS,
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_PID_ENABLED,
     CONF_PID_KD,
     CONF_PID_KI,
     CONF_PID_KP,
+    CONF_ROOM_TEMP_SENSOR,
     CONF_ROOMS,
     CONF_TRV_MAX_TEMP,
     CONF_WEATHER_ENTITY,
@@ -91,21 +100,10 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.entry = entry
 
         # ── Shared runtime state ──────────────────────────────────────────────
-        # room_states: only engines mutate this dict
         self.room_states: dict[str, RoomState] = {}
-
-        # season_mode: manual setting (Auto/Winter/Summer) from select entity
         self.season_mode: SeasonMode = SeasonMode.AUTO
-
-        # effective_season: resolved by SeasonEngine each tick
-        # AUTO → WINTER or SUMMER based on outdoor temperature history
-        # WINTER/SUMMER manual → same value echoed here
         self.effective_season: SeasonMode = SeasonMode.WINTER
-
-        # Cached outdoor temperature from weather entity (°C)
         self.outdoor_temperature: float | None = None
-
-        # In-memory event log — populated by log_event(), read by websocket
         self._event_log: deque[dict[str, Any]] = deque(maxlen=_MAX_EVENT_LOG)
 
         # ── Engines ───────────────────────────────────────────────────────────
@@ -116,7 +114,6 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.waste_calculator = WasteCalculator(self)
         self.preheat_engine  = PreheatEngine(self)
 
-        # Per-room PID controllers — keyed by room_name
         self.pid_controllers: dict[str, PidController] = {}
         self._init_pid_controllers()
 
@@ -130,7 +127,6 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @property
     def config(self) -> dict[str, Any]:
-        """Merged config: entry.data overridden by entry.options."""
         return {**self.entry.data, **self.entry.options}
 
     @property
@@ -167,7 +163,6 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self.room_states.get(room_name, RoomState.NORMAL)
 
     def set_room_state(self, room_name: str, state: RoomState) -> None:
-        """Called by engines to update a room's state and notify listeners."""
         old = self.room_states.get(room_name)
         if old == state:
             return
@@ -182,7 +177,6 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return None
 
     def _init_pid_controllers(self) -> None:
-        """Create one PidController per room using config gains."""
         kp  = float(self.config.get(CONF_PID_KP,  DEFAULT_PID_KP))
         ki  = float(self.config.get(CONF_PID_KI,  DEFAULT_PID_KI))
         kd  = float(self.config.get(CONF_PID_KD,  DEFAULT_PID_KD))
@@ -192,42 +186,22 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.pid_controllers[name] = PidController(
                     kp=kp, ki=ki, kd=kd, room_name=name
                 )
-        _LOGGER.debug(
-            "PID controllers initialised for %d room(s)", len(self.pid_controllers)
-        )
 
     @property
     def pid_enabled(self) -> bool:
-        """True when PID proportional setpoints are active (default True)."""
         return bool(self.config.get(CONF_PID_ENABLED, True))
 
     @property
     def trv_max_temp(self) -> float:
-        """TRV setpoint ceiling used by PID mapper."""
         return float(self.config.get(CONF_TRV_MAX_TEMP, DEFAULT_TRV_MAX_TEMP))
 
     def get_pid(self, room_name: str) -> PidController | None:
-        """Return the PidController for a room, or None if not found."""
         return self.pid_controllers.get(room_name)
 
     def get_homekit_climate_entity(self, room_name: str) -> str | None:
-        """
-        Return the HomeKit local climate entity for a room, if configured.
-
-        When present, _async_pid_tick() writes set_temperature here instead
-        of the Netatmo cloud entity.  The HomeKit entity talks directly to
-        the Netatmo Relay on LAN via HAP (192.168.40.201:5001) with <100 ms
-        latency and no cloud dependency.
-
-        The cloud entity (climate_entity) is still used for:
-        - preset_mode writes (away/schedule) by presence_engine
-        - heating_power_request reads by waste_calculator
-        - window suppression by window_engine
-        """
         for room in self.rooms:
             if room.get("room_name") == room_name:
                 val = room.get(CONF_HOMEKIT_CLIMATE_ENTITY)
-                # Guard against empty string stored by old config entries
                 return val if val else None
         return None
 
@@ -238,7 +212,6 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return []
 
     def any_window_open(self) -> bool:
-        """True if any configured window sensor is currently open."""
         for room in self.rooms:
             for sensor in room.get(CONF_WINDOW_SENSORS, []):
                 state = self.hass.states.get(sensor)
@@ -247,7 +220,6 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return False
 
     def someone_home(self) -> bool:
-        """True if at least one tracked person entity is currently home."""
         for person in self.persons:
             if not person.get("person_tracking", True):
                 continue
@@ -257,7 +229,85 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return True
         return False
 
-    # ── Energy helpers (Phase 3) ──────────────────────────────────────────────
+    # ── Sensor input helpers (v0.2.9) ─────────────────────────────────────────
+
+    def get_room_co2(self, room_name: str) -> float | None:
+        """
+        Return current CO₂ level (ppm) for a room, or None if not configured
+        or sensor is unavailable.
+
+        Used by WindowEngine for context-aware notifications and by
+        WasteCalculator to reduce waste attribution when CO₂ is elevated
+        (window open for purposeful ventilation, not heat loss).
+        """
+        for room in self.rooms:
+            if room.get("room_name") != room_name:
+                continue
+            entity_id = room.get(CONF_CO2_SENSOR) or None
+            if not entity_id:
+                return None
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in ("unknown", "unavailable"):
+                return None
+            try:
+                return float(state.state)
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def get_room_current_temp(self, room_name: str, climate_id: str) -> float | None:
+        """
+        Return the best available current temperature for a room (°C).
+
+        Priority:
+        1. CONF_ROOM_TEMP_SENSOR — external probe, independent of the TRV body.
+           Zigbee TRVs especially benefit: their built-in sensor sits on the
+           hot radiator and reads 1–3 °C higher than actual room temperature.
+        2. HomeKit climate entity current_temperature (Netatmo local HAP).
+        3. Cloud climate entity current_temperature (fallback).
+
+        Returns None only if all sources are unavailable.
+        """
+        # 1. External room temperature sensor
+        for room in self.rooms:
+            if room.get("room_name") != room_name:
+                continue
+            entity_id = room.get(CONF_ROOM_TEMP_SENSOR) or None
+            if entity_id:
+                state = self.hass.states.get(entity_id)
+                if state and state.state not in ("unknown", "unavailable"):
+                    try:
+                        return float(state.state)
+                    except (TypeError, ValueError):
+                        pass
+            break  # room found, external sensor absent or unavailable
+
+        # 2. HomeKit entity (Netatmo local HAP — fresher than cloud)
+        hk_id = self.get_homekit_climate_entity(room_name)
+        if hk_id:
+            state = self.hass.states.get(hk_id)
+            if state and state.state not in ("unavailable", "unknown", "off"):
+                try:
+                    val = state.attributes.get("current_temperature")
+                    if val is not None:
+                        return float(val)
+                except (TypeError, ValueError):
+                    pass
+
+        # 3. Cloud / primary climate entity
+        if climate_id:
+            state = self.hass.states.get(climate_id)
+            if state and state.state not in ("unavailable", "unknown"):
+                try:
+                    val = state.attributes.get("current_temperature")
+                    if val is not None:
+                        return float(val)
+                except (TypeError, ValueError):
+                    pass
+
+        return None
+
+    # ── Energy helpers ────────────────────────────────────────────────────────
 
     @property
     def energy_wasted_today(self) -> float:
@@ -271,7 +321,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def efficiency_score(self) -> int:
         return self.waste_calculator.efficiency_score
 
-    # ── Event log (Phase 3) ───────────────────────────────────────────────────
+    # ── Event log ─────────────────────────────────────────────────────────────
 
     def log_event(
         self,
@@ -279,14 +329,8 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         reason: str = "",
         event_type: str = "normal",
     ) -> None:
-        """
-        Append an event to the in-memory log.
-        Called by engines whenever a significant state change occurs.
-        Read by websocket.py for the History tab.
-        """
         from homeassistant.util.dt import now as ha_now
         now = ha_now()
-        # Format time for display
         time_str = now.strftime("%H:%M")
         self._event_log.appendleft({
             "time":        time_str,
@@ -300,6 +344,31 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ── Outdoor temperature ───────────────────────────────────────────────────
 
     def _refresh_outdoor_temperature(self) -> None:
+        """
+        Update self.outdoor_temperature from the best available source.
+
+        Priority:
+        1. CONF_OUTDOOR_TEMP_SENSOR — local weather station / Netatmo outdoor
+           module / Aqara etc.  Updates every 5 min or faster; reflects the
+           actual microclimate at the property rather than a forecast grid point.
+        2. weather.* entity temperature attribute — existing behaviour, used as
+           fallback when the dedicated sensor is absent or unavailable.
+        """
+        # 1. Local outdoor temperature sensor (v0.2.9)
+        outdoor_sensor = self.config.get(CONF_OUTDOOR_TEMP_SENSOR) or None
+        if outdoor_sensor:
+            state = self.hass.states.get(outdoor_sensor)
+            if state and state.state not in ("unavailable", "unknown"):
+                try:
+                    self.outdoor_temperature = float(state.state)
+                    return
+                except (TypeError, ValueError):
+                    _LOGGER.debug(
+                        "Could not parse outdoor temperature from sensor %s",
+                        outdoor_sensor,
+                    )
+
+        # 2. Fallback: weather entity attribute
         entity_id = self.weather_entity
         if not entity_id:
             return
@@ -314,7 +383,6 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Could not parse outdoor temperature from %s", entity_id)
 
     def get_away_temperature(self) -> float:
-        """Return the adaptive away temperature based on outdoor conditions."""
         mild_threshold = self.config.get(CONF_MILD_THRESHOLD, DEFAULT_MILD_THRESHOLD)
         if self.outdoor_temperature is not None and self.outdoor_temperature >= mild_threshold:
             return float(self.config.get(CONF_AWAY_TEMP_MILD, DEFAULT_AWAY_TEMP_MILD))
@@ -327,7 +395,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Called every SCAN_INTERVAL_SECONDS.
 
         Tick order:
-          1. Refresh outdoor temperature
+          1. Refresh outdoor temperature (local sensor preferred, weather fallback)
           2. Season engine (resolve AUTO → WINTER/SUMMER)
           3. Controller (pause expiry, auto-off, auto-resume)
           4. Presence engine (grace period countdowns)
@@ -339,9 +407,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             self._refresh_outdoor_temperature()
 
-            # Resolve effective season before controller auto-off checks
             await self.season_engine.async_tick()
-            # Keep effective_season in sync with manual overrides
             if self.season_mode != SeasonMode.AUTO:
                 self.effective_season = self.season_mode
 
@@ -350,54 +416,31 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.window_engine.async_tick()
             await self.waste_calculator.async_tick()
             await self.preheat_engine.async_tick()
-
-            # PID last — needs all state from above to be settled first
             await self._async_pid_tick()
 
         except Exception as err:  # noqa: BLE001
             raise UpdateFailed(f"Heat Manager update failed: {err}") from err
 
         return {
-            "controller_state":     self.controller.state,
-            "season_mode":          self.season_mode,
-            "effective_season":     self.effective_season,
-            "outdoor_temperature":  self.outdoor_temperature,
-            "room_states":          dict(self.room_states),
+            "controller_state":        self.controller.state,
+            "season_mode":             self.season_mode,
+            "effective_season":        self.effective_season,
+            "outdoor_temperature":     self.outdoor_temperature,
+            "room_states":             dict(self.room_states),
             "pause_remaining_minutes": self.pause_remaining_minutes,
-            "energy_wasted_today":  self.energy_wasted_today,
-            "energy_saved_today":   self.energy_saved_today,
-            "efficiency_score":     self.efficiency_score,
+            "energy_wasted_today":     self.energy_wasted_today,
+            "energy_saved_today":      self.energy_saved_today,
+            "efficiency_score":        self.efficiency_score,
         }
 
     async def _async_pid_tick(self) -> None:
         """
         Drive the PID controller for every room currently in NORMAL state.
 
-        Entity routing
-        --------------
-        Netatmo NRV rooms have two climate entities:
-
-        cloud_id  (CONF_CLIMATE_ENTITY)          — Netatmo cloud via HTTPS
-            └─ preset_mode writes  (presence/window engines)       stay here
-            └─ heating_power_request read  (waste_calculator)      stays here
-            └─ schedule setpoint read  (target_temp for PID)       read here
-
-        hk_id  (CONF_HOMEKIT_CLIMATE_ENTITY, optional)  — HAP local LAN
-            └─ set_temperature writes  (PID output)               go here
-            └─ current_temperature read  (fresher, local polling)  read here
-
-        If no homekit entity is configured for a room the PID is skipped
-        entirely for that room — we do NOT write set_temperature to the cloud
-        entity because that would override Netatmo's own MPC and break the
-        schedule system.
-
-        Guard conditions (all must be true to run PID for a room):
-        - pid_enabled is True
-        - controller_state is ON
-        - effective_season is WINTER
-        - room_state is NORMAL
-        - homekit entity is configured, available, and has current_temperature
-        - cloud entity has a target_temperature (schedule setpoint)
+        v0.2.9: current_temperature is now read via get_room_current_temp()
+        which prefers CONF_ROOM_TEMP_SENSOR over HomeKit entity over cloud entity.
+        This improves PID accuracy for Zigbee TRV rooms where the TRV's built-in
+        probe sits on the hot radiator body and reads 1–3 °C above actual room temp.
         """
         if not self.pid_enabled:
             return
@@ -420,52 +463,41 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if pid is None:
                 continue
 
-            # Only drive PID in NORMAL state — reset on everything else
             if self.get_room_state(room_name) != RoomState.NORMAL:
                 pid.reset()
                 continue
 
-            # Require a HomeKit entity — we never write to the cloud entity
+            # Require a HomeKit entity OR a room temp sensor to write locally.
+            # Without a local write channel we never touch the cloud entity.
             hk_id = self.get_homekit_climate_entity(room_name)
             if not hk_id:
-                # No HomeKit entity configured — skip silently (no reset,
-                # room is NORMAL but we just have no local write channel)
                 continue
 
-            # ── Read current temperature from HomeKit entity (local/fresh) ──
-            hk_state = self.hass.states.get(hk_id)
-            if hk_state is None or hk_state.state in (
-                "unavailable", "unknown", "off"
-            ):
+            # ── Read current temperature via unified helper ────────────────
+            # Preference: room_temp_sensor → HomeKit entity → cloud entity
+            current_temp = self.get_room_current_temp(room_name, cloud_id)
+            if current_temp is None:
                 pid.reset()
                 continue
 
-            current_temp = hk_state.attributes.get("current_temperature")
-            if current_temp is None:
-                continue  # skip tick, don't reset
-
             # ── Read schedule setpoint from cloud entity ──────────────────
             cloud_state = self.hass.states.get(cloud_id)
-            if cloud_state is None or cloud_state.state in (
-                "unavailable", "unknown"
-            ):
+            if cloud_state is None or cloud_state.state in ("unavailable", "unknown"):
                 pid.reset()
                 continue
 
             target_temp = cloud_state.attributes.get("temperature")
             if target_temp is None:
-                continue  # skip tick, don't reset
+                continue
 
             try:
-                current_temp = float(current_temp)
-                target_temp  = float(target_temp)
+                target_temp = float(target_temp)
             except (TypeError, ValueError):
                 continue
 
             # ── PID tick → power fraction 0..1 ──────────────────────────
             power = pid.update(setpoint=target_temp, current=current_temp)
 
-            # ── Map power → TRV setpoint ─────────────────────────────────
             trv_setpoint = PidController.power_to_setpoint(
                 power=power,
                 current_temp=current_temp,
@@ -473,8 +505,11 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 trv_min=float(room.get("away_temp_override", 10.0)),
             )
 
-            # Suppress command if change < 0.5 °C (prevents TRV spam)
-            # Compare against HomeKit entity's current target, not cloud
+            # Suppress command if change < 0.5 °C
+            hk_state = self.hass.states.get(hk_id)
+            if hk_state is None or hk_state.state in ("unavailable", "unknown", "off"):
+                pid.reset()
+                continue
             hk_current_setpoint = hk_state.attributes.get("temperature", 0.0)
             if abs(trv_setpoint - float(hk_current_setpoint)) < 0.5:
                 continue
@@ -487,21 +522,19 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     blocking=True,
                 )
                 _LOGGER.debug(
-                    "PID tick [%s]: schedule_sp=%.1f hk_cur=%.1f pwr=%.2f "
-                    "→ HAP %.1f°C  (heating_power_request=%s%%)",
+                    "PID tick [%s]: schedule_sp=%.1f cur=%.1f pwr=%.2f → HAP %.1f°C"
+                    "  (heating_power_request=%s%%)",
                     room_name, target_temp, current_temp, power, trv_setpoint,
                     cloud_state.attributes.get("heating_power_request", "?"),
                 )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning(
-                    "PID setpoint failed for '%s' via HomeKit: %s",
-                    room_name, err
+                    "PID setpoint failed for '%s' via HomeKit: %s", room_name, err
                 )
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def async_shutdown(self) -> None:
-        """Clean up when the config entry is unloaded."""
         await self.presence_engine.async_shutdown()
         await self.window_engine.async_shutdown()
         await self.season_engine.async_shutdown()
