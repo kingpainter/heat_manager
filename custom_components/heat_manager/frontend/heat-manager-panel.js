@@ -1,42 +1,14 @@
 // Heat Manager Panel
-// Version: 0.2.3
+// Version: 0.3.0
 //
-// Blink root cause (found in 0.2.3 analysis):
-//   HA's ha-panel-custom sets `hass` on the element multiple times during
-//   panel boot — sometimes 3-6 times in rapid succession. The previous
-//   guard (`const first = !this._hass`) only called _load() once, but
-//   _load() is async. While it awaited the WS response, additional hass
-//   sets arrived and called _patchController() on a DOM that did not yet
-//   have buttons (data was null). Those were no-ops. However _load() then
-//   completed and called _render() + _patchController(), painting the
-//   correct colour. The visible blink came from a subtler source:
+// Design: Unified visual language with Indeklima — same font (DM Sans/DM Mono),
+// same card system, same section-box pattern, same score ring, same chip/badge
+// components. Palette shifted to heat semantics: amber/orange for active heating,
+// teal for normal/schedule, red for waste/window-open, blue for away/pre-heat.
 //
-//   HA fires a `state_changed` event for select.heat_manager_controller_state
-//   immediately after setup. That event triggers yet another `set hass()`,
-//   which ran _syncFromEntities() + _patchController() correctly — but then
-//   HA called _render() a second time via the 30s interval landing early,
-//   OR a second `_load()` was in-flight because _hass was already set but
-//   _data was null when a rapid second hass arrived before the WS completed.
-//
-// Fixes applied in 0.2.3:
-//   1. _loadInFlight flag — prevents concurrent _load() calls.
-//      If hass arrives a second time while a WS fetch is pending,
-//      the new hass is stored but no second _load() is started.
-//   2. set hass() compares new controller_state to previous before
-//      calling _patchController/_patchTopbarBadge — avoids a no-op
-//      DOM write that still flushes a style recalc in some browsers.
-//   3. _render() is debounced via requestAnimationFrame — if _render()
-//      is called twice in the same JS task (e.g. _load() completes and
-//      a hass set also triggers a patch in the same microtask queue),
-//      only one actual DOM replacement executes per frame.
-//   4. connectedCallback never renders UI — only <style> + empty .panel.
-//      (retained from 0.2.2)
-//   5. _controllerHTML() never bakes active-state colours into HTML.
-//      _patchController() is sole colour authority. (retained from 0.2.2)
-//   6. No CSS transition on .ctrl-btn — avoids animated flash.
-//      (retained from 0.2.2)
-//   7. ShadowRoot.insertAdjacentHTML replaced with _srAppendHTML().
-//      (retained from 0.2.1)
+// Architecture: same blink-free guards as 0.2.x —
+//   _loadInFlight, _lastCtrlState diff, setTimeout(0) render debounce,
+//   _srAppendHTML for WebKit/iOS, surgical _patchController().
 
 class HeatManagerPanel extends HTMLElement {
   constructor() {
@@ -48,23 +20,16 @@ class HeatManagerPanel extends HTMLElement {
     this._history       = null;
     this._errCount      = 0;
     this._interval      = null;
-    this._loadInFlight  = false;   // prevents concurrent WS fetches
-    this._renderPending = false;   // rAF debounce flag
-    this._lastCtrlState = null;    // tracks last painted controller state
+    this._loadInFlight  = false;
+    this._renderPending = false;
+    this._lastCtrlState = null;
   }
 
   set hass(h) {
     const wasNull = !this._hass;
     this._hass = h;
-
-    if (wasNull) {
-      // First hass — kick off the initial WS fetch.
-      this._load();
-      return;
-    }
-
-    // Subsequent hass sets: sync state and patch only if value changed.
-    if (!this._data) return;   // still waiting for first WS response
+    if (wasNull) { this._load(); return; }
+    if (!this._data) return;
     this._syncFromEntities();
     const newCtrl = this._data.controller_state;
     if (newCtrl !== this._lastCtrlState) {
@@ -75,8 +40,6 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   connectedCallback() {
-    // Only inject <style> and an empty .panel shell.
-    // No buttons, no controller HTML — avoids skeleton→full-render flash.
     const root = this.shadowRoot;
     if (!root.querySelector("style")) {
       const st = document.createElement("style");
@@ -84,11 +47,9 @@ class HeatManagerPanel extends HTMLElement {
       root.appendChild(st);
     }
     if (!root.querySelector(".panel")) {
-      this._srAppendHTML(`<div class="panel"><div class="loading-placeholder"></div></div>`);
+      this._srAppendHTML(`<div class="panel"><div class="loading-wrap"><div class="loading-icon">🔥</div><div class="loading-text">Indlæser Heat Manager…</div></div></div>`);
     }
-    // Re-render if we already have data (panel reconnected after navigation).
     if (this._data) this._scheduleRender();
-
     this._interval = setInterval(() => {
       if (this._errCount > 3) { clearInterval(this._interval); return; }
       if (document.visibilityState === "visible") this._load();
@@ -97,7 +58,6 @@ class HeatManagerPanel extends HTMLElement {
 
   disconnectedCallback() { clearInterval(this._interval); }
 
-  // ── Safari-safe shadow root helper ────────────────────────────────────────
   _srAppendHTML(html) {
     const tmp = document.createElement("div");
     tmp.innerHTML = html;
@@ -105,21 +65,16 @@ class HeatManagerPanel extends HTMLElement {
     while (tmp.firstChild) root.appendChild(tmp.firstChild);
   }
 
-  // ── rAF render debounce ───────────────────────────────────────────────────
-  // Coalesces multiple _render() calls in the same task into one DOM write.
   _scheduleRender() {
     if (this._renderPending) return;
     this._renderPending = true;
-    // Use setTimeout instead of rAF — rAF can stall in HA's panel context
-    // when the panel is not the active viewport or is inside a shadow root.
     setTimeout(() => { this._renderPending = false; this._render(); }, 0);
   }
 
   // ── Data ──────────────────────────────────────────────────────────────────
 
   async _load() {
-    if (!this._hass) return;
-    if (this._loadInFlight) return;   // drop concurrent fetch
+    if (!this._hass || this._loadInFlight) return;
     this._loadInFlight = true;
     try {
       this._data     = await this._hass.callWS({ type: "heat_manager/get_state" });
@@ -131,7 +86,6 @@ class HeatManagerPanel extends HTMLElement {
       this._loadInFlight = false;
     }
     if (this._tab === "history" && !this._history) await this._loadHistory();
-    // Record the state we are about to paint so the hass setter can diff against it.
     this._lastCtrlState = this._data?.controller_state ?? null;
     this._scheduleRender();
   }
@@ -142,21 +96,13 @@ class HeatManagerPanel extends HTMLElement {
     } catch (e) { this._history = { events: [], days: [] }; }
   }
 
-  // Resolve entity IDs dynamically — the entry_id prefix varies per installation.
-  // Scan hass.states once for the three entities we need.
   _resolveEntityIds() {
-    if (this._ctrlEntityId) return;  // already resolved
+    if (this._ctrlEntityId) return;
     const states = this._hass?.states ?? {};
     for (const id of Object.keys(states)) {
-      if (id.startsWith('select.') && id.endsWith('_controller_state')) {
-        this._ctrlEntityId   = id;
-      }
-      if (id.startsWith('select.') && id.endsWith('_season_mode')) {
-        this._seasonEntityId = id;
-      }
-      if (id.startsWith('sensor.') && id.endsWith('_pause_remaining')) {
-        this._pauseEntityId  = id;
-      }
+      if (id.startsWith("select.") && id.endsWith("_controller_state")) this._ctrlEntityId   = id;
+      if (id.startsWith("select.") && id.endsWith("_season_mode"))      this._seasonEntityId = id;
+      if (id.startsWith("sensor.") && id.endsWith("_pause_remaining"))  this._pauseEntityId  = id;
     }
   }
 
@@ -167,8 +113,7 @@ class HeatManagerPanel extends HTMLElement {
       controller_state: v(this._ctrlEntityId),
       season_mode:      v(this._seasonEntityId),
       pause_remaining:  parseInt((this._pauseEntityId ? this._hass.states?.[this._pauseEntityId]?.state : null) || "0", 10),
-      outdoor_temp:     null,
-      rooms: [], persons: [],
+      outdoor_temp: null, rooms: [], persons: [],
       auto_off_reason: "none", auto_off_days: 0,
       auto_off_threshold: 18, auto_off_days_required: 5,
       energy_saved_today: null, energy_wasted_today: null, efficiency_score: null,
@@ -191,17 +136,17 @@ class HeatManagerPanel extends HTMLElement {
     const ctrl      = this._data?.controller_state ?? "unknown";
     const pauseLeft = this._data?.pause_remaining ?? 0;
 
-    const active = {
-      on:    { bg:"#EAF3DE", border:"#3B6D11", color:"#27500A" },
-      pause: { bg:"#FAEEDA", border:"#854F0B", color:"#633806" },
-      off:   { bg:"var(--secondary-background-color)", border:"var(--secondary-text-color)", color:"var(--secondary-text-color)" },
+    const styles = {
+      on:    { bg:"rgba(251,146,60,0.18)", border:"#f97316", color:"#fed7aa" },
+      pause: { bg:"rgba(234,179,8,0.15)",  border:"#ca8a04", color:"#fef08a" },
+      off:   { bg:"rgba(148,163,184,0.12)", border:"rgba(148,163,184,0.4)", color:"#94a3b8" },
     };
-    const inactive = { bg:"transparent", border:"var(--divider-color)", color:"var(--primary-text-color)" };
+    const inactive = { bg:"transparent", border:"rgba(148,163,184,0.15)", color:"var(--sub)" };
 
     ["on","pause","off"].forEach(name => {
       const btn = root.querySelector(`#ctrl-btn-${name}`);
       if (!btn) return;
-      const s = ctrl === name ? (active[name] ?? inactive) : inactive;
+      const s = ctrl === name ? (styles[name] ?? inactive) : inactive;
       btn.style.background  = s.bg;
       btn.style.borderColor = s.border;
       btn.style.color       = s.color;
@@ -222,10 +167,16 @@ class HeatManagerPanel extends HTMLElement {
     const badge = root.querySelector("#topbar-badge");
     if (!badge) return;
     const labels = { on:"On", pause:"Pause", off:"Off" };
+    const colors = {
+      on:    { bg:"rgba(251,146,60,0.2)", color:"#fed7aa", border:"#f97316" },
+      pause: { bg:"rgba(234,179,8,0.15)", color:"#fef08a", border:"#ca8a04" },
+      off:   { bg:"rgba(148,163,184,0.1)", color:"#94a3b8", border:"rgba(148,163,184,0.3)" },
+    };
+    const c = colors[ctrl] ?? colors.off;
     badge.textContent       = labels[ctrl] ?? ctrl;
-    badge.style.background  = this._ctrlBg(ctrl);
-    badge.style.color       = this._ctrlColor(ctrl);
-    badge.style.borderColor = this._ctrlBorder(ctrl);
+    badge.style.background  = c.bg;
+    badge.style.color       = c.color;
+    badge.style.borderColor = c.border;
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -263,275 +214,658 @@ class HeatManagerPanel extends HTMLElement {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   _esc(s) { return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
-  _stateLabel(s) { return ({normal:"Schedule",away:"Away",window_open:"Vindue åbent",pre_heat:"Forvarmning",override:"Override"})[s] ?? s ?? "—"; }
-  _dotColor(s)   { return ({normal:"#639922",away:"#888780",window_open:"#BA7517",pre_heat:"#185FA5",override:"#993556"})[s] ?? "#888780"; }
-  _ctrlColor(s)  { return ({on:"#27500A",pause:"#633806",off:"var(--secondary-text-color)"})[s] ?? "var(--secondary-text-color)"; }
-  _ctrlBg(s)     { return ({on:"#EAF3DE",pause:"#FAEEDA",off:"var(--secondary-background-color)"})[s] ?? "var(--secondary-background-color)"; }
-  _ctrlBorder(s) { return ({on:"#3B6D11",pause:"#854F0B",off:"var(--secondary-text-color)"})[s] ?? "var(--divider-color)"; }
-  _reasonLabel(r){ return ({season:"Sæson — sommer",temperature:"Udetemperatur over grænse",none:"Manuel"})[r] ?? r ?? "—"; }
+  _fmt(val, unit, decimals = 0) {
+    if (val == null) return "–";
+    const n = parseFloat(val);
+    return isNaN(n) ? "–" : n.toFixed(decimals) + "\u00a0" + unit;
+  }
 
+  // State labels & colours — heat semantics
+  _stateLabel(s) {
+    return ({ normal:"Normal", away:"Fraværende", window_open:"Vindue åbent", pre_heat:"Forvarmning", override:"Override" })[s] ?? s ?? "–";
+  }
+  _stateColor(s) {
+    return ({ normal:"#f97316", away:"#64748b", window_open:"#ef4444", pre_heat:"#0ea5e9", override:"#a855f7" })[s] ?? "#64748b";
+  }
+  _stateGradient(s) {
+    return ({
+      normal:      "linear-gradient(135deg,rgba(249,115,22,0.18) 0%,rgba(249,115,22,0.04) 100%)",
+      away:        "linear-gradient(135deg,rgba(100,116,139,0.15) 0%,rgba(100,116,139,0.04) 100%)",
+      window_open: "linear-gradient(135deg,rgba(239,68,68,0.18) 0%,rgba(239,68,68,0.04) 100%)",
+      pre_heat:    "linear-gradient(135deg,rgba(14,165,233,0.15) 0%,rgba(14,165,233,0.04) 100%)",
+      override:    "linear-gradient(135deg,rgba(168,85,247,0.15) 0%,rgba(168,85,247,0.04) 100%)",
+    })[s] ?? "linear-gradient(135deg,rgba(100,116,139,0.1) 0%,transparent 100%)";
+  }
+
+  _reasonLabel(r) { return ({ season:"Sæson — sommer", temperature:"Ude-temp over grænse", none:"Manuel" })[r] ?? r ?? "–"; }
   _seasonTriggerLabel(season, reason) {
-    // "reason" is the auto_off_reason — tells us if season actually caused a shut-off
-    if (season === "summer") {
-      return reason === "season" ? "Sommer — slået fra" : "Sommer — auto-off klar";
-    }
-    if (season === "auto") {
-      return "Auto — overvåger ude-temp";
-    }
-    // winter
+    if (season === "summer") return reason === "season" ? "Sommer — slået fra" : "Sommer — auto-off klar";
+    if (season === "auto")   return "Auto — overvåger ude-temp";
     return reason === "season" ? "Vinter — slået fra" : "Vinter — kører normalt";
   }
-  _fmtTemp(t)    { return t != null ? (Math.round(t * 10) / 10) + "°C" : "—"; }
+
+  _ctrlIcon(s) { return ({ on:"🔥", pause:"⏸", off:"❄️" })[s] ?? "●"; }
+  _ctrlTitle(s) { return ({ on:"Varme aktiv", pause:"Pause", off:"Slukket" })[s] ?? s; }
 
   _climateTemp(id) {
     const t = this._hass?.states?.[id]?.attributes?.current_temperature;
-    return t != null ? (Math.round(t * 10) / 10) + "°C" : "—";
+    return t != null ? (Math.round(t * 10) / 10) + "°C" : null;
   }
   _climateSetpoint(id) {
     const t = this._hass?.states?.[id]?.attributes?.temperature;
     return t != null ? (Math.round(t * 10) / 10) + "°C" : null;
   }
 
+  // Efficiency ring — inverted from severity: 100 = good (full green ring)
+  _ringColor(score) {
+    if (score == null) return "#64748b";
+    if (score >= 80) return "#f97316";
+    if (score >= 50) return "#eab308";
+    return "#ef4444";
+  }
+
   // ── CSS ───────────────────────────────────────────────────────────────────
 
-  _css() { return `
-    :host { display:block; height:100%; overflow-y:auto; background:var(--primary-background-color); }
-    * { box-sizing:border-box; margin:0; padding:0; }
-    .panel { display:flex; flex-direction:column; min-height:100%; }
-    .loading-placeholder { flex:1; min-height:120px; }
-    .topbar {
-      display:flex; align-items:center; justify-content:space-between;
-      padding:14px 20px 12px; border-bottom:1px solid var(--divider-color);
-      background:var(--card-background-color); position:sticky; top:0; z-index:10;
-    }
-    .topbar-left { display:flex; align-items:center; gap:12px; }
-    .topbar-title { font-size:17px; font-weight:500; color:var(--primary-text-color); }
-    .topbar-sub { font-size:12px; color:var(--secondary-text-color); margin-top:2px; }
-    .ctrl-badge { font-size:12px; font-weight:500; padding:4px 10px; border-radius:20px; border:1px solid; }
-    .refresh-btn { background:transparent; border:none; cursor:pointer; padding:6px; color:var(--secondary-text-color); border-radius:8px; }
-    .refresh-btn svg { width:18px; height:18px; fill:currentColor; display:block; }
-    .refresh-btn:hover { background:var(--secondary-background-color); }
-    .tabs {
-      display:flex; border-bottom:1px solid var(--divider-color);
-      background:var(--card-background-color); overflow-x:auto;
-      position:sticky; top:57px; z-index:9;
-    }
-    .tab {
-      flex:1; padding:11px 8px; background:transparent; border:none;
-      border-bottom:2px solid transparent; cursor:pointer; font-size:13px;
-      color:var(--secondary-text-color); white-space:nowrap;
-    }
-    .tab.active { color:var(--primary-color,#039be5); border-bottom-color:var(--primary-color,#039be5); }
-    .tab:hover:not(.active) { color:var(--primary-text-color); background:var(--secondary-background-color); }
-    .content { padding:16px; display:flex; flex-direction:column; gap:12px; flex:1; }
-    .card { background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:12px; overflow:hidden; }
-    .card-hdr { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid var(--divider-color); }
-    .card-title { font-size:14px; font-weight:500; color:var(--primary-text-color); }
-    .card-sub { font-size:12px; color:var(--secondary-text-color); }
-    .section-label { font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:.06em; color:var(--secondary-text-color); padding:10px 16px 6px; }
-    .btn-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; padding:12px 16px; }
-    .ctrl-btn {
-      padding:10px 0; border-radius:8px; border:1px solid var(--divider-color);
-      background:transparent; font-size:13px; font-weight:500;
-      cursor:pointer; text-align:center; color:var(--primary-text-color);
-    }
-    .ctrl-btn:active { opacity:.75; }
-    .pause-row { display:flex; align-items:center; gap:8px; padding:0 16px 12px; }
-    .pause-label { font-size:12px; color:var(--secondary-text-color); white-space:nowrap; }
-    .pause-select { flex:1; font-size:12px; padding:5px 8px; border-radius:7px; border:1px solid var(--divider-color); background:var(--primary-background-color); color:var(--primary-text-color); }
-    .pause-bar { align-items:center; justify-content:space-between; padding:9px 16px; background:#FAEEDA; border-top:1px solid #EF9F27; }
-    .pause-bar-text { font-size:12px; color:#633806; }
-    .resume-btn { font-size:11px; font-weight:500; padding:4px 10px; border-radius:6px; border:1px solid #854F0B; background:transparent; color:#633806; cursor:pointer; }
-    .room-row { display:flex; align-items:flex-start; padding:10px 16px; gap:12px; border-bottom:1px solid var(--divider-color); }
-    .room-row:last-child { border-bottom:none; }
-    .dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; margin-top:4px; }
-    .room-main { flex:1; }
-    .room-name { font-size:14px; color:var(--primary-text-color); font-weight:500; }
-    .room-why { font-size:12px; color:var(--secondary-text-color); margin-top:2px; }
-    .room-right { text-align:right; }
-    .room-state { font-size:12px; color:var(--secondary-text-color); }
-    .room-temp { font-size:14px; font-weight:500; color:var(--primary-text-color); }
-    .room-setpoint { font-size:11px; color:var(--secondary-text-color); }
-    .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); }
-    .stat { padding:10px 16px; border-right:1px solid var(--divider-color); }
-    .stat:last-child { border-right:none; }
-    .stat-label { font-size:11px; color:var(--secondary-text-color); margin-bottom:4px; }
-    .stat-val { font-size:17px; font-weight:500; color:var(--primary-text-color); }
-    .stat-val.warn { color:#BA7517; }
-    .metric-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:12px 16px; }
-    .metric-box { background:var(--secondary-background-color); border-radius:8px; padding:10px 12px; }
-    .metric-lbl { font-size:11px; color:var(--secondary-text-color); margin-bottom:4px; }
-    .metric-val { font-size:14px; font-weight:500; color:var(--primary-text-color); }
-    .chart-area { padding:12px 16px; }
-    .chart-bars { display:flex; align-items:flex-end; gap:5px; height:80px; }
-    .bar-group { flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; }
-    .bar-saved { background:#97C459; border-radius:3px 3px 0 0; width:100%; min-height:2px; }
-    .bar-wasted { background:#EF9F27; border-radius:3px 3px 0 0; width:100%; min-height:2px; }
-    .bar-day { font-size:10px; color:var(--secondary-text-color); margin-top:4px; }
-    .chart-legend { display:flex; gap:14px; margin-top:10px; }
-    .legend-item { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--secondary-text-color); }
-    .legend-dot { width:8px; height:8px; border-radius:2px; }
-    .hist-row { display:flex; align-items:center; gap:12px; padding:8px 16px; border-bottom:1px solid var(--divider-color); }
-    .hist-row:last-child { border-bottom:none; }
-    .hist-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
-    .hist-time { font-size:11px; color:var(--secondary-text-color); min-width:52px; }
-    .hist-desc { flex:1; font-size:13px; color:var(--primary-text-color); }
-    .hist-reason { font-size:11px; color:var(--secondary-text-color); }
-    .person-row { display:flex; align-items:center; padding:10px 16px; gap:12px; border-bottom:1px solid var(--divider-color); }
-    .person-row:last-child { border-bottom:none; }
-    .avatar { width:32px; height:32px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:500; }
-    .av-home { background:#EAF3DE; color:#27500A; }
-    .av-away { background:var(--secondary-background-color); color:var(--secondary-text-color); }
-    .av-none { background:var(--secondary-background-color); color:var(--secondary-text-color); border:1px dashed var(--divider-color); }
-    .person-name { flex:1; font-size:14px; color:var(--primary-text-color); font-weight:500; }
-    .person-note { font-size:12px; color:var(--secondary-text-color); margin-top:1px; }
-    .person-right { text-align:right; }
-    .person-state { font-size:13px; font-weight:500; }
-    .person-since { font-size:11px; color:var(--secondary-text-color); }
-    .cfg-row { display:flex; justify-content:space-between; align-items:center; padding:7px 16px; border-bottom:1px solid var(--divider-color); }
-    .cfg-row:last-child { border-bottom:none; }
-    .cfg-k { font-size:13px; color:var(--secondary-text-color); }
-    .cfg-v { font-size:13px; font-weight:500; color:var(--primary-text-color); font-family:monospace; }
-    .empty { padding:24px 16px; text-align:center; color:var(--secondary-text-color); font-size:13px; }
-  `; }
+  _css() {
+    return `
+      @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
 
-  // ── HTML builders ─────────────────────────────────────────────────────────
+      :host {
+        display: flex;
+        flex-direction: column;
+        --bg:          var(--primary-background-color,   #0f1923);
+        --bg2:         var(--secondary-background-color, #1a2535);
+        --bg3:         #243044;
+        --text:        var(--primary-text-color,   #e2e8f0);
+        --sub:         var(--secondary-text-color,  #94a3b8);
+        --div:         var(--divider-color,         rgba(148,163,184,0.12));
+        --amber:       #f97316;
+        --amber-soft:  rgba(249,115,22,0.15);
+        --amber-glow:  rgba(249,115,22,0.25);
+        --yellow:      #eab308;
+        --red:         #ef4444;
+        --teal:        #0ea5e9;
+        --teal-glow:   rgba(14,165,233,0.15);
+        --green:       #10b981;
+        --card-radius: 18px;
+        font-family: 'DM Sans', var(--paper-font-body1_-_font-family, sans-serif);
+        background: var(--bg);
+        height: 100%;
+        overflow: hidden;
+        color: var(--text);
+      }
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      /* ── Layout ── */
+      .panel { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+      .panel-topbar {
+        flex-shrink: 0;
+        padding: 16px 24px 12px;
+        background: var(--bg);
+        border-bottom: 1px solid var(--div);
+      }
+      .panel-scroll {
+        flex: 1; min-height: 0;
+        overflow-y: auto; overflow-x: hidden;
+        padding: 20px 24px 48px;
+      }
+      .panel-scroll::-webkit-scrollbar { width: 5px; }
+      .panel-scroll::-webkit-scrollbar-track { background: transparent; }
+      .panel-scroll::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 3px; }
+
+      /* ── Header ── */
+      .header { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+      .header-icon {
+        width: 48px; height: 48px; border-radius: 14px;
+        background: linear-gradient(135deg, #f97316 0%, #eab308 100%);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 24px;
+        box-shadow: 0 0 20px rgba(249,115,22,0.35);
+        flex-shrink: 0;
+      }
+      .header-text h1 {
+        font-size: 21px; font-weight: 700; letter-spacing: -0.3px;
+        background: linear-gradient(90deg, #e2e8f0, #94a3b8);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      }
+      .header-text .version {
+        font-size: 11px; color: var(--sub); letter-spacing: 0.5px;
+        font-family: 'DM Mono', monospace; margin-top: 2px;
+      }
+      .header-refresh {
+        margin-left: auto;
+        background: var(--bg2); border: 1px solid var(--div);
+        color: var(--sub); padding: 7px 13px; border-radius: 10px;
+        cursor: pointer; font-size: 13px; font-family: 'DM Sans', sans-serif;
+        transition: all .2s;
+      }
+      .header-refresh:hover { color: var(--amber); border-color: var(--amber); }
+
+      /* ── Topbar badge ── */
+      .topbar-badge {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 11px; border-radius: 20px; border: 1px solid;
+        font-size: 12px; font-weight: 600;
+        font-family: 'DM Sans', sans-serif;
+      }
+      .badge-dot {
+        width: 6px; height: 6px; border-radius: 50%;
+        animation: pulse-dot 2s infinite;
+      }
+      @keyframes pulse-dot {
+        0%,100% { opacity: 1; transform: scale(1); }
+        50%      { opacity: 0.5; transform: scale(1.4); }
+      }
+
+      /* ── Tabs ── */
+      .tabs { display: flex; gap: 2px; }
+      .tab {
+        flex: 1; padding: 9px 10px; border-radius: 10px;
+        border: 1px solid transparent; background: transparent;
+        color: var(--sub); cursor: pointer; font-size: 13px; font-weight: 500;
+        font-family: 'DM Sans', sans-serif; transition: all .2s;
+        text-align: center; white-space: nowrap;
+      }
+      .tab.active {
+        background: var(--bg2); border-color: var(--div);
+        color: var(--text); box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      }
+      .tab:hover:not(.active) { color: var(--text); background: rgba(255,255,255,0.04); }
+
+      /* ── Section boxes (Indeklima system) ── */
+      .section-box {
+        background: var(--bg2);
+        border: 1px solid rgba(148,163,184,0.18);
+        border-radius: 14px;
+        overflow: hidden;
+        margin-bottom: 12px;
+      }
+      .section-box-header {
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px 16px;
+        border-bottom: 1px solid rgba(148,163,184,0.12);
+        background: rgba(0,0,0,0.18);
+      }
+      .section-box-title {
+        font-size: 11px; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 1px;
+        color: var(--sub); flex: 1;
+      }
+      .section-box-badge {
+        font-size: 9px; font-weight: 700;
+        padding: 2px 7px; border-radius: 4px;
+        letter-spacing: 0.5px; text-transform: uppercase;
+      }
+      .section-box-body { padding: 14px 16px; }
+
+      /* ── Controller hero card ── */
+      .ctrl-hero {
+        display: flex; align-items: center; gap: 18px;
+        padding: 20px; margin-bottom: 0;
+        position: relative; overflow: hidden;
+      }
+      .ctrl-hero::before {
+        content: ''; position: absolute; inset: 0;
+        background: radial-gradient(ellipse at top left, rgba(249,115,22,0.08) 0%, transparent 60%);
+        pointer-events: none;
+      }
+      .ctrl-ring-wrap { position: relative; flex-shrink: 0; }
+      .ctrl-ring-svg { width: 100px; height: 100px; transform: rotate(-90deg); }
+      .ctrl-ring-bg   { fill: none; stroke: var(--div); stroke-width: 10; }
+      .ctrl-ring-fill {
+        fill: none; stroke-width: 10; stroke-linecap: round;
+        transition: stroke .4s, stroke-dashoffset .6s cubic-bezier(.4,0,.2,1);
+      }
+      .ctrl-ring-center {
+        position: absolute; inset: 0;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+      }
+      .ctrl-ring-icon { font-size: 28px; line-height: 1; }
+      .ctrl-info { flex: 1; }
+      .ctrl-title { font-size: 19px; font-weight: 700; margin-bottom: 4px; }
+      .ctrl-sub   { font-size: 13px; color: var(--sub); }
+      .ctrl-meta-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+      .ctrl-meta-chip {
+        display: flex; align-items: center; gap: 5px;
+        background: var(--bg3); border-radius: 8px;
+        padding: 5px 9px; font-size: 12px;
+      }
+      .ctrl-meta-chip span { color: var(--sub); }
+      .ctrl-meta-chip strong { font-weight: 600; }
+
+      /* ── Controller buttons ── */
+      .ctrl-btns-wrap { padding: 0 16px 16px; }
+      .ctrl-btn-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+      .ctrl-btn {
+        padding: 11px 0; border-radius: 10px; border: 1px solid rgba(148,163,184,0.2);
+        background: transparent; font-size: 13px; font-weight: 600;
+        font-family: 'DM Sans', sans-serif; cursor: pointer; text-align: center;
+        color: var(--sub); transition: transform .1s;
+      }
+      .ctrl-btn:active { transform: scale(0.97); }
+      .ctrl-pause-row { display: flex; align-items: center; gap: 10px; }
+      .ctrl-pause-label { font-size: 12px; color: var(--sub); white-space: nowrap; }
+      .ctrl-pause-select {
+        flex: 1; font-size: 12px; padding: 6px 10px;
+        border-radius: 8px; border: 1px solid var(--div);
+        background: var(--bg3); color: var(--text);
+        font-family: 'DM Sans', sans-serif;
+      }
+      .pause-bar {
+        margin: 0 16px 14px;
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 10px 14px;
+        background: rgba(234,179,8,0.12);
+        border: 1px solid rgba(234,179,8,0.3);
+        border-radius: 10px;
+      }
+      .pause-bar-text { font-size: 13px; color: #fef08a; }
+      .resume-btn {
+        font-size: 11px; font-weight: 600; padding: 5px 11px;
+        border-radius: 7px; border: 1px solid rgba(234,179,8,0.4);
+        background: transparent; color: #fef08a; cursor: pointer;
+        font-family: 'DM Sans', sans-serif;
+      }
+      .resume-btn:hover { background: rgba(234,179,8,0.1); }
+
+      /* ── Efficiency ring / stats (same pattern as Indeklima score) ── */
+      .score-section {
+        display: flex; align-items: center; gap: 20px;
+        background: none; border: none; padding: 14px 16px 14px; margin-bottom: 0;
+        position: relative; overflow: hidden;
+      }
+      .score-ring-wrap { position: relative; flex-shrink: 0; }
+      .score-ring-svg { width: 96px; height: 96px; transform: rotate(-90deg); }
+      .score-ring-bg   { fill: none; stroke: var(--div); stroke-width: 9; }
+      .score-ring-fill {
+        fill: none; stroke-width: 9; stroke-linecap: round;
+        transition: stroke-dashoffset .8s cubic-bezier(.4,0,.2,1), stroke .4s;
+      }
+      .score-ring-center {
+        position: absolute; inset: 0;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+      }
+      .score-value { font-size: 22px; font-weight: 700; line-height: 1; }
+      .score-unit  { font-size: 10px; color: var(--sub); margin-top: 1px; }
+      .score-info  { flex: 1; }
+      .score-title { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+      .score-sub   { font-size: 12px; color: var(--sub); }
+      .score-chips { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+      .score-chip {
+        display: flex; align-items: center; gap: 5px;
+        background: var(--bg3); border-radius: 7px;
+        padding: 5px 9px; font-size: 12px;
+      }
+      .score-chip span  { color: var(--sub); }
+      .score-chip strong { font-weight: 600; }
+
+      /* ── Quick stats grid ── */
+      .qs-grid {
+        display: grid; grid-template-columns: repeat(4,1fr);
+        gap: 8px; padding: 0 16px 14px;
+      }
+      @media (max-width: 500px) { .qs-grid { grid-template-columns: repeat(2,1fr); } }
+      .qs-card {
+        background: var(--bg3); border-radius: 12px;
+        padding: 12px 10px; text-align: center;
+        position: relative; overflow: hidden;
+        transition: transform .15s;
+      }
+      .qs-card:hover { transform: translateY(-2px); }
+      .qs-card::after {
+        content: ''; position: absolute; bottom: 0; left: 0; right: 0;
+        height: 2px; border-radius: 0 0 12px 12px;
+      }
+      .qs-icon  { font-size: 18px; margin-bottom: 5px; }
+      .qs-value { font-size: 16px; font-weight: 700; font-family: 'DM Mono', monospace; line-height: 1; }
+      .qs-label { font-size: 9px; color: var(--sub); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+      /* ── Room cards (grid) ── */
+      .rooms-grid {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(240px,1fr));
+        gap: 10px;
+      }
+      .room-card {
+        border-radius: var(--card-radius); padding: 15px;
+        cursor: default; position: relative; overflow: hidden;
+        border-left: 4px solid transparent;
+        transition: transform .15s, box-shadow .15s;
+        border: 1px solid rgba(148,163,184,0.12);
+      }
+      .room-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.22); }
+      .room-card-header {
+        display: flex; align-items: center;
+        justify-content: space-between; margin-bottom: 10px;
+      }
+      .room-card-name { font-size: 14px; font-weight: 600; }
+      .room-state-pill {
+        font-size: 9px; font-weight: 700;
+        padding: 3px 8px; border-radius: 20px;
+        text-transform: uppercase; letter-spacing: 0.5px;
+      }
+      .room-temps {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;
+      }
+      .room-temp-box {
+        background: var(--bg3); border-radius: 9px;
+        padding: 7px 8px; text-align: center;
+      }
+      .room-temp-val { font-size: 16px; font-weight: 700; font-family: 'DM Mono', monospace; line-height: 1.1; }
+      .room-temp-lbl { font-size: 9px; color: var(--sub); margin-top: 2px; text-transform: uppercase; }
+      .room-state-bar { height: 3px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
+      .room-state-fill { height: 100%; border-radius: 2px; }
+
+      /* Pulse for window_open / pre_heat */
+      .room-card.state-window_open .room-state-pill,
+      .room-card.state-pre_heat .room-state-pill {
+        animation: badge-pulse 2s infinite;
+      }
+      @keyframes badge-pulse {
+        0%,100% { opacity: 1; }
+        50%      { opacity: 0.55; }
+      }
+
+      /* ── History rows ── */
+      .hist-row {
+        display: flex; align-items: center; gap: 10px;
+        padding: 8px 16px; border-bottom: 1px solid var(--div);
+      }
+      .hist-row:last-child { border-bottom: none; }
+      .hist-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+      .hist-time { font-size: 11px; color: var(--sub); min-width: 44px; font-family: 'DM Mono', monospace; }
+      .hist-desc { flex: 1; font-size: 13px; }
+      .hist-reason { font-size: 11px; color: var(--sub); }
+
+      /* ── Person rows ── */
+      .person-row {
+        display: flex; align-items: center; gap: 12px;
+        padding: 10px 16px; border-bottom: 1px solid var(--div);
+      }
+      .person-row:last-child { border-bottom: none; }
+      .avatar {
+        width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 13px; font-weight: 600;
+      }
+      .av-home { background: rgba(249,115,22,0.18); color: #fed7aa; }
+      .av-away { background: var(--bg3); color: var(--sub); }
+      .av-none { background: var(--bg3); color: var(--sub); border: 1px dashed rgba(148,163,184,0.3); }
+      .person-name { font-size: 14px; font-weight: 600; flex: 1; }
+      .person-note { font-size: 12px; color: var(--sub); margin-top: 1px; }
+      .person-right { text-align: right; }
+      .person-state { font-size: 13px; font-weight: 600; }
+      .person-since { font-size: 11px; color: var(--sub); margin-top: 1px; }
+
+      /* ── Config rows ── */
+      .cfg-row {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 8px 16px; border-bottom: 1px solid var(--div);
+      }
+      .cfg-row:last-child { border-bottom: none; }
+      .cfg-k { font-size: 13px; color: var(--sub); }
+      .cfg-v { font-size: 13px; font-weight: 500; font-family: 'DM Mono', monospace; }
+
+      /* ── Energy chart ── */
+      .chart-area  { padding: 12px 16px 6px; }
+      .chart-bars  { display: flex; align-items: flex-end; gap: 5px; height: 72px; }
+      .bar-group   { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px; }
+      .bar-saved   { background: var(--green); border-radius: 3px 3px 0 0; width: 100%; min-height: 2px; }
+      .bar-wasted  { background: var(--amber); border-radius: 3px 3px 0 0; width: 100%; min-height: 2px; }
+      .bar-day     { font-size: 9px; color: var(--sub); margin-top: 3px; }
+      .chart-legend { display: flex; gap: 14px; margin-top: 10px; padding: 0 0 8px; }
+      .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--sub); }
+      .legend-dot  { width: 8px; height: 8px; border-radius: 2px; }
+
+      /* ── Auto-off status chips ── */
+      .autooff-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+        padding: 14px 16px;
+      }
+      .aocard {
+        background: var(--bg3); border-radius: 10px; padding: 12px 13px;
+      }
+      .aocard-lbl { font-size: 10px; color: var(--sub); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; }
+      .aocard-val { font-size: 13px; font-weight: 600; }
+
+      /* ── Loading / error ── */
+      .loading-wrap {
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        min-height: 280px; gap: 14px;
+      }
+      .loading-icon { font-size: 44px; animation: float 3s ease-in-out infinite; }
+      @keyframes float {
+        0%,100% { transform: translateY(0); }
+        50%      { transform: translateY(-10px); }
+      }
+      .loading-text { color: var(--sub); font-size: 14px; }
+
+      /* ── Skeleton ── */
+      .skel {
+        background: linear-gradient(90deg, var(--bg2) 25%, var(--bg3) 50%, var(--bg2) 75%);
+        background-size: 200% 100%; animation: skel-shimmer 1.4s infinite; border-radius: 8px;
+      }
+      @keyframes skel-shimmer {
+        0%   { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+
+      .empty {
+        padding: 22px 16px; text-align: center;
+        color: var(--sub); font-size: 13px;
+      }
+    `;
+  }
+
+  // ── HTML components ───────────────────────────────────────────────────────
 
   _topbarHTML() {
     const d      = this._data;
     const ctrl   = d?.controller_state ?? "unknown";
-    const season = { winter:"Vinter", summer:"Sommer", auto:"Auto" }[d?.season_mode] ?? "Auto";
-    const otemp  = d?.outdoor_temp != null ? `${Math.round(d.outdoor_temp)}°C ude · ` : "";
+    const season = ({ winter:"Vinter", summer:"Sommer", auto:"Auto" })[d?.season_mode] ?? "Auto";
+    const otemp  = d?.outdoor_temp != null ? `${Math.round(d.outdoor_temp)}°C · ` : "";
     const labels = { on:"On", pause:"Pause", off:"Off" };
+    const bColors = {
+      on:    { bg:"rgba(249,115,22,0.2)",  color:"#fed7aa", border:"#f97316" },
+      pause: { bg:"rgba(234,179,8,0.15)",  color:"#fef08a", border:"#ca8a04" },
+      off:   { bg:"rgba(148,163,184,0.1)", color:"#94a3b8", border:"rgba(148,163,184,0.3)" },
+    };
+    const bc = bColors[ctrl] ?? bColors.off;
+
     return `
-      <div class="topbar">
-        <div class="topbar-left">
-          <div>
-            <div class="topbar-title">Heat Manager</div>
-            <div class="topbar-sub">${otemp}${season}</div>
-          </div>
-          <div id="topbar-badge" class="ctrl-badge"
-            style="background:${this._ctrlBg(ctrl)};color:${this._ctrlColor(ctrl)};border-color:${this._ctrlBorder(ctrl)}">
-            ${labels[ctrl] ?? ctrl}
-          </div>
+      <div class="header">
+        <div class="header-icon">🔥</div>
+        <div class="header-text">
+          <h1>Heat Manager</h1>
+          <div class="version">${otemp}${season}</div>
         </div>
-        <button class="refresh-btn" data-action="refresh" title="Genindlæs">
-          <svg viewBox="0 0 24 24"><path d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/></svg>
-        </button>
-      </div>`;
+        <div id="topbar-badge" class="topbar-badge"
+          style="background:${bc.bg};color:${bc.color};border-color:${bc.border}">
+          <div class="badge-dot" style="background:${bc.color}"></div>
+          ${labels[ctrl] ?? ctrl}
+        </div>
+        <button class="header-refresh" data-action="refresh">↻ Opdater</button>
+      </div>
+      <div class="tabs">${[
+        { id:"overview", label:"Oversigt"  },
+        { id:"rooms",    label:"Rum"       },
+        { id:"history",  label:"Historik"  },
+        { id:"config",   label:"Konfiguration" },
+      ].map(t => `<button class="tab${this._tab===t.id?" active":""}" data-tab="${t.id}">${t.label}</button>`).join("")}</div>`;
   }
 
-  _tabsHTML() {
-    return `<div class="tabs">${[
-      {id:"overview", label:"Oversigt"},
-      {id:"rooms",    label:"Rum"},
-      {id:"history",  label:"Historik"},
-      {id:"config",   label:"Konfiguration"},
-    ].map(t => `<button class="tab${this._tab===t.id?" active":""}" data-tab="${t.id}">${t.label}</button>`).join("")}</div>`;
-  }
-
-  // Buttons are rendered WITHOUT active-state inline styles.
-  // _patchController() is the sole colour authority, called after every _render().
-  _controllerHTML() {
+  _controllerSectionHTML() {
     const ctrl      = this._data?.controller_state ?? "unknown";
+    const season    = this._data?.season_mode ?? "auto";
+    const otemp     = this._data?.outdoor_temp;
     const pauseLeft = this._data?.pause_remaining ?? 0;
     const showPause = ctrl === "pause" && pauseLeft > 0;
+
+    // Ring: fully lit = ON (amber), half = PAUSE (yellow), empty = OFF (grey)
+    const r          = 38;
+    const circ       = 2 * Math.PI * r;
+    const fill       = ctrl === "on" ? circ : ctrl === "pause" ? circ * 0.5 : 0;
+    const dashOffset = circ - fill;
+    const ringColor  = ctrl === "on" ? "#f97316" : ctrl === "pause" ? "#eab308" : "#475569";
+
     return `
-      <div class="card" id="ctrl-card">
-        <div class="section-label">Controller</div>
-        <div class="btn-row">
-          <button id="ctrl-btn-on"    class="ctrl-btn" data-action="on">On</button>
-          <button id="ctrl-btn-pause" class="ctrl-btn" data-action="pause">Pause</button>
-          <button id="ctrl-btn-off"   class="ctrl-btn" data-action="off">Off</button>
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Controller</div>
+          <div class="section-box-badge" style="background:${ringColor}22;color:${ringColor}">
+            ${this._ctrlTitle(ctrl)}
+          </div>
         </div>
-        <div class="pause-row">
-          <span class="pause-label">Pause varighed</span>
-          <select class="pause-select" id="pause-dur">
-            <option value="30">30 min</option>
-            <option value="60">1 time</option>
-            <option value="120" selected>2 timer</option>
-            <option value="240">4 timer</option>
-            <option value="480">til i morgen</option>
-          </select>
+
+        <div class="ctrl-hero">
+          <div class="ctrl-ring-wrap">
+            <svg class="ctrl-ring-svg" viewBox="0 0 100 100">
+              <circle class="ctrl-ring-bg"   cx="50" cy="50" r="${r}" />
+              <circle class="ctrl-ring-fill" cx="50" cy="50" r="${r}"
+                stroke="${ringColor}"
+                stroke-dasharray="${circ}"
+                stroke-dashoffset="${dashOffset}" />
+            </svg>
+            <div class="ctrl-ring-center">
+              <div class="ctrl-ring-icon">${this._ctrlIcon(ctrl)}</div>
+            </div>
+          </div>
+          <div class="ctrl-info">
+            <div class="ctrl-title" style="color:${ringColor}">${this._ctrlTitle(ctrl)}</div>
+            <div class="ctrl-sub">${(this._data?.rooms ?? []).length} rum konfigureret</div>
+            <div class="ctrl-meta-row">
+              <div class="ctrl-meta-chip">
+                🌡️ <span>Ude</span>
+                <strong>${otemp != null ? Math.round(otemp) + "°C" : "–"}</strong>
+              </div>
+              <div class="ctrl-meta-chip">
+                🍂 <span>Sæson</span>
+                <strong>${({ winter:"Vinter", summer:"Sommer", auto:"Auto" })[season] ?? season}</strong>
+              </div>
+            </div>
+          </div>
         </div>
+
+        <div class="ctrl-btns-wrap">
+          <div class="ctrl-btn-row">
+            <button id="ctrl-btn-on"    class="ctrl-btn" data-action="on">🔥 On</button>
+            <button id="ctrl-btn-pause" class="ctrl-btn" data-action="pause">⏸ Pause</button>
+            <button id="ctrl-btn-off"   class="ctrl-btn" data-action="off">❄️ Off</button>
+          </div>
+          <div class="ctrl-pause-row">
+            <span class="ctrl-pause-label">Pause varighed</span>
+            <select class="ctrl-pause-select" id="pause-dur">
+              <option value="30">30 min</option>
+              <option value="60">1 time</option>
+              <option value="120" selected>2 timer</option>
+              <option value="240">4 timer</option>
+              <option value="480">Til i morgen</option>
+            </select>
+          </div>
+        </div>
+
         <div id="pause-bar" class="pause-bar" style="display:${showPause?"flex":"none"}">
-          <span id="pause-bar-text" class="pause-bar-text">Pause — ${pauseLeft} min tilbage</span>
+          <span id="pause-bar-text" class="pause-bar-text">⏸ Pause — ${pauseLeft} min tilbage</span>
           <button class="resume-btn" data-action="resume">Genoptag nu</button>
         </div>
       </div>`;
   }
 
-  _roomsListHTML(rooms, detailed) {
-    if (!rooms?.length) return `<div class="empty">Ingen rum konfigureret</div>`;
-    return rooms.map(room => {
-      const color = this._dotColor(room.state);
-      const temp  = room.climate_entity ? this._climateTemp(room.climate_entity) : this._fmtTemp(room.current_temp);
-      const setpt = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
-      return `
-        <div class="room-row">
-          <div class="dot" style="background:${color}"></div>
-          <div class="room-main">
-            <div class="room-name">${this._esc(room.name)}</div>
-            ${detailed && room.why ? `<div class="room-why">${this._esc(room.why)}</div>` : ""}
-          </div>
-          <div class="room-right">
-            <div class="room-state" style="${room.state==="window_open"?"color:#BA7517":""}">${this._stateLabel(room.state)}</div>
-            <div class="room-temp">${temp}</div>
-            ${setpt ? `<div class="room-setpoint">sætpunkt ${setpt}</div>` : ""}
-          </div>
-        </div>`;
-    }).join("");
-  }
+  _energySectionHTML() {
+    const d      = this._data;
+    const score  = d?.efficiency_score;
+    const saved  = d?.energy_saved_today;
+    const wasted = d?.energy_wasted_today;
+    const color  = this._ringColor(score);
 
-  _energyChartHTML() {
-    const days = this._history?.days ?? this._fakeDays();
-    const max  = Math.max(...days.map(d => (d.saved ?? 0) + (d.wasted ?? 0)), 0.1);
-    const bars = days.map(d => {
-      const sh = Math.round(((d.saved  ?? 0) / max) * 76);
-      const wh = Math.round(((d.wasted ?? 0) / max) * 76);
-      return `<div class="bar-group">
-        <div class="bar-saved"  style="height:${sh}px"></div>
-        <div class="bar-wasted" style="height:${wh}px"></div>
-        <div class="bar-day">${this._esc(d.label ?? "")}</div>
-      </div>`;
-    }).join("");
+    const r      = 36;
+    const circ   = 2 * Math.PI * r;
+    const pct    = score != null ? Math.min(score, 100) / 100 : 0;
+    const dash   = pct * circ;
+    const offset = circ - dash;
+
     return `
-      <div class="chart-area">
-        <div class="chart-bars">${bars}</div>
-        <div class="chart-legend">
-          <div class="legend-item"><div class="legend-dot" style="background:#97C459"></div>Sparet</div>
-          <div class="legend-item"><div class="legend-dot" style="background:#EF9F27"></div>Spildt</div>
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Energi i dag</div>
+        </div>
+        <div class="score-section">
+          <div class="score-ring-wrap">
+            <svg class="score-ring-svg" viewBox="0 0 96 96">
+              <circle class="score-ring-bg"   cx="48" cy="48" r="${r}" />
+              <circle class="score-ring-fill" cx="48" cy="48" r="${r}"
+                stroke="${color}"
+                stroke-dasharray="${dash} ${offset}"
+                stroke-dashoffset="0" />
+            </svg>
+            <div class="score-ring-center">
+              <div class="score-value" style="color:${color}">${score != null ? score : "–"}</div>
+              <div class="score-unit">score</div>
+            </div>
+          </div>
+          <div class="score-info">
+            <div class="score-title">Effektivitet</div>
+            <div class="score-sub">Daglig score nulstilles ved midnat</div>
+            <div class="score-chips">
+              <div class="score-chip">
+                🌿 <span>Sparet</span>
+                <strong style="color:var(--green)">${saved != null ? saved.toFixed(2) + " kWh" : "–"}</strong>
+              </div>
+              <div class="score-chip">
+                🔥 <span>Spildt</span>
+                <strong style="color:var(--amber)">${wasted != null ? wasted.toFixed(2) + " kWh" : "–"}</strong>
+              </div>
+            </div>
+          </div>
         </div>
       </div>`;
   }
 
-  _fakeDays() {
-    return ["man","tir","ons","tor","fre","lør","søn"].map(l =>
-      ({ label:l, saved:0, wasted:0 }));
-  }
-
-  _historyHTML() {
-    const events = this._history?.events ?? [];
-    if (!events.length) return `<div class="empty">Ingen historik endnu</div>`;
-    return events.slice(0,20).map(e => `
-      <div class="hist-row">
-        <div class="hist-dot" style="background:${this._dotColor(e.type ?? "normal")}"></div>
-        <div class="hist-time">${this._esc(e.time ?? "")}</div>
-        <div class="hist-desc">${this._esc(e.description ?? "")}</div>
-        <div class="hist-reason">${this._esc(e.reason ?? "")}</div>
-      </div>`).join("");
+  _roomsGridHTML(rooms) {
+    if (!rooms?.length) return `<div class="empty">Ingen rum konfigureret</div>`;
+    return `<div class="rooms-grid">${rooms.map(room => {
+      const state   = room.state ?? "normal";
+      const color   = this._stateColor(state);
+      const grad    = this._stateGradient(state);
+      const label   = this._stateLabel(state);
+      const temp    = room.climate_entity ? this._climateTemp(room.climate_entity) : null;
+      const setpt   = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
+      const tempStr = temp ?? (room.current_temp != null ? Math.round(room.current_temp * 10) / 10 + "°C" : "–");
+      return `
+        <div class="room-card state-${state}" style="background:${grad};border-left-color:${color}">
+          <div class="room-card-header">
+            <div class="room-card-name">${this._esc(room.name)}</div>
+            <div class="room-state-pill" style="background:${color}22;color:${color}">${label}</div>
+          </div>
+          <div class="room-temps">
+            <div class="room-temp-box">
+              <div class="room-temp-val">${tempStr}</div>
+              <div class="room-temp-lbl">Aktuelt</div>
+            </div>
+            <div class="room-temp-box">
+              <div class="room-temp-val">${setpt ?? "–"}</div>
+              <div class="room-temp-lbl">Sætpunkt</div>
+            </div>
+          </div>
+          <div class="room-state-bar">
+            <div class="room-state-fill" style="width:${state === "normal" ? "100" : state === "away" ? "20" : state === "window_open" ? "50" : state === "pre_heat" ? "75" : "40"}%;background:${color}"></div>
+          </div>
+        </div>`;
+    }).join("")}</div>`;
   }
 
   _personsHTML() {
     const persons = this._data?.persons ?? [];
     if (!persons.length) return `<div class="empty">Ingen personer konfigureret</div>`;
     return persons.map(p => {
-      const isHome   = p.state === "home";
-      const noTrack  = p.tracking === false;
+      const isHome  = p.state === "home";
+      const noTrack = p.tracking === false;
       const initials = (p.name ?? "?").substring(0,2).toUpperCase();
       const avCls    = noTrack ? "av-none" : isHome ? "av-home" : "av-away";
+      const stColor  = noTrack ? "var(--sub)" : isHome ? "#fed7aa" : "var(--sub)";
       const stTxt    = noTrack ? "Følger huset" : isHome ? "Hjemme" : "Ikke hjemme";
-      const stColor  = noTrack ? "var(--secondary-text-color)" : isHome ? "#27500A" : "var(--secondary-text-color)";
       return `
         <div class="person-row">
           <div class="avatar ${avCls}">${initials}</div>
@@ -547,97 +881,198 @@ class HeatManagerPanel extends HTMLElement {
     }).join("");
   }
 
-  _autoOffHTML() {
+  _autoOffSectionHTML() {
     const d      = this._data;
     const reason = d?.auto_off_reason ?? "none";
     const isOff  = d?.controller_state === "off";
-    const otemp  = d?.outdoor_temp != null ? Math.round(d.outdoor_temp) + "°C" : "—";
     const season = d?.season_mode ?? "auto";
+    const otemp  = d?.outdoor_temp != null ? Math.round(d.outdoor_temp) + "°C" : "–";
     return `
-      <div class="card">
-        <div class="card-hdr">
-          <span class="card-title">Auto-off status</span>
-          <span style="font-size:12px;font-weight:500;color:${isOff?"#BA7517":"#27500A"}">${isOff?"Slukket":"Aktiv"}</span>
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Auto-off status</div>
+          <div class="section-box-badge" style="background:${isOff?"rgba(239,68,68,0.15)":"rgba(249,115,22,0.15)"};color:${isOff?"#ef4444":"#f97316"}">
+            ${isOff ? "Slukket" : "Aktiv"}
+          </div>
         </div>
-        <div class="metric-grid">
-          <div class="metric-box"><div class="metric-lbl">Sæson trigger</div><div class="metric-val">${this._seasonTriggerLabel(season, reason)}</div></div>
-          <div class="metric-box"><div class="metric-lbl">Udetemperatur</div><div class="metric-val">${otemp} / ${d?.auto_off_threshold ?? 18}°C grænse</div></div>
-          <div class="metric-box"><div class="metric-lbl">Dage over grænse</div><div class="metric-val">${d?.auto_off_days ?? 0} / ${d?.auto_off_days_required ?? 5} dage</div></div>
-          <div class="metric-box"><div class="metric-lbl">Årsag til sluk</div><div class="metric-val">${isOff ? this._reasonLabel(reason) : "—"}</div></div>
+        <div class="autooff-grid">
+          <div class="aocard">
+            <div class="aocard-lbl">Sæson trigger</div>
+            <div class="aocard-val">${this._seasonTriggerLabel(season, reason)}</div>
+          </div>
+          <div class="aocard">
+            <div class="aocard-lbl">Udetemperatur</div>
+            <div class="aocard-val">${otemp} / ${d?.auto_off_threshold ?? 18}°C grænse</div>
+          </div>
+          <div class="aocard">
+            <div class="aocard-lbl">Dage over grænse</div>
+            <div class="aocard-val">${d?.auto_off_days ?? 0} / ${d?.auto_off_days_required ?? 5}</div>
+          </div>
+          <div class="aocard">
+            <div class="aocard-lbl">Årsag til sluk</div>
+            <div class="aocard-val">${isOff ? this._reasonLabel(reason) : "–"}</div>
+          </div>
         </div>
       </div>`;
   }
 
-  // ── Tab content ───────────────────────────────────────────────────────────
+  _energyChartHTML() {
+    const days = this._history?.days ?? this._fakeDays();
+    const max  = Math.max(...days.map(d => (d.saved ?? 0) + (d.wasted ?? 0)), 0.01);
+    const bars = days.map(d => {
+      const sh = Math.round(((d.saved  ?? 0) / max) * 68);
+      const wh = Math.round(((d.wasted ?? 0) / max) * 68);
+      return `<div class="bar-group">
+        <div class="bar-saved"  style="height:${sh}px"></div>
+        <div class="bar-wasted" style="height:${wh}px"></div>
+        <div class="bar-day">${this._esc(d.label ?? "")}</div>
+      </div>`;
+    }).join("");
+    return `
+      <div class="chart-area">
+        <div class="chart-bars">${bars}</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div>Sparet</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--amber)"></div>Spildt</div>
+        </div>
+      </div>`;
+  }
+
+  _fakeDays() {
+    return ["man","tir","ons","tor","fre","lør","søn"].map(l => ({ label:l, saved:0, wasted:0 }));
+  }
+
+  _historyRowsHTML() {
+    const events = this._history?.events ?? [];
+    if (!events.length) return `<div class="empty">Ingen hændelser endnu</div>`;
+    return events.slice(0, 25).map(e => `
+      <div class="hist-row">
+        <div class="hist-dot" style="background:${this._stateColor(e.type ?? "normal")}"></div>
+        <div class="hist-time">${this._esc(e.time ?? "")}</div>
+        <div class="hist-desc">${this._esc(e.description ?? "")}</div>
+        <div class="hist-reason">${this._esc(e.reason ?? "")}</div>
+      </div>`).join("");
+  }
+
+  // ── Tab builders ──────────────────────────────────────────────────────────
 
   _overviewHTML() {
-    const d      = this._data;
-    const rooms  = d?.rooms ?? [];
-    const savedT = d?.energy_saved_today  != null ? d.energy_saved_today.toFixed(2)  + " kWh" : "—";
-    const wastT  = d?.energy_wasted_today != null ? d.energy_wasted_today.toFixed(2) + " kWh" : "—";
-    const scoreT = d?.efficiency_score    != null ? d.efficiency_score + "/100"      : "—";
-    const pauseL = d?.pause_remaining ?? 0;
+    const rooms  = this._data?.rooms ?? [];
+    const active = rooms.filter(r => r.state === "normal").length;
+    const away   = rooms.filter(r => r.state === "away").length;
+    const winOpen = rooms.filter(r => r.state === "window_open").length;
     return `
-      ${this._controllerHTML()}
-      <div class="card">
-        <div class="card-hdr"><span class="card-title">Rum</span><span class="card-sub">${rooms.length} konfigureret</span></div>
-        ${this._roomsListHTML(rooms, true)}
-        <div class="stats-grid">
-          <div class="stat"><div class="stat-label">Sparet i dag</div><div class="stat-val">${savedT}</div></div>
-          <div class="stat"><div class="stat-label">Spildt i dag</div><div class="stat-val warn">${wastT}</div></div>
-          <div class="stat"><div class="stat-label">Score</div><div class="stat-val">${scoreT}</div></div>
-          <div class="stat"><div class="stat-label">Pause tilbage</div><div class="stat-val">${pauseL > 0 ? pauseL + " min" : "—"}</div></div>
+      ${this._controllerSectionHTML()}
+      ${this._energySectionHTML()}
+
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Rum</div>
+        </div>
+        <div class="qs-grid">
+          <div class="qs-card" style="--c:var(--amber)">
+            <div class="qs-card" style="position:absolute;inset:0;border-radius:12px;background:linear-gradient(135deg,rgba(249,115,22,0.08) 0%,transparent 100%);pointer-events:none"></div>
+            <div class="qs-icon">🔥</div>
+            <div class="qs-value" style="color:var(--amber)">${active}</div>
+            <div class="qs-label">Aktiv</div>
+          </div>
+          <div class="qs-card">
+            <div class="qs-icon">🏃</div>
+            <div class="qs-value" style="color:var(--sub)">${away}</div>
+            <div class="qs-label">Fraværende</div>
+          </div>
+          <div class="qs-card">
+            <div class="qs-icon">🪟</div>
+            <div class="qs-value" style="color:${winOpen > 0 ? "var(--red)" : "var(--sub)"}">${winOpen}</div>
+            <div class="qs-label">Vindue åbent</div>
+          </div>
+          <div class="qs-card">
+            <div class="qs-icon">❄️</div>
+            <div class="qs-value" style="color:var(--teal)">${rooms.filter(r => r.state === "pre_heat").length}</div>
+            <div class="qs-label">Forvarmning</div>
+          </div>
+        </div>
+        <div style="padding: 0 16px 14px;">
+          ${this._roomsGridHTML(rooms)}
         </div>
       </div>
-      <div class="card">
-        <div class="card-hdr"><span class="card-title">Tilstedeværelse</span></div>
+
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Tilstedeværelse</div>
+        </div>
         ${this._personsHTML()}
       </div>
-      ${this._autoOffHTML()}`;
+
+      ${this._autoOffSectionHTML()}`;
   }
 
   _roomsTabHTML() {
     return `
-      <div class="card">
-        <div class="card-hdr"><span class="card-title">Alle rum</span><span class="card-sub">${this._data?.rooms?.length ?? 0} rum</span></div>
-        ${this._roomsListHTML(this._data?.rooms ?? [], true)}
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Alle rum</div>
+          <div class="section-box-badge" style="background:rgba(249,115,22,0.15);color:var(--amber)">
+            ${(this._data?.rooms ?? []).length} rum
+          </div>
+        </div>
+        <div style="padding:14px 16px;">
+          ${this._roomsGridHTML(this._data?.rooms ?? [])}
+        </div>
       </div>
-      <div class="card">
-        <div class="card-hdr"><span class="card-title">Energi denne uge</span></div>
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Energi — denne uge</div>
+        </div>
         ${this._energyChartHTML()}
       </div>`;
   }
 
   _historyTabHTML() {
     return `
-      <div class="card">
-        <div class="card-hdr"><span class="card-title">Hændelseslog</span><span class="card-sub">Seneste 7 dage</span></div>
-        ${this._historyHTML()}
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Hændelseslog</div>
+          <div class="section-box-badge" style="background:rgba(14,165,233,0.12);color:var(--teal)">
+            Seneste 7 dage
+          </div>
+        </div>
+        ${this._historyRowsHTML()}
       </div>`;
   }
 
   _configTabHTML() {
-    const d = this._data?.config ?? {};
-    const rows = [
-      ["Weather entity",  d.weather_entity ?? "—"],
-      ["Grace dag",       d.grace_day_min  != null ? d.grace_day_min  + " min" : "—"],
-      ["Grace nat",       d.grace_night_min!= null ? d.grace_night_min+ " min" : "—"],
-      ["Away temp mildt", d.away_temp_mild != null ? d.away_temp_mild + "°C"  : "—"],
-      ["Away temp koldt", d.away_temp_cold != null ? d.away_temp_cold + "°C"  : "—"],
-      ["Auto-off grænse", d.auto_off_temp_threshold != null ? d.auto_off_temp_threshold + "°C" : "—"],
-      ["Auto-off dage",   d.auto_off_temp_days != null ? d.auto_off_temp_days + " dage" : "—"],
-      ["Alarm panel",     d.alarm_panel    ?? "—"],
-      ["Notify service",  d.notify_service ?? "—"],
+    const d   = this._data?.config ?? {};
+    const cfg = [
+      ["Weather entity",     d.weather_entity           ?? "–"],
+      ["Outdoor temp sensor",d.outdoor_temp_sensor      ?? "–"],
+      ["Grace dag",          d.grace_day_min   != null  ? d.grace_day_min   + " min" : "–"],
+      ["Grace nat",          d.grace_night_min != null  ? d.grace_night_min + " min" : "–"],
+      ["Away temp mildt",    d.away_temp_mild  != null  ? d.away_temp_mild  + "°C"   : "–"],
+      ["Away temp koldt",    d.away_temp_cold  != null  ? d.away_temp_cold  + "°C"   : "–"],
+      ["Auto-off grænse",    d.auto_off_temp_threshold != null ? d.auto_off_temp_threshold + "°C" : "–"],
+      ["Auto-off dage",      d.auto_off_temp_days != null ? d.auto_off_temp_days + " dage" : "–"],
+      ["Alarm panel",        d.alarm_panel     ?? "–"],
+      ["Notify service",     d.notify_service  ?? "–"],
     ];
     return `
-      <div class="card">
-        <div class="card-hdr"><span class="card-title">Aktiv konfiguration</span></div>
-        ${rows.map(([k,v]) => `<div class="cfg-row"><span class="cfg-k">${k}</span><span class="cfg-v">${this._esc(v)}</span></div>`).join("")}
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Global konfiguration</div>
+        </div>
+        ${cfg.map(([k,v]) =>
+          `<div class="cfg-row"><span class="cfg-k">${k}</span><span class="cfg-v">${this._esc(v)}</span></div>`
+        ).join("")}
       </div>
-      <div class="card">
-        <div class="card-hdr"><span class="card-title">Rum & sensorer</span></div>
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Rum & klimaentiteter</div>
+        </div>
         ${(this._data?.rooms ?? []).map(r =>
-          `<div class="cfg-row"><span class="cfg-k">${this._esc(r.name)}</span><span class="cfg-v">${this._esc(r.climate_entity ?? "—")}</span></div>`
+          `<div class="cfg-row">
+            <span class="cfg-k">${this._esc(r.name)}</span>
+            <span class="cfg-v" style="color:${this._stateColor(r.state ?? "normal")}">${this._esc(r.climate_entity ?? "–")}</span>
+          </div>`
         ).join("") || `<div class="empty">Ingen rum</div>`}
       </div>`;
   }
@@ -645,25 +1080,24 @@ class HeatManagerPanel extends HTMLElement {
   // ── Main render ───────────────────────────────────────────────────────────
 
   _render() {
-    const content = {
+    const content = ({
       overview: () => this._overviewHTML(),
       rooms:    () => this._roomsTabHTML(),
       history:  () => this._historyTabHTML(),
       config:   () => this._configTabHTML(),
-    }[this._tab]?.() ?? "";
+    })[this._tab]?.() ?? "";
 
     const root = this.shadowRoot;
     if (!root.querySelector("style")) {
-      const style = document.createElement("style");
-      style.textContent = this._css();
-      root.appendChild(style);
+      const st = document.createElement("style");
+      st.textContent = this._css();
+      root.appendChild(st);
     }
 
     const html = `
       <div class="panel">
-        ${this._topbarHTML()}
-        ${this._tabsHTML()}
-        <div class="content">${content}</div>
+        <div class="panel-topbar">${this._topbarHTML()}</div>
+        <div class="panel-scroll"><div>${content}</div></div>
       </div>`;
 
     const existing = root.querySelector(".panel");
@@ -675,8 +1109,6 @@ class HeatManagerPanel extends HTMLElement {
       this._srAppendHTML(html);
     }
 
-    // _patchController() is the sole source of button colours.
-    // Called synchronously here — buttons exist in DOM at this point.
     this._patchController();
     this._attachEvents();
   }
@@ -689,10 +1121,10 @@ class HeatManagerPanel extends HTMLElement {
       else this._scheduleRender();
     }));
     root.querySelector("[data-action='refresh']")?.addEventListener("click", () => this._load());
-    root.querySelector("[data-action='on']")?.addEventListener("click",     () => this._setController("on"));
-    root.querySelector("[data-action='off']")?.addEventListener("click",    () => this._setController("off"));
+    root.querySelector("[data-action='on']"    )?.addEventListener("click", () => this._setController("on"));
+    root.querySelector("[data-action='off']"   )?.addEventListener("click", () => this._setController("off"));
     root.querySelector("[data-action='resume']")?.addEventListener("click", () => this._resume());
-    root.querySelector("[data-action='pause']")?.addEventListener("click",  () => {
+    root.querySelector("[data-action='pause']" )?.addEventListener("click", () => {
       const min = parseInt(root.querySelector("#pause-dur")?.value ?? "120", 10);
       this._pause(min);
     });
