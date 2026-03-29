@@ -150,6 +150,8 @@ async def ws_get_state(
         "energy_saved_today":     coordinator.energy_saved_today,
         "energy_wasted_today":    coordinator.energy_wasted_today,
         "efficiency_score":       coordinator.efficiency_score,
+        "last_waste_time":        coordinator.last_waste_time,
+        "last_saved_time":        coordinator.last_saved_time,
         "auto_off_days":          coordinator.season_engine.days_above_threshold,
         "auto_off_days_required": cfg.get(CONF_AUTO_OFF_TEMP_DAYS, 5),
         "auto_off_threshold":     cfg.get(CONF_AUTO_OFF_TEMP_THRESHOLD, 18.0),

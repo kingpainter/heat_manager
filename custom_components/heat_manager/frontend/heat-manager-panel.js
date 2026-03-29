@@ -256,6 +256,18 @@ class HeatManagerPanel extends HTMLElement {
     return t != null ? (Math.round(t * 10) / 10) + "°C" : null;
   }
 
+  // Format an ISO timestamp to a short Danish clock string, e.g. "kl. 14:37".
+  // Returns null if ts is falsy.
+  _fmtEventTime(ts) {
+    if (!ts) return null;
+    try {
+      const d = new Date(ts);
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      return `kl. ${hh}:${mm}`;
+    } catch { return null; }
+  }
+
   // Efficiency ring — inverted from severity: 100 = good (full green ring)
   _ringColor(score) {
     if (score == null) return "#64748b";
@@ -500,6 +512,11 @@ class HeatManagerPanel extends HTMLElement {
       }
       .score-chip span  { color: var(--sub); }
       .score-chip strong { font-weight: 600; }
+      .score-hint {
+        margin-top: 8px; font-size: 11px;
+        color: var(--sub); font-family: var(--mono);
+        letter-spacing: 0.01em;
+      }
 
       /* ── Quick stats grid ── */
       .qs-grid {
@@ -809,15 +826,25 @@ class HeatManagerPanel extends HTMLElement {
             <div class="score-title">Effektivitet</div>
             <div class="score-sub">Daglig score nulstilles ved midnat</div>
             <div class="score-chips">
-              <div class="score-chip">
+              <div class="score-chip" title="${this._fmtEventTime(d?.last_saved_time) ? 'Sidst sparet ' + this._fmtEventTime(d.last_saved_time) : 'Ingen besparelse registreret i dag'}">
                 🌿 <span>Sparet</span>
                 <strong style="color:var(--green)">${saved != null ? saved.toFixed(2) + " kWh" : "–"}</strong>
               </div>
-              <div class="score-chip">
+              <div class="score-chip" title="${this._fmtEventTime(d?.last_waste_time) ? 'Sidst spildt ' + this._fmtEventTime(d.last_waste_time) : 'Intet spild registreret i dag'}">
                 🔥 <span>Spildt</span>
                 <strong style="color:var(--amber)">${wasted != null ? wasted.toFixed(2) + " kWh" : "–"}</strong>
               </div>
             </div>
+            <div class="score-hint">${
+              (() => {
+                const wt = this._fmtEventTime(d?.last_waste_time);
+                const st = this._fmtEventTime(d?.last_saved_time);
+                if (wt && st) return `Sidst spildt ${wt} · Sidst sparet ${st}`;
+                if (wt)      return `Sidst spildt ${wt} · Ingen besparelse i dag`;
+                if (st)      return `Ingen spild i dag · Sidst sparet ${st}`;
+                return "Ingen aktivitet registreret i dag";
+              })()
+            }</div>
           </div>
         </div>
       </div>`;

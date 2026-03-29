@@ -321,6 +321,14 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def efficiency_score(self) -> int:
         return self.waste_calculator.efficiency_score
 
+    @property
+    def last_waste_time(self) -> str | None:
+        return self.waste_calculator.last_waste_time
+
+    @property
+    def last_saved_time(self) -> str | None:
+        return self.waste_calculator.last_saved_time
+
     # ── Event log ─────────────────────────────────────────────────────────────
 
     def log_event(

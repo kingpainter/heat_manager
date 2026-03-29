@@ -73,6 +73,8 @@ class WasteCalculator:
         self._wasted_kwh: float = 0.0
         self._saved_kwh: float = 0.0
         self._last_power_pct: dict[str, float] = {}
+        self._last_waste_time: str | None = None
+        self._last_saved_time: str | None = None
 
     # ── Public read-only properties ───────────────────────────────────────────
 
@@ -89,6 +91,16 @@ class WasteCalculator:
         """Score 0–100. Starts at 100, loses 1 point per 0.01 kWh wasted."""
         return max(0, min(100, 100 - int(self._wasted_kwh * 100)))
 
+    @property
+    def last_waste_time(self) -> str | None:
+        """ISO timestamp of the last waste event today, or None."""
+        return self._last_waste_time
+
+    @property
+    def last_saved_time(self) -> str | None:
+        """ISO timestamp of the last saved event today, or None."""
+        return self._last_saved_time
+
     # ── Tick ──────────────────────────────────────────────────────────────────
 
     async def async_tick(self) -> None:
@@ -96,9 +108,11 @@ class WasteCalculator:
         today = ha_now().date()
 
         if today != self._today:
-            self._today      = today
-            self._wasted_kwh = 0.0
-            self._saved_kwh  = 0.0
+            self._today           = today
+            self._wasted_kwh      = 0.0
+            self._saved_kwh       = 0.0
+            self._last_waste_time = None
+            self._last_saved_time = None
             _LOGGER.debug("WasteCalculator: reset for new day %s", today)
 
         tick_hours = 60.0 / 3600.0
@@ -127,7 +141,8 @@ class WasteCalculator:
                     # v0.2.9 — apply CO₂ weight: ventilation reduces waste attribution
                     weight    = self._co2_waste_weight(room_name)
                     waste_kwh = raw_waste_kwh * weight
-                    self._wasted_kwh += waste_kwh
+                    self._wasted_kwh      += waste_kwh
+                    self._last_waste_time  = ha_now().isoformat()
                     _LOGGER.debug(
                         "Waste +%.4f kWh — %s (power=%s%%, co2_weight=%.2f)",
                         waste_kwh, room_name,
@@ -141,7 +156,8 @@ class WasteCalculator:
                 if _HEATING_HOURS_START <= hour < _HEATING_HOURS_END:
                     saved_kwh = self._calc_saved_kwh(room_name, room_watts, tick_hours)
                     if saved_kwh > 0:
-                        self._saved_kwh += saved_kwh
+                        self._saved_kwh       += saved_kwh
+                        self._last_saved_time  = ha_now().isoformat()
 
     # ── CO₂ waste weighting (v0.2.9) ─────────────────────────────────────────
 
