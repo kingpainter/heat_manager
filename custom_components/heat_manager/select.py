@@ -90,6 +90,7 @@ class SeasonModeSelect(CoordinatorEntity, SelectEntity):
     _attr_options = SEASON_MODE_OPTIONS
     _attr_entity_category = EntityCategory.CONFIG
     _attr_entity_registry_enabled_default = False  # auto-managed — off by default
+    # Options: auto / winter / spring / summer / autumn
 
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -103,6 +104,7 @@ class SeasonModeSelect(CoordinatorEntity, SelectEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         return {
             "effective_season":      self.coordinator.effective_season.value,
+            "calendar_season":       self.coordinator.season_engine.calendar_season.value,
             "days_above_threshold":  self.coordinator.season_engine.days_above_threshold,
         }
 

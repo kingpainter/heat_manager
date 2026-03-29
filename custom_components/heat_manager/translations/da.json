@@ -163,7 +163,13 @@
       },
       "season_mode": {
         "name": "Sæsontilstand",
-        "state": {"auto": "Auto", "winter": "Vinter", "summer": "Sommer"}
+        "state": {
+          "auto":   "Auto",
+          "winter": "Vinter",
+          "spring": "Forår",
+          "summer": "Sommer",
+          "autumn": "Efterår"
+        }
       }
     },
     "binary_sensor": {

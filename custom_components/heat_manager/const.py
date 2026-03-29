@@ -126,11 +126,22 @@ CONTROLLER_STATE_OPTIONS = [s.value for s in ControllerState]
 # ── Season mode ───────────────────────────────────────────────────────────────
 
 class SeasonMode(StrEnum):
-    AUTO = "auto"
+    AUTO   = "auto"
     WINTER = "winter"
+    SPRING = "spring"
     SUMMER = "summer"
+    AUTUMN = "autumn"
 
 SEASON_MODE_OPTIONS = [s.value for s in SeasonMode]
+
+# Meteorological season boundaries (month, day) — internationally standard.
+# Spring: Mar 1, Summer: Jun 1, Autumn: Sep 1, Winter: Dec 1.
+METEO_SEASONS: list[tuple[int, int, SeasonMode]] = [
+    (12, 1, SeasonMode.WINTER),
+    (9,  1, SeasonMode.AUTUMN),
+    (6,  1, SeasonMode.SUMMER),
+    (3,  1, SeasonMode.SPRING),
+]
 
 # ── Room state ────────────────────────────────────────────────────────────────
 

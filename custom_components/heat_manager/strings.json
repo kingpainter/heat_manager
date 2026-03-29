@@ -163,7 +163,13 @@
       },
       "season_mode": {
         "name": "Season mode",
-        "state": {"auto": "Auto", "winter": "Winter", "summer": "Summer"}
+        "state": {
+          "auto":   "Auto",
+          "winter": "Winter",
+          "spring": "Spring",
+          "summer": "Summer",
+          "autumn": "Autumn"
+        }
       }
     },
     "binary_sensor": {

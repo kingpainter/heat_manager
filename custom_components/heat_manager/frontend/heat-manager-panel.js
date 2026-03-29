@@ -240,7 +240,9 @@ class HeatManagerPanel extends HTMLElement {
   _reasonLabel(r) { return ({ season:"Sæson — sommer", temperature:"Ude-temp over grænse", none:"Manuel" })[r] ?? r ?? "–"; }
   _seasonTriggerLabel(season, reason) {
     if (season === "summer") return reason === "season" ? "Sommer — slået fra" : "Sommer — auto-off klar";
-    if (season === "auto")   return "Auto — overvåger ude-temp";
+    if (season === "spring") return reason === "season" ? "Forår — afventer temperatur" : "Forår — varme aktiv (for koldt)";
+    if (season === "autumn") return reason === "season" ? "Efterår — afventer temperatur" : "Efterår — varme aktiv (stadig koldt)";
+    if (season === "auto")   return "Auto — kalender + temperatur overvåges";
     return reason === "season" ? "Vinter — slået fra" : "Vinter — kører normalt";
   }
 
@@ -681,7 +683,7 @@ class HeatManagerPanel extends HTMLElement {
   _topbarHTML() {
     const d      = this._data;
     const ctrl   = d?.controller_state ?? "unknown";
-    const season = ({ winter:"Vinter", summer:"Sommer", auto:"Auto" })[d?.season_mode] ?? "Auto";
+    const season = ({ winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår", auto:"Auto" })[d?.season_mode] ?? "Auto";
     const otemp  = d?.outdoor_temp != null ? `${Math.round(d.outdoor_temp)}°C · ` : "";
     const labels = { on:"On", pause:"Pause", off:"Off" };
     const bColors = {
@@ -759,7 +761,7 @@ class HeatManagerPanel extends HTMLElement {
               </div>
               <div class="ctrl-meta-chip">
                 🍂 <span>Sæson</span>
-                <strong>${({ winter:"Vinter", summer:"Sommer", auto:"Auto" })[season] ?? season}</strong>
+                <strong>${({ winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår", auto:"Auto" })[season] ?? season}</strong>
               </div>
             </div>
           </div>
@@ -913,6 +915,9 @@ class HeatManagerPanel extends HTMLElement {
     const reason = d?.auto_off_reason ?? "none";
     const isOff  = d?.controller_state === "off";
     const season = d?.season_mode ?? "auto";
+    const calMap = { winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår" };
+    const calLabel = calMap[d?.calendar_season] ?? "–";
+    const effLabel = calMap[d?.effective_season] ?? "–";
     const otemp  = d?.outdoor_temp != null ? Math.round(d.outdoor_temp) + "°C" : "–";
     return `
       <div class="section-box">
@@ -924,8 +929,12 @@ class HeatManagerPanel extends HTMLElement {
         </div>
         <div class="autooff-grid">
           <div class="aocard">
-            <div class="aocard-lbl">Sæson trigger</div>
-            <div class="aocard-val">${this._seasonTriggerLabel(season, reason)}</div>
+            <div class="aocard-lbl">Kalender-sæson</div>
+            <div class="aocard-val">${calLabel}</div>
+          </div>
+          <div class="aocard">
+            <div class="aocard-lbl">Effektiv sæson</div>
+            <div class="aocard-val">${effLabel}</div>
           </div>
           <div class="aocard">
             <div class="aocard-lbl">Udetemperatur</div>
@@ -934,10 +943,6 @@ class HeatManagerPanel extends HTMLElement {
           <div class="aocard">
             <div class="aocard-lbl">Dage over grænse</div>
             <div class="aocard-val">${d?.auto_off_days ?? 0} / ${d?.auto_off_days_required ?? 5}</div>
-          </div>
-          <div class="aocard">
-            <div class="aocard-lbl">Årsag til sluk</div>
-            <div class="aocard-val">${isOff ? this._reasonLabel(reason) : "–"}</div>
           </div>
         </div>
       </div>`;
