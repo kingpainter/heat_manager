@@ -3,6 +3,9 @@ Heat Manager — Presence Engine
 
 Phase 3: log_event() calls added at every significant state transition.
 FIX: asyncio.ensure_future → hass.async_create_task throughout.
+FIX B-429-RESTORE-RACE: _restore_lock serialises concurrent restore callers.
+FIX B-LOG-RESTORE-SPAM: per-room NORMAL idempotency skips redundant API calls
+  and prevents repeated WARNING log entries.
 """
 from __future__ import annotations
 
@@ -57,6 +60,11 @@ class PresenceEngine:
     def __init__(self, coordinator: HeatManagerCoordinator) -> None:
         self.coordinator = coordinator
         self._lock = asyncio.Lock()
+        # Serialises concurrent _restore_all_schedule() callers (e.g. arrival
+        # racing with window-close).  Without this, two callers iterate all
+        # rooms simultaneously, producing N*rooms Netatmo API calls in quick
+        # succession and reliably triggering 429 errors on setthermmode.
+        self._restore_lock = asyncio.Lock()
         self._all_left_at: datetime | None = None
         self._grace_timer_task: asyncio.Task | None = None  # type: ignore[type-arg]
         self._unsubs: list[Any] = []
@@ -266,38 +274,62 @@ class PresenceEngine:
         - netatmo (default): climate.set_preset_mode preset_mode=schedule
         - zigbee (Z2M):      climate.set_hvac_mode   hvac_mode=heat
           Z2M TRVs in hvac_mode=heat self-regulate to their current setpoint.
-        """
-        hass = self.coordinator.hass
-        for room in self.coordinator.rooms:
-            entity_id = room.get(CONF_CLIMATE_ENTITY, "")
-            room_name = room.get("room_name", entity_id)
-            if not entity_id:
-                continue
-            if self.coordinator.get_room_state(room_name) == RoomState.WINDOW_OPEN:
-                continue
-            trv_type = room.get(CONF_TRV_TYPE, "netatmo")
-            try:
-                if trv_type == TRV_TYPE_ZIGBEE:
-                    await hass.services.async_call(
-                        "climate", "set_hvac_mode",
-                        {"entity_id": entity_id, "hvac_mode": "heat"},
-                        blocking=True,
-                    )
-                else:
-                    await hass.services.async_call(
-                        "climate", "set_preset_mode",
-                        {"entity_id": entity_id, "preset_mode": PRESET_SCHEDULE},
-                        blocking=True,
-                    )
-                self.coordinator.set_room_state(room_name, RoomState.NORMAL)
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning("Failed to restore schedule on %s: %s", entity_id, err)
-            # Netatmo API rate limit: stagger calls to avoid 429 on setthermmode.
-            await asyncio.sleep(0.6)
 
-        self.coordinator.log_event("Heating resumed — welcome home", "Presence", "normal")
-        if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
-            await self._notify(title="Heat Manager", message="Heating resumed — welcome home.")
+        Race-condition guard
+        --------------------
+        _restore_lock ensures only one restore sweep runs at a time.  Without
+        it, concurrent callers (e.g. arrival event + window-close event firing
+        within the same ~2-second window) each iterate all rooms, multiplying
+        Netatmo API calls and triggering 429 rate-limit errors.
+
+        Per-room idempotency
+        --------------------
+        Rooms already in NORMAL state skip the API call entirely.  This
+        eliminates repeated WARNING logs when a second concurrent caller
+        would otherwise attempt (and fail with 429) on rooms already restored.
+        """
+        if self._restore_lock.locked():
+            _LOGGER.debug("_restore_all_schedule: skipping — restore already in progress")
+            return
+        async with self._restore_lock:
+            hass = self.coordinator.hass
+            any_restored = False
+            for room in self.coordinator.rooms:
+                entity_id = room.get(CONF_CLIMATE_ENTITY, "")
+                room_name = room.get("room_name", entity_id)
+                if not entity_id:
+                    continue
+                if self.coordinator.get_room_state(room_name) == RoomState.WINDOW_OPEN:
+                    continue
+                # Idempotency: skip rooms already in normal heating state.
+                if self.coordinator.get_room_state(room_name) == RoomState.NORMAL:
+                    _LOGGER.debug("_restore_all_schedule: %s already NORMAL — skipping", room_name)
+                    continue
+                trv_type = room.get(CONF_TRV_TYPE, "netatmo")
+                try:
+                    if trv_type == TRV_TYPE_ZIGBEE:
+                        await hass.services.async_call(
+                            "climate", "set_hvac_mode",
+                            {"entity_id": entity_id, "hvac_mode": "heat"},
+                            blocking=True,
+                        )
+                    else:
+                        await hass.services.async_call(
+                            "climate", "set_preset_mode",
+                            {"entity_id": entity_id, "preset_mode": PRESET_SCHEDULE},
+                            blocking=True,
+                        )
+                    self.coordinator.set_room_state(room_name, RoomState.NORMAL)
+                    any_restored = True
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning("Failed to restore schedule on %s: %s", entity_id, err)
+                # Netatmo API rate limit: stagger calls to avoid 429 on setthermmode.
+                await asyncio.sleep(0.6)
+
+            if any_restored:
+                self.coordinator.log_event("Heating resumed — welcome home", "Presence", "normal")
+                if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
+                    await self._notify(title="Heat Manager", message="Heating resumed — welcome home.")
 
     @guarded
     async def force_room_on(self, room_name: str) -> None:

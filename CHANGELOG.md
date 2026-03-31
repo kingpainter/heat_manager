@@ -13,6 +13,28 @@ _Nothing yet._
 
 ---
 
+## [0.3.2] — 2026-03-29
+
+### Fixed
+- Fixed B-429-RESTORE-RACE — `_restore_all_schedule()` in `presence_engine.py`
+  had no re-entrancy guard, so concurrent callers (e.g. a person arriving while
+  a window closed within the same 2-second window) each iterated all rooms
+  independently, producing `N × rooms` Netatmo API calls in rapid succession and
+  reliably triggering HTTP 429 rate-limit errors on `setthermmode`. Fixed by
+  adding `_restore_lock` (`asyncio.Lock`): a second caller that finds the lock
+  held exits immediately with a `DEBUG` log rather than duplicating the sweep.
+- Fixed B-LOG-RESTORE-SPAM — `_restore_all_schedule()` emitted one
+  `_LOGGER.warning` per room per failed attempt. With 4 rooms and two
+  racing callers this produced 8 identical log lines within 2 minutes, violating
+  the Silver IQS "log once" rule. Fixed by adding a per-room NORMAL-state
+  idempotency check: rooms already in `RoomState.NORMAL` skip the API call
+  entirely, so a second concurrent caller finds nothing to do and logs nothing.
+- Fixed stale version strings — `manifest.json` and `const.py` were still
+  pinned to `0.2.9` despite `CHANGELOG.md` recording releases through `0.3.1`.
+  Both files now correctly reflect `0.3.2`.
+
+---
+
 ## [0.3.1] — 2026-03-28
 
 ### Fixed
@@ -287,7 +309,8 @@ _Nothing yet._
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/kingpainter/heat-manager/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/kingpainter/heat-manager/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/kingpainter/heat-manager/compare/v0.2.9...v0.3.0
 [0.2.9]: https://github.com/kingpainter/heat-manager/compare/v0.2.8...v0.2.9
