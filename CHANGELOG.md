@@ -13,6 +13,40 @@ _Nothing yet._
 
 ---
 
+## [0.3.3] — 2026-04-21
+
+### Changed
+- `panel.py` — registers the new `heat_manager_logo1.png` as a static HTTP
+  path at `/api/heat_manager-logo`. Follows the same pattern as the panel
+  and card JS static paths, with `cache_headers=True` so browsers can cache
+  the logo aggressively (it rarely changes).
+- `frontend/heat-manager-panel.js` — `.header-icon` CSS rewritten. The
+  previous implementation embedded the logo as an inline base64 JPEG inside
+  the CSS `background` shorthand, which rendered inconsistently across Chrome
+  and Safari inside HA's shadow DOM context and bloated the JS file. Replaced
+  with a plain `background: url("/api/heat_manager-logo") center/contain
+  no-repeat` layered over a soft amber/yellow gradient fallback. Removes the
+  now-unused `display: flex`, `font-size`, `align-items`, and
+  `justify-content` declarations that existed only to centre non-existent
+  child content.
+
+### Removed
+- `frontend/heat-manager-panel.js` — "Energi i dag" overview section
+  removed. The card showed `efficiency_score`, `energy_saved_today`, and
+  `energy_wasted_today`, all three of which are almost always zero during
+  normal operation because waste is only counted when a window is open on a
+  heating room and savings are only counted during the 6–23 heating window
+  in AWAY state. The underlying `WasteCalculator` engine is unchanged and
+  still drives the weekly bar chart on the Rooms tab and the `efficiency_score`
+  / `energy_saved` / `energy_wasted` sensors. The removed method was
+  `_energySectionHTML()` plus its single call site in `_overviewHTML()`.
+
+### Added
+- `frontend/heat_manager_logo1.png` — 44 KB radiator logo served as the
+  panel header icon.
+
+---
+
 ## [0.3.2] — 2026-03-29
 
 ### Fixed
@@ -309,7 +343,8 @@ _Nothing yet._
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/kingpainter/heat-manager/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/kingpainter/heat-manager/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/kingpainter/heat-manager/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/kingpainter/heat-manager/compare/v0.2.9...v0.3.0

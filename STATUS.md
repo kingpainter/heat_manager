@@ -1,7 +1,7 @@
 # Heat Manager — Project Status
 
-**Last updated:** 2026-03-28
-**Version:** 0.3.1
+**Last updated:** 2026-04-21
+**Version:** 0.3.3
 **Target:** Home Assistant 2025.1+
 **Language:** English primary · Danish translations included
 
@@ -68,8 +68,9 @@ heat_manager/
 
 | File | Notes |
 |------|-------|
-| `frontend/heat-manager-panel.js` | v0.3.0 — Indeklima design system. SVG controller ring, room grid, efficiency ring, section-box cards. iOS/WebKit safe. Blink-free. |
+| `frontend/heat-manager-panel.js` | v0.3.3 — Indeklima design system. Logo served from `/api/heat_manager-logo` static path (no more inline base64 JPEG). "Energi i dag" overview section removed — waste calculator still drives Rooms-tab weekly chart and sensors. SVG controller ring, room grid, section-box cards. iOS/WebKit safe. Blink-free. |
 | `frontend/heat-manager-card.js` | v0.3.1 — Same design system as panel. Section-box, SVG ring, room state chips. Fixed B-CARD-IAH (insertAdjacentHTML crash in card picker). |
+| `frontend/heat_manager_logo1.png` | 44 KB. Registered as static HTTP path in `panel.py` at `/api/heat_manager-logo`. Used as panel header icon via CSS `background-image`. |
 
 ### Tests (7 files)
 

@@ -22,11 +22,13 @@ _LOGGER = logging.getLogger(__name__)
 
 PANEL_URL    = f"/api/{DOMAIN}-panel"
 CARDS_URL    = f"/api/{DOMAIN}-cards"
+LOGO_URL     = f"/api/{DOMAIN}-logo"
 PANEL_NAME   = "heat-manager-panel"
 PANEL_TITLE  = "Heat Manager"
 PANEL_ICON   = "mdi:radiator"
 PANEL_FILE   = "heat-manager-panel.js"
 CARDS_FILE   = "heat-manager-card.js"
+LOGO_FILE    = "heat_manager_logo1.png"
 FRONTEND_DIR = "frontend"
 
 _SESSION_KEY = f"{DOMAIN}_session_registered"
@@ -45,9 +47,11 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     frontend_dir = os.path.join(root_dir, FRONTEND_DIR)
     panel_file   = os.path.join(frontend_dir, PANEL_FILE)
     cards_file   = os.path.join(frontend_dir, CARDS_FILE)
+    logo_file    = os.path.join(frontend_dir, LOGO_FILE)
 
     _LOGGER.debug("Panel: %s exists=%s", panel_file, os.path.exists(panel_file))
     _LOGGER.debug("Cards: %s exists=%s", cards_file, os.path.exists(cards_file))
+    _LOGGER.debug("Logo:  %s exists=%s", logo_file,  os.path.exists(logo_file))
 
     # ── Static HTTP paths — once per HA session ───────────────────────────────
     if not hass.data.get(_SESSION_KEY, False):
@@ -56,6 +60,8 @@ async def async_register_panel(hass: HomeAssistant) -> None:
             static_paths.append(StaticPathConfig(PANEL_URL, panel_file, cache_headers=False))
         if os.path.exists(cards_file):
             static_paths.append(StaticPathConfig(CARDS_URL, cards_file, cache_headers=False))
+        if os.path.exists(logo_file):
+            static_paths.append(StaticPathConfig(LOGO_URL, logo_file, cache_headers=True))
 
         if static_paths:
             try:
