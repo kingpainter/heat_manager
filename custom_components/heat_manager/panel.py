@@ -6,6 +6,9 @@ FIX: async_register_static_paths raises RuntimeError if same URL is
      registered twice — session-level flag prevents this on reload.
 FIX: _register_lovelace_resource now cleans up ALL existing heat_manager
      card resources before adding the canonical one, preventing duplicates.
+FIX: Static HTTP paths moved to async_register_static_paths() called from
+     async_setup (module level) so URLs are always available at HA startup,
+     even when ConfigEntryNotReady is raised during async_setup_entry.
 """
 from __future__ import annotations
 
@@ -31,7 +34,8 @@ CARDS_FILE   = "heat-manager-card.js"
 LOGO_FILE    = "heat_manager_logo1.png"
 FRONTEND_DIR = "frontend"
 
-_SESSION_KEY = f"{DOMAIN}_session_registered"
+_STATIC_SESSION_KEY  = f"{DOMAIN}_static_paths_registered"
+_PANEL_SESSION_KEY   = f"{DOMAIN}_panel_registered"
 
 # All URL prefixes that could belong to a previous registration of this card
 _CARD_URL_PREFIXES = (
@@ -41,43 +45,56 @@ _CARD_URL_PREFIXES = (
 )
 
 
-async def async_register_panel(hass: HomeAssistant) -> None:
-    """Register sidebar panel and Lovelace card resource."""
-    root_dir     = os.path.join(hass.config.path("custom_components"), DOMAIN)
-    frontend_dir = os.path.join(root_dir, FRONTEND_DIR)
+def _get_frontend_dir(hass: HomeAssistant) -> str:
+    """Return the absolute path to the frontend directory."""
+    return os.path.join(
+        hass.config.path("custom_components"), DOMAIN, FRONTEND_DIR
+    )
+
+
+async def async_register_static_paths(hass: HomeAssistant) -> None:
+    """Register static HTTP paths AND sidebar panel.
+
+    Called from async_setup (module level) so both are available
+    immediately at HA startup — before any config entry is loaded.
+    panel_custom.async_register_panel cannot be called twice for the
+    same webcomponent_name in a single HA process, so it must live
+    here rather than in async_setup_entry.
+    """
+    if hass.data.get(_STATIC_SESSION_KEY, False):
+        return
+
+    frontend_dir = _get_frontend_dir(hass)
     panel_file   = os.path.join(frontend_dir, PANEL_FILE)
     cards_file   = os.path.join(frontend_dir, CARDS_FILE)
     logo_file    = os.path.join(frontend_dir, LOGO_FILE)
 
-    _LOGGER.debug("Panel: %s exists=%s", panel_file, os.path.exists(panel_file))
-    _LOGGER.debug("Cards: %s exists=%s", cards_file, os.path.exists(cards_file))
-    _LOGGER.debug("Logo:  %s exists=%s", logo_file,  os.path.exists(logo_file))
+    _LOGGER.debug("Static path check — panel=%s cards=%s logo=%s",
+                  os.path.exists(panel_file),
+                  os.path.exists(cards_file),
+                  os.path.exists(logo_file))
 
-    # ── Static HTTP paths — once per HA session ───────────────────────────────
-    if not hass.data.get(_SESSION_KEY, False):
-        static_paths: list[StaticPathConfig] = []
-        if os.path.exists(panel_file):
-            static_paths.append(StaticPathConfig(PANEL_URL, panel_file, cache_headers=False))
-        if os.path.exists(cards_file):
-            static_paths.append(StaticPathConfig(CARDS_URL, cards_file, cache_headers=False))
-        if os.path.exists(logo_file):
-            static_paths.append(StaticPathConfig(LOGO_URL, logo_file, cache_headers=True))
+    static_paths: list[StaticPathConfig] = []
+    if os.path.exists(panel_file):
+        static_paths.append(StaticPathConfig(PANEL_URL, panel_file, cache_headers=False))
+    if os.path.exists(cards_file):
+        static_paths.append(StaticPathConfig(CARDS_URL, cards_file, cache_headers=False))
+    if os.path.exists(logo_file):
+        static_paths.append(StaticPathConfig(LOGO_URL, logo_file, cache_headers=True))
 
-        if static_paths:
-            try:
-                await hass.http.async_register_static_paths(static_paths)
-                _LOGGER.info(
-                    "Registered static paths: %s",
-                    [p.url_path for p in static_paths],
-                )
-            except RuntimeError as err:
-                _LOGGER.debug("Static paths already registered: %s", err)
+    if static_paths:
+        try:
+            await hass.http.async_register_static_paths(static_paths)
+            _LOGGER.info(
+                "Registered static paths: %s",
+                [p.url_path for p in static_paths],
+            )
+        except RuntimeError as err:
+            _LOGGER.debug("Static paths already registered: %s", err)
 
-        hass.data[_SESSION_KEY] = True
-
-    # ── Sidebar panel — once per session ──────────────────────────────────────
-    hass.data.setdefault(DOMAIN, {})
-    if not hass.data[DOMAIN].get("_panel_registered", False):
+    # ── Sidebar panel — once per HA process ──────────────────────────────────
+    if not hass.data.get(_PANEL_SESSION_KEY, False):
+        panel_file = os.path.join(frontend_dir, PANEL_FILE)
         if os.path.exists(panel_file):
             try:
                 panel_mtime = int(os.path.getmtime(panel_file))
@@ -97,9 +114,20 @@ async def async_register_panel(hass: HomeAssistant) -> None:
                 _LOGGER.info("Sidebar panel registered at /%s", DOMAIN)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Could not register sidebar panel: %s", err)
-        hass.data[DOMAIN]["_panel_registered"] = True
+        hass.data[_PANEL_SESSION_KEY] = True
 
-    # ── Lovelace resource ─────────────────────────────────────────────────────
+    hass.data[_STATIC_SESSION_KEY] = True
+
+
+async def async_register_panel(hass: HomeAssistant) -> None:
+    """Register Lovelace card resource.
+
+    Called from async_setup_entry. Static paths and sidebar panel are
+    already registered from async_setup — this only handles the
+    Lovelace resource entry so the card appears in the card picker.
+    """
+    frontend_dir = _get_frontend_dir(hass)
+    cards_file   = os.path.join(frontend_dir, CARDS_FILE)
     if os.path.exists(cards_file):
         try:
             cards_mtime = int(os.path.getmtime(cards_file))
@@ -175,15 +203,11 @@ async def _register_lovelace_resource(
 
 
 def async_unregister_panel(hass: HomeAssistant) -> None:
-    """Remove the sidebar panel on config entry unload."""
-    from homeassistant.components import frontend
+    """No-op: sidebar panel and static paths are process-level registrations.
 
-    if hass.data.get(DOMAIN, {}).get("_panel_registered", False):
-        try:
-            frontend.async_remove_panel(hass, DOMAIN)
-            _LOGGER.debug("Panel removed from sidebar")
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("Could not remove panel: %s", err)
-
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN]["_panel_registered"] = False
+    panel_custom.async_register_panel cannot be re-registered in the same
+    HA process after removal, so we intentionally leave both the panel and
+    the static HTTP paths intact across config entry reloads. They are
+    cleaned up automatically when HA restarts.
+    """
+    _LOGGER.debug("async_unregister_panel: panel is process-level, skipping removal")

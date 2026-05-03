@@ -23,10 +23,23 @@ from .const import (
     ControllerState,
 )
 from .coordinator import HeatManagerCoordinator
-from .panel import async_register_panel, async_unregister_panel
+from .panel import async_register_panel, async_register_static_paths, async_unregister_panel
 from .websocket import async_register_websocket_commands
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up Heat Manager at module level.
+
+    Registers static HTTP paths (panel JS, card JS, logo) immediately at
+    HA startup so they are always accessible — even if the config entry
+    raises ConfigEntryNotReady and async_setup_entry never completes.
+    Without this, Lovelace returns 404 for the card resource on the first
+    load after a restart + cache-clear.
+    """
+    await async_register_static_paths(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
