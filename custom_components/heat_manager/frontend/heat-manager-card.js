@@ -1,5 +1,5 @@
 // Heat Manager — Custom Lovelace Card
-// Version: 0.3.1
+// Version: 0.3.9
 //
 // Fix B-CARD-IAH: _render() used optional-chaining syntax on replaceWith()
 // that is invalid in some JS engines. Replaced with explicit null check.
@@ -31,38 +31,7 @@ function _hmCtrlLabel(s) {
   return ({ on:"On", pause:"Pause", off:"Off" })[s] ?? (s || "–");
 }
 
-function _hmEffColor(score) {
-  if (score == null) return "#64748b";
-  if (score >= 80) return "#f97316";
-  if (score >= 50) return "#eab308";
-  return "#ef4444";
-}
 
-function _hmRingHTML(score, size) {
-  const s    = size || 80;
-  const r    = Math.round(s * 0.38);
-  const cx   = Math.round(s / 2);
-  const c    = _hmEffColor(score);
-  const circ = 2 * Math.PI * r;
-  const pct  = score != null ? Math.min(100, score) / 100 : 0;
-  const fill = pct * circ;
-  const gap  = circ - fill;
-  const valSz = s >= 80 ? 18 : 14;
-  return `
-    <div class="ring-wrap">
-      <svg class="ring-svg" viewBox="0 0 ${s} ${s}" style="width:${s}px;height:${s}px;display:block;">
-        <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="rgba(148,163,184,0.12)" stroke-width="7"/>
-        <circle cx="${cx}" cy="${cx}" r="${r}" fill="none"
-          stroke="${c}" stroke-width="7" stroke-linecap="round"
-          stroke-dasharray="${fill} ${gap}" stroke-dashoffset="0"
-          transform="rotate(-90 ${cx} ${cx})"/>
-      </svg>
-      <div class="ring-center">
-        <div class="ring-val" style="color:${c};font-size:${valSz}px">${score != null ? score : "–"}</div>
-        <div class="ring-unit">score</div>
-      </div>
-    </div>`;
-}
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -129,17 +98,6 @@ class HeatManagerCard extends HTMLElement {
       }
     }
     return 0;
-  }
-
-  _energySensor(suffix) {
-    const states = this._hass?.states ?? {};
-    for (const id of Object.keys(states)) {
-      if (id.startsWith("sensor.") && id.endsWith(suffix)) {
-        const v = states[id].state;
-        return (v && v !== "unknown" && v !== "unavailable") ? v : null;
-      }
-    }
-    return null;
   }
 
   _climateTemp(id) {
@@ -304,24 +262,6 @@ class HeatManagerCard extends HTMLElement {
         font-family: 'DM Sans', sans-serif;
       }
 
-      /* ── Energy ring ── */
-      .energy-row { display: flex; align-items: center; gap: 14px; }
-      .ring-wrap { position: relative; flex-shrink: 0; }
-      .ring-center {
-        position: absolute; inset: 0;
-        display: flex; flex-direction: column;
-        align-items: center; justify-content: center;
-      }
-      .ring-val  { font-weight: 700; line-height: 1; }
-      .ring-unit { font-size: 9px; color: var(--sub); margin-top: 1px; }
-      .energy-chips { display: flex; flex-direction: column; gap: 6px; flex: 1; }
-      .energy-chip {
-        display: flex; align-items: center; gap: 7px;
-        background: var(--bg2); border-radius: 8px;
-        padding: 6px 9px; font-size: 12px;
-      }
-      .energy-chip span   { color: var(--sub); flex: 1; }
-      .energy-chip strong { font-weight: 700; font-family: 'DM Mono', monospace; }
 
       /* ── Room cards ── */
       .rooms-list { display: flex; flex-direction: column; gap: 6px; }
@@ -381,10 +321,6 @@ class HeatManagerCard extends HTMLElement {
     const season    = this._season();
     const pauseLeft = this._pauseLeft();
     const otemp     = this._outdoorTemp();
-    const saved     = this._energySensor("_energy_saved_today");
-    const wasted    = this._energySensor("_energy_wasted_today");
-    const score     = this._energySensor("_efficiency_score");
-    const scoreInt  = score != null ? parseInt(score, 10) : null;
 
     const ctrlColor = _hmCtrlColor(ctrl);
     const sub       = [this._seasonLabel(season), otemp ? otemp + " ude" : null].filter(Boolean).join(" · ");
@@ -477,29 +413,6 @@ class HeatManagerCard extends HTMLElement {
         </div>
       </div>` : ""}
 
-      <div class="section-box">
-        <div class="section-header">
-          <div class="section-title">Energi i dag</div>
-        </div>
-        <div class="section-body">
-          <div class="energy-row">
-            ${_hmRingHTML(scoreInt, 76)}
-            <div class="energy-chips">
-              <div class="energy-chip">
-                🌿 <span>Sparet</span>
-                <strong id="stat-saved" style="color:var(--green)">${saved != null ? saved + " kWh" : "–"}</strong>
-              </div>
-              <div class="energy-chip">
-                🔥 <span>Spildt</span>
-                <strong id="stat-wasted" style="color:var(--amber)">${wasted != null ? wasted + " kWh" : "–"}</strong>
-              </div>
-              <div class="energy-chip">
-                📊 <span>Score</span>
-                <strong id="stat-score" style="color:${_hmEffColor(scoreInt)}">${scoreInt != null ? scoreInt + "/100" : "–"}</strong>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>`;
   }
 
@@ -513,10 +426,6 @@ class HeatManagerCard extends HTMLElement {
     const season    = this._season();
     const pauseLeft = this._pauseLeft();
     const otemp     = this._outdoorTemp();
-    const saved     = this._energySensor("_energy_saved_today");
-    const wasted    = this._energySensor("_energy_wasted_today");
-    const score     = this._energySensor("_efficiency_score");
-    const scoreInt  = score != null ? parseInt(score, 10) : null;
     const ctrlColor = _hmCtrlColor(ctrl);
     const sub       = [this._seasonLabel(season), otemp ? otemp + " ude" : null].filter(Boolean).join(" · ");
     const showPause = ctrl === "pause" && pauseLeft > 0;
@@ -571,12 +480,6 @@ class HeatManagerCard extends HTMLElement {
       if (ts) ts.textContent = setpt ? "→ " + setpt : "";
     });
 
-    const sv = root.querySelector("#stat-saved");
-    const wv = root.querySelector("#stat-wasted");
-    const sc = root.querySelector("#stat-score");
-    if (sv) sv.textContent = saved  != null ? saved  + " kWh" : "–";
-    if (wv) wv.textContent = wasted != null ? wasted + " kWh" : "–";
-    if (sc) { sc.textContent = scoreInt != null ? scoreInt + "/100" : "–"; sc.style.color = _hmEffColor(scoreInt); }
   }
 
   // ── Events ────────────────────────────────────────────────────────────────
