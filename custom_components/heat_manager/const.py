@@ -4,7 +4,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 DOMAIN = "heat_manager"
-VERSION = "0.3.4"
+VERSION = "0.3.6"
 
 # ── Config entry keys ────────────────────────────────────────────────────────
 
@@ -71,6 +71,12 @@ CONF_PI_DEMAND_ENTITY = "pi_demand_entity"
 # classification.  When set, Heat Manager knows whether an open window is
 # purposeful ventilation (high CO₂) or unnecessary heat loss (low CO₂).
 CONF_CO2_SENSOR = "co2_sensor"
+
+# Humidity sensor — used for mold risk detection (F6).
+# When set together with CONF_ROOM_TEMP_SENSOR, the mold risk binary_sensor
+# calculates whether surface temperature is below dewpoint at the current
+# humidity level (DIN 4108-2 simplified: RH > 70% AND T_surface < T_dewpoint).
+CONF_HUMIDITY_SENSOR = "humidity_sensor"
 
 # Room temperature sensor — external, independent of the TRV's own probe.
 # When set, the PID controller reads current_temperature from here instead

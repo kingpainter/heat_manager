@@ -35,6 +35,7 @@ from .const import (
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
     CONF_HOMEKIT_CLIMATE_ENTITY,
+    CONF_HUMIDITY_SENSOR,
     CONF_MILD_THRESHOLD,
     CONF_OUTDOOR_TEMP_SENSOR,
     CONF_PI_DEMAND_ENTITY,
@@ -124,11 +125,13 @@ def _room_schema(defaults: dict = {}) -> vol.Schema:
             ]}}),
         vol.Optional(CONF_PI_DEMAND_ENTITY, default=defaults.get(CONF_PI_DEMAND_ENTITY, "")):
             selector.selector({"text": {}}),
-        # ── New sensor inputs ─────────────────────────────────────────────────
+        # ── Sensor inputs ─────────────────────────────────────────────────
         vol.Optional(CONF_CO2_SENSOR, default=defaults.get(CONF_CO2_SENSOR, "")):
             selector.selector({"text": {}}),  # sensor.* — CO₂ in ppm
         vol.Optional(CONF_ROOM_TEMP_SENSOR, default=defaults.get(CONF_ROOM_TEMP_SENSOR, "")):
             selector.selector({"text": {}}),  # sensor.* — room temperature in °C
+        vol.Optional(CONF_HUMIDITY_SENSOR, default=defaults.get(CONF_HUMIDITY_SENSOR, "")):
+            selector.selector({"text": {}}),  # sensor.* — relative humidity in %
     })
 
 
@@ -139,7 +142,7 @@ def _person_schema(defaults: dict = {}) -> vol.Schema:
         vol.Optional(CONF_PERSON_TRACKING, default=defaults.get(CONF_PERSON_TRACKING, True)):
             selector.selector({"boolean": {}}),
         vol.Optional(CONF_PREHEAT_LEAD_TIME_MIN, default=defaults.get(CONF_PREHEAT_LEAD_TIME_MIN, DEFAULT_PREHEAT_LEAD_TIME_MIN)):
-            selector.selector({"number": {"min": 5, "max": 60, "step": 5, "unit_of_measurement": "min"}}),
+            selector.selector({"number": {"min": 5, "max": 90, "step": 5, "unit_of_measurement": "min"}}),
     })
 
 

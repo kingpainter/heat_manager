@@ -152,8 +152,8 @@ async def ws_get_state(
         "efficiency_score":       coordinator.efficiency_score,
         "last_waste_time":        coordinator.last_waste_time,
         "last_saved_time":        coordinator.last_saved_time,
-        "calendar_season":        coordinator.season_engine.calendar_season.value,
-        "auto_off_days":          coordinator.season_engine.days_above_threshold,
+        "calendar_season":        coordinator.calendar_season.value,
+        "auto_off_days":          coordinator.days_above_threshold,
         "auto_off_days_required": cfg.get(CONF_AUTO_OFF_TEMP_DAYS, 5),
         "auto_off_threshold":     cfg.get(CONF_AUTO_OFF_TEMP_THRESHOLD, 18.0),
         "config":                 config_snap,
@@ -195,10 +195,21 @@ async def ws_get_history(
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _get_entry(hass: HomeAssistant) -> Any:
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        if hasattr(entry, "runtime_data") and entry.runtime_data is not None:
+    # S-8 FIX: use stored entry_id from hass.data if available, otherwise
+    # fall back to iterating entries. Prevents wrong entry being returned
+    # if two Heat Manager entries exist (e.g. after a failed reinstall).
+    from .const import DOMAIN
+    stored_id = hass.data.get(DOMAIN, {}).get("entry_id")
+    if stored_id:
+        entry = hass.config_entries.async_get_entry(stored_id)
+        if entry and hasattr(entry, "runtime_data") and entry.runtime_data is not None:
             return entry
-    return None
+    # Fallback: iterate and return the most recently loaded entry
+    candidates = [
+        e for e in hass.config_entries.async_entries(DOMAIN)
+        if hasattr(e, "runtime_data") and e.runtime_data is not None
+    ]
+    return candidates[-1] if candidates else None
 
 
 def _why_label(state: Any) -> str:
@@ -213,13 +224,12 @@ def _why_label(state: Any) -> str:
 
 
 def _fmt_time(dt: datetime) -> str:
+    # S-7 FIX: neutral date format — panel JS handles locale-specific labels
     from homeassistant.util.dt import now as ha_now
     local_now = ha_now()
     local_dt  = dt.astimezone(local_now.tzinfo)
     if local_dt.date() == local_now.date():
         return local_dt.strftime("%H:%M")
-    if local_dt.date() == (local_now - timedelta(days=1)).date():
-        return "i går " + local_dt.strftime("%H:%M")
     return local_dt.strftime("%d/%m %H:%M")
 
 

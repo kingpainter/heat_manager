@@ -70,6 +70,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.runtime_data = coordinator
 
+    # S-8: store entry_id so websocket _get_entry() can look it up reliably
+    hass.data.setdefault(DOMAIN, {})["entry_id"] = entry.entry_id
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     _register_services(hass, coordinator)

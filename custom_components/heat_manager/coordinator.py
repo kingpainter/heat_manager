@@ -74,6 +74,7 @@ from .engine.preheat_engine import PreheatEngine
 from .engine.presence_engine import PresenceEngine
 from .engine.season_engine import SeasonEngine
 from .engine.waste_calculator import WasteCalculator
+from .engine.valve_protection_engine import ValveProtectionEngine
 from .engine.window_engine import WindowEngine
 
 _LOGGER = logging.getLogger(__name__)
@@ -111,8 +112,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.presence_engine = PresenceEngine(self)
         self.window_engine   = WindowEngine(self)
         self.season_engine   = SeasonEngine(self)
-        self.waste_calculator = WasteCalculator(self)
-        self.preheat_engine  = PreheatEngine(self)
+        self.waste_calculator    = WasteCalculator(self)
+        self.preheat_engine      = PreheatEngine(self)
+        self.valve_protection    = ValveProtectionEngine(self)
 
         self.pid_controllers: dict[str, PidController] = {}
         self._init_pid_controllers()
@@ -307,6 +309,18 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return None
 
+    # ── Season engine helpers (I-2) ──────────────────────────────────────────
+
+    @property
+    def calendar_season(self) -> SeasonMode:
+        """Isolated access to season_engine — avoids direct engine coupling in platforms."""
+        return self.season_engine.calendar_season
+
+    @property
+    def days_above_threshold(self) -> int:
+        """Isolated access to season_engine — avoids direct engine coupling in platforms."""
+        return self.season_engine.days_above_threshold
+
     # ── Energy helpers ────────────────────────────────────────────────────────
 
     @property
@@ -424,6 +438,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.window_engine.async_tick()
             await self.waste_calculator.async_tick()
             await self.preheat_engine.async_tick()
+            await self.valve_protection.async_tick()
             await self._async_pid_tick()
 
         except Exception as err:  # noqa: BLE001
@@ -548,4 +563,5 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.season_engine.async_shutdown()
         await self.waste_calculator.async_shutdown()
         await self.preheat_engine.async_shutdown()
+        await self.valve_protection.async_shutdown()
         _LOGGER.debug("Coordinator shut down cleanly")

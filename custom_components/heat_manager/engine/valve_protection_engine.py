@@ -17,18 +17,16 @@ Behaviour
   heating is ON there is no risk of calcification.
 - For each room: sends set_temperature to a low "exercise" setpoint, waits
   EXERCISE_DURATION_SEC, then restores the previous setpoint.
-- Uses the HomeKit entity if available (local, fast), falls back to the
-  cloud climate entity.
+- Prefers the HomeKit entity (local, fast); falls back to cloud climate entity.
 - Logs every exercise cycle to the coordinator event log.
-- A notification is sent after the full sweep (optional, uses same
-  notify_service as other engines).
+- Sends a notification after the full sweep (optional, uses notify_service).
 
 Constants
 ---------
-EXERCISE_SETPOINT_C   : temperature sent during pulse (default 28 °C — open valve fully)
-EXERCISE_DURATION_SEC : how long to hold the open setpoint  (default 30 s)
-EXERCISE_NIGHT_START  : hour to begin the sweep (default 2 — 02:00 local)
-EXERCISE_NIGHT_END    : hour to end   the sweep (default 3 — 03:00 local)
+EXERCISE_SETPOINT_C   : temperature sent during pulse (28 °C — fully opens valve)
+EXERCISE_DURATION_SEC : how long to hold the open setpoint (30 s)
+EXERCISE_NIGHT_START  : hour to begin the sweep (2 — 02:00 local)
+EXERCISE_NIGHT_END    : hour to end   the sweep (3 — 03:00 local)
 """
 from __future__ import annotations
 
@@ -179,7 +177,7 @@ class ValveProtectionEngine:
                     room_name, err,
                 )
 
-            # Stagger calls for Netatmo rooms
+            # Stagger calls for Netatmo rooms to avoid 429
             if trv_type != TRV_TYPE_ZIGBEE:
                 await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 

@@ -91,15 +91,21 @@ class PauseRemainingSensor(CoordinatorEntity, SensorEntity):
 
 
 class EnergyWastedSensor(CoordinatorEntity, SensorEntity):
-    """kWh wasted today — windows open while heating runs."""
+    """kWh wasted today — windows open while heating runs.
+
+    I-1 FIX: state_class = MEASUREMENT not TOTAL_INCREASING.
+    These sensors reset at midnight so HA LTS would log 'dips' with
+    TOTAL_INCREASING and possibly raise warnings. MEASUREMENT is correct
+    for values that represent today's running total and reset daily.
+    """
 
     _attr_has_entity_name = True
     _attr_translation_key = "energy_wasted_today"
     _attr_native_unit_of_measurement = "kWh"
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 2
-    _attr_entity_registry_enabled_default = True  # shown by default — useful for dashboards
+    _attr_entity_registry_enabled_default = True
 
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -111,13 +117,16 @@ class EnergyWastedSensor(CoordinatorEntity, SensorEntity):
 
 
 class EnergySavedSensor(CoordinatorEntity, SensorEntity):
-    """kWh saved today — away mode during expected heating hours."""
+    """kWh saved today — away mode during expected heating hours.
+
+    I-1 FIX: state_class = MEASUREMENT (resets at midnight, same as wasted).
+    """
 
     _attr_has_entity_name = True
     _attr_translation_key = "energy_saved_today"
     _attr_native_unit_of_measurement = "kWh"
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 2
     _attr_entity_registry_enabled_default = True
 
@@ -238,7 +247,7 @@ class RoomWindowDurationSensor(CoordinatorEntity, SensorEntity):
         self._total_minutes: int = 0
         self._was_open: bool = False
         self._opened_at: datetime | None = None
-        self._last_reset_day: int = -1
+        self._last_reset_date: Any = None  # S-6 FIX: date() not day integer
 
     @property
     def native_value(self) -> int:
@@ -249,11 +258,13 @@ class RoomWindowDurationSensor(CoordinatorEntity, SensorEntity):
         is_open = self.coordinator.get_room_state(self._room_name) == RoomState.WINDOW_OPEN
         now = utcnow()
 
-        if now.day != self._last_reset_day:
-            self._total_minutes  = 0
-            self._was_open       = False
-            self._opened_at      = None
-            self._last_reset_day = now.day
+        # S-6 FIX: use date() not day-of-month integer to avoid false resets
+        today = now.date()
+        if today != self._last_reset_date:
+            self._total_minutes   = 0
+            self._was_open        = False
+            self._opened_at       = None
+            self._last_reset_date = today
 
         if is_open and not self._was_open:
             self._opened_at = now
