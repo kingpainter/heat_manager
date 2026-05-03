@@ -1,5 +1,5 @@
 // Heat Manager — Custom Lovelace Card
-// Version: 0.3.9
+// Version: 0.4.0
 //
 // Fix B-CARD-IAH: _render() used optional-chaining syntax on replaceWith()
 // that is invalid in some JS engines. Replaced with explicit null check.
@@ -40,7 +40,7 @@ function _hmCtrlLabel(s) {
 
 class HeatManagerCard extends HTMLElement {
   static getStubConfig() {
-    return { rooms: [], weather_entity: "" };
+    return { rooms: [], weather_entity: "", boost_temp: 24, boost_minutes: 30 };
   }
 
   constructor() {
@@ -49,6 +49,9 @@ class HeatManagerCard extends HTMLElement {
     this._hass         = null;
     this._config       = {};
     this._pauseMinutes = 120;
+    this._boostActive  = false;
+    this._boostTimer   = null;   // setInterval handle
+    this._boostRemain  = 0;      // seconds remaining
   }
 
   setConfig(config) {
@@ -140,6 +143,82 @@ class HeatManagerCard extends HTMLElement {
   }
   async _resume() {
     await this._hass.callService("heat_manager", "resume", {});
+  }
+
+  async _boost() {
+    if (this._boostActive) { this._boostStop(); return; }
+
+    const boostTemp    = parseFloat(this._config.boost_temp    ?? 24);
+    const boostMinutes = parseInt(this._config.boost_minutes   ?? 30, 10);
+    const rooms        = this._config.rooms ?? [];
+
+    // Only boost NORMAL rooms (not AWAY, WINDOW_OPEN etc.)
+    const targets = rooms.filter(r => {
+      const state = this._roomState(r.room_name ?? "");
+      return state === "normal" || state === "override";
+    });
+
+    if (!targets.length) return;
+
+    // Write boost setpoint to write entity (HomeKit preferred, cloud fallback)
+    for (const room of targets) {
+      const entityId = room.homekit_climate_entity || room.climate_entity;
+      if (!entityId) continue;
+      try {
+        await this._hass.callService("climate", "set_temperature", {
+          entity_id: entityId,
+          temperature: boostTemp,
+        });
+      } catch(e) { console.warn("Heat Manager boost failed for", entityId, e); }
+    }
+
+    this._boostActive = true;
+    this._boostRemain = boostMinutes * 60;
+    this._render();
+
+    // Countdown tick every second
+    this._boostTimer = setInterval(() => {
+      this._boostRemain -= 1;
+      this._patchBoost();
+      if (this._boostRemain <= 0) this._boostStop();
+    }, 1000);
+  }
+
+  async _boostStop() {
+    if (this._boostTimer) { clearInterval(this._boostTimer); this._boostTimer = null; }
+    this._boostActive = false;
+    this._boostRemain = 0;
+
+    // Restore boosted rooms via force_room_on (respects TRV type + HomeKit routing)
+    const rooms = this._config.rooms ?? [];
+    for (const room of rooms) {
+      if (!room.room_name) continue;
+      try {
+        await this._hass.callService("heat_manager", "force_room_on", {
+          room_name: room.room_name,
+        });
+      } catch(e) { console.warn("Heat Manager boost-stop failed for", room.room_name, e); }
+    }
+    this._render();
+  }
+
+  _patchBoost() {
+    const root = this.shadowRoot;
+    const btn  = root?.querySelector("#boost-btn");
+    const cntd = root?.querySelector("#boost-countdown");
+    if (!btn || !cntd) return;
+    if (this._boostActive) {
+      const m = Math.floor(this._boostRemain / 60);
+      const s = String(this._boostRemain % 60).padStart(2, "0");
+      cntd.style.display = "inline";
+      cntd.textContent   = m + ":" + s + " tilbage";
+      btn.textContent    = "⏹ Stop boost";
+      btn.style.cssText  = "background:rgba(239,68,68,0.18);border-color:#ef4444;color:#fca5a5;";
+    } else {
+      cntd.style.display = "none";
+      btn.textContent    = "🔥 Boost";
+      btn.style.cssText  = "";
+    }
   }
 
   // ── CSS ───────────────────────────────────────────────────────────────────
@@ -262,6 +341,27 @@ class HeatManagerCard extends HTMLElement {
         font-family: 'DM Sans', sans-serif;
       }
 
+
+      /* ── Boost ── */
+      .boost-row {
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 16px 14px;
+      }
+      .boost-btn {
+        flex-shrink: 0;
+        background: rgba(249,115,22,0.12); border: 1px solid var(--amber);
+        color: var(--amber); border-radius: 10px; padding: 8px 16px;
+        font-size: 13px; font-weight: 700; font-family: 'DM Sans', sans-serif;
+        cursor: pointer; transition: all .15s;
+      }
+      .boost-btn:hover { background: rgba(249,115,22,0.22); }
+      .boost-info {
+        flex: 1; font-size: 12px; color: var(--sub); line-height: 1.4;
+      }
+      .boost-countdown {
+        font-size: 12px; font-weight: 600; color: var(--red);
+        font-family: 'DM Mono', monospace; display: none;
+      }
 
       /* ── Room cards ── */
       .rooms-list { display: flex; flex-direction: column; gap: 6px; }
@@ -400,6 +500,23 @@ class HeatManagerCard extends HTMLElement {
         </div>
       </div>
 
+      <div class="section-box">
+        <div class="section-header">
+          <div class="section-title">Boost</div>
+          <div class="section-badge" style="background:rgba(249,115,22,0.12);color:var(--amber)">
+            ${this._config.boost_temp ?? 24}°C · ${this._config.boost_minutes ?? 30} min
+          </div>
+        </div>
+        <div class="boost-row">
+          <button id="boost-btn" class="boost-btn">🔥 Boost</button>
+          <div class="boost-info">
+            Øger varmen til ${this._config.boost_temp ?? 24}°C i alle aktive rum i
+            ${this._config.boost_minutes ?? 30} min, derefter restore.
+          </div>
+          <span id="boost-countdown" class="boost-countdown"></span>
+        </div>
+      </div>
+
       ${rooms.length ? `
       <div class="section-box">
         <div class="section-header">
@@ -460,6 +577,8 @@ class HeatManagerCard extends HTMLElement {
       if (btxt && showPause) btxt.textContent = "⏸ Pause — " + pauseLeft + " min tilbage";
     }
 
+    this._patchBoost();
+
     const rooms = this._config.rooms ?? [];
     rooms.forEach((room, i) => {
       const cards = root.querySelectorAll(".room-card");
@@ -493,6 +612,7 @@ class HeatManagerCard extends HTMLElement {
       this._pauseMinutes = parseInt(e.target.value, 10);
     });
     root.querySelector("#btn-pause")?.addEventListener("click",  () => this._pause());
+    root.querySelector("#boost-btn")?.addEventListener("click",  () => this._boost());
   }
 
   static getConfigElement() {
@@ -648,6 +768,17 @@ class HeatManagerCardEditor extends HTMLElement {
         <input id="weather" type="text"
           value="${this._esc(c.weather_entity || "")}" placeholder="weather.forecast_home">
       </div>
+      <div class="section-title">Boost-indstillinger</div>
+      <div class="field">
+        <label>Boost-temperatur (°C)</label>
+        <input id="boost-temp" type="number" min="18" max="30" step="0.5"
+          value="${this._esc(String(c.boost_temp ?? 24))}" placeholder="24">
+      </div>
+      <div class="field">
+        <label>Boost-varighed (min)</label>
+        <input id="boost-minutes" type="number" min="5" max="120" step="5"
+          value="${this._esc(String(c.boost_minutes ?? 30))}" placeholder="30">
+      </div>
       <div class="section-title">
         Rum <button class="add-btn" id="add-room">+ Tilføj rum</button>
       </div>
@@ -660,6 +791,14 @@ class HeatManagerCardEditor extends HTMLElement {
     const root = this.shadowRoot;
     root.querySelector("#weather")?.addEventListener("change", e => {
       this._config.weather_entity = e.target.value.trim(); this._fire();
+    });
+    root.querySelector("#boost-temp")?.addEventListener("change", e => {
+      const v = parseFloat(e.target.value);
+      if (!isNaN(v)) { this._config.boost_temp = v; this._fire(); }
+    });
+    root.querySelector("#boost-minutes")?.addEventListener("change", e => {
+      const v = parseInt(e.target.value, 10);
+      if (!isNaN(v)) { this._config.boost_minutes = v; this._fire(); }
     });
     root.querySelector("#add-room")?.addEventListener("click", () => {
       this._rooms.push({ room_name: "", climate_entity: "" });
@@ -674,6 +813,12 @@ class HeatManagerCardEditor extends HTMLElement {
     root.querySelectorAll(".room-climate").forEach(el => {
       el.addEventListener("change", e => {
         this._rooms[+e.target.dataset.idx].climate_entity = e.target.value.trim();
+        this._fire();
+      });
+    });
+    root.querySelectorAll(".room-homekit").forEach(el => {
+      el.addEventListener("change", e => {
+        this._rooms[+e.target.dataset.idx].homekit_climate_entity = e.target.value.trim();
         this._fire();
       });
     });
