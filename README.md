@@ -4,9 +4,10 @@
 
 Heat Manager replaces manual YAML automations with a fully configurable
 custom integration. It manages presence-based heating, open window detection,
-pre-heating on arrival, and seasonal on/off control — all from the UI.
+pre-heating on arrival, seasonal on/off control, and mold risk monitoring —
+all from the UI.
 
-[![Version](https://img.shields.io/badge/version-0.3.3-blue)](https://github.com/kingpainter/heat-manager/releases)
+[![Version](https://img.shields.io/badge/version-0.3.6-blue)](https://github.com/kingpainter/heat-manager/releases)
 [![HA min version](https://img.shields.io/badge/Home%20Assistant-%3E%3D2025.1-blue)](https://www.home-assistant.io)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange)](https://hacs.xyz)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -33,21 +34,24 @@ Off shuts everything down permanently — with the correct fallback per season.
 ## Features
 
 - **Presence engine** — grace periods configurable per time of day (day/night)
-- **Window detection** — per-room state machine, fixes all 4 known YAML bugs
-- **CO₂-aware window notifications** — open window messages include current CO₂ and context ("ventilation" vs "heat loss")
+- **Window detection** — per-room state machine, CO₂-aware notifications ("ventilation" vs "heat loss")
 - **Season engine** — AUTO mode detects Winter/Summer from outdoor temperature history
 - **Adaptive away temperature** — warmer setpoint on mild days, cooler on cold days
-- **Local outdoor temperature sensor** — optional dedicated sensor overrides weather entity for more accurate microclimate data
+- **Local outdoor temperature sensor** — optional dedicated sensor overrides weather entity
 - **ON / PAUSE / OFF controller** — manual and automatic (season + outdoor temp)
-- **Pre-heat engine** — starts heating before you arrive using `sensor.<person>_travel_time_home`
-- **PID controller** — discrete-time PI controller sends proportional setpoints to TRVs every 60 seconds, replacing binary on/off with smooth graduated heating
-- **External room temperature sensor** — optional per-room probe for PID feedback, recommended for Zigbee TRVs whose built-in sensor reads high on the radiator body
-- **Netatmo HomeKit local path** — PID setpoints written directly to the Netatmo Relay via HomeKit Accessory Protocol on LAN (<100 ms, no cloud), keeping Netatmo's own schedule system intact
-- **Energy waste tracking** — uses Netatmo's real `heating_power_request` (0–100 %) × room wattage for accurate kWh; CO₂-weighted so purposeful ventilation counts as reduced waste; falls back to Δtemp proxy for non-Netatmo rooms
-- **Energy savings tracking** — estimates kWh saved from away mode using last-known heating power as baseline
-- **Efficiency score** — daily 0–100 score based on waste vs. savings
-- **Sidebar panel** — redesigned panel with Indeklima design language: SVG controller ring, room state grid, efficiency ring, section-box card system
-- **Lovelace card** — redesigned card matching panel design: amber heat palette, SVG ring, room state chips, section structure
+- **Pre-heat engine** — starts heating before arrival using `sensor.<person>_travel_time_home`, per-person lead time up to 90 min
+- **PID controller** — discrete-time PI controller sends proportional setpoints every 60 s
+- **External room temperature sensor** — optional per-room probe for PID feedback
+- **Netatmo HomeKit local path** — PID writes directly to Netatmo Relay via HAP on LAN (<100 ms)
+- **Zigbee TRV support** — full TRV-type routing (Netatmo vs Z2M) throughout all engines
+- **Energy waste tracking** — `heating_power_request` × room wattage, CO₂-weighted
+- **Energy savings tracking** — estimated kWh saved from away mode
+- **Efficiency score** — daily 0–100 score
+- **Valve protection** — weekly valve exercise during a night window to prevent calcification when heating is off
+- **Mold risk sensor** — per-room binary sensor based on DIN 4108-2 (Magnus formula dewpoint vs humidity)
+- **Cloud status banner** — panel detects Netatmo cloud outages via entity state and staleness
+- **Sidebar panel** — Indeklima design language: SVG controller ring, room state grid, efficiency ring
+- **Lovelace card** — matching design: amber heat palette, SVG ring, room state chips
 - **Diagnostics** — downloadable snapshot from Settings → Heat Manager → ⋮ → Download diagnostics
 - **Full English + Danish translations**
 
@@ -92,50 +96,51 @@ a 4-step wizard guides you through setup.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `weather_entity` | entity | — | Weather entity for outdoor temperature and season auto-detection |
-| `outdoor_temp_sensor` | entity | — | **Optional.** Local outdoor temperature sensor (e.g. Netatmo outdoor module, Aqara). Overrides the weather entity temperature for adaptive away setpoint and season detection. |
+| `weather_entity` | entity | — | Weather entity for outdoor temperature and season detection |
+| `outdoor_temp_sensor` | entity | — | **Optional.** Local outdoor sensor (e.g. Netatmo outdoor module, Aqara). Overrides weather entity temperature |
 | `notify_service` | string | — | HA notify service, e.g. `notify.mobile_app_my_phone` |
 | `away_temp_mild` | °C | 17.0 | Away setpoint when outdoor temp is above the mild threshold |
 | `away_temp_cold` | °C | 15.0 | Away setpoint when outdoor temp is below the mild threshold |
 | `mild_threshold` | °C | 8.0 | Boundary between "mild" and "cold" weather |
-| `grace_day_min` | min | 30 | How long to wait after everyone leaves before switching to away (daytime) |
-| `grace_night_min` | min | 15 | Same, but at night (23:00–07:00) |
-| `auto_off_temp_threshold` | °C | 18.0 | Outdoor temperature above which the controller auto-turns off |
-| `auto_off_temp_days` | days | 5 | Consecutive days above threshold before auto-off fires |
+| `grace_day_min` | min | 30 | Grace period before away mode (daytime) |
+| `grace_night_min` | min | 15 | Grace period before away mode (night, 23:00–07:00) |
+| `auto_off_temp_threshold` | °C | 18.0 | Outdoor temperature above which auto-off fires |
+| `auto_off_temp_days` | days | 5 | Consecutive days above threshold before auto-off |
 
 ### Step 2 — Rooms (repeatable)
-
-Add one entry per room. You can add as many rooms as needed.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `room_name` | string | — | Display name (e.g. "Kitchen") |
-| `climate_entity` | entity | — | Cloud/primary climate entity. Used for preset_mode writes and schedule setpoint reads |
-| `homekit_climate_entity` | entity | — | **Optional.** HomeKit local entity (Netatmo Relay via HAP). PID setpoints are written here directly over LAN. Recommended for Netatmo NRV users |
-| `window_sensors` | entity list | [] | Window and/or door sensors for this room |
-| `window_delay_min` | min | 5 | Minutes a window must be open before heating drops |
-| `away_temp_override` | °C | 10.0 | Frost-guard floor temperature when window opens |
-| `room_wattage` | W | 1000 | Rated heating power for energy calculations (use with `heating_power_request`) |
-| `co2_sensor` | entity | — | **Optional.** CO₂ sensor for this room. Window notifications include CO₂ context ("ventilation" vs "heat loss"). Also reduces waste attribution in the energy score when CO₂ is elevated. |
-| `room_temp_sensor` | entity | — | **Optional.** Independent room temperature probe for PID feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the hot radiator body (typically reads 1–3 °C above actual room temperature). |
+| `climate_entity` | entity | — | Primary climate entity |
+| `homekit_climate_entity` | entity | — | **Optional.** HomeKit local entity for PID writes (Netatmo Relay via HAP) |
+| `window_sensors` | entity list | [] | Window/door sensors for this room |
+| `window_delay_min` | min | 5 | Minutes open before heating drops |
+| `away_temp_override` | °C | 10.0 | Frost-guard floor when window opens |
+| `room_wattage` | W | 1000 | Rated heating power for energy calculations |
+| `trv_type` | select | netatmo | `netatmo` (preset_mode) or `zigbee` (hvac_mode) |
+| `pi_demand_entity` | entity | — | **Optional.** Z2M `pi_heating_demand` sensor entity |
+| `co2_sensor` | entity | — | **Optional.** CO₂ sensor — context-aware window notifications and waste weighting |
+| `room_temp_sensor` | entity | — | **Optional.** Independent temperature probe for PID feedback |
+| `humidity_sensor` | entity | — | **Optional.** Humidity sensor for mold risk detection |
 
 ### Step 3 — Persons (repeatable)
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `person_entity` | entity | — | The `person.*` entity |
-| `person_tracking` | bool | true | Enable presence tracking. Set false for non-tracked persons |
-| `preheat_lead_time_min` | min | 20 | How many minutes before ETA to start pre-heating |
+| `person_tracking` | bool | true | Enable presence tracking |
+| `preheat_lead_time_min` | min | 20 | Minutes before ETA to start pre-heating (per person, max 90 min) |
 
 ### Step 4 — Notifications
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `notify_presence` | bool | true | Notify when heating switches due to presence |
-| `notify_windows` | bool | true | Notify when a window causes heating to drop |
-| `notify_window_warning_30` | bool | true | Send a warning if a window has been open 30+ minutes |
+| `notify_presence` | bool | true | Notify on presence-based heating changes |
+| `notify_windows` | bool | true | Notify when a window drops heating |
+| `notify_window_warning_30` | bool | true | Warning if window open 30+ minutes |
 | `notify_preheat` | bool | true | Notify when pre-heat starts |
-| `energy_tracking` | bool | true | Enable the energy waste sensor |
+| `energy_tracking` | bool | true | Enable energy waste sensor |
 
 ---
 
@@ -178,17 +183,18 @@ data:
 | Entity | Type | Default | Description |
 |--------|------|---------|-------------|
 | `select.heat_manager_controller_state` | Select | **on** | On / Pause / Off — main control |
-| `select.heat_manager_season_mode` | Select | disabled | Auto / Winter / Summer (CONFIG) |
+| `select.heat_manager_season_mode` | Select | disabled | Auto / Winter / Summer |
 | `sensor.heat_manager_pause_remaining` | Sensor | disabled | Minutes left in pause (DIAGNOSTIC) |
-| `sensor.heat_manager_energy_wasted_today` | Sensor | **on** | Estimated kWh wasted today (CO₂-weighted) |
-| `sensor.heat_manager_energy_saved_today` | Sensor | **on** | Estimated kWh saved today |
+| `sensor.heat_manager_energy_wasted_today` | Sensor | **on** | kWh wasted today (CO₂-weighted) |
+| `sensor.heat_manager_energy_saved_today` | Sensor | **on** | kWh saved today |
 | `sensor.heat_manager_efficiency_score` | Sensor | disabled | Daily score 0–100 (DIAGNOSTIC) |
-| `sensor.heat_manager_<room>_state` | Sensor | **on** | Per-room: normal / window_open / away / pre_heat / override |
+| `sensor.heat_manager_<room>_state` | Sensor | **on** | normal / window_open / away / pre_heat / override |
 | `sensor.heat_manager_<room>_window_duration` | Sensor | disabled | Minutes window open today (DIAGNOSTIC) |
 | `binary_sensor.heat_manager_any_window_open` | Binary | **on** | True when any window is open |
 | `binary_sensor.heat_manager_heating_wasted` | Binary | disabled | Window open + heating running (DIAGNOSTIC) |
 | `binary_sensor.heat_manager_<room>_window` | Binary | disabled | Per-room window open (DIAGNOSTIC) |
-| `switch.heat_manager_<room>_override` | Switch | disabled | Manual override per room (CONFIG) |
+| `binary_sensor.heat_manager_<room>_mold_risk` | Binary | **on** | Mold risk (RH ≥ 70 % + T ≤ dewpoint + 1 °C) — requires `humidity_sensor` |
+| `switch.heat_manager_<room>_override` | Switch | disabled | Manual override per room |
 
 ---
 
@@ -197,14 +203,18 @@ data:
 ### Heating not turning on after arriving home
 
 1. Check that the person entity shows `home` in Developer Tools → States.
-2. Check that all window sensors for that room show `off` (closed).
+2. Check that all window sensors show `off` (closed).
 3. Check `select.heat_manager_controller_state` — should be `on`.
-4. Check `auto_off_reason` attribute on the controller select.
-5. Enable debug logging and check the HA logs.
+4. Check the `auto_off_reason` attribute on the controller select.
+5. Enable debug logging and check HA logs.
 
 ### PID under-heating a Zigbee TRV room
 
-The TRV's built-in sensor sits on the hot valve body and reads 1–3 °C above actual room temperature. Fix: add a wall-mounted temperature sensor (e.g. Aqara, Sonoff SNZB-02) and set it as `room_temp_sensor` for that room.
+The TRV's built-in sensor sits on the hot valve body and reads 1–3 °C above actual room temperature. Fix: add a wall-mounted probe (e.g. Aqara, Sonoff SNZB-02) and set it as `room_temp_sensor` for that room.
+
+### Netatmo unavailable banner in panel
+
+The panel shows a cloud status banner when all climate entities are `unavailable` or when entity data is stale (≥ 10 min). Check [health.netatmo.com](https://health.netatmo.com) for known outages. The banner can be dismissed and will reappear automatically if the issue persists.
 
 ### Enable debug logging
 
@@ -220,11 +230,10 @@ logger:
 ## Known limitations
 
 - Pre-heat requires a `sensor.<person>_travel_time_home` sensor in HA.
-- Energy waste uses Netatmo's `heating_power_request` when available. For non-Netatmo rooms the Δtemp proxy is used.
+- Energy waste uses Netatmo's `heating_power_request` when available; falls back to Δtemp proxy for other rooms.
 - PID via HomeKit requires the Netatmo Relay paired as HomeKit Controller in HA.
-- Non-tracked persons always follow the house global state.
-- Daily energy history resets on HA restart.
 - CO₂ waste weighting uses a fixed 50 % reduction above 900 ppm — not yet configurable via the UI.
+- Valve protection runs once per week at 02:00–03:00 local time, only when the controller is OFF.
 
 ---
 
