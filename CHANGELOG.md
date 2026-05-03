@@ -13,6 +13,38 @@ _Nothing yet._
 
 ---
 
+## [0.3.7] — 2026-05-03
+
+### Added
+- **H-4** `coordinator.py` — `get_write_entity(room_name)` helper. Returns the
+  HomeKit climate entity if configured and available, otherwise falls back to
+  the cloud entity. Single authoritative place for "prefer local" routing.
+- **H-4** `coordinator.py` — `needs_cloud_delay(room_name)` helper. Returns
+  `True` when the write entity resolves to the cloud entity, allowing callers
+  to skip `NETATMO_API_CALL_DELAY_SEC` for HomeKit rooms.
+
+### Changed
+- **H-1** `engine/window_engine.py` — `_open_after_delay()` now writes the
+  frost-guard setpoint via `get_write_entity()` (HomeKit preferred). Window
+  suppression no longer touches the Netatmo cloud when HomeKit is available.
+  Log message includes `(via HomeKit)` or `(via cloud)` for diagnostics.
+- **H-5** `engine/controller.py` — `_apply_off_fallback()` for SUMMER season
+  (hvac_mode: off) now uses `get_write_entity()` for a local write. WINTER
+  restore (preset_mode: schedule) still uses the cloud entity because
+  preset_mode is not exposed via HomeKit HAP.
+- **H-6** `engine/controller.py` + `engine/presence_engine.py` — `asyncio.sleep`
+  delay between rooms is now conditional on `needs_cloud_delay()`. Rooms with
+  an active HomeKit entity skip the 600 ms stagger entirely — reducing the
+  total time for a 4-room sweep from 2.4 s to as little as 0 s when all rooms
+  have HomeKit configured.
+- `engine/presence_engine.py` — imports `NETATMO_API_CALL_DELAY_SEC` from
+  const instead of hardcoding `0.6`.
+- `coordinator.py` `_async_pid_tick()` — internal `hk_id`/`write_id` variables
+  aligned with the new helper pattern for clarity. PID behaviour unchanged:
+  still only writes to HomeKit, never to cloud.
+
+---
+
 ## [0.3.6] — 2026-05-03
 
 ### Fixed
@@ -212,7 +244,8 @@ _Nothing yet._
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.3.6...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.3.7...HEAD
+[0.3.7]: https://github.com/kingpainter/heat-manager/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/kingpainter/heat-manager/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/kingpainter/heat-manager/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/kingpainter/heat-manager/compare/v0.3.3...v0.3.4

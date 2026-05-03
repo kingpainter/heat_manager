@@ -207,6 +207,37 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return val if val else None
         return None
 
+    def get_write_entity(self, room_name: str) -> str | None:
+        """H-4: Return the preferred write entity for a room.
+
+        Priority:
+          1. HomeKit climate entity (local LAN, <100 ms, no rate limits)
+          2. Cloud climate entity (fallback)
+
+        Use this for all set_temperature writes. Do NOT use for
+        preset_mode writes (away/schedule) — those must still go to the
+        cloud entity because preset_mode is not supported via HomeKit HAP.
+        """
+        hk_id = self.get_homekit_climate_entity(room_name)
+        if hk_id:
+            state = self.hass.states.get(hk_id)
+            if state and state.state not in ("unavailable", "unknown", "off"):
+                return hk_id
+        return self.get_climate_entity(room_name)
+
+    def needs_cloud_delay(self, room_name: str) -> bool:
+        """H-6: Return True if the write entity for this room is the cloud entity.
+
+        Used to decide whether NETATMO_API_CALL_DELAY_SEC should be applied
+        after a service call. HomeKit writes are local and need no stagger.
+        """
+        hk_id = self.get_homekit_climate_entity(room_name)
+        if hk_id:
+            state = self.hass.states.get(hk_id)
+            if state and state.state not in ("unavailable", "unknown", "off"):
+                return False  # Writing to HomeKit — no delay needed
+        return True  # Writing to cloud — stagger to avoid 429
+
     def get_window_sensors(self, room_name: str) -> list[str]:
         for room in self.rooms:
             if room.get("room_name") == room_name:
@@ -490,11 +521,14 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 pid.reset()
                 continue
 
-            # Require a HomeKit entity OR a room temp sensor to write locally.
-            # Without a local write channel we never touch the cloud entity.
+            # H-4: use get_write_entity() — HomeKit preferred, cloud fallback
+            # PID setpoints should only be written locally (HomeKit) to avoid
+            # disturbing Netatmo's cloud schedule. Skip rooms without HomeKit.
             hk_id = self.get_homekit_climate_entity(room_name)
             if not hk_id:
+                pid.reset()
                 continue
+            write_id = hk_id  # confirmed local write channel
 
             # ── Read current temperature via unified helper ────────────────
             # Preference: room_temp_sensor → HomeKit entity → cloud entity
@@ -529,7 +563,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
             # Suppress command if change < 0.5 °C
-            hk_state = self.hass.states.get(hk_id)
+            hk_state = self.hass.states.get(write_id)
             if hk_state is None or hk_state.state in ("unavailable", "unknown", "off"):
                 pid.reset()
                 continue
@@ -541,7 +575,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self.hass.services.async_call(
                     "climate",
                     "set_temperature",
-                    {"entity_id": hk_id, "temperature": trv_setpoint},
+                    {"entity_id": write_id, "temperature": trv_setpoint},
                     blocking=True,
                 )
                 _LOGGER.debug(

@@ -250,30 +250,43 @@ class ControllerEngine:
     # ── Climate fallback on OFF ────────────────────────────────────────────────
 
     async def _apply_off_fallback(self) -> None:
-        """S-5 FIX: Use effective_season (not season_mode) so AUTO resolves correctly."""
+        """S-5 FIX: Use effective_season (not season_mode) so AUTO resolves correctly.
+
+        H-5: For SUMMER (hvac_mode: off) we prefer the HomeKit entity — it is
+        a local set_hvac_mode call that does not touch Netatmo's cloud schedule.
+        For WINTER restore (preset_mode: schedule) we must use the cloud entity
+        because preset_mode is not exposed via HomeKit HAP.
+        H-6: Delay is only applied when writing to the cloud entity.
+        """
         season = self.coordinator.effective_season
         hass = self.coordinator.hass
 
         for room in self.coordinator.rooms:
-            entity_id = room.get("climate_entity", "")
-            if not entity_id:
+            room_name  = room.get("room_name", "")
+            cloud_id   = room.get("climate_entity", "")
+            if not cloud_id:
                 continue
             try:
                 if season == SeasonMode.SUMMER:
+                    # H-5: prefer HomeKit for local hvac_mode: off
+                    write_id = self.coordinator.get_write_entity(room_name) or cloud_id
                     await hass.services.async_call(
                         "climate", "set_hvac_mode",
-                        {"entity_id": entity_id, "hvac_mode": HVAC_OFF},
+                        {"entity_id": write_id, "hvac_mode": HVAC_OFF},
                         blocking=True,
                     )
                 else:
+                    # preset_mode: schedule must go to cloud — not supported via HomeKit
                     await hass.services.async_call(
                         "climate", "set_preset_mode",
-                        {"entity_id": entity_id, "preset_mode": PRESET_SCHEDULE},
+                        {"entity_id": cloud_id, "preset_mode": PRESET_SCHEDULE},
                         blocking=True,
                     )
             except Exception as err:  # noqa: BLE001
-                _LOGGER.warning("Failed to set OFF fallback on %s: %s", entity_id, err)
-            await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
+                _LOGGER.warning("Failed to set OFF fallback on %s: %s", cloud_id, err)
+            # H-6: only delay when writing to Netatmo cloud
+            if self.coordinator.needs_cloud_delay(room_name):
+                await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
     # ── Room state reset ──────────────────────────────────────────────────────
 

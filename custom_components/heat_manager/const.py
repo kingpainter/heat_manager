@@ -4,7 +4,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 DOMAIN = "heat_manager"
-VERSION = "0.3.6"
+VERSION = "0.3.7"
 
 # ── Config entry keys ────────────────────────────────────────────────────────
 

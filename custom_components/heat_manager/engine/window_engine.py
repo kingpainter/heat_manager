@@ -140,11 +140,14 @@ class WindowEngine:
             _LOGGER.warning("No climate entity for room '%s'", room_name)
             return
 
+        # H-1: write setpoint via preferred local entity (HomeKit if available)
+        write_id = self.coordinator.get_write_entity(room_name) or climate_id
+
         try:
             target_temp = self._window_open_setpoint(room_name, climate_id, away_temp)
             await self.coordinator.hass.services.async_call(
                 "climate", "set_temperature",
-                {"entity_id": climate_id, "temperature": target_temp},
+                {"entity_id": write_id, "temperature": target_temp},
                 blocking=True,
             )
             pid = self.coordinator.get_pid(room_name)
@@ -157,7 +160,7 @@ class WindowEngine:
             # ── CO₂-aware open notification ───────────────────────────────
             co2_ppm   = self.coordinator.get_room_co2(room_name)
             co2_label = self._co2_context_label(co2_ppm)
-            log_msg   = f"Window open in {room_name} — heating to {target_temp:.0f}°C"
+            log_msg   = f"Window open in {room_name} — heating to {target_temp:.0f}°C (via {'HomeKit' if write_id != climate_id else 'cloud'})"
             notif_msg = (
                 f"Window open — {room_name} set to {target_temp:.0f}°C{co2_label}"
             )

@@ -38,6 +38,7 @@ from ..const import (
     DEFAULT_NIGHT_END_HOUR,
     DEFAULT_NIGHT_START_HOUR,
     HVAC_OFF,
+    NETATMO_API_CALL_DELAY_SEC,
     PRESET_AWAY,
     PRESET_SCHEDULE,
     RoomState,
@@ -246,7 +247,7 @@ class PresenceEngine:
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning("Failed to set away (Z2M) on %s: %s", entity_id, err)
             else:
-                # Netatmo path — preset_mode: away
+                # Netatmo: preset_mode: away — must go to cloud entity
                 if state and state.attributes.get("preset_mode") == PRESET_AWAY:
                     continue
                 try:
@@ -261,9 +262,9 @@ class PresenceEngine:
                     )
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning("Failed to set away on %s: %s", entity_id, err)
-            # Netatmo API rate limit: 200 calls/10 min, burst sensitivity on setthermmode.
-            # Small delay between rooms prevents 429 errors when all rooms are updated at once.
-            await asyncio.sleep(0.6)
+            # H-6: preset_mode calls are always cloud — delay applies
+            # Zigbee hvac_mode calls may also be cloud-bridged so delay always here
+            await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
     @guarded
     async def _restore_all_schedule(self) -> None:
@@ -323,8 +324,11 @@ class PresenceEngine:
                     any_restored = True
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning("Failed to restore schedule on %s: %s", entity_id, err)
-                # Netatmo API rate limit: stagger calls to avoid 429 on setthermmode.
-                await asyncio.sleep(0.6)
+                # H-6: preset_mode/hvac_mode to cloud needs stagger; HomeKit doesn't
+                # For restore we always write to the cloud entity (preset_mode),
+                # so delay always applies for Netatmo rooms.
+                if self.coordinator.needs_cloud_delay(room_name):
+                    await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
             if any_restored:
                 self.coordinator.log_event("Heating resumed — welcome home", "Presence", "normal")
