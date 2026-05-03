@@ -7,7 +7,7 @@ custom integration. It manages presence-based heating, open window detection,
 pre-heating on arrival, seasonal on/off control, and mold risk monitoring —
 all from the UI.
 
-[![Version](https://img.shields.io/badge/version-0.3.7-blue)](https://github.com/kingpainter/heat-manager/releases)
+[![Version](https://img.shields.io/badge/version-0.3.8-blue)](https://github.com/kingpainter/heat-manager/releases)
 [![HA min version](https://img.shields.io/badge/Home%20Assistant-%3E%3D2025.1-blue)](https://www.home-assistant.io)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange)](https://hacs.xyz)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)

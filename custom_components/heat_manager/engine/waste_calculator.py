@@ -163,12 +163,17 @@ class WasteCalculator:
     # ── CO₂ waste weighting (v0.2.9) ─────────────────────────────────────────
 
     def _co2_waste_weight(self, room_name: str) -> float:
-        """
-        Return a multiplier (0.0–1.0) for waste attribution based on CO₂.
+        """Return waste multiplier (0.0–1.0) for this room.
 
-        1.00 → full waste (no sensor, or CO₂ below ventilation threshold)
-        0.50 → half waste (CO₂ elevated — window open for ventilation)
+        Rain: always full waste (1.0) — nobody ventilates intentionally in rain,
+        so an open window is pure heat loss regardless of CO₂.
+        CO₂ elevated: half waste (0.5) — ventilation justified.
+        Otherwise: full waste (1.0).
         """
+        # Rain overrides CO₂ weighting — always full waste
+        if self.coordinator.is_raining():
+            return 1.0
+
         co2 = self.coordinator.get_room_co2(room_name)
         if co2 is None:
             return 1.0

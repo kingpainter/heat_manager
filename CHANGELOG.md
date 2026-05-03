@@ -13,6 +13,57 @@ _Nothing yet._
 
 ---
 
+## [0.3.8] — 2026-05-03
+
+### Fixed
+- **BUG** `diagnostics.py` — `ctrl._outdoor_temp_history` reference crashed
+  diagnostics download after S-1 fix replaced the list with a counter.
+  Replaced with `days_above_high` + `last_high_date`.
+- **BUG** `switch.py` — `RoomOverrideSwitch.async_turn_on()` always called
+  `set_preset_mode` on the cloud entity, ignoring TRV type and HomeKit.
+  Now uses `get_write_entity()` + TRV-type routing consistent with all other
+  engines.
+- **BUG** `select.py` — `SeasonModeSelect` wrote `season_mode` in-memory only;
+  HA restart silently reset it to AUTO. Now persists to `entry.options` via
+  `async_update_entry()`. `coordinator.__init__` restores the saved value.
+- **BUG** `websocket.py` — `ws_get_state` rooms payload read `current_temperature`
+  directly from cloud entity instead of using `get_room_current_temp()`. Rooms
+  with `room_temp_sensor` or HomeKit entity were showing TRV radiator-body
+  temperature in the panel. Now uses the coordinator helper consistently.
+  Also adds `heating_power` (0–100 %) per room to the payload.
+
+### Added
+- **Netatmo weather integration** — Three new optional global sensor fields
+  in config flow Step 1:
+  - `outdoor_humidity_sensor` — outdoor relative humidity (%).
+  - `precipitation_sensor` — precipitation (mm or mm/h).
+  - `wind_speed_sensor` — wind speed (m/s).
+  Four coordinator helpers: `get_outdoor_humidity()`, `get_precipitation()`,
+  `get_wind_speed()`, `is_raining()`.
+- **Adaptive window delay** — `window_engine._get_open_delay()` now reduces
+  delay to `DEFAULT_WINDOW_DELAY_WIND_MIN` (1 min) when wind ≥ `WIND_FAST_MS`
+  (6.0 m/s) or precipitation > 0. Fast wind and rain mean rapid heat loss —
+  no reason to wait 5 min to confirm the window is open.
+- **Weather-aware window notifications** — `_co2_context_label()` now
+  prepends rain (🌧️) or wind (💨) context before CO₂ when applicable.
+  Rain overrides CO₂ weighting entirely — nobody ventilates in rain.
+- **Rain overrides CO₂ waste weighting** — `waste_calculator._co2_waste_weight()`
+  returns 1.0 (full waste) when it is raining, regardless of CO₂ level.
+- **`binary_sensor.heat_manager_cloud_available`** — New sensor (device class
+  `connectivity`, enabled by default). `True` = cloud OK; `False` = all cloud
+  climate entities unavailable or all have stale `last_updated` (≥ 10 min).
+  Skips HomeKit entities. Exposes `unavailable_rooms` and `stale_rooms`
+  attributes. Can drive HA automations (e.g. send notification on cloud loss).
+- **`sensor.<room>_pid_power`** — New per-room DIAGNOSTIC sensor (disabled by
+  default). Exposes PID output 0–100 % for rooms with a HomeKit entity.
+  Attributes include `pid_kp`, `pid_ki`, `pid_kd`, `integral`. Allows tuning
+  PID gains without enabling debug logging.
+- **Mold risk outdoor context** — `MoldRiskSensor.extra_state_attributes` now
+  includes `outdoor_humidity_pct` from `outdoor_humidity_sensor` when
+  configured, giving full context for mold risk assessment.
+
+---
+
 ## [0.3.7] — 2026-05-03
 
 ### Added
@@ -244,7 +295,8 @@ _Nothing yet._
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.3.7...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.3.8...HEAD
+[0.3.8]: https://github.com/kingpainter/heat-manager/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/kingpainter/heat-manager/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/kingpainter/heat-manager/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/kingpainter/heat-manager/compare/v0.3.4...v0.3.5

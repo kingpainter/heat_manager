@@ -19,6 +19,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import (
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
+    CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_HUMIDITY_SENSOR,
     CONF_ROOM_TEMP_SENSOR,
     CONF_WINDOW_SENSORS,
@@ -41,6 +42,7 @@ async def async_setup_entry(
     entities: list[BinarySensorEntity] = [
         AnyWindowOpenSensor(coordinator, entry),
         HeatingWastedSensor(coordinator, entry),
+        CloudAvailableSensor(coordinator, entry),
     ]
     for room in coordinator.rooms:
         if room.get(CONF_WINDOW_SENSORS):
@@ -96,6 +98,95 @@ class HeatingWastedSensor(CoordinatorEntity, BinarySensorEntity):
             if cs and cs.attributes.get("hvac_action") == "heating":
                 return True
         return False
+
+
+class CloudAvailableSensor(CoordinatorEntity, BinarySensorEntity):
+    """True when Netatmo cloud entities are available and fresh.
+
+    Detects two failure modes:
+    - All climate entities are unavailable/unknown (cloud down)
+    - All climate entities have stale last_updated (> 10 min, cloud degraded)
+
+    Can be used in HA automations e.g. to send a notification when cloud drops.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "cloud_available"
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_entity_registry_enabled_default = True
+
+    _STALE_MINUTES: int = 10
+
+    def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_cloud_available"
+
+    @property
+    def is_on(self) -> bool:
+        """True = cloud OK. False = cloud down or degraded."""
+        rooms = self.coordinator.rooms
+        if not rooms:
+            return True
+
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        stale_threshold = self._STALE_MINUTES * 60
+        unavailable_count = 0
+        stale_count = 0
+        total = 0
+
+        for room in rooms:
+            climate_id = room.get(CONF_CLIMATE_ENTITY, "")
+            # Skip HomeKit entities — they are local and not a cloud indicator
+            hk_id = room.get(CONF_HOMEKIT_CLIMATE_ENTITY, "")
+            if not climate_id or climate_id == hk_id:
+                continue
+            total += 1
+            state = self.coordinator.hass.states.get(climate_id)
+            if state is None or state.state in ("unavailable", "unknown"):
+                unavailable_count += 1
+                continue
+            if state.last_updated:
+                age = (now - state.last_updated.replace(tzinfo=timezone.utc)
+                       if state.last_updated.tzinfo is None
+                       else (now - state.last_updated)).total_seconds()
+                if age > stale_threshold:
+                    stale_count += 1
+
+        if total == 0:
+            return True
+        if unavailable_count == total:
+            return False  # all unavailable
+        if stale_count == total:
+            return False  # all stale
+        return True
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        rooms = self.coordinator.rooms
+        unavailable = []
+        stale = []
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        for room in rooms:
+            climate_id = room.get(CONF_CLIMATE_ENTITY, "")
+            hk_id = room.get(CONF_HOMEKIT_CLIMATE_ENTITY, "")
+            if not climate_id or climate_id == hk_id:
+                continue
+            state = self.coordinator.hass.states.get(climate_id)
+            if state is None or state.state in ("unavailable", "unknown"):
+                unavailable.append(room.get("room_name", climate_id))
+            elif state.last_updated:
+                age = (now - state.last_updated.replace(tzinfo=timezone.utc)
+                       if state.last_updated.tzinfo is None
+                       else (now - state.last_updated)).total_seconds()
+                if age > self._STALE_MINUTES * 60:
+                    stale.append(room.get("room_name", climate_id))
+        return {
+            "unavailable_rooms": unavailable,
+            "stale_rooms":       stale,
+            "stale_threshold_min": self._STALE_MINUTES,
+        }
 
 
 class RoomWindowSensor(CoordinatorEntity, BinarySensorEntity):
@@ -236,10 +327,12 @@ class MoldRiskSensor(CoordinatorEntity, BinarySensorEntity):
         if rh is None or temp is None:
             return {"room_name": self._room_name}
         dewpoint = self._dewpoint(temp, rh)
+        outdoor_rh = self.coordinator.get_outdoor_humidity()
         return {
-            "room_name":     self._room_name,
-            "humidity_pct":  round(rh, 1),
-            "room_temp_c":   round(temp, 1),
-            "dewpoint_c":    round(dewpoint, 1),
-            "margin_c":      self._SURFACE_MARGIN,
+            "room_name":       self._room_name,
+            "humidity_pct":    round(rh, 1),
+            "room_temp_c":     round(temp, 1),
+            "dewpoint_c":      round(dewpoint, 1),
+            "margin_c":        self._SURFACE_MARGIN,
+            "outdoor_humidity_pct": round(outdoor_rh, 1) if outdoor_rh is not None else None,
         }

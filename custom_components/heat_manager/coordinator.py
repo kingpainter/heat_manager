@@ -40,6 +40,7 @@ from .const import (
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
     CONF_MILD_THRESHOLD,
+    CONF_OUTDOOR_HUMIDITY_SENSOR,
     CONF_OUTDOOR_TEMP_SENSOR,
     CONF_PERSONS,
     CONF_HOMEKIT_CLIMATE_ENTITY,
@@ -47,10 +48,12 @@ from .const import (
     CONF_PID_KD,
     CONF_PID_KI,
     CONF_PID_KP,
+    CONF_PRECIPITATION_SENSOR,
     CONF_ROOM_TEMP_SENSOR,
     CONF_ROOMS,
     CONF_TRV_MAX_TEMP,
     CONF_WEATHER_ENTITY,
+    CONF_WIND_SPEED_SENSOR,
     CONF_WINDOW_SENSORS,
     DEFAULT_AUTO_OFF_TEMP_DAYS,
     DEFAULT_AUTO_OFF_TEMP_THRESHOLD,
@@ -102,7 +105,12 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # ── Shared runtime state ──────────────────────────────────────────────
         self.room_states: dict[str, RoomState] = {}
-        self.season_mode: SeasonMode = SeasonMode.AUTO
+        # Restore persisted season_mode if present (set via select entity)
+        _saved_season = self.config.get("season_mode", SeasonMode.AUTO.value)
+        try:
+            self.season_mode: SeasonMode = SeasonMode(_saved_season)
+        except ValueError:
+            self.season_mode = SeasonMode.AUTO
         self.effective_season: SeasonMode = SeasonMode.WINTER
         self.outdoor_temperature: float | None = None
         self._event_log: deque[dict[str, Any]] = deque(maxlen=_MAX_EVENT_LOG)
@@ -265,14 +273,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ── Sensor input helpers (v0.2.9) ─────────────────────────────────────────
 
     def get_room_co2(self, room_name: str) -> float | None:
-        """
-        Return current CO₂ level (ppm) for a room, or None if not configured
-        or sensor is unavailable.
-
-        Used by WindowEngine for context-aware notifications and by
-        WasteCalculator to reduce waste attribution when CO₂ is elevated
-        (window open for purposeful ventilation, not heat loss).
-        """
+        """Return current CO₂ level (ppm) for a room, or None."""
         for room in self.rooms:
             if room.get("room_name") != room_name:
                 continue
@@ -287,6 +288,50 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except (TypeError, ValueError):
                 return None
         return None
+
+    def get_outdoor_humidity(self) -> float | None:
+        """Return outdoor relative humidity (%) from CONF_OUTDOOR_HUMIDITY_SENSOR."""
+        entity_id = self.config.get(CONF_OUTDOOR_HUMIDITY_SENSOR) or None
+        if not entity_id:
+            return None
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        try:
+            return float(state.state)
+        except (TypeError, ValueError):
+            return None
+
+    def get_precipitation(self) -> float | None:
+        """Return current precipitation (mm or mm/h) from CONF_PRECIPITATION_SENSOR."""
+        entity_id = self.config.get(CONF_PRECIPITATION_SENSOR) or None
+        if not entity_id:
+            return None
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        try:
+            return float(state.state)
+        except (TypeError, ValueError):
+            return None
+
+    def get_wind_speed(self) -> float | None:
+        """Return current wind speed (m/s) from CONF_WIND_SPEED_SENSOR."""
+        entity_id = self.config.get(CONF_WIND_SPEED_SENSOR) or None
+        if not entity_id:
+            return None
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        try:
+            return float(state.state)
+        except (TypeError, ValueError):
+            return None
+
+    def is_raining(self) -> bool:
+        """Return True when precipitation sensor reads > 0."""
+        precip = self.get_precipitation()
+        return precip is not None and precip > 0.0
 
     def get_room_current_temp(self, room_name: str, climate_id: str) -> float | None:
         """

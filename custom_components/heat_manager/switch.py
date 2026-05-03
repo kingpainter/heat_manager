@@ -20,6 +20,9 @@ from .const import (
     DOMAIN,
     PRESET_SCHEDULE,
     RoomState,
+    TRV_TYPE_ZIGBEE,
+    CONF_TRV_TYPE,
+    HVAC_OFF,
 )
 from .coordinator import HeatManagerCoordinator
 
@@ -73,17 +76,30 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs) -> None:  # type: ignore[override]
         if not self._climate_id:
             return
+        # Use write entity (HomeKit preferred) same as all other engines
+        room_cfg  = next(
+            (r for r in self.coordinator.rooms if r.get("room_name") == self._room_name), {}
+        )
+        trv_type  = room_cfg.get(CONF_TRV_TYPE, "netatmo")
+        write_id  = self.coordinator.get_write_entity(self._room_name) or self._climate_id
         try:
-            await self.coordinator.hass.services.async_call(
-                "climate", "set_preset_mode",
-                {"entity_id": self._climate_id, "preset_mode": PRESET_SCHEDULE},
-                blocking=True,
-            )
+            if trv_type == TRV_TYPE_ZIGBEE:
+                await self.coordinator.hass.services.async_call(
+                    "climate", "set_hvac_mode",
+                    {"entity_id": write_id, "hvac_mode": "heat"},
+                    blocking=True,
+                )
+            else:
+                await self.coordinator.hass.services.async_call(
+                    "climate", "set_preset_mode",
+                    {"entity_id": self._climate_id, "preset_mode": PRESET_SCHEDULE},
+                    blocking=True,
+                )
             self.coordinator.set_room_state(self._room_name, RoomState.OVERRIDE)
             self.coordinator.log_event(
                 f"Override ON — {self._room_name}", "Override", "override"
             )
-            _LOGGER.info("Override ON: %s → schedule", self._room_name)
+            _LOGGER.info("Override ON: %s → heating (%s)", self._room_name, trv_type)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Override turn_on failed for %s: %s", self._room_name, err)
 

@@ -35,6 +35,7 @@ from homeassistant.util.dt import utcnow
 
 from .const import (
     CONF_CLIMATE_ENTITY,
+    CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_WINDOW_SENSORS,
     DOMAIN,
     RoomState,
@@ -64,6 +65,8 @@ async def async_setup_entry(
         entities.append(RoomStateSensor(coordinator, entry, room))
         if room.get(CONF_WINDOW_SENSORS):
             entities.append(RoomWindowDurationSensor(coordinator, entry, room))
+        if room.get(CONF_HOMEKIT_CLIMATE_ENTITY):
+            entities.append(RoomPidPowerSensor(coordinator, entry, room))
 
     async_add_entities(entities)
 
@@ -275,3 +278,56 @@ class RoomWindowDurationSensor(CoordinatorEntity, SensorEntity):
 
         self._was_open = is_open
         super()._handle_coordinator_update()
+
+
+class RoomPidPowerSensor(CoordinatorEntity, SensorEntity):
+    """Current PID output power for a room (0–100 %).
+
+    Exposes the last computed PID power fraction as a sensor so users
+    can monitor and tune PID gains without enabling debug logging.
+    Only created for rooms that have a HomeKit entity configured
+    (i.e. rooms where PID actually writes setpoints).
+    """
+
+    _attr_has_entity_name = True
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_suggested_display_precision = 0
+    _attr_entity_registry_enabled_default = False  # diagnostic — off by default
+
+    def __init__(
+        self,
+        coordinator: HeatManagerCoordinator,
+        entry: ConfigEntry,
+        room: dict,
+    ) -> None:
+        super().__init__(coordinator)
+        self._room_name = room["room_name"]
+        safe_name = self._room_name.lower().replace(" ", "_")
+        self._attr_unique_id = f"{entry.entry_id}_{safe_name}_pid_power"
+        self._attr_name = f"{self._room_name} PID power"
+
+    @property
+    def native_value(self) -> float | None:
+        pid = self.coordinator.get_pid(self._room_name)
+        if pid is None:
+            return None
+        # PID stores last output as _last_output (0.0–1.0)
+        raw = getattr(pid, "_last_output", None)
+        if raw is None:
+            return None
+        return round(raw * 100.0, 1)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        pid = self.coordinator.get_pid(self._room_name)
+        if pid is None:
+            return {"room_name": self._room_name}
+        return {
+            "room_name":    self._room_name,
+            "pid_kp":       getattr(pid, "kp", None),
+            "pid_ki":       getattr(pid, "ki", None),
+            "pid_kd":       getattr(pid, "kd", None),
+            "integral":     round(getattr(pid, "_integral", 0.0), 4),
+        }

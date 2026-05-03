@@ -4,7 +4,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 DOMAIN = "heat_manager"
-VERSION = "0.3.7"
+VERSION = "0.3.8"
 
 # ── Config entry keys ────────────────────────────────────────────────────────
 
@@ -91,11 +91,25 @@ CONF_ROOM_TEMP_SENSOR = "room_temp_sensor"
 # Falls back to weather entity if this sensor is unavailable.
 CONF_OUTDOOR_TEMP_SENSOR = "outdoor_temp_sensor"
 
+# Outdoor humidity sensor — Netatmo outdoor module etc.
+# Used to amplify mold risk calculation when outdoor RH is high.
+CONF_OUTDOOR_HUMIDITY_SENSOR = "outdoor_humidity_sensor"
+
+# Precipitation sensor — mm/h or mm. When > 0 a window is classified as
+# pure heat loss regardless of CO₂ level (nobody ventilates in rain).
+CONF_PRECIPITATION_SENSOR = "precipitation_sensor"
+
+# Wind speed sensor — m/s. When above WIND_FAST_MS the window delay is
+# reduced to DEFAULT_WINDOW_DELAY_WIND_MIN to react faster to heat loss.
+CONF_WIND_SPEED_SENSOR = "wind_speed_sensor"
+
 # ── Defaults ─────────────────────────────────────────────────────────────────
 
 DEFAULT_WINDOW_DELAY_MIN = 5
 DEFAULT_WINDOW_CLOSE_DELAY_MIN = 2
 DEFAULT_WINDOW_WARNING_MIN = 30
+DEFAULT_WINDOW_DELAY_WIND_MIN = 1   # reduced delay when wind > threshold
+WIND_FAST_MS: float = 6.0           # m/s — window heat loss accelerates above this
 DEFAULT_AWAY_TEMP_MILD = 17.0
 DEFAULT_AWAY_TEMP_COLD = 15.0
 DEFAULT_MILD_THRESHOLD = 8.0

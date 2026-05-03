@@ -38,6 +38,9 @@ from .const import (
     CONF_HUMIDITY_SENSOR,
     CONF_MILD_THRESHOLD,
     CONF_OUTDOOR_TEMP_SENSOR,
+    CONF_OUTDOOR_HUMIDITY_SENSOR,
+    CONF_PRECIPITATION_SENSOR,
+    CONF_WIND_SPEED_SENSOR,
     CONF_PI_DEMAND_ENTITY,
     CONF_ROOM_TEMP_SENSOR,
     CONF_TRV_TYPE,
@@ -83,6 +86,12 @@ def _step1_schema(defaults: dict = {}) -> vol.Schema:
             selector.selector({"entity": {"domain": "weather"}}),
         vol.Optional(CONF_OUTDOOR_TEMP_SENSOR, default=defaults.get(CONF_OUTDOOR_TEMP_SENSOR, "")):
             selector.selector({"text": {}}),  # text allows blank; entity selector rejects empty
+        vol.Optional(CONF_OUTDOOR_HUMIDITY_SENSOR, default=defaults.get(CONF_OUTDOOR_HUMIDITY_SENSOR, "")):
+            selector.selector({"text": {}}),  # sensor.* — outdoor relative humidity %
+        vol.Optional(CONF_PRECIPITATION_SENSOR, default=defaults.get(CONF_PRECIPITATION_SENSOR, "")):
+            selector.selector({"text": {}}),  # sensor.* — precipitation mm or mm/h
+        vol.Optional(CONF_WIND_SPEED_SENSOR, default=defaults.get(CONF_WIND_SPEED_SENSOR, "")):
+            selector.selector({"text": {}}),  # sensor.* — wind speed m/s
         vol.Optional(CONF_NOTIFY_SERVICE, default=defaults.get(CONF_NOTIFY_SERVICE, "")):
             selector.selector({"text": {}}),
         vol.Optional(CONF_AWAY_TEMP_MILD, default=defaults.get(CONF_AWAY_TEMP_MILD, DEFAULT_AWAY_TEMP_MILD)):

@@ -115,8 +115,13 @@ class SeasonModeSelect(CoordinatorEntity, SelectEntity):
             _LOGGER.warning("Invalid season mode selected: %s", option)
             return
         self.coordinator.season_mode = new_mode
+        # Persist to options so the selection survives HA restart
+        new_options = {**self.coordinator.entry.options, "season_mode": new_mode.value}
+        self.coordinator.hass.config_entries.async_update_entry(
+            self.coordinator.entry, options=new_options
+        )
         self.coordinator.log_event(
             f"Season mode set to {new_mode.value}", "Manual", "normal"
         )
         self.coordinator.async_update_listeners()
-        _LOGGER.info("Season mode set to: %s", new_mode.value)
+        _LOGGER.info("Season mode set to: %s (persisted)", new_mode.value)

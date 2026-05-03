@@ -32,10 +32,12 @@ from ..const import (
     DEFAULT_CO2_VENTILATION_THRESHOLD,
     DEFAULT_WINDOW_CLOSE_DELAY_MIN,
     DEFAULT_WINDOW_DELAY_MIN,
+    DEFAULT_WINDOW_DELAY_WIND_MIN,
     DEFAULT_WINDOW_WARNING_MIN,
     PRESET_SCHEDULE,
     RoomState,
     TRV_TYPE_ZIGBEE,
+    WIND_FAST_MS,
 )
 from .controller import guarded
 from .pid_controller import PidController
@@ -281,22 +283,28 @@ class WindowEngine:
     # ── CO₂ context helpers ───────────────────────────────────────────────────
 
     def _co2_context_label(self, co2_ppm: float | None) -> str:
-        """
-        Return a short parenthetical string describing CO₂ context for
-        inclusion in notification messages.
+        """Return a short parenthetical string for window notification messages.
 
-        Examples
-        --------
-        co2_ppm = None   → ""                              (no sensor)
-        co2_ppm = 1380   → "  (CO₂: 1380 ppm — ventilation)"
-        co2_ppm = 640    → "  (CO₂: 640 ppm — heat loss)"
+        Rain and wind take precedence over CO₂ — both override the context
+        to 'heat loss' regardless of CO₂ level.
         """
+        # Rain: always heat loss, add rain hint
+        if self.coordinator.is_raining():
+            precip = self.coordinator.get_precipitation()
+            return f"  (🌧️ {precip:.1f} mm — regn: varmetab)"
+
+        # Wind: fast wind means rapid heat loss
+        wind = self.coordinator.get_wind_speed()
+        if wind is not None and wind >= WIND_FAST_MS:
+            return f"  (💨 {wind:.1f} m/s — vind: varmetab)"
+
+        # CO₂ context
         if co2_ppm is None:
             return ""
         threshold = DEFAULT_CO2_VENTILATION_THRESHOLD
         if co2_ppm >= threshold:
             return f"  (CO₂: {co2_ppm:.0f} ppm — ventilation)"
-        return f"  (CO₂: {co2_ppm:.0f} ppm — heat loss)"
+        return f"  (CO₂: {co2_ppm:.0f} ppm — varmetab)"
 
     # ── Remaining helpers (unchanged) ─────────────────────────────────────────
 
@@ -345,11 +353,32 @@ class WindowEngine:
         return temp if temp is not None else 20.0
 
     def _get_open_delay(self, sensor_id: str) -> int:
+        """Return window open delay in minutes.
+
+        Wind fast (> WIND_FAST_MS): reduce to DEFAULT_WINDOW_DELAY_WIND_MIN
+        so heat loss is suppressed quicker.
+        Rain: also reduce — nobody opens a window for ventilation in rain.
+        """
         room_name = self._sensor_to_room.get(sensor_id)
+        configured = DEFAULT_WINDOW_DELAY_MIN
         for room in self.coordinator.rooms:
             if room.get("room_name") == room_name:
-                return int(room.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN))
-        return DEFAULT_WINDOW_DELAY_MIN
+                configured = int(room.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN))
+                break
+
+        wind = self.coordinator.get_wind_speed()
+        if wind is not None and wind >= WIND_FAST_MS:
+            _LOGGER.debug(
+                "Window delay reduced to %d min (wind %.1f m/s ≥ %.1f)",
+                DEFAULT_WINDOW_DELAY_WIND_MIN, wind, WIND_FAST_MS,
+            )
+            return DEFAULT_WINDOW_DELAY_WIND_MIN
+
+        if self.coordinator.is_raining():
+            _LOGGER.debug("Window delay reduced to %d min (rain)", DEFAULT_WINDOW_DELAY_WIND_MIN)
+            return DEFAULT_WINDOW_DELAY_WIND_MIN
+
+        return configured
 
     def _cancel_task(self, task_dict: dict, key: str) -> None:
         task = task_dict.pop(key, None)

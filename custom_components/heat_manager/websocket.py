@@ -74,14 +74,15 @@ async def ws_get_state(
         sensors    = room.get(CONF_WINDOW_SENSORS, [])
         room_state = coordinator.get_room_state(name)
 
-        current_temp: float | None = None
+        current_temp: float | None = coordinator.get_room_current_temp(name, climate_id)
+        heating_power: float | None = None
         if climate_id:
             cs = hass.states.get(climate_id)
             if cs:
-                t = cs.attributes.get("current_temperature")
-                if t is not None:
+                raw = cs.attributes.get("heating_power_request")
+                if raw is not None:
                     try:
-                        current_temp = float(t)
+                        heating_power = float(raw)
                     except (TypeError, ValueError):
                         pass
 
@@ -95,6 +96,7 @@ async def ws_get_state(
             "climate_entity": climate_id,
             "state":          room_state.value,
             "current_temp":   current_temp,
+            "heating_power":  heating_power,
             "windows_open":   windows_open,
             "why":            _why_label(room_state),
         })
