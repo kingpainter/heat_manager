@@ -1,9 +1,10 @@
 # Heat Manager — Project Status
 
-**Last updated:** 2026-04-21
+**Last updated:** 2026-04-21 · v0.3.3 deployed
 **Version:** 0.3.3
 **Target:** Home Assistant 2025.1+
 **Language:** English primary · Danish translations included
+**Status:** Ready for testing — logo served as static HTTP path, "Energi i dag" overview removed from panel
 
 ---
 
@@ -68,7 +69,7 @@ heat_manager/
 
 | File | Notes |
 |------|-------|
-| `frontend/heat-manager-panel.js` | v0.3.3 — Indeklima design system. Logo served from `/api/heat_manager-logo` static path (no more inline base64 JPEG). "Energi i dag" overview section removed — waste calculator still drives Rooms-tab weekly chart and sensors. SVG controller ring, room grid, section-box cards. iOS/WebKit safe. Blink-free. |
+| `frontend/heat-manager-panel.js` | v0.3.3 — Indeklima design system. Logo served from `/api/heat_manager-logo` static HTTP path (no more inline base64 JPEG). "Energi i dag" overview section removed from Oversigt tab — waste calculator still drives Rooms-tab weekly chart and energy sensors. SVG controller ring, room grid, section-box cards. iOS/WebKit safe. Blink-free. HA restart required for logo registration. |
 | `frontend/heat-manager-card.js` | v0.3.1 — Same design system as panel. Section-box, SVG ring, room state chips. Fixed B-CARD-IAH (insertAdjacentHTML crash in card picker). |
 | `frontend/heat_manager_logo1.png` | 44 KB. Registered as static HTTP path in `panel.py` at `/api/heat_manager-logo`. Used as panel header icon via CSS `background-image`. |
 
@@ -186,7 +187,36 @@ CONF_CO2_SENSOR  sensor.*  — ppm
 
 ---
 
-## Remaining todos
+## Release notes — v0.3.3 (2026-04-21)
+
+**What changed:**
+
+**Frontend:** Logo now served as static HTTP path `/api/heat_manager-logo` instead of inline base64 JPEG in CSS. This fixes shadow DOM rendering inconsistencies in Chrome and Safari, and reduces `panel.js` file size. "Energi i dag" overview section removed from Oversigt tab — the underlying waste calculator remains active and drives the weekly bar chart on the Rum tab. The energy sensors (`energy_wasted_today`, `energy_saved_today`, `efficiency_score`) are unaffected.
+
+**Backend:** `panel.py` now registers the logo PNG as a static HTTP resource with `cache_headers=True`, matching the pattern already used for `panel.js` and `card.js`.
+
+**Deployment status:**
+
+- ✅ GitHub repo: all 5 changed files + docs updated (const.py, manifest.json, panel.py, heat-manager-panel.js, heat_manager_logo1.png)
+- ✅ HA server: heat-manager-panel.js, const.py, manifest.json, panel.py deployed; logo file present
+- ⚠️ Minor sync issue: `engine/presence_engine.py` is 1.86 KB newer on GitHub (B-429 fix from 0.3.2 not yet deployed)
+- ⚠️ Next: Restart Home Assistant to register logo static path. Browser cache-clear alone is insufficient.
+
+**Testing checklist:**
+
+- [ ] HA restart completes without errors
+- [ ] Panel loads at `/heat_manager` with orange radiator logo visible in header (no missing image placeholder)
+- [ ] Logo background blends with amber gradient correctly
+- [ ] Oversigt tab shows Controller + Rooms + Presence + Auto-off sections (no "Energi i dag" card)
+- [ ] Rum tab still shows weekly energy bar chart
+- [ ] Card picker can find and load heat-manager-card.js
+- [ ] All services (pause, resume, set_controller_state) respond normally
+
+**Known issues:**
+
+- None at this time. Report via GitHub Issues.
+
+
 
 | Item | Priority | Notes |
 |------|----------|-------|

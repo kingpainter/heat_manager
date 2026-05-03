@@ -6,7 +6,7 @@ Heat Manager replaces manual YAML automations with a fully configurable
 custom integration. It manages presence-based heating, open window detection,
 pre-heating on arrival, and seasonal on/off control — all from the UI.
 
-[![Version](https://img.shields.io/badge/version-0.3.1-blue)](https://github.com/kingpainter/heat-manager/releases)
+[![Version](https://img.shields.io/badge/version-0.3.3-blue)](https://github.com/kingpainter/heat-manager/releases)
 [![HA min version](https://img.shields.io/badge/Home%20Assistant-%3E%3D2025.1-blue)](https://www.home-assistant.io)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange)](https://hacs.xyz)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)

@@ -44,6 +44,7 @@ feat(season): add SeasonEngine — AUTO resolves to WINTER/SUMMER from outdoor t
 feat(waste): add WasteCalculator — proper kWh estimation with midnight reset
 feat(preheat): add PreheatEngine — fires on travel_time_home below lead time
 feat(diagnostics): add async_get_config_entry_diagnostics for Gold IQS
+feat(frontend): serve logo as static HTTP path, remove idle Energi i dag section
 fix(window): B3 - restore schedule only when presence is active on close
 fix(window): B1 - remove leading dot from lukas_vindue_contact entity ID
 fix(frontend): eliminate FOUC — style-once pattern + replaceWith() in panel
@@ -126,6 +127,11 @@ PATCH  Bug fix, translation update, documentation only
 ## Version history quick reference
 
 | Version | Date | Type | Highlights |
-|---------|------|------|------------|
+|---------|------|------|-----------|
 | 0.1.0 | 2026-03-20 | Initial | Foundation: controller, presence, window engines, config flow, translations, 36 tests |
 | 0.2.0 | 2026-03-21 | Minor | Season, waste, preheat engines; Gold IQS; diagnostics; HACS; FOUC fixes; 58 tests |
+| 0.2.9 | 2026-03-28 | Patch | PID controller, anti-windup, per-room temp sensor, Netatmo HAP local writes, energy tracking |
+| 0.3.0 | 2026-03-29 | Minor | Frontend redesign (Indeklima design system), panel sidebar, Lovelace card resource registration, SVG rings |
+| 0.3.1 | 2026-03-28 | Patch | Fixed B-CARD-IAH (insertAdjacentHTML in card picker), entity ID resolution after reinstall |
+| 0.3.2 | 2026-03-29 | Patch | Fixed B-429 (Netatmo API rate limit on concurrent calls via asyncio.Lock), meteorological seasons (Spring/Autumn) |
+| 0.3.3 | 2026-04-21 | Patch | Logo served as static HTTP path (shadow DOM fix), removed "Energi i dag" overview section (always-zero clutter) |
