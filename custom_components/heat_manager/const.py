@@ -4,7 +4,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 DOMAIN = "heat_manager"
-VERSION = "0.3.3"
+VERSION = "0.3.4"
 
 # ── Config entry keys ────────────────────────────────────────────────────────
 
@@ -187,6 +187,9 @@ PLATFORMS: list[str] = ["sensor", "binary_sensor", "select", "switch"]
 # ── Coordinator update interval ───────────────────────────────────────────────
 
 SCAN_INTERVAL_SECONDS = 60
+
+# Netatmo cloud API — stagger multi-room calls to avoid 429 rate-limit errors
+NETATMO_API_CALL_DELAY_SEC: float = 0.6
 
 # ── Lovelace card resource path ───────────────────────────────────────────────
 

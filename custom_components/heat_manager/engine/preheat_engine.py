@@ -40,9 +40,11 @@ from ..const import (
     CONF_PERSON_ENTITY,
     CONF_PERSON_TRACKING,
     CONF_PREHEAT_LEAD_TIME_MIN,
+    CONF_TRV_TYPE,
     DEFAULT_PREHEAT_LEAD_TIME_MIN,
     PRESET_SCHEDULE,
     RoomState,
+    TRV_TYPE_ZIGBEE,
 )
 from .controller import guarded
 
@@ -188,15 +190,24 @@ class PreheatEngine:
                 continue  # Only preheat rooms currently in AWAY
 
             try:
-                await hass.services.async_call(
-                    "climate",
-                    "set_preset_mode",
-                    {"entity_id": climate_id, "preset_mode": PRESET_SCHEDULE},
-                    blocking=True,
-                )
+                # S-4 FIX: route by TRV type — Zigbee uses hvac_mode, Netatmo uses preset
+                trv_type = room.get(CONF_TRV_TYPE, "netatmo")
+                if trv_type == TRV_TYPE_ZIGBEE:
+                    await hass.services.async_call(
+                        "climate", "set_hvac_mode",
+                        {"entity_id": climate_id, "hvac_mode": "heat"},
+                        blocking=True,
+                    )
+                else:
+                    await hass.services.async_call(
+                        "climate",
+                        "set_preset_mode",
+                        {"entity_id": climate_id, "preset_mode": PRESET_SCHEDULE},
+                        blocking=True,
+                    )
                 self.coordinator.set_room_state(room_name, RoomState.PRE_HEAT)
                 rooms_preheated.append(room_name)
-                _LOGGER.info("Preheat: %s → schedule (PRE_HEAT)", room_name)
+                _LOGGER.info("Preheat: %s → %s (PRE_HEAT)", room_name, trv_type)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Preheat failed for %s: %s", room_name, err)
 

@@ -26,6 +26,7 @@ from ..const import (
     CONF_AWAY_TEMP_OVERRIDE,
     CONF_CLIMATE_ENTITY,
     CONF_NOTIFY_WINDOWS,
+    CONF_TRV_TYPE,
     CONF_WINDOW_DELAY_MIN,
     CONF_WINDOW_SENSORS,
     DEFAULT_CO2_VENTILATION_THRESHOLD,
@@ -34,6 +35,7 @@ from ..const import (
     DEFAULT_WINDOW_WARNING_MIN,
     PRESET_SCHEDULE,
     RoomState,
+    TRV_TYPE_ZIGBEE,
 )
 from .controller import guarded
 from .pid_controller import PidController
@@ -207,12 +209,25 @@ class WindowEngine:
         if not climate_id:
             return
 
+        # S-3 FIX: route restore by TRV type — Zigbee uses hvac_mode, Netatmo uses preset
+        room_cfg = next(
+            (r for r in self.coordinator.rooms if r.get("room_name") == room_name), {}
+        )
+        trv_type = room_cfg.get(CONF_TRV_TYPE, "netatmo")
+
         try:
-            await self.coordinator.hass.services.async_call(
-                "climate", "set_preset_mode",
-                {"entity_id": climate_id, "preset_mode": PRESET_SCHEDULE},
-                blocking=True,
-            )
+            if trv_type == TRV_TYPE_ZIGBEE:
+                await self.coordinator.hass.services.async_call(
+                    "climate", "set_hvac_mode",
+                    {"entity_id": climate_id, "hvac_mode": "heat"},
+                    blocking=True,
+                )
+            else:
+                await self.coordinator.hass.services.async_call(
+                    "climate", "set_preset_mode",
+                    {"entity_id": climate_id, "preset_mode": PRESET_SCHEDULE},
+                    blocking=True,
+                )
             self.coordinator.set_room_state(room_name, RoomState.NORMAL)
 
             # ── CO₂-aware close notification ──────────────────────────────

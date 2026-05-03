@@ -1,5 +1,5 @@
 // Heat Manager Panel
-// Version: 0.3.3
+// Version: 0.3.4
 //
 // Design: Unified visual language with Indeklima — same font (DM Sans/DM Mono),
 // same card system, same section-box pattern, same score ring, same chip/badge
@@ -17,20 +17,27 @@
 // Architecture: same blink-free guards as 0.2.x —
 //   _loadInFlight, _lastCtrlState diff, setTimeout(0) render debounce,
 //   _srAppendHTML for WebKit/iOS, surgical _patchController().
+//
+// v0.3.4:
+//   • Cloud status banner — detects Netatmo cloud outages by inspecting
+//     HA climate entity availability and last_updated staleness.
+//     Shown across all tabs when cloud is degraded. Configurable via
+//     _showCloudBanner flag (can be disabled in config tab).
 
 class HeatManagerPanel extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._hass          = null;
-    this._tab           = "overview";
-    this._data          = null;
-    this._history       = null;
-    this._errCount      = 0;
-    this._interval      = null;
-    this._loadInFlight  = false;
-    this._renderPending = false;
-    this._lastCtrlState = null;
+    this._hass           = null;
+    this._tab            = "overview";
+    this._data           = null;
+    this._history        = null;
+    this._errCount       = 0;
+    this._interval       = null;
+    this._loadInFlight   = false;
+    this._renderPending  = false;
+    this._lastCtrlState  = null;
+    this._showCloudBanner = true;  // can be toggled off in config tab
   }
 
   set hass(h) {
@@ -420,6 +427,37 @@ class HeatManagerPanel extends HTMLElement {
       }
       .section-box-body { padding: 14px 16px; }
 
+      /* ── Cloud status banner ── */
+      .cloud-banner {
+        display: flex; align-items: flex-start; gap: 12px;
+        padding: 12px 16px;
+        background: rgba(239,68,68,0.12);
+        border: 1px solid rgba(239,68,68,0.35);
+        border-radius: 12px;
+        margin-bottom: 12px;
+        animation: banner-in .25s ease;
+      }
+      @keyframes banner-in {
+        from { opacity: 0; transform: translateY(-6px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      .cloud-banner-icon { font-size: 20px; line-height: 1.3; flex-shrink: 0; }
+      .cloud-banner-body { flex: 1; }
+      .cloud-banner-title {
+        font-size: 13px; font-weight: 600;
+        color: #fca5a5; margin-bottom: 3px;
+      }
+      .cloud-banner-detail {
+        font-size: 12px; color: rgba(252,165,165,0.75); line-height: 1.4;
+      }
+      .cloud-banner-dismiss {
+        background: none; border: none; color: rgba(252,165,165,0.6);
+        cursor: pointer; font-size: 14px; padding: 2px 4px;
+        border-radius: 4px; flex-shrink: 0;
+        transition: color .15s;
+      }
+      .cloud-banner-dismiss:hover { color: #fca5a5; }
+
       /* ── Controller hero card ── */
       .ctrl-hero {
         display: flex; align-items: center; gap: 18px;
@@ -687,6 +725,68 @@ class HeatManagerPanel extends HTMLElement {
 
   // ── HTML components ───────────────────────────────────────────────────────
 
+  // ── Cloud status banner ──────────────────────────────────────────────────
+
+  _cloudStatus() {
+    // Detect Netatmo cloud issues from HA entity state — no external fetch needed.
+    // Returns: { ok, allUnavailable, staleMinutes } where staleMinutes is the
+    // age (in minutes) of the oldest climate entity's last_updated, or 0 if fresh.
+    if (!this._hass || !this._data) return { ok: true, allUnavailable: false, staleMinutes: 0 };
+    const rooms = this._data?.rooms ?? [];
+    if (!rooms.length) return { ok: true, allUnavailable: false, staleMinutes: 0 };
+
+    const climateIds = rooms.map(r => r.climate_entity).filter(Boolean);
+    if (!climateIds.length) return { ok: true, allUnavailable: false, staleMinutes: 0 };
+
+    const states = this._hass.states ?? {};
+    const now = Date.now();
+    let unavailableCount = 0;
+    let maxStaleMs = 0;
+
+    for (const id of climateIds) {
+      const s = states[id];
+      if (!s) { unavailableCount++; continue; }
+      if (s.state === "unavailable" || s.state === "unknown") { unavailableCount++; continue; }
+      // Check staleness via last_updated
+      if (s.last_updated) {
+        const staleMs = now - new Date(s.last_updated).getTime();
+        if (staleMs > maxStaleMs) maxStaleMs = staleMs;
+      }
+    }
+
+    const allUnavailable = unavailableCount === climateIds.length;
+    const staleMinutes   = Math.floor(maxStaleMs / 60000);
+    const isStale        = staleMinutes >= 10;
+    return { ok: !allUnavailable && !isStale, allUnavailable, staleMinutes };
+  }
+
+  _cloudBannerHTML() {
+    if (!this._showCloudBanner) return "";
+    const { ok, allUnavailable, staleMinutes } = this._cloudStatus();
+    if (ok) return "";
+
+    let icon, title, detail;
+    if (allUnavailable) {
+      icon   = "☁️";
+      title  = "Netatmo cloud utilgængelig";
+      detail = "Alle klimaentiteter er unavailable — tjek <a href='https://health.netatmo.com' target='_blank' rel='noopener' style='color:inherit;text-decoration:underline'>health.netatmo.com</a>";
+    } else {
+      icon   = "⏱️";
+      title  = "Netatmo data forsinket";
+      detail = `Klimadata er ${staleMinutes} min gammel — mulig cloud-forsinkelse`;
+    }
+
+    return `
+      <div class="cloud-banner">
+        <span class="cloud-banner-icon">${icon}</span>
+        <div class="cloud-banner-body">
+          <div class="cloud-banner-title">${title}</div>
+          <div class="cloud-banner-detail">${detail}</div>
+        </div>
+        <button class="cloud-banner-dismiss" data-action="dismiss-cloud-banner" title="Skjul">✕</button>
+      </div>`;
+  }
+
   _topbarHTML() {
     const d      = this._data;
     const ctrl   = d?.controller_state ?? "unknown";
@@ -941,6 +1041,7 @@ class HeatManagerPanel extends HTMLElement {
     const away   = rooms.filter(r => r.state === "away").length;
     const winOpen = rooms.filter(r => r.state === "window_open").length;
     return `
+      ${this._cloudBannerHTML()}
       ${this._controllerSectionHTML()}
 
       <div class="section-box">
@@ -1105,6 +1206,10 @@ class HeatManagerPanel extends HTMLElement {
     root.querySelector("[data-action='pause']" )?.addEventListener("click", () => {
       const min = parseInt(root.querySelector("#pause-dur")?.value ?? "120", 10);
       this._pause(min);
+    });
+    root.querySelector("[data-action='dismiss-cloud-banner']")?.addEventListener("click", () => {
+      this._showCloudBanner = false;
+      this._scheduleRender();
     });
   }
 }

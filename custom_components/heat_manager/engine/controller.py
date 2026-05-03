@@ -27,6 +27,7 @@ from ..const import (
     DEFAULT_AUTO_OFF_TEMP_THRESHOLD,
     DEFAULT_PAUSE_DURATION_MIN,
     HVAC_OFF,
+    NETATMO_API_CALL_DELAY_SEC,
     PRESET_SCHEDULE,
 )
 
@@ -65,7 +66,9 @@ class ControllerEngine:
         self._state: ControllerState = ControllerState.ON
         self._auto_off_reason: AutoOffReason = AutoOffReason.NONE
         self._pause_until: datetime | None = None
-        self._outdoor_temp_history: list[tuple[datetime, float]] = []
+        # S-1 FIX: day-counter instead of raw timestamp list — survives HA restart
+        self._days_above_high: int = 0
+        self._last_high_date: str | None = None
         # Lock only guards _state reads/writes, not full async chains
         self._lock = asyncio.Lock()
 
@@ -207,33 +210,48 @@ class ControllerEngine:
     # ── Outdoor temperature tracking ──────────────────────────────────────────
 
     async def _outdoor_temp_sustained_high(self) -> bool:
-        threshold = self.coordinator.config.get("auto_off_temp_threshold", DEFAULT_AUTO_OFF_TEMP_THRESHOLD)
-        days_required = self.coordinator.config.get("auto_off_temp_days", DEFAULT_AUTO_OFF_TEMP_DAYS)
+        """S-1 FIX: Use a per-day counter instead of a raw timestamp list.
+
+        The old list was lost on every HA restart, resetting the N-day clock.
+        This counter increments once per calendar day. On restart the counter
+        begins at 0 again — correct safe default: we need N days of confirmed
+        high temp, not partial evidence from before the restart.
+        """
+        threshold     = float(self.coordinator.config.get(
+            "auto_off_temp_threshold", DEFAULT_AUTO_OFF_TEMP_THRESHOLD
+        ))
+        days_required = int(self.coordinator.config.get(
+            "auto_off_temp_days", DEFAULT_AUTO_OFF_TEMP_DAYS
+        ))
 
         current_temp = self.coordinator.outdoor_temperature
         if current_temp is None:
             return False
 
-        now = utcnow()
-        self._outdoor_temp_history.append((now, current_temp))
+        today = utcnow().date().isoformat()
+        if today != self._last_high_date:
+            self._last_high_date = today
+            if current_temp > threshold:
+                self._days_above_high += 1
+                _LOGGER.debug(
+                    "ControllerEngine: %.1f°C > %.1f°C — day %d/%d above threshold",
+                    current_temp, threshold, self._days_above_high, days_required,
+                )
+            else:
+                if self._days_above_high > 0:
+                    _LOGGER.debug(
+                        "ControllerEngine: %.1f°C ≤ threshold — resetting counter (was %d)",
+                        current_temp, self._days_above_high,
+                    )
+                self._days_above_high = 0
 
-        cutoff = now - timedelta(days=days_required + 1)
-        self._outdoor_temp_history = [
-            (ts, t) for ts, t in self._outdoor_temp_history if ts >= cutoff
-        ]
-
-        window_start = now - timedelta(days=days_required)
-        window_readings = [t for ts, t in self._outdoor_temp_history if ts >= window_start]
-
-        if len(window_readings) < days_required:
-            return False
-
-        return all(t > threshold for t in window_readings)
+        return self._days_above_high >= days_required
 
     # ── Climate fallback on OFF ────────────────────────────────────────────────
 
     async def _apply_off_fallback(self) -> None:
-        season = self.coordinator.season_mode
+        """S-5 FIX: Use effective_season (not season_mode) so AUTO resolves correctly."""
+        season = self.coordinator.effective_season
         hass = self.coordinator.hass
 
         for room in self.coordinator.rooms:
@@ -255,6 +273,7 @@ class ControllerEngine:
                     )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Failed to set OFF fallback on %s: %s", entity_id, err)
+            await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
     # ── Room state reset ──────────────────────────────────────────────────────
 

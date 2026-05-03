@@ -49,6 +49,7 @@ from ..const import (
     DEFAULT_CO2_VENTILATION_THRESHOLD,
     DEFAULT_ROOM_WATTAGE,
     RoomState,
+    SCAN_INTERVAL_SECONDS,
 )
 
 if TYPE_CHECKING:
@@ -115,7 +116,7 @@ class WasteCalculator:
             self._last_saved_time = None
             _LOGGER.debug("WasteCalculator: reset for new day %s", today)
 
-        tick_hours = 60.0 / 3600.0
+        tick_hours = SCAN_INTERVAL_SECONDS / 3600.0
 
         for room in self.coordinator.rooms:
             room_name  = room.get("room_name", "")
