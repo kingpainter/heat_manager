@@ -42,6 +42,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     """Register all Heat Manager WebSocket commands."""
     websocket_api.async_register_command(hass, ws_get_state)
     websocket_api.async_register_command(hass, ws_get_history)
+    websocket_api.async_register_command(hass, ws_update_config)
     _LOGGER.debug("WebSocket commands registered")
 
 
@@ -192,6 +193,56 @@ async def ws_get_history(
         "events": events,
         "days":   daily,
     })
+
+
+# ── heat_manager/update_config ────────────────────────────────────────────────
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "heat_manager/update_config",
+    vol.Optional(CONF_ALARM_PANEL):   vol.Any(str, None),
+    vol.Optional(CONF_NOTIFY_SERVICE): vol.Any(str, None),
+})
+@websocket_api.async_response
+async def ws_update_config(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Update editable global config fields from the sidebar panel.
+
+    Currently supports: alarm_panel, notify_service.
+    Changes are persisted to entry.options and take effect immediately
+    (no HA restart needed) because the coordinator reads config dynamically.
+    """
+    entry = _get_entry(hass)
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "Heat Manager is not configured")
+        return
+
+    # Build updated options dict — only touch keys that were sent
+    current_options = dict(entry.options)
+    changed: list[str] = []
+
+    for key in (CONF_ALARM_PANEL, CONF_NOTIFY_SERVICE):
+        if key in msg:
+            new_val = (msg[key] or "").strip()
+            if current_options.get(key, "") != new_val:
+                current_options[key] = new_val
+                changed.append(key)
+
+    if not changed:
+        connection.send_result(msg["id"], {"updated": False, "changed": []})
+        return
+
+    hass.config_entries.async_update_entry(entry, options=current_options)
+    _LOGGER.info("Heat Manager config updated via panel: %s", changed)
+
+    coordinator = entry.runtime_data
+    coordinator.log_event(
+        f"Config updated: {', '.join(changed)}", "Panel", "normal"
+    )
+
+    connection.send_result(msg["id"], {"updated": True, "changed": changed})
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

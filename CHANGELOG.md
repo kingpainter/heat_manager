@@ -13,6 +13,20 @@ _Nothing yet._
 
 ---
 
+## [0.3.9] — 2026-05-03
+
+### Added
+- **`heat_manager/update_config` WebSocket command** — New WS endpoint that
+  persists `alarm_panel` and `notify_service` to `entry.options` without an
+  HA restart. Changes take effect immediately because the coordinator reads
+  config dynamically. Logs the change to the event log.
+- **Config tab inline editing** — Alarm panel and notify service now have
+  inline text inputs with a Gem-button in the Konfiguration tab instead of
+  read-only display. Shows a brief ✔ Gemt confirmation on success. Each
+  section includes a Danish explanation of what the field does.
+
+---
+
 ## [0.3.8] — 2026-05-03
 
 ### Fixed
@@ -295,7 +309,8 @@ _Nothing yet._
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.3.8...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.3.9...HEAD
+[0.3.9]: https://github.com/kingpainter/heat-manager/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/kingpainter/heat-manager/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/kingpainter/heat-manager/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/kingpainter/heat-manager/compare/v0.3.5...v0.3.6

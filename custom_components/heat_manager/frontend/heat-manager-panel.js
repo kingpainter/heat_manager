@@ -1123,16 +1123,14 @@ class HeatManagerPanel extends HTMLElement {
   _configTabHTML() {
     const d   = this._data?.config ?? {};
     const cfg = [
-      ["Weather entity",     d.weather_entity           ?? "–"],
-      ["Outdoor temp sensor",d.outdoor_temp_sensor      ?? "–"],
-      ["Grace dag",          d.grace_day_min   != null  ? d.grace_day_min   + " min" : "–"],
-      ["Grace nat",          d.grace_night_min != null  ? d.grace_night_min + " min" : "–"],
-      ["Away temp mildt",    d.away_temp_mild  != null  ? d.away_temp_mild  + "°C"   : "–"],
-      ["Away temp koldt",    d.away_temp_cold  != null  ? d.away_temp_cold  + "°C"   : "–"],
-      ["Auto-off grænse",    d.auto_off_temp_threshold != null ? d.auto_off_temp_threshold + "°C" : "–"],
-      ["Auto-off dage",      d.auto_off_temp_days != null ? d.auto_off_temp_days + " dage" : "–"],
-      ["Alarm panel",        d.alarm_panel     ?? "–"],
-      ["Notify service",     d.notify_service  ?? "–"],
+      ["Weather entity",      d.weather_entity           ?? "–"],
+      ["Outdoor temp sensor", d.outdoor_temp_sensor      ?? "–"],
+      ["Grace dag",           d.grace_day_min   != null  ? d.grace_day_min   + " min" : "–"],
+      ["Grace nat",           d.grace_night_min != null  ? d.grace_night_min + " min" : "–"],
+      ["Away temp mildt",     d.away_temp_mild  != null  ? d.away_temp_mild  + "°C"   : "–"],
+      ["Away temp koldt",     d.away_temp_cold  != null  ? d.away_temp_cold  + "°C"   : "–"],
+      ["Auto-off grænse",     d.auto_off_temp_threshold != null ? d.auto_off_temp_threshold + "°C" : "–"],
+      ["Auto-off dage",       d.auto_off_temp_days != null ? d.auto_off_temp_days + " dage" : "–"],
     ];
     return `
       <div class="section-box">
@@ -1143,9 +1141,54 @@ class HeatManagerPanel extends HTMLElement {
           `<div class="cfg-row"><span class="cfg-k">${k}</span><span class="cfg-v">${this._esc(v)}</span></div>`
         ).join("")}
       </div>
+
       <div class="section-box">
         <div class="section-box-header">
-          <div class="section-box-title">Rum & klimaentiteter</div>
+          <div class="section-box-title">Alarmtavle</div>
+          <div class="section-box-badge" style="background:rgba(249,115,22,0.12);color:var(--amber)">
+            ${d.alarm_panel ? 'Konfigureret' : 'Ikke sat'}
+          </div>
+        </div>
+        <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
+          Når alarmen sættes til <strong style="color:var(--text)">armeret (væk)</strong> aktiveres
+          fraværsmodus øjeblikkeligt uden grace period. Når den deaktiveres og nogen
+          er hjemme, genoptages opvarmningen automatisk.
+        </div>
+        <div class="cfg-edit-row">
+          <span class="cfg-edit-label">Entity ID</span>
+          <input class="cfg-edit-input" id="cfg-alarm-input"
+            placeholder="alarm_control_panel.mit_alarm"
+            value="${this._esc(d.alarm_panel ?? '')}">
+          <button class="cfg-save-btn" data-action="save-alarm">Gem</button>
+          <span class="cfg-save-ok" id="cfg-alarm-ok">✔ Gemt</span>
+        </div>
+      </div>
+
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Notifikationsservice</div>
+          <div class="section-box-badge" style="background:rgba(249,115,22,0.12);color:var(--amber)">
+            ${d.notify_service ? 'Konfigureret' : 'Ikke sat'}
+          </div>
+        </div>
+        <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
+          Push-notifikationer sendes ved: vindue åbnet/lukket, fraværsmodus aktiveret,
+          ankomst hjem, preheat startet og ventilbeskyttelse gennemført.<br>
+          Format: <strong style="color:var(--text)">notify.mobile_app_min_telefon</strong>
+        </div>
+        <div class="cfg-edit-row">
+          <span class="cfg-edit-label">Service</span>
+          <input class="cfg-edit-input" id="cfg-notify-input"
+            placeholder="notify.mobile_app_min_telefon"
+            value="${this._esc(d.notify_service ?? '')}">
+          <button class="cfg-save-btn" data-action="save-notify">Gem</button>
+          <span class="cfg-save-ok" id="cfg-notify-ok">✔ Gemt</span>
+        </div>
+      </div>
+
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Rum &amp; klimaentiteter</div>
         </div>
         ${(this._data?.rooms ?? []).map(r =>
           `<div class="cfg-row">
@@ -1210,6 +1253,47 @@ class HeatManagerPanel extends HTMLElement {
     root.querySelector("[data-action='dismiss-cloud-banner']")?.addEventListener("click", () => {
       this._showCloudBanner = false;
       this._scheduleRender();
+    });
+
+    // ── Config tab inline save ────────────────────────────────────────────
+    root.querySelector("[data-action='save-alarm']")?.addEventListener("click", async () => {
+      const input = root.querySelector("#cfg-alarm-input");
+      const ok    = root.querySelector("#cfg-alarm-ok");
+      const btn   = root.querySelector("[data-action='save-alarm']");
+      if (!input) return;
+      btn.disabled = true;
+      try {
+        const res = await this._hass.callWS({
+          type: "heat_manager/update_config",
+          alarm_panel: input.value.trim(),
+        });
+        if (res?.updated !== false) {
+          if (this._data?.config) this._data.config.alarm_panel = input.value.trim();
+          ok.classList.add("visible");
+          setTimeout(() => ok.classList.remove("visible"), 2500);
+        }
+      } catch(e) { console.error("Heat Manager: save alarm failed", e); }
+      btn.disabled = false;
+    });
+
+    root.querySelector("[data-action='save-notify']")?.addEventListener("click", async () => {
+      const input = root.querySelector("#cfg-notify-input");
+      const ok    = root.querySelector("#cfg-notify-ok");
+      const btn   = root.querySelector("[data-action='save-notify']");
+      if (!input) return;
+      btn.disabled = true;
+      try {
+        const res = await this._hass.callWS({
+          type: "heat_manager/update_config",
+          notify_service: input.value.trim(),
+        });
+        if (res?.updated !== false) {
+          if (this._data?.config) this._data.config.notify_service = input.value.trim();
+          ok.classList.add("visible");
+          setTimeout(() => ok.classList.remove("visible"), 2500);
+        }
+      } catch(e) { console.error("Heat Manager: save notify failed", e); }
+      btn.disabled = false;
     });
   }
 }
