@@ -118,7 +118,9 @@ class PresenceEngine:
 
         if new_state.state == "home":
             await self._handle_arrival()
-        elif new_state.state == "not_home":
+        else:
+            # Any state other than "home" (not_home, zone names like
+            # "arbejde", "skole", etc.) counts as away.
             await self._handle_departure()
 
     async def _handle_arrival(self) -> None:
