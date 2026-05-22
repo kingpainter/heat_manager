@@ -87,6 +87,7 @@ async def test_full_setup_wizard_creates_entry():
 
     flow = HeatManagerConfigFlow()
     flow.hass = hass
+    flow.context = {}
     await flow.async_step_user()  # initialise
 
     # Step 1 — global settings (no weather entity)
@@ -111,7 +112,7 @@ async def test_full_setup_wizard_creates_entry():
         CONF_WINDOW_SENSORS: [],
         "window_delay_min": 5,
         "away_temp_override": 10.0,
-        "_action": "next",
+        "_action": "done",
     })
     assert result["type"] == "form"
     assert result["step_id"] == "person"
@@ -121,7 +122,7 @@ async def test_full_setup_wizard_creates_entry():
         CONF_PERSON_ENTITY: "person.flemming",
         CONF_PERSON_TRACKING: True,
         CONF_PREHEAT_LEAD_TIME_MIN: 20,
-        "_action": "next",
+        "_action": "done",
     })
     assert result["type"] == "form"
     assert result["step_id"] == "presence_global"
@@ -154,6 +155,7 @@ async def test_multiple_rooms_and_persons():
     })
     flow = HeatManagerConfigFlow()
     flow.hass = hass
+    flow.context = {}
     await flow.async_step_user()
 
     await flow.async_step_user(user_input={
@@ -167,24 +169,24 @@ async def test_multiple_rooms_and_persons():
     await flow.async_step_room(user_input={
         CONF_ROOM_NAME: "Kitchen", CONF_CLIMATE_ENTITY: "climate.kitchen",
         CONF_WINDOW_SENSORS: [], "window_delay_min": 5, "away_temp_override": 10,
-        "_action": "add",
+        "_action": "add_more",
     })
     # Room 2 — move on
     await flow.async_step_room(user_input={
         CONF_ROOM_NAME: "Bedroom", CONF_CLIMATE_ENTITY: "climate.bedroom",
         CONF_WINDOW_SENSORS: [], "window_delay_min": 5, "away_temp_override": 10,
-        "_action": "next",
+        "_action": "done",
     })
 
     # Person 1 — add another
     await flow.async_step_person(user_input={
         CONF_PERSON_ENTITY: "person.flemming", CONF_PERSON_TRACKING: True,
-        CONF_PREHEAT_LEAD_TIME_MIN: 20, "_action": "add",
+        CONF_PREHEAT_LEAD_TIME_MIN: 20, "_action": "add_more",
     })
     # Person 2 — move on
     await flow.async_step_person(user_input={
         CONF_PERSON_ENTITY: "person.lukas", CONF_PERSON_TRACKING: True,
-        CONF_PREHEAT_LEAD_TIME_MIN: 20, "_action": "next",
+        CONF_PREHEAT_LEAD_TIME_MIN: 20, "_action": "done",
     })
 
     await flow.async_step_presence_global(user_input={"alarm_panel": ""})
@@ -207,8 +209,7 @@ async def test_abort_if_already_configured():
 
     flow = HeatManagerConfigFlow()
     flow.hass = hass
-
-    # Simulate unique_id already set
+    flow.context = {}
     flow._async_current_entries = MagicMock(return_value=[existing])
 
     with patch.object(flow, "_abort_if_unique_id_configured",
@@ -227,6 +228,7 @@ async def test_step_user_invalid_weather_entity():
     hass = _make_hass()  # no entities registered
     flow = HeatManagerConfigFlow()
     flow.hass = hass
+    flow.context = {}
     await flow.async_step_user()
 
     result = await flow.async_step_user(user_input={
@@ -305,7 +307,7 @@ async def test_step_room_no_rooms_on_next():
         CONF_WINDOW_SENSORS: [],
         "window_delay_min": 5,
         "away_temp_override": 10,
-        "_action": "next",
+        "_action": "done",
     })
     assert result["type"] == "form"
     assert result["step_id"] == "room"
@@ -446,7 +448,7 @@ async def test_options_flow_delete_room():
     await flow.async_step_init(user_input={"section": "rooms"})
 
     # Select Kitchen for deletion
-    result = await flow.async_step_rooms_menu(user_input={"action": "delete_Kitchen"})
+    result = await flow.async_step_rooms_menu(user_input={"action": "delete:Kitchen"})
     assert result["type"] == "create_entry"
     rooms = result["data"][CONF_ROOMS]
     assert len(rooms) == 1
@@ -489,7 +491,7 @@ async def test_options_flow_delete_person():
 
     await flow.async_step_init(user_input={"section": "persons"})
     result = await flow.async_step_persons_menu(
-        user_input={"action": "delete_person.flemming"}
+        user_input={"action": "delete:person.flemming"}
     )
     assert result["type"] == "create_entry"
     persons = result["data"][CONF_PERSONS]
