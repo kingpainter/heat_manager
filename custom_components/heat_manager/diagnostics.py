@@ -15,7 +15,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_NOTIFY_SERVICE, CONF_PERSONS, CONF_ROOMS, DOMAIN
+from .const import CONF_NOTIFY_SERVICE
 
 
 async def async_get_config_entry_diagnostics(

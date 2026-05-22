@@ -13,6 +13,7 @@ v0.4.2: _get_entry() uses entry.runtime_data exclusively — no hass.data lookup
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -84,10 +85,8 @@ async def ws_get_state(
             if cs:
                 raw = cs.attributes.get("heating_power_request")
                 if raw is not None:
-                    try:
+                    with contextlib.suppress(TypeError, ValueError):
                         heating_power = float(raw)
-                    except (TypeError, ValueError):
-                        pass
 
         windows_open = any(
             (s := hass.states.get(sid)) is not None and s.state == "on"

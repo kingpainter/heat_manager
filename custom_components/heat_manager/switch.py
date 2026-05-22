@@ -18,7 +18,6 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import (
     CONF_CLIMATE_ENTITY,
     CONF_TRV_TYPE,
-    HVAC_OFF,
     PRESET_SCHEDULE,
     RoomState,
     TRV_TYPE_ZIGBEE,

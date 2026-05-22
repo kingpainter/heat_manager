@@ -24,7 +24,6 @@ from homeassistant.util.dt import utcnow
 
 from ..const import (
     CONF_AWAY_TEMP_OVERRIDE,
-    CONF_CLIMATE_ENTITY,
     CONF_NOTIFY_WINDOWS,
     CONF_TRV_TYPE,
     CONF_WINDOW_DELAY_MIN,

@@ -51,6 +51,7 @@ def make_coordinator(
     coord.hass.states.get = MagicMock(return_value=cs)
     coord.hass.services.async_call = AsyncMock()
     coord.night_setback_delta = MagicMock(return_value=0.0)
+    coord.get_room_current_temp = MagicMock(return_value=current_temp)
     return coord
 
 
