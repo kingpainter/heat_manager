@@ -11,6 +11,7 @@ v0.2.9: CO₂-aware notifications.
   brief contextual label so the user immediately understands whether the
   open window is doing useful work or just losing heat.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,9 +35,9 @@ from ..const import (
     DEFAULT_WINDOW_DELAY_WIND_MIN,
     DEFAULT_WINDOW_WARNING_MIN,
     PRESET_SCHEDULE,
-    RoomState,
     TRV_TYPE_ZIGBEE,
     WIND_FAST_MS,
+    RoomState,
 )
 from .controller import guarded
 from .pid_controller import PidController
@@ -62,7 +63,7 @@ class WindowEngine:
         self.coordinator = coordinator
         self._window_opened_at: dict[str, datetime] = {}
         self._warning_sent: dict[str, bool] = {}
-        self._open_tasks:  dict[str, asyncio.Task] = {}  # type: ignore[type-arg]
+        self._open_tasks: dict[str, asyncio.Task] = {}  # type: ignore[type-arg]
         self._close_tasks: dict[str, asyncio.Task] = {}  # type: ignore[type-arg]
         self._sensor_to_room: dict[str, str] = {}
         self._sensor_to_away_temp: dict[str, float] = {}
@@ -75,7 +76,7 @@ class WindowEngine:
             room_name = room.get("room_name", "")
             away_temp = float(room.get(CONF_AWAY_TEMP_OVERRIDE, 10.0))
             for sensor in room.get(CONF_WINDOW_SENSORS, []):
-                self._sensor_to_room[sensor]      = room_name
+                self._sensor_to_room[sensor] = room_name
                 self._sensor_to_away_temp[sensor] = away_temp
         _LOGGER.debug("Window engine tracking %d sensor(s)", len(self._sensor_to_room))
 
@@ -125,7 +126,9 @@ class WindowEngine:
         )
 
     @guarded
-    async def _open_after_delay(self, sensor_id: str, room_name: str, delay_min: int) -> None:
+    async def _open_after_delay(
+        self, sensor_id: str, room_name: str, delay_min: int
+    ) -> None:
         try:
             await asyncio.sleep(delay_min * 60)
         except asyncio.CancelledError:
@@ -135,7 +138,7 @@ class WindowEngine:
         if not state or state.state != "on":
             return
 
-        away_temp  = self._sensor_to_away_temp.get(sensor_id, 10.0)
+        away_temp = self._sensor_to_away_temp.get(sensor_id, 10.0)
         climate_id = self.coordinator.get_climate_entity(room_name)
         if not climate_id:
             _LOGGER.warning("No climate entity for room '%s'", room_name)
@@ -147,7 +150,8 @@ class WindowEngine:
         try:
             target_temp = self._window_open_setpoint(room_name, climate_id, away_temp)
             await self.coordinator.hass.services.async_call(
-                "climate", "set_temperature",
+                "climate",
+                "set_temperature",
                 {"entity_id": write_id, "temperature": target_temp},
                 blocking=True,
             )
@@ -156,17 +160,19 @@ class WindowEngine:
                 pid.reset()
             self.coordinator.set_room_state(room_name, RoomState.WINDOW_OPEN)
             self._window_opened_at[room_name] = utcnow()
-            self._warning_sent[room_name]     = False
+            self._warning_sent[room_name] = False
 
             # ── CO₂-aware open notification ───────────────────────────────
-            co2_ppm   = self.coordinator.get_room_co2(room_name)
+            co2_ppm = self.coordinator.get_room_co2(room_name)
             co2_label = self._co2_context_label(co2_ppm, room_name)
-            log_msg   = f"Window open in {room_name} — heating to {target_temp:.0f}°C (via {'HomeKit' if write_id != climate_id else 'cloud'})"
+            log_msg = f"Window open in {room_name} — heating to {target_temp:.0f}°C (via {'HomeKit' if write_id != climate_id else 'cloud'})"
             notif_msg = (
                 f"Window open — {room_name} set to {target_temp:.0f}°C{co2_label}"
             )
 
-            _LOGGER.info("%s%s", log_msg, f"  CO₂: {co2_ppm:.0f} ppm" if co2_ppm else "")
+            _LOGGER.info(
+                "%s%s", log_msg, f"  CO₂: {co2_ppm:.0f} ppm" if co2_ppm else ""
+            )
             self.coordinator.log_event(log_msg, "Window", "window_open")
 
             if self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
@@ -181,12 +187,16 @@ class WindowEngine:
         self._cancel_task(self._open_tasks, room_name)
         self._cancel_task(self._close_tasks, room_name)
         self._close_tasks[room_name] = self.coordinator.hass.async_create_task(
-            self._close_after_delay(sensor_id, room_name, DEFAULT_WINDOW_CLOSE_DELAY_MIN),
+            self._close_after_delay(
+                sensor_id, room_name, DEFAULT_WINDOW_CLOSE_DELAY_MIN
+            ),
             name=f"heat_manager_close_delay_{room_name}",
         )
 
     @guarded
-    async def _close_after_delay(self, sensor_id: str, room_name: str, delay_min: int) -> None:
+    async def _close_after_delay(
+        self, sensor_id: str, room_name: str, delay_min: int
+    ) -> None:
         """B3 FIX: Only restore to schedule if someone is home."""
         try:
             await asyncio.sleep(delay_min * 60)
@@ -201,10 +211,13 @@ class WindowEngine:
         self._warning_sent.pop(room_name, None)
 
         if not self.coordinator.someone_home():
-            _LOGGER.info("Window closed in '%s' but nobody home — leaving AWAY", room_name)
+            _LOGGER.info(
+                "Window closed in '%s' but nobody home — leaving AWAY", room_name
+            )
             self.coordinator.log_event(
                 f"Window closed in {room_name} — nobody home, staying away",
-                "Window", "away",
+                "Window",
+                "away",
             )
             self.coordinator.set_room_state(room_name, RoomState.AWAY)
             return
@@ -222,20 +235,22 @@ class WindowEngine:
         try:
             if trv_type == TRV_TYPE_ZIGBEE:
                 await self.coordinator.hass.services.async_call(
-                    "climate", "set_hvac_mode",
+                    "climate",
+                    "set_hvac_mode",
                     {"entity_id": climate_id, "hvac_mode": "heat"},
                     blocking=True,
                 )
             else:
                 await self.coordinator.hass.services.async_call(
-                    "climate", "set_preset_mode",
+                    "climate",
+                    "set_preset_mode",
                     {"entity_id": climate_id, "preset_mode": PRESET_SCHEDULE},
                     blocking=True,
                 )
             self.coordinator.set_room_state(room_name, RoomState.NORMAL)
 
             # ── CO₂-aware close notification ──────────────────────────────
-            co2_ppm   = self.coordinator.get_room_co2(room_name)
+            co2_ppm = self.coordinator.get_room_co2(room_name)
             co2_label = self._co2_context_label(co2_ppm, room_name)
             notif_msg = f"Window closed — {room_name} heating resumed{co2_label}"
 
@@ -253,7 +268,11 @@ class WindowEngine:
         if not self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
             return
 
-        threshold = int(self.coordinator.config.get("window_warning_min", DEFAULT_WINDOW_WARNING_MIN))
+        threshold = int(
+            self.coordinator.config.get(
+                "window_warning_min", DEFAULT_WINDOW_WARNING_MIN
+            )
+        )
         now = utcnow()
 
         for room_name, opened_at in list(self._window_opened_at.items()):
@@ -261,10 +280,10 @@ class WindowEngine:
                 continue
             minutes_open = int((now - opened_at).total_seconds() / 60)
             if minutes_open >= threshold:
-                co2_ppm   = self.coordinator.get_room_co2(room_name)
+                co2_ppm = self.coordinator.get_room_co2(room_name)
                 co2_label = self._co2_context_label(co2_ppm, room_name)
 
-                log_msg   = f"Window open {minutes_open} min in {room_name}"
+                log_msg = f"Window open {minutes_open} min in {room_name}"
                 notif_msg = (
                     f"Window still open in {room_name} ({minutes_open} min)"
                     f" — heating suppressed{co2_label}"
@@ -272,7 +291,8 @@ class WindowEngine:
 
                 _LOGGER.info(
                     "Window in '%s' open %d min%s — sending warning",
-                    room_name, minutes_open,
+                    room_name,
+                    minutes_open,
                     f"  CO₂: {co2_ppm:.0f} ppm" if co2_ppm else "",
                 )
                 self.coordinator.log_event(log_msg, "30-min warning", "window_open")
@@ -329,7 +349,8 @@ class WindowEngine:
             return
         try:
             await self.coordinator.hass.services.async_call(
-                domain, service_name,
+                domain,
+                service_name,
                 {"message": message, "title": "Heat Manager"},
                 blocking=True,
             )
@@ -367,19 +388,25 @@ class WindowEngine:
         configured = DEFAULT_WINDOW_DELAY_MIN
         for room in self.coordinator.rooms:
             if room.get("room_name") == room_name:
-                configured = int(room.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN))
+                configured = int(
+                    room.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)
+                )
                 break
 
         wind = self.coordinator.get_wind_speed()
         if wind is not None and wind >= WIND_FAST_MS:
             _LOGGER.debug(
                 "Window delay reduced to %d min (wind %.1f m/s ≥ %.1f)",
-                DEFAULT_WINDOW_DELAY_WIND_MIN, wind, WIND_FAST_MS,
+                DEFAULT_WINDOW_DELAY_WIND_MIN,
+                wind,
+                WIND_FAST_MS,
             )
             return DEFAULT_WINDOW_DELAY_WIND_MIN
 
         if self.coordinator.is_raining():
-            _LOGGER.debug("Window delay reduced to %d min (rain)", DEFAULT_WINDOW_DELAY_WIND_MIN)
+            _LOGGER.debug(
+                "Window delay reduced to %d min (rain)", DEFAULT_WINDOW_DELAY_WIND_MIN
+            )
             return DEFAULT_WINDOW_DELAY_WIND_MIN
 
         return configured

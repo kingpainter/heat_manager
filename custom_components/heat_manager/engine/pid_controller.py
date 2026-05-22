@@ -43,6 +43,7 @@ stores them in ``entry.options`` under keys defined in const.py.
 This engine has **no Home Assistant imports** — it is fully testable
 offline with plain pytest.
 """
+
 from __future__ import annotations
 
 import logging
@@ -141,8 +142,14 @@ class PidController:
 
         _LOGGER.debug(
             "PID[%s] sp=%.1f cur=%.1f err=%.2f  P=%.3f I=%.3f D=%.3f → %.3f",
-            self.room_name, setpoint, current, error,
-            p_term, i_term, d_term, output,
+            self.room_name,
+            setpoint,
+            current,
+            error,
+            p_term,
+            i_term,
+            d_term,
+            output,
         )
 
         self._last_output = output

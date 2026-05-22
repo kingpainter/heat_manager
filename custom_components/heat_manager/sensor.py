@@ -15,6 +15,7 @@ Gold IQS:
 - log-when-unavailable: single WARNING when climate unavailable, INFO on recovery
 - entity-unavailable: unavailable climate → unavailable per-room state sensor
 """
+
 from __future__ import annotations
 
 import logging
@@ -72,6 +73,7 @@ async def async_setup_entry(
 
 # ── Global sensors ────────────────────────────────────────────────────────────
 
+
 class PauseRemainingSensor(CoordinatorEntity, SensorEntity):
     """Minutes remaining in the current pause. 0 when not paused."""
 
@@ -81,7 +83,9 @@ class PauseRemainingSensor(CoordinatorEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False  # off by default — only needed for debugging
+    _attr_entity_registry_enabled_default = (
+        False  # off by default — only needed for debugging
+    )
 
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -167,6 +171,7 @@ class EfficiencyScoreSensor(CoordinatorEntity, SensorEntity):
 
 # ── Per-room sensors ──────────────────────────────────────────────────────────
 
+
 class RoomStateSensor(CoordinatorEntity, SensorEntity):
     """
     Current state of a single room.
@@ -186,7 +191,7 @@ class RoomStateSensor(CoordinatorEntity, SensorEntity):
         room: dict,
     ) -> None:
         super().__init__(coordinator)
-        self._room_name  = room["room_name"]
+        self._room_name = room["room_name"]
         self._climate_id = room.get(CONF_CLIMATE_ENTITY, "")
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_state"
@@ -218,13 +223,15 @@ class RoomStateSensor(CoordinatorEntity, SensorEntity):
             _LOGGER.warning(
                 "Heat Manager: climate entity %s is unavailable — "
                 "%s state sensor marked unavailable",
-                self._climate_id, self._room_name,
+                self._climate_id,
+                self._room_name,
             )
         elif not is_unavailable and self._was_unavailable:
             _LOGGER.info(
                 "Heat Manager: climate entity %s recovered — "
                 "%s state sensor available again",
-                self._climate_id, self._room_name,
+                self._climate_id,
+                self._room_name,
             )
         self._was_unavailable = is_unavailable
         super()._handle_coordinator_update()
@@ -263,15 +270,17 @@ class RoomWindowDurationSensor(CoordinatorEntity, SensorEntity):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        is_open = self.coordinator.get_room_state(self._room_name) == RoomState.WINDOW_OPEN
+        is_open = (
+            self.coordinator.get_room_state(self._room_name) == RoomState.WINDOW_OPEN
+        )
         now = utcnow()
 
         # S-6 FIX: use date() not day-of-month integer to avoid false resets
         today = now.date()
         if today != self._last_reset_date:
-            self._total_minutes   = 0
-            self._was_open        = False
-            self._opened_at       = None
+            self._total_minutes = 0
+            self._was_open = False
+            self._opened_at = None
             self._last_reset_date = today
 
         if is_open and not self._was_open:
@@ -331,9 +340,9 @@ class RoomPidPowerSensor(CoordinatorEntity, SensorEntity):
         if pid is None:
             return {"room_name": self._room_name}
         return {
-            "room_name":    self._room_name,
-            "pid_kp":       getattr(pid, "kp", None),
-            "pid_ki":       getattr(pid, "ki", None),
-            "pid_kd":       getattr(pid, "kd", None),
-            "integral":     round(getattr(pid, "_integral", 0.0), 4),
+            "room_name": self._room_name,
+            "pid_kp": getattr(pid, "kp", None),
+            "pid_ki": getattr(pid, "ki", None),
+            "pid_kd": getattr(pid, "kd", None),
+            "integral": round(getattr(pid, "_integral", 0.0), 4),
         }

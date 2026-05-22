@@ -9,26 +9,28 @@ FIX: async_tick no longer holds _lock while calling private methods.
      self._state — not for the full await chain. This prevents the lock
      being held across awaits which could block manual transitions.
 """
+
 from __future__ import annotations
 
 import asyncio
 import functools
 import logging
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from homeassistant.util.dt import utcnow
 
 from ..const import (
-    AutoOffReason,
-    ControllerState,
-    SeasonMode,
     DEFAULT_AUTO_OFF_TEMP_DAYS,
     DEFAULT_AUTO_OFF_TEMP_THRESHOLD,
     DEFAULT_PAUSE_DURATION_MIN,
     HVAC_OFF,
     NETATMO_API_CALL_DELAY_SEC,
     PRESET_SCHEDULE,
+    AutoOffReason,
+    ControllerState,
+    SeasonMode,
 )
 
 if TYPE_CHECKING:
@@ -42,6 +44,7 @@ def guarded(func: Callable) -> Callable:
     Decorator for engine handler methods.
     Skips execution silently when the controller is OFF or PAUSED.
     """
+
     @functools.wraps(func)
     async def wrapper(self, *args, **kwargs):  # type: ignore[no-untyped-def]
         coordinator: HeatManagerCoordinator = getattr(self, "coordinator", None)
@@ -55,6 +58,7 @@ def guarded(func: Callable) -> Callable:
             _LOGGER.debug("Guard blocked %s — controller is PAUSED", func.__name__)
             return
         return await func(self, *args, **kwargs)
+
     return wrapper
 
 
@@ -97,9 +101,13 @@ class ControllerEngine:
             old_state = self._state
             if new_state == old_state:
                 return
-            _LOGGER.info("Controller state: %s → %s (manual)", old_state.value, new_state.value)
+            _LOGGER.info(
+                "Controller state: %s → %s (manual)", old_state.value, new_state.value
+            )
             if new_state == ControllerState.PAUSE:
-                duration = self.coordinator.config.get("pause_duration_min", DEFAULT_PAUSE_DURATION_MIN)
+                duration = self.coordinator.config.get(
+                    "pause_duration_min", DEFAULT_PAUSE_DURATION_MIN
+                )
                 self._pause_until = utcnow() + timedelta(minutes=duration)
                 _LOGGER.info("Paused for %d min until %s", duration, self._pause_until)
             elif new_state == ControllerState.ON:
@@ -217,12 +225,16 @@ class ControllerEngine:
         begins at 0 again — correct safe default: we need N days of confirmed
         high temp, not partial evidence from before the restart.
         """
-        threshold     = float(self.coordinator.config.get(
-            "auto_off_temp_threshold", DEFAULT_AUTO_OFF_TEMP_THRESHOLD
-        ))
-        days_required = int(self.coordinator.config.get(
-            "auto_off_temp_days", DEFAULT_AUTO_OFF_TEMP_DAYS
-        ))
+        threshold = float(
+            self.coordinator.config.get(
+                "auto_off_temp_threshold", DEFAULT_AUTO_OFF_TEMP_THRESHOLD
+            )
+        )
+        days_required = int(
+            self.coordinator.config.get(
+                "auto_off_temp_days", DEFAULT_AUTO_OFF_TEMP_DAYS
+            )
+        )
 
         current_temp = self.coordinator.outdoor_temperature
         if current_temp is None:
@@ -235,13 +247,17 @@ class ControllerEngine:
                 self._days_above_high += 1
                 _LOGGER.debug(
                     "ControllerEngine: %.1f°C > %.1f°C — day %d/%d above threshold",
-                    current_temp, threshold, self._days_above_high, days_required,
+                    current_temp,
+                    threshold,
+                    self._days_above_high,
+                    days_required,
                 )
             else:
                 if self._days_above_high > 0:
                     _LOGGER.debug(
                         "ControllerEngine: %.1f°C ≤ threshold — resetting counter (was %d)",
-                        current_temp, self._days_above_high,
+                        current_temp,
+                        self._days_above_high,
                     )
                 self._days_above_high = 0
 
@@ -262,8 +278,8 @@ class ControllerEngine:
         hass = self.coordinator.hass
 
         for room in self.coordinator.rooms:
-            room_name  = room.get("room_name", "")
-            cloud_id   = room.get("climate_entity", "")
+            room_name = room.get("room_name", "")
+            cloud_id = room.get("climate_entity", "")
             if not cloud_id:
                 continue
             try:
@@ -271,14 +287,16 @@ class ControllerEngine:
                     # H-5: prefer HomeKit for local hvac_mode: off
                     write_id = self.coordinator.get_write_entity(room_name) or cloud_id
                     await hass.services.async_call(
-                        "climate", "set_hvac_mode",
+                        "climate",
+                        "set_hvac_mode",
                         {"entity_id": write_id, "hvac_mode": HVAC_OFF},
                         blocking=True,
                     )
                 else:
                     # preset_mode: schedule must go to cloud — not supported via HomeKit
                     await hass.services.async_call(
-                        "climate", "set_preset_mode",
+                        "climate",
+                        "set_preset_mode",
                         {"entity_id": cloud_id, "preset_mode": PRESET_SCHEDULE},
                         blocking=True,
                     )

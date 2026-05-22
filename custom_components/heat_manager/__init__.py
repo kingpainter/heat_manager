@@ -1,15 +1,20 @@
 """Heat Manager — Integration setup."""
+
 from __future__ import annotations
 
 import logging
 
-from homeassistant.helpers.issue_registry import IssueSeverity, async_create_issue, async_delete_issue
+import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
-import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
+from homeassistant.helpers.issue_registry import (
+    IssueSeverity,
+    async_create_issue,
+    async_delete_issue,
+)
 
 from .const import (
     CONF_ROOMS,
@@ -26,7 +31,11 @@ from .const import (
     ControllerState,
 )
 from .coordinator import HeatManagerCoordinator
-from .panel import async_register_panel, async_register_static_paths, async_unregister_panel
+from .panel import (
+    async_register_panel,
+    async_register_static_paths,
+    async_unregister_panel,
+)
 from .websocket import async_register_websocket_commands
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,8 +71,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     rooms = entry.data.get(CONF_ROOMS, [])
     if rooms:
         reachable = [
-            r for r in rooms
-            if hass.states.get(r.get("climate_entity", "")) is not None
+            r for r in rooms if hass.states.get(r.get("climate_entity", "")) is not None
         ]
         if not reachable:
             raise ConfigEntryNotReady(
@@ -109,7 +117,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if room_name:
                 safe = room_name.lower().replace(" ", "_")
                 async_delete_issue(
-                    hass, DOMAIN,
+                    hass,
+                    DOMAIN,
                     f"{REPAIR_ISSUE_MISSING_CLIMATE}_{safe}_{entry.entry_id[:8]}",
                 )
     return unload_ok
@@ -128,18 +137,20 @@ def _async_check_repair_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """
     rooms = {**entry.data, **entry.options}.get(CONF_ROOMS, [])
     for room in rooms:
-        room_name  = room.get("room_name", "")
+        room_name = room.get("room_name", "")
         climate_id = room.get("climate_entity", "")
         if not room_name or not climate_id:
             continue
-        safe     = room_name.lower().replace(" ", "_")
+        safe = room_name.lower().replace(" ", "_")
         issue_id = f"{REPAIR_ISSUE_MISSING_CLIMATE}_{safe}_{entry.entry_id[:8]}"
 
         if hass.states.get(climate_id) is None:
             _LOGGER.warning(
                 "Heat Manager: climate entity '%s' (room '%s') not found in HA —"
                 " raised RepairIssue '%s'",
-                climate_id, room_name, issue_id,
+                climate_id,
+                room_name,
+                issue_id,
             )
             async_create_issue(
                 hass,
@@ -149,7 +160,7 @@ def _async_check_repair_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
                 severity=IssueSeverity.WARNING,
                 translation_key=REPAIR_ISSUE_MISSING_CLIMATE,
                 translation_placeholders={
-                    "room_name":  room_name,
+                    "room_name": room_name,
                     "climate_id": climate_id,
                 },
             )
@@ -174,9 +185,7 @@ def _async_remove_stale_devices(hass: HomeAssistant, entry: ConfigEntry) -> None
         room_name = room.get("room_name", "")
         if room_name:
             safe = room_name.lower().replace(" ", "_")
-            valid_identifiers.add(
-                frozenset([(DOMAIN, f"{entry.entry_id}_{safe}")])
-            )
+            valid_identifiers.add(frozenset([(DOMAIN, f"{entry.entry_id}_{safe}")]))
     # Always keep the global device
     valid_identifiers.add(frozenset([(DOMAIN, entry.entry_id)]))
 
@@ -190,7 +199,9 @@ def _async_remove_stale_devices(hass: HomeAssistant, entry: ConfigEntry) -> None
             dev_reg.async_remove_device(device.id)
 
 
-def _register_services(hass: HomeAssistant, coordinator: HeatManagerCoordinator) -> None:
+def _register_services(
+    hass: HomeAssistant, coordinator: HeatManagerCoordinator
+) -> None:
     async def handle_set_controller_state(call: ServiceCall) -> None:
         state_str = call.data["state"]
         try:
@@ -221,21 +232,32 @@ def _register_services(hass: HomeAssistant, coordinator: HeatManagerCoordinator)
         await coordinator.presence_engine.force_room_on(room_name)
 
     hass.services.async_register(
-        DOMAIN, SERVICE_SET_CONTROLLER_STATE, handle_set_controller_state,
+        DOMAIN,
+        SERVICE_SET_CONTROLLER_STATE,
+        handle_set_controller_state,
         schema=vol.Schema({vol.Required("state"): vol.In(CONTROLLER_STATE_OPTIONS)}),
     )
     hass.services.async_register(
-        DOMAIN, SERVICE_PAUSE, handle_pause,
-        schema=vol.Schema({
-            vol.Optional("duration_minutes", default=DEFAULT_PAUSE_DURATION_MIN):
-                vol.All(vol.Coerce(int), vol.Range(min=1, max=480)),
-        }),
+        DOMAIN,
+        SERVICE_PAUSE,
+        handle_pause,
+        schema=vol.Schema(
+            {
+                vol.Optional(
+                    "duration_minutes", default=DEFAULT_PAUSE_DURATION_MIN
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=480)),
+            }
+        ),
     )
     hass.services.async_register(
-        DOMAIN, SERVICE_RESUME, handle_resume,
+        DOMAIN,
+        SERVICE_RESUME,
+        handle_resume,
         schema=vol.Schema({}),
     )
     hass.services.async_register(
-        DOMAIN, SERVICE_FORCE_ROOM_ON, handle_force_room_on,
+        DOMAIN,
+        SERVICE_FORCE_ROOM_ON,
+        handle_force_room_on,
         schema=vol.Schema({vol.Required("room_name"): cv.string}),
     )

@@ -7,6 +7,7 @@ FIX B-429-RESTORE-RACE: _restore_lock serialises concurrent restore callers.
 FIX B-LOG-RESTORE-SPAM: per-room NORMAL idempotency skips redundant API calls
   and prevents repeated WARNING log entries.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -40,8 +41,8 @@ from ..const import (
     NETATMO_API_CALL_DELAY_SEC,
     PRESET_AWAY,
     PRESET_SCHEDULE,
-    RoomState,
     TRV_TYPE_ZIGBEE,
+    RoomState,
 )
 from .controller import guarded
 
@@ -92,9 +93,7 @@ class PresenceEngine:
         alarm = self.coordinator.alarm_panel
         if alarm:
             self._unsubs.append(
-                async_track_state_change_event(
-                    hass, [alarm], self._handle_alarm_change
-                )
+                async_track_state_change_event(hass, [alarm], self._handle_alarm_change)
             )
             _LOGGER.debug("Tracking alarm panel: %s", alarm)
 
@@ -237,7 +236,8 @@ class PresenceEngine:
                     continue
                 try:
                     await hass.services.async_call(
-                        "climate", "set_hvac_mode",
+                        "climate",
+                        "set_hvac_mode",
                         {"entity_id": entity_id, "hvac_mode": HVAC_OFF},
                         blocking=True,
                     )
@@ -246,14 +246,17 @@ class PresenceEngine:
                         f"Away mode — {room_name} (hvac_mode: off)", "Presence", "away"
                     )
                 except Exception as err:  # noqa: BLE001
-                    _LOGGER.warning("Failed to set away (Z2M) on %s: %s", entity_id, err)
+                    _LOGGER.warning(
+                        "Failed to set away (Z2M) on %s: %s", entity_id, err
+                    )
             else:
                 # Netatmo: preset_mode: away — must go to cloud entity
                 if state and state.attributes.get("preset_mode") == PRESET_AWAY:
                     continue
                 try:
                     await hass.services.async_call(
-                        "climate", "set_preset_mode",
+                        "climate",
+                        "set_preset_mode",
                         {"entity_id": entity_id, "preset_mode": PRESET_AWAY},
                         blocking=True,
                     )
@@ -291,7 +294,9 @@ class PresenceEngine:
         would otherwise attempt (and fail with 429) on rooms already restored.
         """
         if self._restore_lock.locked():
-            _LOGGER.debug("_restore_all_schedule: skipping — restore already in progress")
+            _LOGGER.debug(
+                "_restore_all_schedule: skipping — restore already in progress"
+            )
             return
         async with self._restore_lock:
             hass = self.coordinator.hass
@@ -305,26 +310,32 @@ class PresenceEngine:
                     continue
                 # Idempotency: skip rooms already in normal heating state.
                 if self.coordinator.get_room_state(room_name) == RoomState.NORMAL:
-                    _LOGGER.debug("_restore_all_schedule: %s already NORMAL — skipping", room_name)
+                    _LOGGER.debug(
+                        "_restore_all_schedule: %s already NORMAL — skipping", room_name
+                    )
                     continue
                 trv_type = room.get(CONF_TRV_TYPE, "netatmo")
                 try:
                     if trv_type == TRV_TYPE_ZIGBEE:
                         await hass.services.async_call(
-                            "climate", "set_hvac_mode",
+                            "climate",
+                            "set_hvac_mode",
                             {"entity_id": entity_id, "hvac_mode": "heat"},
                             blocking=True,
                         )
                     else:
                         await hass.services.async_call(
-                            "climate", "set_preset_mode",
+                            "climate",
+                            "set_preset_mode",
                             {"entity_id": entity_id, "preset_mode": PRESET_SCHEDULE},
                             blocking=True,
                         )
                     self.coordinator.set_room_state(room_name, RoomState.NORMAL)
                     any_restored = True
                 except Exception as err:  # noqa: BLE001
-                    _LOGGER.warning("Failed to restore schedule on %s: %s", entity_id, err)
+                    _LOGGER.warning(
+                        "Failed to restore schedule on %s: %s", entity_id, err
+                    )
                 # H-6: preset_mode/hvac_mode to cloud needs stagger; HomeKit doesn't
                 # For restore we always write to the cloud entity (preset_mode),
                 # so delay always applies for Netatmo rooms.
@@ -332,9 +343,13 @@ class PresenceEngine:
                     await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
             if any_restored:
-                self.coordinator.log_event("Heating resumed — welcome home", "Presence", "normal")
+                self.coordinator.log_event(
+                    "Heating resumed — welcome home", "Presence", "normal"
+                )
                 if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
-                    await self._notify(title="Heat Manager", message="Heating resumed — welcome home.")
+                    await self._notify(
+                        title="Heat Manager", message="Heating resumed — welcome home."
+                    )
 
     @guarded
     async def force_room_on(self, room_name: str) -> None:
@@ -354,21 +369,29 @@ class PresenceEngine:
         try:
             if trv_type == TRV_TYPE_ZIGBEE:
                 await self.coordinator.hass.services.async_call(
-                    "climate", "set_hvac_mode",
+                    "climate",
+                    "set_hvac_mode",
                     {"entity_id": entity_id, "hvac_mode": "heat"},
                     blocking=True,
                 )
             else:
                 await self.coordinator.hass.services.async_call(
-                    "climate", "set_preset_mode",
+                    "climate",
+                    "set_preset_mode",
                     {"entity_id": entity_id, "preset_mode": PRESET_SCHEDULE},
                     blocking=True,
                 )
             self.coordinator.set_room_state(room_name, RoomState.NORMAL)
             _LOGGER.info("Force-on: %s → heating (%s)", entity_id, trv_type)
-            window_warn = " (windows still open — may be costly!)" if self.coordinator.any_window_open() else ""
+            window_warn = (
+                " (windows still open — may be costly!)"
+                if self.coordinator.any_window_open()
+                else ""
+            )
             self.coordinator.log_event(
-                f"Heating forced on for {room_name}{window_warn}", "Override", "override"
+                f"Heating forced on for {room_name}{window_warn}",
+                "Override",
+                "override",
             )
             await self._notify(
                 title="Heat Manager",
@@ -387,12 +410,14 @@ class PresenceEngine:
             message="Heating not resumed — one or more windows are open.",
             actions=[
                 {"action": ACTION_FORCE_HEATING_ON, "title": "Heat anyway"},
-                {"action": ACTION_VIEW_WINDOWS,      "title": "Show open windows"},
-                {"action": ACTION_DISMISS,           "title": "OK"},
+                {"action": ACTION_VIEW_WINDOWS, "title": "Show open windows"},
+                {"action": ACTION_DISMISS, "title": "OK"},
             ],
         )
 
-    async def _notify(self, title: str, message: str, actions: list[dict] | None = None) -> None:
+    async def _notify(
+        self, title: str, message: str, actions: list[dict] | None = None
+    ) -> None:
         service = self.coordinator.config.get(CONF_NOTIFY_SERVICE, "")
         if not service:
             return
@@ -414,10 +439,14 @@ class PresenceEngine:
 
     def _grace_period_minutes(self) -> int:
         hour = utcnow().hour
-        night_start = self.coordinator.config.get(CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR)
-        night_end   = self.coordinator.config.get(CONF_NIGHT_END_HOUR,   DEFAULT_NIGHT_END_HOUR)
-        is_night    = hour >= night_start or hour < night_end
-        key     = CONF_GRACE_NIGHT_MIN if is_night else CONF_GRACE_DAY_MIN
+        night_start = self.coordinator.config.get(
+            CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR
+        )
+        night_end = self.coordinator.config.get(
+            CONF_NIGHT_END_HOUR, DEFAULT_NIGHT_END_HOUR
+        )
+        is_night = hour >= night_start or hour < night_end
+        key = CONF_GRACE_NIGHT_MIN if is_night else CONF_GRACE_DAY_MIN
         default = DEFAULT_GRACE_NIGHT_MIN if is_night else DEFAULT_GRACE_DAY_MIN
         return int(self.coordinator.config.get(key, default))
 

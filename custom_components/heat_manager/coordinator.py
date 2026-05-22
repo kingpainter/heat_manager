@@ -25,6 +25,7 @@ v0.4.1 additions:
   in one engine is logged as WARNING and skipped rather than raising UpdateFailed
   and marking all entities unavailable.
 """
+
 from __future__ import annotations
 
 import logging
@@ -78,8 +79,8 @@ from .engine.pid_controller import PidController
 from .engine.preheat_engine import PreheatEngine
 from .engine.presence_engine import PresenceEngine
 from .engine.season_engine import SeasonEngine
-from .engine.waste_calculator import WasteCalculator
 from .engine.valve_protection_engine import ValveProtectionEngine
+from .engine.waste_calculator import WasteCalculator
 from .engine.window_engine import WindowEngine
 
 _LOGGER = logging.getLogger(__name__)
@@ -118,13 +119,13 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._event_log: deque[dict[str, Any]] = deque(maxlen=_MAX_EVENT_LOG)
 
         # ── Engines ───────────────────────────────────────────────────────────
-        self.controller      = ControllerEngine(self)
+        self.controller = ControllerEngine(self)
         self.presence_engine = PresenceEngine(self)
-        self.window_engine   = WindowEngine(self)
-        self.season_engine   = SeasonEngine(self)
-        self.waste_calculator    = WasteCalculator(self)
-        self.preheat_engine      = PreheatEngine(self)
-        self.valve_protection    = ValveProtectionEngine(self)
+        self.window_engine = WindowEngine(self)
+        self.season_engine = SeasonEngine(self)
+        self.waste_calculator = WasteCalculator(self)
+        self.preheat_engine = PreheatEngine(self)
+        self.valve_protection = ValveProtectionEngine(self)
 
         self.pid_controllers: dict[str, PidController] = {}
         self._init_pid_controllers()
@@ -221,9 +222,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return None
 
     def _init_pid_controllers(self) -> None:
-        kp  = float(self.config.get(CONF_PID_KP,  DEFAULT_PID_KP))
-        ki  = float(self.config.get(CONF_PID_KI,  DEFAULT_PID_KI))
-        kd  = float(self.config.get(CONF_PID_KD,  DEFAULT_PID_KD))
+        kp = float(self.config.get(CONF_PID_KP, DEFAULT_PID_KP))
+        ki = float(self.config.get(CONF_PID_KI, DEFAULT_PID_KI))
+        kd = float(self.config.get(CONF_PID_KD, DEFAULT_PID_KD))
         for room in self.rooms:
             name = room.get("room_name", "")
             if name:
@@ -330,6 +331,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         back to the global DEFAULT_CO2_VENTILATION_THRESHOLD.
         """
         from .const import CONF_CO2_THRESHOLD, DEFAULT_CO2_VENTILATION_THRESHOLD
+
         for room in self.rooms:
             if room.get("room_name") != room_name:
                 continue
@@ -481,15 +483,18 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         event_type: str = "normal",
     ) -> None:
         from homeassistant.util.dt import now as ha_now
+
         now = ha_now()
         time_str = now.strftime("%H:%M")
-        self._event_log.appendleft({
-            "time":        time_str,
-            "description": description,
-            "reason":      reason,
-            "type":        event_type,
-            "timestamp":   now.isoformat(),
-        })
+        self._event_log.appendleft(
+            {
+                "time": time_str,
+                "description": description,
+                "reason": reason,
+                "type": event_type,
+                "timestamp": now.isoformat(),
+            }
+        )
         _LOGGER.debug("Event logged: %s (%s)", description, reason)
 
     # ── Outdoor temperature ───────────────────────────────────────────────────
@@ -535,7 +540,10 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def get_away_temperature(self) -> float:
         mild_threshold = self.config.get(CONF_MILD_THRESHOLD, DEFAULT_MILD_THRESHOLD)
-        if self.outdoor_temperature is not None and self.outdoor_temperature >= mild_threshold:
+        if (
+            self.outdoor_temperature is not None
+            and self.outdoor_temperature >= mild_threshold
+        ):
             return float(self.config.get(CONF_AWAY_TEMP_MILD, DEFAULT_AWAY_TEMP_MILD))
         return float(self.config.get(CONF_AWAY_TEMP_COLD, DEFAULT_AWAY_TEMP_COLD))
 
@@ -546,20 +554,24 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         The window may span midnight, e.g. 23:00 – 07:00.
         """
         from .const import (
-            CONF_NIGHT_SETBACK_ENABLED,
             CONF_NIGHT_END_HOUR,
+            CONF_NIGHT_SETBACK_ENABLED,
             CONF_NIGHT_START_HOUR,
             DEFAULT_NIGHT_END_HOUR,
             DEFAULT_NIGHT_SETBACK_ENABLED,
             DEFAULT_NIGHT_START_HOUR,
         )
-        if not self.config.get(CONF_NIGHT_SETBACK_ENABLED, DEFAULT_NIGHT_SETBACK_ENABLED):
+
+        if not self.config.get(
+            CONF_NIGHT_SETBACK_ENABLED, DEFAULT_NIGHT_SETBACK_ENABLED
+        ):
             return False
 
         from homeassistant.util.dt import now as ha_now
+
         hour = ha_now().hour
         start = int(self.config.get(CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR))
-        end   = int(self.config.get(CONF_NIGHT_END_HOUR,   DEFAULT_NIGHT_END_HOUR))
+        end = int(self.config.get(CONF_NIGHT_END_HOUR, DEFAULT_NIGHT_END_HOUR))
 
         # Window may span midnight (e.g. 23 – 7)
         if start > end:
@@ -570,9 +582,12 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def night_setback_delta(self) -> float:
         """Return the setback delta in °C. 0.0 when setback is not active."""
         from .const import CONF_NIGHT_SETBACK_TEMP, DEFAULT_NIGHT_SETBACK_TEMP
+
         if not self.is_night_setback_active():
             return 0.0
-        return float(self.config.get(CONF_NIGHT_SETBACK_TEMP, DEFAULT_NIGHT_SETBACK_TEMP))
+        return float(
+            self.config.get(CONF_NIGHT_SETBACK_TEMP, DEFAULT_NIGHT_SETBACK_TEMP)
+        )
 
     # ── Periodic update ───────────────────────────────────────────────────────
 
@@ -640,15 +655,15 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("pid_tick failed: %s", err)
 
         return {
-            "controller_state":        self.controller.state,
-            "season_mode":             self.season_mode,
-            "effective_season":        self.effective_season,
-            "outdoor_temperature":     self.outdoor_temperature,
-            "room_states":             dict(self.room_states),
+            "controller_state": self.controller.state,
+            "season_mode": self.season_mode,
+            "effective_season": self.effective_season,
+            "outdoor_temperature": self.outdoor_temperature,
+            "room_states": dict(self.room_states),
             "pause_remaining_minutes": self.pause_remaining_minutes,
-            "energy_wasted_today":     self.energy_wasted_today,
-            "energy_saved_today":      self.energy_saved_today,
-            "efficiency_score":        self.efficiency_score,
+            "energy_wasted_today": self.energy_wasted_today,
+            "energy_saved_today": self.energy_saved_today,
+            "efficiency_score": self.efficiency_score,
         }
 
     async def _async_pid_tick(self) -> None:
@@ -672,8 +687,8 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         for room in self.rooms:
-            room_name  = room.get("room_name", "")
-            cloud_id   = room.get(CONF_CLIMATE_ENTITY, "")
+            room_name = room.get("room_name", "")
+            cloud_id = room.get(CONF_CLIMATE_ENTITY, "")
             if not room_name or not cloud_id:
                 continue
 
@@ -725,7 +740,10 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 _LOGGER.debug(
                     "Night setback [%s]: %.1f°C → %.1f°C (−%.1f°C)",
-                    room_name, target_temp + setback, target_temp, setback,
+                    room_name,
+                    target_temp + setback,
+                    target_temp,
+                    setback,
                 )
 
             # ── PID tick → power fraction 0..1 ──────────────────────────
@@ -757,7 +775,11 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.debug(
                     "PID tick [%s]: schedule_sp=%.1f cur=%.1f pwr=%.2f → HAP %.1f°C"
                     "  (heating_power_request=%s%%)",
-                    room_name, target_temp, current_temp, power, trv_setpoint,
+                    room_name,
+                    target_temp,
+                    current_temp,
+                    power,
+                    trv_setpoint,
                     cloud_state.attributes.get("heating_power_request", "?"),
                 )
             except Exception as err:  # noqa: BLE001

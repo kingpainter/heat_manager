@@ -4,6 +4,7 @@ Heat Manager — Switch platform
 Gold IQS: entity-disabled-by-default — override switches are CONFIG category
 and disabled by default (power users only).
 """
+
 from __future__ import annotations
 
 import logging
@@ -19,8 +20,8 @@ from .const import (
     CONF_CLIMATE_ENTITY,
     CONF_TRV_TYPE,
     PRESET_SCHEDULE,
-    RoomState,
     TRV_TYPE_ZIGBEE,
+    RoomState,
 )
 from .coordinator import HeatManagerCoordinator
 
@@ -35,10 +36,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: HeatManagerCoordinator = entry.runtime_data
-    async_add_entities([
-        RoomOverrideSwitch(coordinator, entry, room)
-        for room in coordinator.rooms
-    ])
+    async_add_entities(
+        [RoomOverrideSwitch(coordinator, entry, room) for room in coordinator.rooms]
+    )
 
 
 class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
@@ -61,7 +61,7 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
         room: dict,
     ) -> None:
         super().__init__(coordinator)
-        self._room_name  = room["room_name"]
+        self._room_name = room["room_name"]
         self._climate_id = room.get(CONF_CLIMATE_ENTITY, "")
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_override"
@@ -76,21 +76,30 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
         if not self._climate_id:
             return
         # Use write entity (HomeKit preferred) same as all other engines
-        room_cfg  = next(
-            (r for r in self.coordinator.rooms if r.get("room_name") == self._room_name), {}
+        room_cfg = next(
+            (
+                r
+                for r in self.coordinator.rooms
+                if r.get("room_name") == self._room_name
+            ),
+            {},
         )
-        trv_type  = room_cfg.get(CONF_TRV_TYPE, "netatmo")
-        write_id  = self.coordinator.get_write_entity(self._room_name) or self._climate_id
+        trv_type = room_cfg.get(CONF_TRV_TYPE, "netatmo")
+        write_id = (
+            self.coordinator.get_write_entity(self._room_name) or self._climate_id
+        )
         try:
             if trv_type == TRV_TYPE_ZIGBEE:
                 await self.coordinator.hass.services.async_call(
-                    "climate", "set_hvac_mode",
+                    "climate",
+                    "set_hvac_mode",
                     {"entity_id": write_id, "hvac_mode": "heat"},
                     blocking=True,
                 )
             else:
                 await self.coordinator.hass.services.async_call(
-                    "climate", "set_preset_mode",
+                    "climate",
+                    "set_preset_mode",
                     {"entity_id": self._climate_id, "preset_mode": PRESET_SCHEDULE},
                     blocking=True,
                 )
@@ -105,6 +114,8 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs) -> None:  # type: ignore[override]
         self.coordinator.set_room_state(self._room_name, RoomState.NORMAL)
         self.coordinator.log_event(
-            f"Override OFF — {self._room_name} returning to normal", "Override", "normal"
+            f"Override OFF — {self._room_name} returning to normal",
+            "Override",
+            "normal",
         )
         _LOGGER.info("Override OFF: %s — returning to normal", self._room_name)

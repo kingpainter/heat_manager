@@ -6,6 +6,7 @@ Gold IQS:
   (most users never need to override it manually).
 - controller_state is the primary control — always enabled.
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,10 +38,12 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: HeatManagerCoordinator = entry.runtime_data
-    async_add_entities([
-        ControllerStateSelect(coordinator, entry),
-        SeasonModeSelect(coordinator, entry),
-    ])
+    async_add_entities(
+        [
+            ControllerStateSelect(coordinator, entry),
+            SeasonModeSelect(coordinator, entry),
+        ]
+    )
 
 
 class ControllerStateSelect(CoordinatorEntity, SelectEntity):
@@ -63,8 +66,8 @@ class ControllerStateSelect(CoordinatorEntity, SelectEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {
-            "auto_off_reason":  self.coordinator.auto_off_reason.value,
-            "pause_remaining":  self.coordinator.pause_remaining_minutes,
+            "auto_off_reason": self.coordinator.auto_off_reason.value,
+            "pause_remaining": self.coordinator.pause_remaining_minutes,
             "effective_season": self.coordinator.effective_season.value,
         }
 
@@ -104,9 +107,9 @@ class SeasonModeSelect(CoordinatorEntity, SelectEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {
-            "effective_season":      self.coordinator.effective_season.value,
-            "calendar_season":       self.coordinator.season_engine.calendar_season.value,
-            "days_above_threshold":  self.coordinator.season_engine.days_above_threshold,
+            "effective_season": self.coordinator.effective_season.value,
+            "calendar_season": self.coordinator.season_engine.calendar_season.value,
+            "days_above_threshold": self.coordinator.season_engine.days_above_threshold,
         }
 
     async def async_select_option(self, option: str) -> None:

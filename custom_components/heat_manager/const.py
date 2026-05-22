@@ -1,4 +1,5 @@
 """Constants for Heat Manager."""
+
 from __future__ import annotations
 
 from enum import StrEnum
@@ -59,7 +60,7 @@ CONF_ROOM_WATTAGE = "room_wattage"
 # Per-room TRV type
 CONF_TRV_TYPE = "trv_type"
 TRV_TYPE_NETATMO = "netatmo"
-TRV_TYPE_ZIGBEE  = "zigbee"
+TRV_TYPE_ZIGBEE = "zigbee"
 TRV_TYPE_OPTIONS = [TRV_TYPE_NETATMO, TRV_TYPE_ZIGBEE]
 
 # Per-room Z2M pi_heating_demand sensor entity (optional)
@@ -108,8 +109,8 @@ CONF_WIND_SPEED_SENSOR = "wind_speed_sensor"
 DEFAULT_WINDOW_DELAY_MIN = 5
 DEFAULT_WINDOW_CLOSE_DELAY_MIN = 2
 DEFAULT_WINDOW_WARNING_MIN = 30
-DEFAULT_WINDOW_DELAY_WIND_MIN = 1   # reduced delay when wind > threshold
-WIND_FAST_MS: float = 6.0           # m/s — window heat loss accelerates above this
+DEFAULT_WINDOW_DELAY_WIND_MIN = 1  # reduced delay when wind > threshold
+WIND_FAST_MS: float = 6.0  # m/s — window heat loss accelerates above this
 DEFAULT_AWAY_TEMP_MILD = 17.0
 DEFAULT_AWAY_TEMP_COLD = 15.0
 DEFAULT_MILD_THRESHOLD = 8.0
@@ -156,21 +157,25 @@ REPAIR_ISSUE_MISSING_CLIMATE = "missing_climate_entity"
 
 # ── Controller state ──────────────────────────────────────────────────────────
 
+
 class ControllerState(StrEnum):
     ON = "on"
     PAUSE = "pause"
     OFF = "off"
 
+
 CONTROLLER_STATE_OPTIONS = [s.value for s in ControllerState]
 
 # ── Season mode ───────────────────────────────────────────────────────────────
 
+
 class SeasonMode(StrEnum):
-    AUTO   = "auto"
+    AUTO = "auto"
     WINTER = "winter"
     SPRING = "spring"
     SUMMER = "summer"
     AUTUMN = "autumn"
+
 
 SEASON_MODE_OPTIONS = [s.value for s in SeasonMode]
 
@@ -178,12 +183,13 @@ SEASON_MODE_OPTIONS = [s.value for s in SeasonMode]
 # Spring: Mar 1, Summer: Jun 1, Autumn: Sep 1, Winter: Dec 1.
 METEO_SEASONS: list[tuple[int, int, SeasonMode]] = [
     (12, 1, SeasonMode.WINTER),
-    (9,  1, SeasonMode.AUTUMN),
-    (6,  1, SeasonMode.SUMMER),
-    (3,  1, SeasonMode.SPRING),
+    (9, 1, SeasonMode.AUTUMN),
+    (6, 1, SeasonMode.SUMMER),
+    (3, 1, SeasonMode.SPRING),
 ]
 
 # ── Room state ────────────────────────────────────────────────────────────────
+
 
 class RoomState(StrEnum):
     NORMAL = "normal"
@@ -192,12 +198,15 @@ class RoomState(StrEnum):
     PRE_HEAT = "pre_heat"
     OVERRIDE = "override"
 
+
 # ── Auto-off reason ───────────────────────────────────────────────────────────
+
 
 class AutoOffReason(StrEnum):
     NONE = "none"
     SEASON = "season"
     TEMPERATURE = "temperature"
+
 
 # ── Preset modes ──────────────────────────────────────────────────────────────
 
