@@ -1,6 +1,7 @@
 """Tests for SeasonEngine — Phase 3."""
 from __future__ import annotations
 
+from datetime import date as date_type
 from unittest.mock import MagicMock, patch
 import pytest
 
@@ -25,6 +26,16 @@ def _make_coordinator(
     return coord
 
 
+def _mock_ha_now(date: date_type) -> MagicMock:
+    """Return a ha_now mock whose .date() returns a real datetime.date."""
+    mock = MagicMock()
+    mock.return_value.date.return_value = date
+    return mock
+
+
+PATCH_PATH = "custom_components.heat_manager.engine.season_engine.ha_now"
+
+
 @pytest.mark.asyncio
 async def test_no_op_when_manual_winter():
     """Manual WINTER mode — season engine must not touch effective_season."""
@@ -45,68 +56,58 @@ async def test_no_op_when_manual_summer():
 
 @pytest.mark.asyncio
 async def test_stays_winter_when_below_threshold():
-    """Cold outdoor temp — should remain WINTER."""
+    """Cold outdoor temp in spring — should remain WINTER."""
     coord = _make_coordinator(outdoor_temp=10.0, auto_off_threshold=18.0, auto_off_days=3)
     engine = SeasonEngine(coord)
-    with patch("custom_components.heat_manager.engine.season_engine.ha_now") as mock_now:
-        mock_now.return_value = MagicMock(date=lambda: MagicMock(isoformat=lambda: "2026-01-01"))
-        await engine.async_tick()
+    with patch(PATCH_PATH, new=_mock_ha_now(date_type(2026, 4, 1)).return_value):  # April = Spring
+        with patch(PATCH_PATH) as mock_now:
+            mock_now.return_value.date.return_value = date_type(2026, 4, 1)
+            await engine.async_tick()
     assert coord.effective_season == SeasonMode.WINTER
     assert engine.days_above_threshold == 0
 
 
 @pytest.mark.asyncio
 async def test_increments_days_above_threshold():
-    """Warm outdoor temp — days_above counter should increment once per calendar day."""
+    """Warm outdoor temp in spring — days_above counter increments once per day."""
     coord = _make_coordinator(outdoor_temp=20.0, auto_off_threshold=18.0, auto_off_days=3)
     engine = SeasonEngine(coord)
-
-    dates = ["2026-06-01", "2026-06-02", "2026-06-03"]
+    dates = [date_type(2026, 4, d) for d in range(1, 4)]
     for d in dates:
-        with patch("custom_components.heat_manager.engine.season_engine.ha_now") as mock_now:
-            mock_now.return_value = MagicMock(date=lambda _d=d: MagicMock(isoformat=lambda: _d))
+        with patch(PATCH_PATH) as mock_now:
+            mock_now.return_value.date.return_value = d
             await engine.async_tick()
-
     assert engine.days_above_threshold == 3
 
 
 @pytest.mark.asyncio
 async def test_switches_to_summer_after_n_days():
-    """After N consecutive warm days, effective_season becomes SUMMER."""
+    """After N consecutive warm days in spring, effective_season becomes SUMMER."""
     coord = _make_coordinator(outdoor_temp=22.0, auto_off_threshold=18.0, auto_off_days=3)
     engine = SeasonEngine(coord)
-
     for i in range(3):
-        with patch("custom_components.heat_manager.engine.season_engine.ha_now") as mock_now:
-            d = f"2026-06-0{i+1}"
-            mock_now.return_value = MagicMock(date=lambda _d=d: MagicMock(isoformat=lambda: _d))
+        with patch(PATCH_PATH) as mock_now:
+            mock_now.return_value.date.return_value = date_type(2026, 4, i + 1)
             await engine.async_tick()
-
     assert coord.effective_season == SeasonMode.SUMMER
 
 
 @pytest.mark.asyncio
 async def test_counter_resets_on_cold_day():
     """One cold day after warm days should reset the counter to 0."""
-    coord = _make_coordinator(outdoor_temp=20.0, auto_off_threshold=18.0, auto_off_days=5)
+    coord = _make_coordinator(outdoor_temp=22.0, auto_off_threshold=18.0, auto_off_days=5)
     engine = SeasonEngine(coord)
-
-    # 2 warm days
+    # 2 warm days in spring
     for i in range(2):
-        coord.outdoor_temperature = 22.0
-        with patch("custom_components.heat_manager.engine.season_engine.ha_now") as mock_now:
-            d = f"2026-06-0{i+1}"
-            mock_now.return_value = MagicMock(date=lambda _d=d: MagicMock(isoformat=lambda: _d))
+        with patch(PATCH_PATH) as mock_now:
+            mock_now.return_value.date.return_value = date_type(2026, 4, i + 1)
             await engine.async_tick()
-
     assert engine.days_above_threshold == 2
-
     # One cold day resets
     coord.outdoor_temperature = 5.0
-    with patch("custom_components.heat_manager.engine.season_engine.ha_now") as mock_now:
-        mock_now.return_value = MagicMock(date=lambda: MagicMock(isoformat=lambda: "2026-06-03"))
+    with patch(PATCH_PATH) as mock_now:
+        mock_now.return_value.date.return_value = date_type(2026, 4, 3)
         await engine.async_tick()
-
     assert engine.days_above_threshold == 0
     assert coord.effective_season == SeasonMode.WINTER
 
@@ -125,13 +126,11 @@ async def test_same_day_tick_does_not_double_count():
     """Multiple ticks on the same calendar day must not increment counter twice."""
     coord = _make_coordinator(outdoor_temp=22.0, auto_off_threshold=18.0, auto_off_days=5)
     engine = SeasonEngine(coord)
-
-    for _ in range(5):  # 5 ticks, same date
-        with patch("custom_components.heat_manager.engine.season_engine.ha_now") as mock_now:
-            mock_now.return_value = MagicMock(date=lambda: MagicMock(isoformat=lambda: "2026-06-01"))
+    for _ in range(5):
+        with patch(PATCH_PATH) as mock_now:
+            mock_now.return_value.date.return_value = date_type(2026, 4, 1)
             await engine.async_tick()
-
-    assert engine.days_above_threshold == 1  # counted only once
+    assert engine.days_above_threshold == 1
 
 
 @pytest.mark.asyncio

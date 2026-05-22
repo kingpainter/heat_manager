@@ -94,11 +94,12 @@ async def test_savings_accumulate_in_away_during_day():
     engine = WasteCalculator(coord)
     with patch("custom_components.heat_manager.engine.waste_calculator.ha_now") as mock_now:
         from datetime import date
-        mock_now.return_value = MagicMock(date=lambda: date(2026, 3, 1), hour=10)
+        mock_now.return_value = MagicMock(date=lambda: date(2026, 3, 1), hour=10, isoformat=lambda: "2026-03-01T10:00")
         await engine.async_tick()
 
-    # baseline_delta = 21 - 0 = 21°C, 1 tick
-    expected = 21.0 * (60 / 3600) * 0.1
+    # Phase 4 formula: last_power_pct (default 50%) x 1000W x tick_hours
+    # 0.50 * 1000/1000 * (60/3600) = 0.00833 kWh
+    expected = 0.50 * (60 / 3600)
     assert engine.energy_saved_today == pytest.approx(expected, abs=0.001)
 
 

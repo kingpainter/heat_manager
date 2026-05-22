@@ -46,7 +46,7 @@ def _make_coordinator(
     coordinator.get_away_temperature = MagicMock(return_value=17.0)
     coordinator.get_climate_entity = MagicMock(return_value="climate.kitchen")
     coordinator.get_write_entity = MagicMock(return_value="climate.kitchen")
-    coordinator.get_room_state = MagicMock(return_value=RoomState.NORMAL)
+    coordinator.get_room_state = MagicMock(return_value=RoomState.AWAY)  # must be AWAY to trigger restore
     coordinator.set_room_state = MagicMock()
     coordinator.async_update_listeners = MagicMock()
 

@@ -48,6 +48,7 @@ def _make_hass(states: dict | None = None) -> MagicMock:
 
     hass.states.get.side_effect = states_get
     hass.config_entries.async_entries.return_value = []
+    hass.config_entries.async_get_entry.return_value = None
     return hass
 
 
@@ -88,6 +89,7 @@ async def test_full_setup_wizard_creates_entry():
     flow = HeatManagerConfigFlow()
     flow.hass = hass
     flow.context = {}
+    flow._async_current_entries = MagicMock(return_value=[])
     await flow.async_step_user()  # initialise
 
     # Step 1 — global settings (no weather entity)
@@ -156,6 +158,7 @@ async def test_multiple_rooms_and_persons():
     flow = HeatManagerConfigFlow()
     flow.hass = hass
     flow.context = {}
+    flow._async_current_entries = MagicMock(return_value=[])
     await flow.async_step_user()
 
     await flow.async_step_user(user_input={
@@ -229,6 +232,7 @@ async def test_step_user_invalid_weather_entity():
     flow = HeatManagerConfigFlow()
     flow.hass = hass
     flow.context = {}
+    flow._async_current_entries = MagicMock(return_value=[])
     await flow.async_step_user()
 
     result = await flow.async_step_user(user_input={
