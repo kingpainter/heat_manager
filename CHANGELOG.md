@@ -13,6 +13,36 @@ _Nothing yet._
 
 ---
 
+## [0.4.4] — 2026-05-22
+
+### Added
+- **Per-room CO₂ threshold** (`co2_threshold`) — new optional per-room field
+  (500–2000 ppm, step 50, default 900 ppm). When set, overrides the global
+  `DEFAULT_CO2_VENTILATION_THRESHOLD` for that room in both window notifications
+  and waste attribution. Useful when rooms have different ventilation needs
+  (e.g. bedrooms tolerate higher CO₂, seldom-used rooms should have a lower
+  threshold so any open window is treated as heat loss).
+- `coordinator.py` — `get_room_co2_threshold(room_name)` helper. Returns
+  per-room override when configured, falls back to global default.
+- `engine/window_engine.py` — `_co2_context_label()` signature extended with
+  optional `room_name` parameter; all three call sites updated to pass
+  `room_name` so per-room threshold is used in window open/close/warning
+  notifications.
+- `engine/waste_calculator.py` — `_co2_waste_weight()` uses
+  `get_room_co2_threshold()` instead of the global constant.
+- `const.py` — `CONF_CO2_THRESHOLD` constant added.
+- `config_flow.py` — `co2_threshold` number selector added to `_room_schema`
+  (appears in setup wizard and options room-add step).
+- `strings.json` + `translations/da.json` — labels and descriptions in config
+  and options room steps.
+
+### Changed
+- `engine/waste_calculator.py` — removed unused
+  `DEFAULT_CO2_VENTILATION_THRESHOLD` import (now only read via coordinator
+  helper).
+
+---
+
 ## [0.4.3] — 2026-05-22
 
 ### Added
@@ -357,7 +387,8 @@ _Nothing yet._
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/kingpainter/heat-manager/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/kingpainter/heat-manager/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/kingpainter/heat-manager/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/kingpainter/heat-manager/compare/v0.3.9...v0.4.1

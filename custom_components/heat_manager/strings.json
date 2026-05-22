@@ -35,11 +35,13 @@
           "window_delay_min": "Window open delay (minutes)",
           "away_temp_override": "Away temperature for this room",
           "co2_sensor": "CO\u2082 sensor (optional)",
+          "co2_threshold": "CO\u2082 ventilation threshold (ppm)",
           "room_temp_sensor": "Room temperature sensor (optional)",
           "_action": "What next?"
         },
         "data_description": {
           "co2_sensor": "Used for context-aware window notifications and energy waste classification. When CO\u2082 is high, an open window is marked as ventilation rather than heat loss.",
+          "co2_threshold": "CO\u2082 level above which an open window is classified as intentional ventilation. Default is 900 ppm. Increase for bedrooms (higher tolerance) or decrease for seldom-occupied rooms.",
           "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1\u20133\u00b0C too high)."
         }
       },
@@ -124,10 +126,12 @@
           "window_delay_min": "Window open delay (minutes)",
           "away_temp_override": "Away temperature for this room",
           "co2_sensor": "CO\u2082 sensor (optional)",
+          "co2_threshold": "CO\u2082 ventilation threshold (ppm)",
           "room_temp_sensor": "Room temperature sensor (optional)"
         },
         "data_description": {
           "co2_sensor": "Used for context-aware window notifications and energy waste classification.",
+          "co2_threshold": "CO\u2082 level above which an open window is classified as ventilation. Default 900 ppm.",
           "room_temp_sensor": "Independent room probe for PID temperature feedback."
         }
       },

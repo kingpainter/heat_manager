@@ -15,7 +15,7 @@
           "auto_off_temp_threshold": "Auto-sluk temperaturgrænse",
           "auto_off_temp_days": "Auto-sluk dage",
           "night_setback_enabled": "Aktiver natreduktion",
-          "night_setback_temp": "Natreduktion (\u00b0C der trækkes fra)",
+          "night_setback_temp": "Natreduktion (°C der trækkes fra)",
           "night_start_hour": "Natstart (time)",
           "night_end_hour": "Natslut (time)"
         },
@@ -34,13 +34,15 @@
           "window_sensors": "Vindue- / dørsensorer",
           "window_delay_min": "Forsinkelse ved åbent vindue (minutter)",
           "away_temp_override": "Fraværstemperatur for dette rum",
-          "co2_sensor": "CO\u2082-sensor (valgfrit)",
+          "co2_sensor": "CO₂-sensor (valgfrit)",
+          "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
           "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
           "_action": "Hvad nu?"
         },
         "data_description": {
-          "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO\u2082 er høj, registreres et åbent vindue som ventilation frem for varmespild.",
-          "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering. Anbefales til Zigbee TRV'er, hvis indbyggede sensor sidder på radiatorlegemet (typisk 1\u20133\u00b0C for høj)."
+          "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO₂ er høj, registreres et åbent vindue som ventilation frem for varmespild.",
+          "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som bevidst ventilation. Standard er 900 ppm. Hæv for soveværelser eller sænk for sjældent benyttede rum.",
+          "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering. Anbefales til Zigbee TRV'er, hvis indbyggede sensor sidder på radiatorlegemet (typisk 1–3°C for høj)."
         }
       },
       "person": {
@@ -84,7 +86,9 @@
     "step": {
       "init": {
         "title": "Heat Manager indstillinger",
-        "data": {"section": "Hvad vil du redigere?"}
+        "data": {
+          "section": "Hvad vil du redigere?"
+        }
       },
       "global": {
         "title": "Sæson & globale indstillinger",
@@ -100,7 +104,7 @@
           "auto_off_temp_threshold": "Auto-sluk temperaturgrænse",
           "auto_off_temp_days": "Auto-sluk dage",
           "night_setback_enabled": "Aktiver natreduktion",
-          "night_setback_temp": "Natreduktion (\u00b0C der trækkes fra)",
+          "night_setback_temp": "Natreduktion (°C der trækkes fra)",
           "night_start_hour": "Natstart (time)",
           "night_end_hour": "Natslut (time)"
         },
@@ -113,7 +117,9 @@
       "rooms_menu": {
         "title": "Administrér rum",
         "description": "Aktuelle rum: {room_count}. Vælg et rum for at slette det, eller tilføj et nyt.",
-        "data": {"action": "Handling"}
+        "data": {
+          "action": "Handling"
+        }
       },
       "room_add": {
         "title": "Tilføj et rum",
@@ -123,18 +129,22 @@
           "window_sensors": "Vindue- / dørsensorer",
           "window_delay_min": "Forsinkelse ved åbent vindue (minutter)",
           "away_temp_override": "Fraværstemperatur for dette rum",
-          "co2_sensor": "CO\u2082-sensor (valgfrit)",
+          "co2_sensor": "CO₂-sensor (valgfrit)",
+          "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
           "room_temp_sensor": "Rumtemperatursensor (valgfrit)"
         },
         "data_description": {
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering.",
+          "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som ventilation. Standard 900 ppm.",
           "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering."
         }
       },
       "persons_menu": {
         "title": "Administrér personer",
         "description": "Aktuelle personer: {person_count}. Vælg en person for at slette, eller tilføj ny.",
-        "data": {"action": "Handling"}
+        "data": {
+          "action": "Handling"
+        }
       },
       "person_add": {
         "title": "Tilføj en person",
@@ -163,20 +173,32 @@
   },
   "entity": {
     "sensor": {
-      "pause_remaining":     {"name": "Pause tilbage"},
-      "energy_wasted_today": {"name": "Energi spildt i dag"},
-      "energy_saved_today":  {"name": "Energi sparet i dag"},
-      "efficiency_score":    {"name": "Effektivitetsscore"}
+      "pause_remaining": {
+        "name": "Pause tilbage"
+      },
+      "energy_wasted_today": {
+        "name": "Energi spildt i dag"
+      },
+      "energy_saved_today": {
+        "name": "Energi sparet i dag"
+      },
+      "efficiency_score": {
+        "name": "Effektivitetsscore"
+      }
     },
     "select": {
       "controller_state": {
         "name": "Controllertilstand",
-        "state": {"on": "Til", "pause": "Pause", "off": "Fra"}
+        "state": {
+          "on": "Til",
+          "pause": "Pause",
+          "off": "Fra"
+        }
       },
       "season_mode": {
         "name": "Sæsontilstand",
         "state": {
-          "auto":   "Auto",
+          "auto": "Auto",
           "winter": "Vinter",
           "spring": "Forår",
           "summer": "Sommer",
@@ -185,11 +207,17 @@
       }
     },
     "binary_sensor": {
-      "any_window_open": {"name": "Et eller flere vinduer åbne"},
-      "heating_wasted":  {"name": "Opvarmning spildt"}
+      "any_window_open": {
+        "name": "Et eller flere vinduer åbne"
+      },
+      "heating_wasted": {
+        "name": "Opvarmning spildt"
+      }
     },
     "switch": {
-      "room_override": {"name": "Tilsidesæt"}
+      "room_override": {
+        "name": "Tilsidesæt"
+      }
     }
   },
   "exceptions": {

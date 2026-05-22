@@ -46,7 +46,6 @@ from ..const import (
     CONF_CLIMATE_ENTITY,
     CONF_PI_DEMAND_ENTITY,
     CONF_ROOM_WATTAGE,
-    DEFAULT_CO2_VENTILATION_THRESHOLD,
     DEFAULT_ROOM_WATTAGE,
     RoomState,
     SCAN_INTERVAL_SECONDS,
@@ -169,6 +168,7 @@ class WasteCalculator:
         so an open window is pure heat loss regardless of CO₂.
         CO₂ elevated: half waste (0.5) — ventilation justified.
         Otherwise: full waste (1.0).
+        Uses per-room CO₂ threshold when configured.
         """
         # Rain overrides CO₂ weighting — always full waste
         if self.coordinator.is_raining():
@@ -177,7 +177,8 @@ class WasteCalculator:
         co2 = self.coordinator.get_room_co2(room_name)
         if co2 is None:
             return 1.0
-        if co2 >= DEFAULT_CO2_VENTILATION_THRESHOLD:
+        threshold = self.coordinator.get_room_co2_threshold(room_name)
+        if co2 >= threshold:
             return _WASTE_WEIGHT_VENTILATION
         return 1.0
 

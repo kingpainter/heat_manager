@@ -140,7 +140,13 @@ DEFAULT_ROOM_WATTAGE: int = 1000  # watts — typical panel radiator
 # CO₂ threshold — above this level an open window is considered intentional
 # ventilation rather than pure heat waste.  Used by WindowEngine to select
 # notification wording and by WasteCalculator to reduce waste attribution.
+# Can be overridden per room via CONF_CO2_THRESHOLD.
 DEFAULT_CO2_VENTILATION_THRESHOLD: int = 900  # ppm
+
+# Per-room CO₂ threshold override.  When set, overrides DEFAULT_CO2_VENTILATION_THRESHOLD
+# for that room only.  Useful when rooms have different ventilation needs
+# (e.g. bedrooms vs. living rooms vs. offices).
+CONF_CO2_THRESHOLD = "co2_threshold"
 
 # ── Controller state ──────────────────────────────────────────────────────────
 

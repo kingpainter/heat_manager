@@ -161,7 +161,7 @@ class WindowEngine:
 
             # ── CO₂-aware open notification ───────────────────────────────
             co2_ppm   = self.coordinator.get_room_co2(room_name)
-            co2_label = self._co2_context_label(co2_ppm)
+            co2_label = self._co2_context_label(co2_ppm, room_name)
             log_msg   = f"Window open in {room_name} — heating to {target_temp:.0f}°C (via {'HomeKit' if write_id != climate_id else 'cloud'})"
             notif_msg = (
                 f"Window open — {room_name} set to {target_temp:.0f}°C{co2_label}"
@@ -237,7 +237,7 @@ class WindowEngine:
 
             # ── CO₂-aware close notification ──────────────────────────────
             co2_ppm   = self.coordinator.get_room_co2(room_name)
-            co2_label = self._co2_context_label(co2_ppm)
+            co2_label = self._co2_context_label(co2_ppm, room_name)
             notif_msg = f"Window closed — {room_name} heating resumed{co2_label}"
 
             _LOGGER.info("Window closed in '%s' — restored to schedule", room_name)
@@ -263,7 +263,7 @@ class WindowEngine:
             minutes_open = int((now - opened_at).total_seconds() / 60)
             if minutes_open >= threshold:
                 co2_ppm   = self.coordinator.get_room_co2(room_name)
-                co2_label = self._co2_context_label(co2_ppm)
+                co2_label = self._co2_context_label(co2_ppm, room_name)
 
                 log_msg   = f"Window open {minutes_open} min in {room_name}"
                 notif_msg = (
@@ -282,11 +282,12 @@ class WindowEngine:
 
     # ── CO₂ context helpers ───────────────────────────────────────────────────
 
-    def _co2_context_label(self, co2_ppm: float | None) -> str:
+    def _co2_context_label(self, co2_ppm: float | None, room_name: str = "") -> str:
         """Return a short parenthetical string for window notification messages.
 
         Rain and wind take precedence over CO₂ — both override the context
         to 'heat loss' regardless of CO₂ level.
+        Uses per-room CO₂ threshold when room_name is provided.
         """
         # Rain: always heat loss, add rain hint
         if self.coordinator.is_raining():
@@ -298,10 +299,14 @@ class WindowEngine:
         if wind is not None and wind >= WIND_FAST_MS:
             return f"  (💨 {wind:.1f} m/s — vind: varmetab)"
 
-        # CO₂ context
+        # CO₂ context — use per-room threshold when available
         if co2_ppm is None:
             return ""
-        threshold = DEFAULT_CO2_VENTILATION_THRESHOLD
+        threshold = (
+            self.coordinator.get_room_co2_threshold(room_name)
+            if room_name
+            else DEFAULT_CO2_VENTILATION_THRESHOLD
+        )
         if co2_ppm >= threshold:
             return f"  (CO₂: {co2_ppm:.0f} ppm — ventilation)"
         return f"  (CO₂: {co2_ppm:.0f} ppm — varmetab)"

@@ -294,6 +294,25 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return None
         return None
 
+    def get_room_co2_threshold(self, room_name: str) -> int:
+        """Return the CO₂ ventilation threshold (ppm) for a room.
+
+        Uses per-room CONF_CO2_THRESHOLD when configured, otherwise falls
+        back to the global DEFAULT_CO2_VENTILATION_THRESHOLD.
+        """
+        from .const import CONF_CO2_THRESHOLD, DEFAULT_CO2_VENTILATION_THRESHOLD
+        for room in self.rooms:
+            if room.get("room_name") != room_name:
+                continue
+            val = room.get(CONF_CO2_THRESHOLD)
+            if val is not None:
+                try:
+                    return int(val)
+                except (TypeError, ValueError):
+                    pass
+            break
+        return DEFAULT_CO2_VENTILATION_THRESHOLD
+
     def get_outdoor_humidity(self) -> float | None:
         """Return outdoor relative humidity (%) from CONF_OUTDOOR_HUMIDITY_SENSOR."""
         entity_id = self.config.get(CONF_OUTDOOR_HUMIDITY_SENSOR) or None

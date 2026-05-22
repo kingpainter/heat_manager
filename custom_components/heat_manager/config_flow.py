@@ -31,6 +31,7 @@ from .const import (
     CONF_AWAY_TEMP_OVERRIDE,
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
+    CONF_CO2_THRESHOLD,
     CONF_ENERGY_TRACKING,
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
@@ -69,6 +70,7 @@ from .const import (
     DEFAULT_AUTO_OFF_TEMP_THRESHOLD,
     DEFAULT_AWAY_TEMP_COLD,
     DEFAULT_AWAY_TEMP_MILD,
+    DEFAULT_CO2_VENTILATION_THRESHOLD,
     DEFAULT_GRACE_DAY_MIN,
     DEFAULT_GRACE_NIGHT_MIN,
     DEFAULT_MILD_THRESHOLD,
@@ -153,6 +155,8 @@ def _room_schema(defaults: dict = {}) -> vol.Schema:
         # ── Sensor inputs ─────────────────────────────────────────────────
         vol.Optional(CONF_CO2_SENSOR, default=defaults.get(CONF_CO2_SENSOR, "")):
             selector.selector({"text": {}}),  # sensor.* — CO₂ in ppm
+        vol.Optional(CONF_CO2_THRESHOLD, default=defaults.get(CONF_CO2_THRESHOLD, DEFAULT_CO2_VENTILATION_THRESHOLD)):
+            selector.selector({"number": {"min": 500, "max": 2000, "step": 50, "unit_of_measurement": "ppm"}}),
         vol.Optional(CONF_ROOM_TEMP_SENSOR, default=defaults.get(CONF_ROOM_TEMP_SENSOR, "")):
             selector.selector({"text": {}}),  # sensor.* — room temperature in °C
         vol.Optional(CONF_HUMIDITY_SENSOR, default=defaults.get(CONF_HUMIDITY_SENSOR, "")):
