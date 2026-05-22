@@ -8,6 +8,8 @@ Registers WS commands used by the sidebar panel:
 Phase 3: energy values now come directly from coordinator.waste_calculator.
          Event log reads from coordinator._event_log (deque, newest first).
          Daily energy chart shows live today + zeros for past days.
+
+v0.4.2: _get_entry() uses entry.runtime_data exclusively — no hass.data lookup.
 """
 from __future__ import annotations
 
@@ -248,21 +250,17 @@ async def ws_update_config(
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _get_entry(hass: HomeAssistant) -> Any:
-    # S-8 FIX: use stored entry_id from hass.data if available, otherwise
-    # fall back to iterating entries. Prevents wrong entry being returned
-    # if two Heat Manager entries exist (e.g. after a failed reinstall).
-    from .const import DOMAIN
-    stored_id = hass.data.get(DOMAIN, {}).get("entry_id")
-    if stored_id:
-        entry = hass.config_entries.async_get_entry(stored_id)
-        if entry and hasattr(entry, "runtime_data") and entry.runtime_data is not None:
-            return entry
-    # Fallback: iterate and return the most recently loaded entry
+    """Return the active Heat Manager config entry.
+
+    Iterates loaded entries and returns the first one that has a live
+    coordinator in runtime_data.  No hass.data lookup needed — entry.runtime_data
+    is the single source of truth (IQS pattern).
+    """
     candidates = [
         e for e in hass.config_entries.async_entries(DOMAIN)
         if hasattr(e, "runtime_data") and e.runtime_data is not None
     ]
-    return candidates[-1] if candidates else None
+    return candidates[0] if candidates else None
 
 
 def _why_label(state: Any) -> str:

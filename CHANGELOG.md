@@ -13,6 +13,18 @@ _Nothing yet._
 
 ---
 
+## [0.4.2] — 2026-05-22
+
+### Changed
+- `websocket.py` — `_get_entry()` now uses `entry.runtime_data` exclusively.
+  Removed `hass.data[DOMAIN]["entry_id"]` lookup. `entry.runtime_data` is the
+  single source of truth per IQS pattern; the `hass.data` workaround (S-8)
+  is no longer needed.
+- `__init__.py` — removed `hass.data.setdefault(DOMAIN, {})["entry_id"]` write.
+  `entry.runtime_data = coordinator` is now the only place coordinator is stored.
+
+---
+
 ## [0.4.1] — 2026-05-22
 
 ### Changed
@@ -322,7 +334,8 @@ _Nothing yet._
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/kingpainter/heat-manager/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/kingpainter/heat-manager/compare/v0.3.9...v0.4.1
 [0.3.9]: https://github.com/kingpainter/heat-manager/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/kingpainter/heat-manager/compare/v0.3.7...v0.3.8
