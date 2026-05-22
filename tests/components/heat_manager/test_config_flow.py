@@ -90,7 +90,8 @@ async def test_full_setup_wizard_creates_entry():
     flow.hass = hass
     flow.context = {}
     flow._async_current_entries = MagicMock(return_value=[])
-    await flow.async_step_user()  # initialise
+    with patch.object(flow, "_abort_if_unique_id_configured"):
+        await flow.async_step_user()  # initialise
 
     # Step 1 — global settings (no weather entity)
     result = await flow.async_step_user(user_input={
@@ -159,7 +160,8 @@ async def test_multiple_rooms_and_persons():
     flow.hass = hass
     flow.context = {}
     flow._async_current_entries = MagicMock(return_value=[])
-    await flow.async_step_user()
+    with patch.object(flow, "_abort_if_unique_id_configured"):
+        await flow.async_step_user()
 
     await flow.async_step_user(user_input={
         CONF_WEATHER_ENTITY: "", "notify_service": "",
@@ -233,7 +235,8 @@ async def test_step_user_invalid_weather_entity():
     flow.hass = hass
     flow.context = {}
     flow._async_current_entries = MagicMock(return_value=[])
-    await flow.async_step_user()
+    with patch.object(flow, "_abort_if_unique_id_configured"):
+        await flow.async_step_user()
 
     result = await flow.async_step_user(user_input={
         CONF_WEATHER_ENTITY: "weather.nonexistent",

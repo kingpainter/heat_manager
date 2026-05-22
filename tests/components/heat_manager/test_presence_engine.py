@@ -109,8 +109,13 @@ async def test_arrival_with_windows_open_does_not_restore_schedule():
 
     await engine._handle_arrival()
 
-    # Climate service should NOT have been called
-    coordinator.hass.services.async_call.assert_not_awaited()
+    # Climate set_preset_mode must NOT have been called — windows are open
+    # (a notification call to notify.test IS expected, but no climate control)
+    climate_calls = [
+        c for c in coordinator.hass.services.async_call.await_args_list
+        if c.args[0] == "climate"
+    ]
+    assert len(climate_calls) == 0
 
 
 # ── Departure: everyone left → grace timer starts ────────────────────────────
