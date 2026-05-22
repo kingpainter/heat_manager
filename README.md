@@ -7,7 +7,7 @@ custom integration. It manages presence-based heating, open window detection,
 pre-heating on arrival, seasonal on/off control, mold risk monitoring, and
 weather-aware energy tracking — all from the UI.
 
-[![Version](https://img.shields.io/badge/version-0.3.9-blue)](https://github.com/kingpainter/heat-manager/releases)
+[![Version](https://img.shields.io/badge/version-0.4.6-blue)](https://github.com/kingpainter/heat-manager/releases)
 [![HA min version](https://img.shields.io/badge/Home%20Assistant-%3E%3D2025.1-blue)](https://www.home-assistant.io)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange)](https://hacs.xyz)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -41,6 +41,7 @@ Off shuts everything down permanently — with the correct fallback per season.
 - **ON / PAUSE / OFF controller** — manual and automatic (season + sustained outdoor temp)
 - **Pre-heat engine** — starts heating before arrival using `sensor.<person>_travel_time_home`, per-person lead time up to 90 min
 - **PID controller** — discrete-time PI controller sends proportional setpoints every 60 s via HomeKit (local LAN)
+- **Night setback** — optional: reduce PID target by N°C during configured night hours (default 23:00–07:00, disabled by default)
 - **HomeKit-first write routing** — all `set_temperature` writes prefer the local HomeKit entity over the Netatmo cloud, eliminating 429 rate-limit errors for those calls
 - **Zigbee TRV support** — full TRV-type routing (Netatmo vs Z2M) throughout all engines
 - **Energy waste tracking** — `heating_power_request` × room wattage; CO₂-weighted (ventilation = 50 % waste); rain overrides CO₂ → always full waste
@@ -48,6 +49,8 @@ Off shuts everything down permanently — with the correct fallback per season.
 - **Efficiency score** — daily 0–100 score
 - **Valve protection** — weekly valve exercise at 02:00–03:00 when controller is OFF, prevents calcification
 - **Mold risk sensor** — per-room binary sensor, DIN 4108-2 (Magnus dewpoint formula); outdoor humidity shown as context attribute
+- **Repair issues** — HA Repairs panel shows a warning when a configured climate entity is missing at startup
+- **Device registry** — entities grouped by room device in HA Settings → Devices
 - **Cloud availability sensor** — `binary_sensor.cloud_available` for use in HA automations
 - **PID power sensor** — per-room diagnostic sensor showing current PID output 0–100 %
 - **Netatmo weather station** — outdoor humidity, precipitation and wind speed sensors optionally used for smarter window logic and mold risk context
@@ -115,6 +118,10 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 | `grace_night_min` | min | 15 | Grace period before away mode (night, 23:00–07:00) |
 | `auto_off_temp_threshold` | °C | 18.0 | Sustained outdoor temperature that triggers auto-off |
 | `auto_off_temp_days` | days | 5 | Consecutive days above threshold before auto-off fires |
+| `night_setback_enabled` | bool | false | Enable night setback mode (disabled by default) |
+| `night_setback_temp` | °C | 2.0 | Degrees subtracted from PID target during night hours |
+| `night_start_hour` | 0–23 | 23 | Night window start hour |
+| `night_end_hour` | 0–23 | 7 | Night window end hour |
 
 ### Step 2 — Rooms (repeatable)
 
@@ -129,7 +136,8 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 | `room_wattage` | W | 1000 | Rated heating power for energy calculations |
 | `trv_type` | select | netatmo | `netatmo` (preset_mode) or `zigbee` (hvac_mode) |
 | `pi_demand_entity` | sensor | — | **Optional.** Z2M `pi_heating_demand` sensor for Zigbee energy tracking |
-| `co2_sensor` | sensor | — | **Optional.** CO₂ (ppm) — context-aware window notifications; ≥ 900 ppm = 50 % waste reduction (overridden by rain) |
+| `co2_sensor` | sensor | — | **Optional.** CO₂ (ppm) — context-aware window notifications; CO₂ ≥ threshold = 50 % waste reduction (overridden by rain) |
+| `co2_threshold` | ppm | 900 | **Optional.** Per-room CO₂ ventilation threshold. Overrides global 900 ppm default. Higher = more tolerant (e.g. bedrooms) |
 | `room_temp_sensor` | sensor | — | **Optional.** Wall probe for PID feedback — avoids radiator-body bias of TRV built-in sensor |
 | `humidity_sensor` | sensor | — | **Optional.** Indoor humidity (%) for mold risk detection |
 
@@ -281,7 +289,6 @@ logger:
 - Pre-heat requires a `sensor.<person>_travel_time_home` sensor in HA (e.g. from Google Maps or Waze integration).
 - Energy waste uses Netatmo's `heating_power_request` when available; falls back to Δtemp × 0.1 kWh/°C/h for other rooms.
 - PID writes via HomeKit require the Netatmo Relay paired as HomeKit Controller in HA.
-- CO₂ waste weighting threshold is fixed at 900 ppm — not yet configurable via the UI.
 - Valve protection fires once per ISO week at 02:00–03:00 local time, only when the controller is OFF.
 - Daily energy totals reset on HA restart (persistent storage not implemented).
 
