@@ -13,6 +13,30 @@ _Nothing yet._
 
 ---
 
+## [0.4.5] — 2026-05-22
+
+### Added
+- **Device registry** — all entities are now assigned to HA devices (IQS Gold
+  `devices` + `dynamic-devices` rules now `done`).
+  Two device tiers:
+  - **Global device** `Heat Manager` — holds all integration-level entities
+    (controller state, season mode, energy sensors, any_window_open,
+    heating_wasted, cloud_available).
+  - **Per-room devices** (one per configured room) — hold all room-level
+    entities (room state, window sensor, mold risk, override switch, PID
+    power). Each room device links to the global device via `via_device`.
+- `coordinator.py` — `global_device_info()` and `room_device_info(room_name)`
+  helpers returning `DeviceInfo`. All platform `__init__` methods set
+  `self._attr_device_info` from these helpers.
+- `DeviceInfo` import added to `coordinator.py`.
+
+### Changed
+- `sensor.py`, `binary_sensor.py`, `select.py`, `switch.py` — all entity
+  `__init__` methods set `self._attr_device_info` (one line each).
+- `quality_scale.yaml` — `devices` and `dynamic-devices` marked `done`.
+
+---
+
 ## [0.4.4] — 2026-05-22
 
 ### Added
@@ -387,7 +411,8 @@ _Nothing yet._
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.4.4...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/kingpainter/heat-manager/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/kingpainter/heat-manager/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/kingpainter/heat-manager/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/kingpainter/heat-manager/compare/v0.4.1...v0.4.2

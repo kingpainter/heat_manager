@@ -41,7 +41,7 @@ rules:
   test-coverage: done  # 74 tests across 6 files — pyproject.toml with --cov-fail-under=80
 
   # ── Gold ──────────────────────────────────────────────────────────────────
-  devices: todo
+  devices: done  # coordinator.global_device_info() + room_device_info() — all entities assigned to devices
   diagnostics: done  # diagnostics.py — async_get_config_entry_diagnostics()
   discovery:
     status: exempt
@@ -62,7 +62,7 @@ rules:
   docs-supported-functions: done
   docs-troubleshooting: done
   docs-use-cases: done
-  dynamic-devices: todo
+  dynamic-devices: done  # per-room devices created dynamically from coordinator.rooms at setup
   entity-category: done
   entity-device-class: done
   entity-disabled-by-default: done  # diagnostic/config entities off by default in all platforms

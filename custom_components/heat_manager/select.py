@@ -55,6 +55,7 @@ class ControllerStateSelect(CoordinatorEntity, SelectEntity):
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_controller_state"
+        self._attr_device_info = coordinator.global_device_info()
 
     @property
     def current_option(self) -> str:
@@ -95,6 +96,7 @@ class SeasonModeSelect(CoordinatorEntity, SelectEntity):
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_season_mode"
+        self._attr_device_info = coordinator.global_device_info()
 
     @property
     def current_option(self) -> str:

@@ -34,6 +34,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -155,6 +156,38 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @property
     def alarm_panel(self) -> str | None:
         return self.config.get(CONF_ALARM_PANEL) or None
+
+    # ── Device registry helpers ───────────────────────────────────────────────
+
+    def global_device_info(self) -> DeviceInfo:
+        """DeviceInfo for the single Heat Manager integration device.
+
+        All global entities (controller state, season mode, energy sensors, etc.)
+        belong to this device.
+        """
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.entry.entry_id)},
+            name="Heat Manager",
+            manufacturer="Heat Manager",
+            model="Multi-room heating controller",
+            entry_type="service",  # type: ignore[arg-type]
+        )
+
+    def room_device_info(self, room_name: str) -> DeviceInfo:
+        """DeviceInfo for a per-room virtual device.
+
+        All per-room entities (state, window, mold risk, override, pid power)
+        belong to their room device, which is linked to the global device
+        via via_device.
+        """
+        safe = room_name.lower().replace(" ", "_")
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{self.entry.entry_id}_{safe}")},
+            name=room_name,
+            manufacturer="Heat Manager",
+            model="Room",
+            via_device=(DOMAIN, self.entry.entry_id),
+        )
 
     @property
     def weather_entity(self) -> str | None:

@@ -87,6 +87,7 @@ class PauseRemainingSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_pause_remaining"
+        self._attr_device_info = coordinator.global_device_info()
 
     @property
     def native_value(self) -> int:
@@ -113,6 +114,7 @@ class EnergyWastedSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_energy_wasted_today"
+        self._attr_device_info = coordinator.global_device_info()
 
     @property
     def native_value(self) -> float:
@@ -136,6 +138,7 @@ class EnergySavedSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_energy_saved_today"
+        self._attr_device_info = coordinator.global_device_info()
 
     @property
     def native_value(self) -> float:
@@ -156,6 +159,7 @@ class EfficiencyScoreSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_efficiency_score"
+        self._attr_device_info = coordinator.global_device_info()
 
     @property
     def native_value(self) -> int:
@@ -189,6 +193,7 @@ class RoomStateSensor(CoordinatorEntity, SensorEntity):
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_state"
         self._attr_name = f"{self._room_name} state"
         self._was_unavailable: bool = False
+        self._attr_device_info = coordinator.room_device_info(self._room_name)
 
     @property
     def available(self) -> bool:
@@ -251,6 +256,7 @@ class RoomWindowDurationSensor(CoordinatorEntity, SensorEntity):
         self._was_open: bool = False
         self._opened_at: datetime | None = None
         self._last_reset_date: Any = None  # S-6 FIX: date() not day integer
+        self._attr_device_info = coordinator.room_device_info(self._room_name)
 
     @property
     def native_value(self) -> int:
@@ -307,6 +313,7 @@ class RoomPidPowerSensor(CoordinatorEntity, SensorEntity):
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_pid_power"
         self._attr_name = f"{self._room_name} PID power"
+        self._attr_device_info = coordinator.room_device_info(self._room_name)
 
     @property
     def native_value(self) -> float | None:

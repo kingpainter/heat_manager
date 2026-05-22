@@ -64,6 +64,7 @@ class AnyWindowOpenSensor(CoordinatorEntity, BinarySensorEntity):
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_any_window_open"
+        self._attr_device_info = coordinator.global_device_info()
 
     @property
     def is_on(self) -> bool:
@@ -84,6 +85,7 @@ class HeatingWastedSensor(CoordinatorEntity, BinarySensorEntity):
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_heating_wasted"
+        self._attr_device_info = coordinator.global_device_info()
 
     @property
     def is_on(self) -> bool:
@@ -120,6 +122,7 @@ class CloudAvailableSensor(CoordinatorEntity, BinarySensorEntity):
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_cloud_available"
+        self._attr_device_info = coordinator.global_device_info()
 
     @property
     def is_on(self) -> bool:
@@ -208,6 +211,7 @@ class RoomWindowSensor(CoordinatorEntity, BinarySensorEntity):
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_window"
         self._attr_name = f"{self._room_name} window"
+        self._attr_device_info = coordinator.room_device_info(self._room_name)
 
     @property
     def is_on(self) -> bool:
@@ -263,6 +267,7 @@ class MoldRiskSensor(CoordinatorEntity, BinarySensorEntity):
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_mold_risk"
         self._attr_name = f"{self._room_name} mold risk"
+        self._attr_device_info = coordinator.room_device_info(self._room_name)
 
     @staticmethod
     def _dewpoint(temp_c: float, rh_pct: float) -> float:

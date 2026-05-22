@@ -68,6 +68,7 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_override"
         self._attr_name = f"{self._room_name} override"
+        self._attr_device_info = coordinator.room_device_info(self._room_name)
 
     @property
     def is_on(self) -> bool:
