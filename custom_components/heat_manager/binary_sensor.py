@@ -158,9 +158,7 @@ class CloudAvailableSensor(CoordinatorEntity, BinarySensorEntity):
             return True
         if unavailable_count == total:
             return False  # all unavailable
-        if stale_count == total:
-            return False  # all stale
-        return True
+        return stale_count != total
 
     @property
     def extra_state_attributes(self) -> dict:

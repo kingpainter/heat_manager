@@ -51,7 +51,10 @@ jobs:
       - name: Format (auto-fix)
         run: ruff format custom_components/heat_manager
 
-      - name: Lint check
+      - name: Lint (auto-fix)
+        run: ruff check --fix custom_components/heat_manager
+
+      - name: Lint check (no remaining errors)
         run: ruff check custom_components/heat_manager
 
       - name: Commit formatting fixes
