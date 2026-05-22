@@ -148,6 +148,12 @@ DEFAULT_CO2_VENTILATION_THRESHOLD: int = 900  # ppm
 # (e.g. bedrooms vs. living rooms vs. offices).
 CONF_CO2_THRESHOLD = "co2_threshold"
 
+# ── Repair issue identifiers ────────────────────────────────────────────────────
+
+# Raised when a configured climate entity does not exist in HA at startup.
+# Cleared automatically when the entity becomes available on next reload.
+REPAIR_ISSUE_MISSING_CLIMATE = "missing_climate_entity"
+
 # ── Controller state ──────────────────────────────────────────────────────────
 
 class ControllerState(StrEnum):

@@ -70,8 +70,8 @@ rules:
   exception-translations: done  # ServiceValidationError and ConfigEntryNotReady with translation_key
   icon-translations: done  # icons.json with entity icon overrides
   reconfiguration-flow: done
-  repair-issues: todo
-  stale-devices: todo
+  repair-issues: done  # _async_check_repair_issues() raises RepairIssue when climate entity missing at startup
+  stale-devices: done  # _async_remove_stale_devices() cleans up device registry on every reload
 
   # ── Platinum ──────────────────────────────────────────────────────────────
   async-dependency:

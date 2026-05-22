@@ -13,6 +13,33 @@ _Nothing yet._
 
 ---
 
+## [0.4.6] — 2026-05-22
+
+### Added
+- **Repair issues** — `_async_check_repair_issues()` runs after every setup.
+  For each room whose `climate_entity` is not found in HA, a `RepairIssue`
+  (severity WARNING, `is_fixable=False`) is raised in the HA Repairs panel.
+  The issue title and description include the room name and entity ID.
+  Issues are cleared automatically on the next reload when the entity
+  reappears, and on unload. IQS Gold `repair-issues` now `done`.
+- **Stale device cleanup** — `_async_remove_stale_devices()` runs after every
+  setup. Compares device registry entries for this config entry against the
+  current room list and removes any per-room devices whose room no longer
+  exists in config (e.g. after a room is deleted via options flow).
+  IQS Gold `stale-devices` now `done`.
+- `const.py` — `REPAIR_ISSUE_MISSING_CLIMATE = "missing_climate_entity"`.
+- `strings.json` + `translations/da.json` — `issues.missing_climate_entity`
+  title and description with `{room_name}` and `{climate_id}` placeholders.
+
+### Changed
+- `__init__.py` — added `homeassistant.components.repairs` import and
+  `homeassistant.helpers.device_registry` import. `async_unload_entry` now
+  deletes all repair issues on unload.
+- `quality_scale.yaml` — `repair-issues` and `stale-devices` marked `done`.
+  All Gold IQS rules are now either `done` or `exempt`.
+
+---
+
 ## [0.4.5] — 2026-05-22
 
 ### Added
@@ -411,7 +438,8 @@ _Nothing yet._
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.4.5...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.4.6...HEAD
+[0.4.6]: https://github.com/kingpainter/heat-manager/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/kingpainter/heat-manager/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/kingpainter/heat-manager/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/kingpainter/heat-manager/compare/v0.4.2...v0.4.3

@@ -220,6 +220,12 @@
       }
     }
   },
+  "issues": {
+    "missing_climate_entity": {
+      "title": "Heat Manager: klimaenhed mangler for rum {room_name}",
+      "description": "Klimaenheden `{climate_id}` konfigureret for rum **{room_name}** findes ikke i Home Assistant. Heat Manager kan ikke styre varmen i dette rum, før enheden er tilgængelig.\n\nLøsning: Kontrollér at integrationen der leverer `{climate_id}` er indlæst, og at entitets-ID'et er korrekt. Genindlæs Heat Manager når enheden er tilgængelig."
+    }
+  },
   "exceptions": {
     "invalid_controller_state": {
       "message": "Ugyldig controllertilstand: {state}. Gyldige værdier: on, pause, off."

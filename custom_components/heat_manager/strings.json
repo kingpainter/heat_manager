@@ -196,6 +196,12 @@
       "room_override": {"name": "Override"}
     }
   },
+  "issues": {
+    "missing_climate_entity": {
+      "title": "Heat Manager: climate entity missing for room {room_name}",
+      "description": "The climate entity `{climate_id}` configured for room **{room_name}** does not exist in Home Assistant. Heat Manager cannot control heating for this room until the entity is available.\n\nTo resolve: check that the integration providing `{climate_id}` is loaded and the entity ID is correct. Reload Heat Manager once the entity is available."
+    }
+  },
   "exceptions": {
     "invalid_controller_state": {
       "message": "Invalid controller state: {state}. Valid values: on, pause, off."
