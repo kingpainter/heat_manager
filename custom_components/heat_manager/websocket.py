@@ -11,6 +11,7 @@ Phase 3: energy values now come directly from coordinator.waste_calculator.
 
 v0.4.2: _get_entry() uses entry.runtime_data exclusively — no hass.data lookup.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -51,9 +52,12 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
 
 # ── heat_manager/get_state ────────────────────────────────────────────────────
 
-@websocket_api.websocket_command({
-    vol.Required("type"): "heat_manager/get_state",
-})
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "heat_manager/get_state",
+    }
+)
 @websocket_api.async_response
 async def ws_get_state(
     hass: HomeAssistant,
@@ -68,14 +72,14 @@ async def ws_get_state(
 
     coordinator = entry.runtime_data
     ctrl = coordinator.controller
-    cfg  = coordinator.config
+    cfg = coordinator.config
 
     # ── Rooms ─────────────────────────────────────────────────────────────────
     rooms = []
     for room in coordinator.rooms:
-        name       = room.get("room_name", "")
+        name = room.get("room_name", "")
         climate_id = room.get("climate_entity", "")
-        sensors    = room.get(CONF_WINDOW_SENSORS, [])
+        sensors = room.get(CONF_WINDOW_SENSORS, [])
         room_state = coordinator.get_room_state(name)
 
         current_temp: float | None = coordinator.get_room_current_temp(name, climate_id)
@@ -93,22 +97,24 @@ async def ws_get_state(
             for sid in sensors
         )
 
-        rooms.append({
-            "name":           name,
-            "climate_entity": climate_id,
-            "state":          room_state.value,
-            "current_temp":   current_temp,
-            "heating_power":  heating_power,
-            "windows_open":   windows_open,
-            "why":            _why_label(room_state),
-        })
+        rooms.append(
+            {
+                "name": name,
+                "climate_entity": climate_id,
+                "state": room_state.value,
+                "current_temp": current_temp,
+                "heating_power": heating_power,
+                "windows_open": windows_open,
+                "why": _why_label(room_state),
+            }
+        )
 
     # ── Persons ───────────────────────────────────────────────────────────────
     persons = []
     for person in coordinator.persons:
         entity_id = person.get(CONF_PERSON_ENTITY, "")
-        tracking  = person.get(CONF_PERSON_TRACKING, True)
-        ps        = hass.states.get(entity_id) if entity_id else None
+        tracking = person.get(CONF_PERSON_TRACKING, True)
+        ps = hass.states.get(entity_id) if entity_id else None
         state_str = ps.state if ps else "unknown"
         since: str | None = None
         if ps and ps.last_changed:
@@ -118,49 +124,51 @@ async def ws_get_state(
         else:
             name = entity_id.split(".")[-1] if entity_id else ""
 
-        persons.append({
-            "name":     name,
-            "entity":   entity_id,
-            "state":    state_str,
-            "tracking": tracking,
-            "since":    since,
-        })
+        persons.append(
+            {
+                "name": name,
+                "entity": entity_id,
+                "state": state_str,
+                "tracking": tracking,
+                "since": since,
+            }
+        )
 
     # ── Outdoor temperature ───────────────────────────────────────────────────
     outdoor_temp: float | None = coordinator.outdoor_temperature
 
     # ── Config snapshot ────────────────────────────────────────────────────────
     config_snap = {
-        "weather_entity":          cfg.get(CONF_WEATHER_ENTITY, ""),
-        "grace_day_min":           cfg.get(CONF_GRACE_DAY_MIN),
-        "grace_night_min":         cfg.get(CONF_GRACE_NIGHT_MIN),
-        "away_temp_mild":          cfg.get(CONF_AWAY_TEMP_MILD),
-        "away_temp_cold":          cfg.get(CONF_AWAY_TEMP_COLD),
+        "weather_entity": cfg.get(CONF_WEATHER_ENTITY, ""),
+        "grace_day_min": cfg.get(CONF_GRACE_DAY_MIN),
+        "grace_night_min": cfg.get(CONF_GRACE_NIGHT_MIN),
+        "away_temp_mild": cfg.get(CONF_AWAY_TEMP_MILD),
+        "away_temp_cold": cfg.get(CONF_AWAY_TEMP_COLD),
         "auto_off_temp_threshold": cfg.get(CONF_AUTO_OFF_TEMP_THRESHOLD),
-        "auto_off_temp_days":      cfg.get(CONF_AUTO_OFF_TEMP_DAYS),
-        "alarm_panel":             cfg.get(CONF_ALARM_PANEL, ""),
-        "notify_service":          cfg.get(CONF_NOTIFY_SERVICE, ""),
+        "auto_off_temp_days": cfg.get(CONF_AUTO_OFF_TEMP_DAYS),
+        "alarm_panel": cfg.get(CONF_ALARM_PANEL, ""),
+        "notify_service": cfg.get(CONF_NOTIFY_SERVICE, ""),
     }
 
     payload: dict[str, Any] = {
-        "controller_state":       ctrl.state.value,
-        "auto_off_reason":        ctrl.auto_off_reason.value,
-        "pause_remaining":        ctrl.pause_remaining_minutes,
-        "season_mode":            coordinator.season_mode.value,
-        "effective_season":       coordinator.effective_season.value,
-        "outdoor_temp":           outdoor_temp,
-        "rooms":                  rooms,
-        "persons":                persons,
-        "energy_saved_today":     coordinator.energy_saved_today,
-        "energy_wasted_today":    coordinator.energy_wasted_today,
-        "efficiency_score":       coordinator.efficiency_score,
-        "last_waste_time":        coordinator.last_waste_time,
-        "last_saved_time":        coordinator.last_saved_time,
-        "calendar_season":        coordinator.calendar_season.value,
-        "auto_off_days":          coordinator.days_above_threshold,
+        "controller_state": ctrl.state.value,
+        "auto_off_reason": ctrl.auto_off_reason.value,
+        "pause_remaining": ctrl.pause_remaining_minutes,
+        "season_mode": coordinator.season_mode.value,
+        "effective_season": coordinator.effective_season.value,
+        "outdoor_temp": outdoor_temp,
+        "rooms": rooms,
+        "persons": persons,
+        "energy_saved_today": coordinator.energy_saved_today,
+        "energy_wasted_today": coordinator.energy_wasted_today,
+        "efficiency_score": coordinator.efficiency_score,
+        "last_waste_time": coordinator.last_waste_time,
+        "last_saved_time": coordinator.last_saved_time,
+        "calendar_season": coordinator.calendar_season.value,
+        "auto_off_days": coordinator.days_above_threshold,
         "auto_off_days_required": cfg.get(CONF_AUTO_OFF_TEMP_DAYS, 5),
-        "auto_off_threshold":     cfg.get(CONF_AUTO_OFF_TEMP_THRESHOLD, 18.0),
-        "config":                 config_snap,
+        "auto_off_threshold": cfg.get(CONF_AUTO_OFF_TEMP_THRESHOLD, 18.0),
+        "config": config_snap,
     }
 
     connection.send_result(msg["id"], payload)
@@ -168,10 +176,13 @@ async def ws_get_state(
 
 # ── heat_manager/get_history ──────────────────────────────────────────────────
 
-@websocket_api.websocket_command({
-    vol.Required("type"): "heat_manager/get_history",
-    vol.Optional("days", default=7): vol.All(int, vol.Range(min=1, max=30)),
-})
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "heat_manager/get_history",
+        vol.Optional("days", default=7): vol.All(int, vol.Range(min=1, max=30)),
+    }
+)
 @websocket_api.async_response
 async def ws_get_history(
     hass: HomeAssistant,
@@ -188,21 +199,27 @@ async def ws_get_history(
     days = msg.get("days", 7)
 
     events = _get_event_log(coordinator, days)
-    daily  = _build_daily_energy(coordinator, days)
+    daily = _build_daily_energy(coordinator, days)
 
-    connection.send_result(msg["id"], {
-        "events": events,
-        "days":   daily,
-    })
+    connection.send_result(
+        msg["id"],
+        {
+            "events": events,
+            "days": daily,
+        },
+    )
 
 
 # ── heat_manager/update_config ────────────────────────────────────────────────
 
-@websocket_api.websocket_command({
-    vol.Required("type"): "heat_manager/update_config",
-    vol.Optional(CONF_ALARM_PANEL):   vol.Any(str, None),
-    vol.Optional(CONF_NOTIFY_SERVICE): vol.Any(str, None),
-})
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "heat_manager/update_config",
+        vol.Optional(CONF_ALARM_PANEL): vol.Any(str, None),
+        vol.Optional(CONF_NOTIFY_SERVICE): vol.Any(str, None),
+    }
+)
 @websocket_api.async_response
 async def ws_update_config(
     hass: HomeAssistant,
@@ -239,14 +256,13 @@ async def ws_update_config(
     _LOGGER.info("Heat Manager config updated via panel: %s", changed)
 
     coordinator = entry.runtime_data
-    coordinator.log_event(
-        f"Config updated: {', '.join(changed)}", "Panel", "normal"
-    )
+    coordinator.log_event(f"Config updated: {', '.join(changed)}", "Panel", "normal")
 
     connection.send_result(msg["id"], {"updated": True, "changed": changed})
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _get_entry(hass: HomeAssistant) -> Any:
     """Return the active Heat Manager config entry.
@@ -256,7 +272,8 @@ def _get_entry(hass: HomeAssistant) -> Any:
     is the single source of truth (IQS pattern).
     """
     candidates = [
-        e for e in hass.config_entries.async_entries(DOMAIN)
+        e
+        for e in hass.config_entries.async_entries(DOMAIN)
         if hasattr(e, "runtime_data") and e.runtime_data is not None
     ]
     return candidates[0] if candidates else None
@@ -264,20 +281,22 @@ def _get_entry(hass: HomeAssistant) -> Any:
 
 def _why_label(state: Any) -> str:
     from .const import RoomState
+
     return {
-        RoomState.NORMAL:      "Active — someone home",
-        RoomState.AWAY:        "Nobody home → away mode",
+        RoomState.NORMAL: "Active — someone home",
+        RoomState.AWAY: "Nobody home → away mode",
         RoomState.WINDOW_OPEN: "Window open → heating suppressed",
-        RoomState.PRE_HEAT:    "Pre-heating before arrival",
-        RoomState.OVERRIDE:    "Manual override active",
+        RoomState.PRE_HEAT: "Pre-heating before arrival",
+        RoomState.OVERRIDE: "Manual override active",
     }.get(state, "")
 
 
 def _fmt_time(dt: datetime) -> str:
     # S-7 FIX: neutral date format — panel JS handles locale-specific labels
     from homeassistant.util.dt import now as ha_now
+
     local_now = ha_now()
-    local_dt  = dt.astimezone(local_now.tzinfo)
+    local_dt = dt.astimezone(local_now.tzinfo)
     if local_dt.date() == local_now.date():
         return local_dt.strftime("%H:%M")
     return local_dt.strftime("%d/%m %H:%M")
@@ -286,9 +305,10 @@ def _fmt_time(dt: datetime) -> str:
 def _get_event_log(coordinator: Any, days: int) -> list[dict]:
     """Return events from coordinator._event_log deque, newest first, capped at 50."""
     from homeassistant.util.dt import now as ha_now
-    cutoff    = ha_now() - timedelta(days=days)
+
+    cutoff = ha_now() - timedelta(days=days)
     event_log = list(getattr(coordinator, "_event_log", []))
-    result    = []
+    result = []
     for e in event_log:
         ts = e.get("timestamp")
         if not ts:
@@ -296,9 +316,11 @@ def _get_event_log(coordinator: Any, days: int) -> list[dict]:
             continue
         try:
             from datetime import datetime as _dt
+
             dt = _dt.fromisoformat(ts)
             if dt.tzinfo is None:
                 from homeassistant.util.dt import UTC
+
                 dt = dt.replace(tzinfo=UTC)
             if dt >= cutoff:
                 result.append(e)
@@ -310,16 +332,21 @@ def _get_event_log(coordinator: Any, days: int) -> list[dict]:
 def _build_daily_energy(coordinator: Any, days: int) -> list[dict]:
     """Today uses live WasteCalculator values; past days are 0 until persistent storage exists."""
     from homeassistant.util.dt import now as ha_now
-    today      = ha_now().date()
+
+    today = ha_now().date()
     day_labels = ["man", "tir", "ons", "tor", "fre", "lør", "søn"]
     result = []
     for i in range(days - 1, -1, -1):
-        d        = today - timedelta(days=i)
-        is_today = (i == 0)
-        result.append({
-            "label":  day_labels[d.weekday()],
-            "date":   d.isoformat(),
-            "saved":  round(coordinator.energy_saved_today, 3) if is_today else 0.0,
-            "wasted": round(coordinator.energy_wasted_today, 3) if is_today else 0.0,
-        })
+        d = today - timedelta(days=i)
+        is_today = i == 0
+        result.append(
+            {
+                "label": day_labels[d.weekday()],
+                "date": d.isoformat(),
+                "saved": round(coordinator.energy_saved_today, 3) if is_today else 0.0,
+                "wasted": round(coordinator.energy_wasted_today, 3)
+                if is_today
+                else 0.0,
+            }
+        )
     return result

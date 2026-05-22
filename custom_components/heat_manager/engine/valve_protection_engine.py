@@ -28,6 +28,7 @@ EXERCISE_DURATION_SEC : how long to hold the open setpoint (30 s)
 EXERCISE_NIGHT_START  : hour to begin the sweep (2 — 02:00 local)
 EXERCISE_NIGHT_END    : hour to end   the sweep (3 — 03:00 local)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -41,9 +42,9 @@ from ..const import (
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_NOTIFY_SERVICE,
     CONF_TRV_TYPE,
-    ControllerState,
     NETATMO_API_CALL_DELAY_SEC,
     TRV_TYPE_ZIGBEE,
+    ControllerState,
 )
 
 if TYPE_CHECKING:
@@ -52,10 +53,10 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 # ── Tunables ──────────────────────────────────────────────────────────────────
-EXERCISE_SETPOINT_C: float = 28.0   # °C — fully open valve
-EXERCISE_DURATION_SEC: int = 30     # seconds to hold before restoring
-EXERCISE_NIGHT_START: int  = 2      # 02:00 local time
-EXERCISE_NIGHT_END:   int  = 3      # 03:00 local time
+EXERCISE_SETPOINT_C: float = 28.0  # °C — fully open valve
+EXERCISE_DURATION_SEC: int = 30  # seconds to hold before restoring
+EXERCISE_NIGHT_START: int = 2  # 02:00 local time
+EXERCISE_NIGHT_END: int = 3  # 03:00 local time
 
 
 class ValveProtectionEngine:
@@ -66,7 +67,7 @@ class ValveProtectionEngine:
 
     def __init__(self, coordinator: HeatManagerCoordinator) -> None:
         self.coordinator = coordinator
-        self._last_exercise_week: int | None = None   # ISO week number
+        self._last_exercise_week: int | None = None  # ISO week number
         self._running: bool = False
 
     # ── Tick ──────────────────────────────────────────────────────────────────
@@ -109,7 +110,7 @@ class ValveProtectionEngine:
         rooms_done: list[str] = []
 
         for room in self.coordinator.rooms:
-            room_name  = room.get("room_name", "")
+            room_name = room.get("room_name", "")
             climate_id = room.get(CONF_CLIMATE_ENTITY, "")
             if not room_name or not climate_id:
                 continue
@@ -151,7 +152,8 @@ class ValveProtectionEngine:
                 )
                 _LOGGER.debug(
                     "ValveProtectionEngine: %s → %.0f°C (exercise open)",
-                    room_name, EXERCISE_SETPOINT_C,
+                    room_name,
+                    EXERCISE_SETPOINT_C,
                 )
 
                 # Hold for exercise duration
@@ -166,7 +168,8 @@ class ValveProtectionEngine:
                 )
                 _LOGGER.debug(
                     "ValveProtectionEngine: %s → %.1f°C (restored)",
-                    room_name, original_setpoint,
+                    room_name,
+                    original_setpoint,
                 )
 
                 rooms_done.append(room_name)
@@ -174,7 +177,8 @@ class ValveProtectionEngine:
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning(
                     "ValveProtectionEngine: exercise failed for %s: %s",
-                    room_name, err,
+                    room_name,
+                    err,
                 )
 
             # Stagger calls for Netatmo rooms to avoid 429
@@ -190,7 +194,8 @@ class ValveProtectionEngine:
             )
             _LOGGER.info(
                 "ValveProtectionEngine: exercise complete for %d room(s): %s",
-                len(rooms_done), rooms_str,
+                len(rooms_done),
+                rooms_str,
             )
             await self._notify(
                 f"Ventilbeskyttelse: {len(rooms_done)} rum gennemkørt ({rooms_str})"
@@ -209,7 +214,8 @@ class ValveProtectionEngine:
             return
         try:
             await self.coordinator.hass.services.async_call(
-                domain, service_name,
+                domain,
+                service_name,
                 {"message": message, "title": "Heat Manager"},
                 blocking=True,
             )

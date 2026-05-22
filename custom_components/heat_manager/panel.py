@@ -10,6 +10,7 @@ FIX: Static HTTP paths moved to async_register_static_paths() called from
      async_setup (module level) so URLs are always available at HA startup,
      even when ConfigEntryNotReady is raised during async_setup_entry.
 """
+
 from __future__ import annotations
 
 import logging
@@ -23,19 +24,19 @@ from .const import DOMAIN, VERSION
 
 _LOGGER = logging.getLogger(__name__)
 
-PANEL_URL    = f"/api/{DOMAIN}-panel"
-CARDS_URL    = f"/api/{DOMAIN}-cards"
-LOGO_URL     = f"/api/{DOMAIN}-logo"
-PANEL_NAME   = "heat-manager-panel"
-PANEL_TITLE  = "Heat Manager"
-PANEL_ICON   = "mdi:radiator"
-PANEL_FILE   = "heat-manager-panel.js"
-CARDS_FILE   = "heat-manager-card.js"
-LOGO_FILE    = "heat_manager_logo1.png"
+PANEL_URL = f"/api/{DOMAIN}-panel"
+CARDS_URL = f"/api/{DOMAIN}-cards"
+LOGO_URL = f"/api/{DOMAIN}-logo"
+PANEL_NAME = "heat-manager-panel"
+PANEL_TITLE = "Heat Manager"
+PANEL_ICON = "mdi:radiator"
+PANEL_FILE = "heat-manager-panel.js"
+CARDS_FILE = "heat-manager-card.js"
+LOGO_FILE = "heat_manager_logo1.png"
 FRONTEND_DIR = "frontend"
 
-_STATIC_SESSION_KEY  = f"{DOMAIN}_static_paths_registered"
-_PANEL_SESSION_KEY   = f"{DOMAIN}_panel_registered"
+_STATIC_SESSION_KEY = f"{DOMAIN}_static_paths_registered"
+_PANEL_SESSION_KEY = f"{DOMAIN}_panel_registered"
 
 # All URL prefixes that could belong to a previous registration of this card
 _CARD_URL_PREFIXES = (
@@ -47,9 +48,7 @@ _CARD_URL_PREFIXES = (
 
 def _get_frontend_dir(hass: HomeAssistant) -> str:
     """Return the absolute path to the frontend directory."""
-    return os.path.join(
-        hass.config.path("custom_components"), DOMAIN, FRONTEND_DIR
-    )
+    return os.path.join(hass.config.path("custom_components"), DOMAIN, FRONTEND_DIR)
 
 
 async def async_register_static_paths(hass: HomeAssistant) -> None:
@@ -65,20 +64,26 @@ async def async_register_static_paths(hass: HomeAssistant) -> None:
         return
 
     frontend_dir = _get_frontend_dir(hass)
-    panel_file   = os.path.join(frontend_dir, PANEL_FILE)
-    cards_file   = os.path.join(frontend_dir, CARDS_FILE)
-    logo_file    = os.path.join(frontend_dir, LOGO_FILE)
+    panel_file = os.path.join(frontend_dir, PANEL_FILE)
+    cards_file = os.path.join(frontend_dir, CARDS_FILE)
+    logo_file = os.path.join(frontend_dir, LOGO_FILE)
 
-    _LOGGER.debug("Static path check — panel=%s cards=%s logo=%s",
-                  os.path.exists(panel_file),
-                  os.path.exists(cards_file),
-                  os.path.exists(logo_file))
+    _LOGGER.debug(
+        "Static path check — panel=%s cards=%s logo=%s",
+        os.path.exists(panel_file),
+        os.path.exists(cards_file),
+        os.path.exists(logo_file),
+    )
 
     static_paths: list[StaticPathConfig] = []
     if os.path.exists(panel_file):
-        static_paths.append(StaticPathConfig(PANEL_URL, panel_file, cache_headers=False))
+        static_paths.append(
+            StaticPathConfig(PANEL_URL, panel_file, cache_headers=False)
+        )
     if os.path.exists(cards_file):
-        static_paths.append(StaticPathConfig(CARDS_URL, cards_file, cache_headers=False))
+        static_paths.append(
+            StaticPathConfig(CARDS_URL, cards_file, cache_headers=False)
+        )
     if os.path.exists(logo_file):
         static_paths.append(StaticPathConfig(LOGO_URL, logo_file, cache_headers=True))
 
@@ -127,7 +132,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     Lovelace resource entry so the card appears in the card picker.
     """
     frontend_dir = _get_frontend_dir(hass)
-    cards_file   = os.path.join(frontend_dir, CARDS_FILE)
+    cards_file = os.path.join(frontend_dir, CARDS_FILE)
     if os.path.exists(cards_file):
         try:
             cards_mtime = int(os.path.getmtime(cards_file))
@@ -178,7 +183,8 @@ async def _register_lovelace_resource(
 
         # Remove ALL existing entries for this card (any known prefix)
         existing = [
-            r for r in resources.async_items()
+            r
+            for r in resources.async_items()
             if any(r["url"].startswith(prefix) for prefix in _CARD_URL_PREFIXES)
         ]
 

@@ -34,6 +34,7 @@ Fallback:
     the engine falls back to the Phase 3 Δtemp × 0.1 kWh/°C/h formula so
     non-Netatmo rooms still get an estimate.
 """
+
 from __future__ import annotations
 
 import logging
@@ -47,8 +48,8 @@ from ..const import (
     CONF_PI_DEMAND_ENTITY,
     CONF_ROOM_WATTAGE,
     DEFAULT_ROOM_WATTAGE,
-    RoomState,
     SCAN_INTERVAL_SECONDS,
+    RoomState,
 )
 
 if TYPE_CHECKING:
@@ -108,9 +109,9 @@ class WasteCalculator:
         today = ha_now().date()
 
         if today != self._today:
-            self._today           = today
-            self._wasted_kwh      = 0.0
-            self._saved_kwh       = 0.0
+            self._today = today
+            self._wasted_kwh = 0.0
+            self._saved_kwh = 0.0
             self._last_waste_time = None
             self._last_saved_time = None
             _LOGGER.debug("WasteCalculator: reset for new day %s", today)
@@ -118,7 +119,7 @@ class WasteCalculator:
         tick_hours = SCAN_INTERVAL_SECONDS / 3600.0
 
         for room in self.coordinator.rooms:
-            room_name  = room.get("room_name", "")
+            room_name = room.get("room_name", "")
             climate_id = room.get(CONF_CLIMATE_ENTITY, "")
             if not room_name or not climate_id:
                 continue
@@ -126,8 +127,8 @@ class WasteCalculator:
             room_watts = float(room.get(CONF_ROOM_WATTAGE, DEFAULT_ROOM_WATTAGE))
             room_state = self.coordinator.get_room_state(room_name)
 
-            pi_entity  = room.get(CONF_PI_DEMAND_ENTITY) or None
-            power_pct  = self._get_heating_power_pct(climate_id, pi_entity)
+            pi_entity = room.get(CONF_PI_DEMAND_ENTITY) or None
+            power_pct = self._get_heating_power_pct(climate_id, pi_entity)
 
             if power_pct is not None and power_pct > 0:
                 self._last_power_pct[room_name] = power_pct
@@ -139,13 +140,14 @@ class WasteCalculator:
                 )
                 if raw_waste_kwh > 0:
                     # v0.2.9 — apply CO₂ weight: ventilation reduces waste attribution
-                    weight    = self._co2_waste_weight(room_name)
+                    weight = self._co2_waste_weight(room_name)
                     waste_kwh = raw_waste_kwh * weight
-                    self._wasted_kwh      += waste_kwh
-                    self._last_waste_time  = ha_now().isoformat()
+                    self._wasted_kwh += waste_kwh
+                    self._last_waste_time = ha_now().isoformat()
                     _LOGGER.debug(
                         "Waste +%.4f kWh — %s (power=%s%%, co2_weight=%.2f)",
-                        waste_kwh, room_name,
+                        waste_kwh,
+                        room_name,
                         f"{power_pct:.0f}" if power_pct is not None else "n/a",
                         weight,
                     )
@@ -156,8 +158,8 @@ class WasteCalculator:
                 if _HEATING_HOURS_START <= hour < _HEATING_HOURS_END:
                     saved_kwh = self._calc_saved_kwh(room_name, room_watts, tick_hours)
                     if saved_kwh > 0:
-                        self._saved_kwh       += saved_kwh
-                        self._last_saved_time  = ha_now().isoformat()
+                        self._saved_kwh += saved_kwh
+                        self._last_saved_time = ha_now().isoformat()
 
     # ── CO₂ waste weighting (v0.2.9) ─────────────────────────────────────────
 
@@ -232,7 +234,7 @@ class WasteCalculator:
             return 0.0
         try:
             setpoint = float(state.attributes.get("temperature", 0))
-            current  = float(state.attributes.get("current_temperature", 0))
+            current = float(state.attributes.get("current_temperature", 0))
         except (TypeError, ValueError):
             return 0.0
         delta = setpoint - current

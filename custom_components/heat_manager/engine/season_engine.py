@@ -25,6 +25,7 @@ Manual overrides (WINTER / SPRING / SUMMER / AUTUMN) bypass all logic.
 
 Called on every coordinator tick (60 s).
 """
+
 from __future__ import annotations
 
 import logging
@@ -100,12 +101,16 @@ class SeasonEngine:
             self.coordinator.effective_season = SeasonMode.WINTER
             return
 
-        threshold   = float(self.coordinator.config.get(
-            CONF_AUTO_OFF_TEMP_THRESHOLD, DEFAULT_AUTO_OFF_TEMP_THRESHOLD
-        ))
-        days_needed = int(self.coordinator.config.get(
-            CONF_AUTO_OFF_TEMP_DAYS, DEFAULT_AUTO_OFF_TEMP_DAYS
-        ))
+        threshold = float(
+            self.coordinator.config.get(
+                CONF_AUTO_OFF_TEMP_THRESHOLD, DEFAULT_AUTO_OFF_TEMP_THRESHOLD
+            )
+        )
+        days_needed = int(
+            self.coordinator.config.get(
+                CONF_AUTO_OFF_TEMP_DAYS, DEFAULT_AUTO_OFF_TEMP_DAYS
+            )
+        )
 
         today = ha_now().date().isoformat()
 
@@ -115,14 +120,19 @@ class SeasonEngine:
                 self._days_above += 1
                 _LOGGER.debug(
                     "SeasonEngine [%s]: %.1f°C > %.1f°C — day %d/%d above threshold",
-                    cal_season.value, outdoor, threshold,
-                    self._days_above, days_needed,
+                    cal_season.value,
+                    outdoor,
+                    threshold,
+                    self._days_above,
+                    days_needed,
                 )
             else:
                 if self._days_above > 0:
                     _LOGGER.debug(
                         "SeasonEngine [%s]: %.1f°C ≤ threshold — resetting counter (was %d)",
-                        cal_season.value, outdoor, self._days_above,
+                        cal_season.value,
+                        outdoor,
+                        self._days_above,
                     )
                 self._days_above = 0
 
@@ -135,9 +145,11 @@ class SeasonEngine:
 
         _LOGGER.debug(
             "SeasonEngine: calendar=%s outdoor=%.1f effective=%s (days_above=%d/%d)",
-            cal_season.value, outdoor,
+            cal_season.value,
+            outdoor,
             self.coordinator.effective_season.value,
-            self._days_above, days_needed,
+            self._days_above,
+            days_needed,
         )
 
     @property

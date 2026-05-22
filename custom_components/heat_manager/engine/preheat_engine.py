@@ -25,6 +25,7 @@ Behaviour
   (presence engine → _restore_all_schedule → sets state NORMAL).
 - Only fires once per departure cycle (guarded by _preheat_armed flag).
 """
+
 from __future__ import annotations
 
 import logging
@@ -35,16 +36,16 @@ from homeassistant.helpers.event import async_track_state_change_event
 
 from ..const import (
     CONF_CLIMATE_ENTITY,
-    CONF_NOTIFY_SERVICE,
     CONF_NOTIFY_PREHEAT,
+    CONF_NOTIFY_SERVICE,
     CONF_PERSON_ENTITY,
     CONF_PERSON_TRACKING,
     CONF_PREHEAT_LEAD_TIME_MIN,
     CONF_TRV_TYPE,
     DEFAULT_PREHEAT_LEAD_TIME_MIN,
     PRESET_SCHEDULE,
-    RoomState,
     TRV_TYPE_ZIGBEE,
+    RoomState,
 )
 from .controller import guarded
 
@@ -88,9 +89,7 @@ class PreheatEngine:
             travel_sensor = f"sensor.{person_id}_travel_time_home"
             if hass.states.get(travel_sensor) is not None:
                 self._travel_sensors[entity_id] = travel_sensor
-                _LOGGER.debug(
-                    "PreheatEngine: %s → %s", entity_id, travel_sensor
-                )
+                _LOGGER.debug("PreheatEngine: %s → %s", entity_id, travel_sensor)
 
         if not self._travel_sensors:
             _LOGGER.debug(
@@ -106,9 +105,7 @@ class PreheatEngine:
         # Listen for person state changes to arm/disarm preheat
         person_ids = list(self._travel_sensors.keys())
         self._unsubs.append(
-            async_track_state_change_event(
-                hass, person_ids, self._handle_person_change
-            )
+            async_track_state_change_event(hass, person_ids, self._handle_person_change)
         )
 
         # Listen for travel_time changes to trigger preheat
@@ -163,7 +160,9 @@ class PreheatEngine:
         if travel_seconds <= lead_time_sec:
             _LOGGER.info(
                 "PreheatEngine: %s arriving in %.0f s — lead time %d s → starting preheat",
-                person_id, travel_seconds, lead_time_sec,
+                person_id,
+                travel_seconds,
+                lead_time_sec,
             )
             self.coordinator.hass.async_create_task(
                 self._start_preheat(person_id),
@@ -182,7 +181,7 @@ class PreheatEngine:
         rooms_preheated: list[str] = []
 
         for room in self.coordinator.rooms:
-            room_name  = room.get("room_name", "")
+            room_name = room.get("room_name", "")
             climate_id = room.get(CONF_CLIMATE_ENTITY, "")
             if not room_name or not climate_id:
                 continue
@@ -194,7 +193,8 @@ class PreheatEngine:
                 trv_type = room.get(CONF_TRV_TYPE, "netatmo")
                 if trv_type == TRV_TYPE_ZIGBEE:
                     await hass.services.async_call(
-                        "climate", "set_hvac_mode",
+                        "climate",
+                        "set_hvac_mode",
                         {"entity_id": climate_id, "hvac_mode": "heat"},
                         blocking=True,
                     )
@@ -216,7 +216,7 @@ class PreheatEngine:
 
         if rooms_preheated and self.coordinator.config.get(CONF_NOTIFY_PREHEAT, True):
             person_name = person_id.split(".")[-1].capitalize()
-            rooms_str   = ", ".join(rooms_preheated)
+            rooms_str = ", ".join(rooms_preheated)
             await self._notify(
                 f"Pre-heating started — {person_name} arriving soon. Rooms: {rooms_str}"
             )
@@ -227,7 +227,9 @@ class PreheatEngine:
             room_name = room.get("room_name", "")
             if self.coordinator.get_room_state(room_name) == RoomState.PRE_HEAT:
                 # Presence engine will restore to NORMAL — just log
-                _LOGGER.debug("PreheatEngine: clearing PRE_HEAT for %s on arrival", room_name)
+                _LOGGER.debug(
+                    "PreheatEngine: clearing PRE_HEAT for %s on arrival", room_name
+                )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -235,7 +237,11 @@ class PreheatEngine:
         """Return lead time in seconds for a person from their config."""
         for person in self.coordinator.persons:
             if person.get(CONF_PERSON_ENTITY) == person_entity_id:
-                minutes = int(person.get(CONF_PREHEAT_LEAD_TIME_MIN, DEFAULT_PREHEAT_LEAD_TIME_MIN))
+                minutes = int(
+                    person.get(
+                        CONF_PREHEAT_LEAD_TIME_MIN, DEFAULT_PREHEAT_LEAD_TIME_MIN
+                    )
+                )
                 return float(minutes * 60)
         return float(DEFAULT_PREHEAT_LEAD_TIME_MIN * 60)
 
@@ -248,7 +254,8 @@ class PreheatEngine:
             return
         try:
             await self.coordinator.hass.services.async_call(
-                domain, service_name,
+                domain,
+                service_name,
                 {"message": message, "title": "Heat Manager"},
                 blocking=True,
             )

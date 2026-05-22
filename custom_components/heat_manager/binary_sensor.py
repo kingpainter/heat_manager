@@ -3,9 +3,11 @@ Heat Manager — Binary sensor platform
 
 Gold IQS: entity-disabled-by-default applied to diagnostic sensors.
 """
+
 from __future__ import annotations
 
 import logging
+from datetime import UTC
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -88,7 +90,7 @@ class HeatingWastedSensor(CoordinatorEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         for room in self.coordinator.rooms:
-            room_name  = room.get("room_name", "")
+            room_name = room.get("room_name", "")
             climate_id = room.get(CONF_CLIMATE_ENTITY, "")
             if not climate_id:
                 continue
@@ -129,8 +131,9 @@ class CloudAvailableSensor(CoordinatorEntity, BinarySensorEntity):
         if not rooms:
             return True
 
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
+        from datetime import datetime
+
+        now = datetime.now(UTC)
         stale_threshold = self._STALE_MINUTES * 60
         unavailable_count = 0
         stale_count = 0
@@ -148,9 +151,11 @@ class CloudAvailableSensor(CoordinatorEntity, BinarySensorEntity):
                 unavailable_count += 1
                 continue
             if state.last_updated:
-                age = (now - state.last_updated.replace(tzinfo=timezone.utc)
-                       if state.last_updated.tzinfo is None
-                       else (now - state.last_updated)).total_seconds()
+                age = (
+                    now - state.last_updated.replace(tzinfo=UTC)
+                    if state.last_updated.tzinfo is None
+                    else (now - state.last_updated)
+                ).total_seconds()
                 if age > stale_threshold:
                     stale_count += 1
 
@@ -165,8 +170,9 @@ class CloudAvailableSensor(CoordinatorEntity, BinarySensorEntity):
         rooms = self.coordinator.rooms
         unavailable = []
         stale = []
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
+        from datetime import datetime
+
+        now = datetime.now(UTC)
         for room in rooms:
             climate_id = room.get(CONF_CLIMATE_ENTITY, "")
             hk_id = room.get(CONF_HOMEKIT_CLIMATE_ENTITY, "")
@@ -176,14 +182,16 @@ class CloudAvailableSensor(CoordinatorEntity, BinarySensorEntity):
             if state is None or state.state in ("unavailable", "unknown"):
                 unavailable.append(room.get("room_name", climate_id))
             elif state.last_updated:
-                age = (now - state.last_updated.replace(tzinfo=timezone.utc)
-                       if state.last_updated.tzinfo is None
-                       else (now - state.last_updated)).total_seconds()
+                age = (
+                    now - state.last_updated.replace(tzinfo=UTC)
+                    if state.last_updated.tzinfo is None
+                    else (now - state.last_updated)
+                ).total_seconds()
                 if age > self._STALE_MINUTES * 60:
                     stale.append(room.get("room_name", climate_id))
         return {
             "unavailable_rooms": unavailable,
-            "stale_rooms":       stale,
+            "stale_rooms": stale,
             "stale_threshold_min": self._STALE_MINUTES,
         }
 
@@ -203,7 +211,7 @@ class RoomWindowSensor(CoordinatorEntity, BinarySensorEntity):
     ) -> None:
         super().__init__(coordinator)
         self._room_name = room["room_name"]
-        self._sensors   = room.get(CONF_WINDOW_SENSORS, [])
+        self._sensors = room.get(CONF_WINDOW_SENSORS, [])
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_window"
         self._attr_name = f"{self._room_name} window"
@@ -246,8 +254,8 @@ class MoldRiskSensor(CoordinatorEntity, BinarySensorEntity):
     _attr_entity_registry_enabled_default = True
 
     # Mold risk thresholds
-    _RH_THRESHOLD: float = 70.0    # % — DIN 4108-2 critical humidity
-    _SURFACE_MARGIN: float = 1.0   # °C — wall surface is ~1 °C cooler than air
+    _RH_THRESHOLD: float = 70.0  # % — DIN 4108-2 critical humidity
+    _SURFACE_MARGIN: float = 1.0  # °C — wall surface is ~1 °C cooler than air
 
     def __init__(
         self,
@@ -256,10 +264,10 @@ class MoldRiskSensor(CoordinatorEntity, BinarySensorEntity):
         room: dict,
     ) -> None:
         super().__init__(coordinator)
-        self._room_name     = room["room_name"]
-        self._humidity_id   = room.get(CONF_HUMIDITY_SENSOR, "")
-        self._temp_id       = room.get(CONF_ROOM_TEMP_SENSOR, "")
-        self._climate_id    = room.get(CONF_CLIMATE_ENTITY, "")
+        self._room_name = room["room_name"]
+        self._humidity_id = room.get(CONF_HUMIDITY_SENSOR, "")
+        self._temp_id = room.get(CONF_ROOM_TEMP_SENSOR, "")
+        self._climate_id = room.get(CONF_CLIMATE_ENTITY, "")
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_mold_risk"
         self._attr_name = f"{self._room_name} mold risk"
@@ -269,6 +277,7 @@ class MoldRiskSensor(CoordinatorEntity, BinarySensorEntity):
     def _dewpoint(temp_c: float, rh_pct: float) -> float:
         """Magnus formula (Lawrence 2005) — valid for 0–60 °C, 1–100% RH."""
         import math
+
         b, c = 17.625, 243.04
         gamma = math.log(max(rh_pct, 0.01) / 100.0) + (b * temp_c) / (c + temp_c)
         return (c * gamma) / (b - gamma)
@@ -311,7 +320,7 @@ class MoldRiskSensor(CoordinatorEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool:
-        rh   = self._get_humidity()
+        rh = self._get_humidity()
         temp = self._get_temp()
         if rh is None or temp is None:
             return False
@@ -323,17 +332,19 @@ class MoldRiskSensor(CoordinatorEntity, BinarySensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        rh   = self._get_humidity()
+        rh = self._get_humidity()
         temp = self._get_temp()
         if rh is None or temp is None:
             return {"room_name": self._room_name}
         dewpoint = self._dewpoint(temp, rh)
         outdoor_rh = self.coordinator.get_outdoor_humidity()
         return {
-            "room_name":       self._room_name,
-            "humidity_pct":    round(rh, 1),
-            "room_temp_c":     round(temp, 1),
-            "dewpoint_c":      round(dewpoint, 1),
-            "margin_c":        self._SURFACE_MARGIN,
-            "outdoor_humidity_pct": round(outdoor_rh, 1) if outdoor_rh is not None else None,
+            "room_name": self._room_name,
+            "humidity_pct": round(rh, 1),
+            "room_temp_c": round(temp, 1),
+            "dewpoint_c": round(dewpoint, 1),
+            "margin_c": self._SURFACE_MARGIN,
+            "outdoor_humidity_pct": round(outdoor_rh, 1)
+            if outdoor_rh is not None
+            else None,
         }
