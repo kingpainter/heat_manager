@@ -122,6 +122,14 @@ DEFAULT_AUTO_OFF_TEMP_THRESHOLD = 18.0
 DEFAULT_AUTO_OFF_TEMP_DAYS = 5
 DEFAULT_PAUSE_DURATION_MIN = 120
 
+# Night setback — reduce PID target temperature during night hours.
+# Applied on top of the Netatmo cloud schedule setpoint.
+# Set to 0.0 to disable.
+CONF_NIGHT_SETBACK_ENABLED = "night_setback_enabled"
+CONF_NIGHT_SETBACK_TEMP = "night_setback_temp"
+DEFAULT_NIGHT_SETBACK_ENABLED = False
+DEFAULT_NIGHT_SETBACK_TEMP: float = 2.0  # °C — subtracted from schedule setpoint
+
 # PID defaults
 DEFAULT_PID_KP: float = 0.5
 DEFAULT_PID_KI: float = 0.02

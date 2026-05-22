@@ -13,10 +13,16 @@
           "grace_day_min": "Grace period — daytime (minutes)",
           "grace_night_min": "Grace period — night-time (minutes)",
           "auto_off_temp_threshold": "Auto-off temperature threshold",
-          "auto_off_temp_days": "Auto-off sustained days"
+          "auto_off_temp_days": "Auto-off sustained days",
+          "night_setback_enabled": "Enable night setback",
+          "night_setback_temp": "Night setback (\u00b0C to reduce)",
+          "night_start_hour": "Night start hour",
+          "night_end_hour": "Night end hour"
         },
         "data_description": {
-          "outdoor_temp_sensor": "Local weather station or outdoor module (e.g. Netatmo, Aqara). Overrides the weather entity temperature for adaptive away setpoint and season detection. Leave blank to use the weather entity."
+          "outdoor_temp_sensor": "Local weather station or outdoor module (e.g. Netatmo, Aqara). Overrides the weather entity temperature for adaptive away setpoint and season detection. Leave blank to use the weather entity.",
+          "night_setback_enabled": "When enabled, the PID target temperature is reduced by the setback value during the configured night hours. Uses the existing night start/end hours.",
+          "night_setback_temp": "Degrees Celsius subtracted from the Netatmo schedule setpoint during night hours. The setpoint will not go below the room away temperature."
         }
       },
       "room": {
@@ -92,10 +98,16 @@
           "grace_day_min": "Grace period — daytime (minutes)",
           "grace_night_min": "Grace period — night-time (minutes)",
           "auto_off_temp_threshold": "Auto-off temperature threshold",
-          "auto_off_temp_days": "Auto-off sustained days"
+          "auto_off_temp_days": "Auto-off sustained days",
+          "night_setback_enabled": "Enable night setback",
+          "night_setback_temp": "Night setback (\u00b0C to reduce)",
+          "night_start_hour": "Night start hour",
+          "night_end_hour": "Night end hour"
         },
         "data_description": {
-          "outdoor_temp_sensor": "Local weather station or outdoor module. Overrides the weather entity temperature. Leave blank to use the weather entity."
+          "outdoor_temp_sensor": "Local weather station or outdoor module. Overrides the weather entity temperature. Leave blank to use the weather entity.",
+          "night_setback_enabled": "When enabled, the PID target temperature is reduced by the setback value during the configured night hours.",
+          "night_setback_temp": "Degrees Celsius subtracted from the Netatmo schedule setpoint during night hours. The setpoint will not go below the room away temperature."
         }
       },
       "rooms_menu": {

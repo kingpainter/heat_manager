@@ -13,6 +13,29 @@ _Nothing yet._
 
 ---
 
+## [0.4.3] — 2026-05-22
+
+### Added
+- **Night setback** — new global option that reduces the PID target temperature
+  by a configurable number of degrees during the configured night hours
+  (`night_start_hour` – `night_end_hour`, already used by grace periods).
+  Three new config fields: `night_setback_enabled` (boolean, default off),
+  `night_setback_temp` (0.5–5.0°C, default 2.0°C), plus the existing
+  `night_start_hour` / `night_end_hour` are now also shown in the global
+  config/options step so users can adjust the window in the UI.
+  The setback is applied before the PID tick; the adjusted setpoint will never
+  go below the room’s `away_temp_override`. Disabled by default — existing
+  installations are unaffected until the option is enabled.
+- `coordinator.py` — `is_night_setback_active()` and `night_setback_delta()`
+  helpers. `is_night_setback_active()` correctly handles windows that span
+  midnight (e.g. 23:00–07:00).
+- `const.py` — `CONF_NIGHT_SETBACK_ENABLED`, `CONF_NIGHT_SETBACK_TEMP`,
+  `DEFAULT_NIGHT_SETBACK_ENABLED`, `DEFAULT_NIGHT_SETBACK_TEMP`.
+- `strings.json` + `translations/da.json` — labels and descriptions for all
+  four new/exposed fields in both config and options global step.
+
+---
+
 ## [0.4.2] — 2026-05-22
 
 ### Changed
@@ -334,7 +357,8 @@ _Nothing yet._
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/kingpainter/heat-manager/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/kingpainter/heat-manager/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/kingpainter/heat-manager/compare/v0.3.9...v0.4.1
 [0.3.9]: https://github.com/kingpainter/heat-manager/compare/v0.3.8...v0.3.9

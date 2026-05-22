@@ -13,10 +13,16 @@
           "grace_day_min": "Nådeperiode — dag (minutter)",
           "grace_night_min": "Nådeperiode — nat (minutter)",
           "auto_off_temp_threshold": "Auto-sluk temperaturgrænse",
-          "auto_off_temp_days": "Auto-sluk dage"
+          "auto_off_temp_days": "Auto-sluk dage",
+          "night_setback_enabled": "Aktiver natreduktion",
+          "night_setback_temp": "Natreduktion (\u00b0C der trækkes fra)",
+          "night_start_hour": "Natstart (time)",
+          "night_end_hour": "Natslut (time)"
         },
         "data_description": {
-          "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul (fx Netatmo, Aqara). Overskriver vejr-entitetens temperatur ved beregning af fraværstemperatur og sæsondetektering. Lad feltet stå tomt for at bruge vejr-entiteten."
+          "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul (fx Netatmo, Aqara). Overskriver vejr-entitetens temperatur ved beregning af fraværstemperatur og sæsondetektering. Lad feltet stå tomt for at bruge vejr-entiteten.",
+          "night_setback_enabled": "Når aktiveret reduceres PID-måltemperaturen med den angivne værdi i de konfigurerede nattimer. Bruger de eksisterende nat-start/slut-timer.",
+          "night_setback_temp": "Antal grader der trækkes fra Netatmos planlægte temperatur om natten. Setpointet vil aldrig gå under rummets fraværstemperatur."
         }
       },
       "room": {
@@ -92,10 +98,16 @@
           "grace_day_min": "Nådeperiode — dag (minutter)",
           "grace_night_min": "Nådeperiode — nat (minutter)",
           "auto_off_temp_threshold": "Auto-sluk temperaturgrænse",
-          "auto_off_temp_days": "Auto-sluk dage"
+          "auto_off_temp_days": "Auto-sluk dage",
+          "night_setback_enabled": "Aktiver natreduktion",
+          "night_setback_temp": "Natreduktion (\u00b0C der trækkes fra)",
+          "night_start_hour": "Natstart (time)",
+          "night_end_hour": "Natslut (time)"
         },
         "data_description": {
-          "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul. Overskriver vejr-entitetens temperatur. Lad feltet stå tomt for at bruge vejr-entiteten."
+          "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul. Overskriver vejr-entitetens temperatur. Lad feltet stå tomt for at bruge vejr-entiteten.",
+          "night_setback_enabled": "Når aktiveret reduceres PID-måltemperaturen med den angivne værdi i de konfigurerede nattimer.",
+          "night_setback_temp": "Antal grader der trækkes fra Netatmos planlægte temperatur om natten. Setpointet vil aldrig gå under rummets fraværstemperatur."
         }
       },
       "rooms_menu": {

@@ -37,6 +37,10 @@ from .const import (
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_HUMIDITY_SENSOR,
     CONF_MILD_THRESHOLD,
+    CONF_NIGHT_END_HOUR,
+    CONF_NIGHT_SETBACK_ENABLED,
+    CONF_NIGHT_SETBACK_TEMP,
+    CONF_NIGHT_START_HOUR,
     CONF_OUTDOOR_TEMP_SENSOR,
     CONF_OUTDOOR_HUMIDITY_SENSOR,
     CONF_PRECIPITATION_SENSOR,
@@ -68,6 +72,10 @@ from .const import (
     DEFAULT_GRACE_DAY_MIN,
     DEFAULT_GRACE_NIGHT_MIN,
     DEFAULT_MILD_THRESHOLD,
+    DEFAULT_NIGHT_END_HOUR,
+    DEFAULT_NIGHT_SETBACK_ENABLED,
+    DEFAULT_NIGHT_SETBACK_TEMP,
+    DEFAULT_NIGHT_START_HOUR,
     DEFAULT_PREHEAT_LEAD_TIME_MIN,
     DEFAULT_ROOM_WATTAGE,
     DEFAULT_WINDOW_DELAY_MIN,
@@ -108,6 +116,14 @@ def _step1_schema(defaults: dict = {}) -> vol.Schema:
             selector.selector({"number": {"min": 10, "max": 30, "step": 1, "unit_of_measurement": "°C"}}),
         vol.Optional(CONF_AUTO_OFF_TEMP_DAYS, default=defaults.get(CONF_AUTO_OFF_TEMP_DAYS, DEFAULT_AUTO_OFF_TEMP_DAYS)):
             selector.selector({"number": {"min": 1, "max": 14, "step": 1, "unit_of_measurement": "days"}}),
+        vol.Optional(CONF_NIGHT_SETBACK_ENABLED, default=defaults.get(CONF_NIGHT_SETBACK_ENABLED, DEFAULT_NIGHT_SETBACK_ENABLED)):
+            selector.selector({"boolean": {}}),
+        vol.Optional(CONF_NIGHT_SETBACK_TEMP, default=defaults.get(CONF_NIGHT_SETBACK_TEMP, DEFAULT_NIGHT_SETBACK_TEMP)):
+            selector.selector({"number": {"min": 0.5, "max": 5.0, "step": 0.5, "unit_of_measurement": "°C"}}),
+        vol.Optional(CONF_NIGHT_START_HOUR, default=defaults.get(CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR)):
+            selector.selector({"number": {"min": 18, "max": 23, "step": 1, "unit_of_measurement": "h"}}),
+        vol.Optional(CONF_NIGHT_END_HOUR, default=defaults.get(CONF_NIGHT_END_HOUR, DEFAULT_NIGHT_END_HOUR)):
+            selector.selector({"number": {"min": 4, "max": 10, "step": 1, "unit_of_measurement": "h"}}),
     })
 
 

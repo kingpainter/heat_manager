@@ -491,6 +491,39 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return float(self.config.get(CONF_AWAY_TEMP_MILD, DEFAULT_AWAY_TEMP_MILD))
         return float(self.config.get(CONF_AWAY_TEMP_COLD, DEFAULT_AWAY_TEMP_COLD))
 
+    def is_night_setback_active(self) -> bool:
+        """Return True when night setback is enabled and the current time is within
+        the configured night window (CONF_NIGHT_START_HOUR – CONF_NIGHT_END_HOUR).
+
+        The window may span midnight, e.g. 23:00 – 07:00.
+        """
+        from .const import (
+            CONF_NIGHT_SETBACK_ENABLED,
+            DEFAULT_NIGHT_SETBACK_ENABLED,
+            DEFAULT_NIGHT_START_HOUR,
+            DEFAULT_NIGHT_END_HOUR,
+        )
+        if not self.config.get(CONF_NIGHT_SETBACK_ENABLED, DEFAULT_NIGHT_SETBACK_ENABLED):
+            return False
+
+        from homeassistant.util.dt import now as ha_now
+        hour = ha_now().hour
+        start = int(self.config.get(CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR))
+        end   = int(self.config.get(CONF_NIGHT_END_HOUR,   DEFAULT_NIGHT_END_HOUR))
+
+        # Window may span midnight (e.g. 23 – 7)
+        if start > end:
+            return hour >= start or hour < end
+        # Same-day window (unusual, but handle it)
+        return start <= hour < end
+
+    def night_setback_delta(self) -> float:
+        """Return the setback delta in °C. 0.0 when setback is not active."""
+        from .const import CONF_NIGHT_SETBACK_TEMP, DEFAULT_NIGHT_SETBACK_TEMP
+        if not self.is_night_setback_active():
+            return 0.0
+        return float(self.config.get(CONF_NIGHT_SETBACK_TEMP, DEFAULT_NIGHT_SETBACK_TEMP))
+
     # ── Periodic update ───────────────────────────────────────────────────────
 
     async def _async_update_data(self) -> dict[str, Any]:
@@ -632,6 +665,18 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 target_temp = float(target_temp)
             except (TypeError, ValueError):
                 continue
+
+            # ── Night setback — reduce target during configured night hours ──
+            setback = self.night_setback_delta()
+            if setback > 0.0:
+                target_temp = max(
+                    target_temp - setback,
+                    float(room.get("away_temp_override", 10.0)),
+                )
+                _LOGGER.debug(
+                    "Night setback [%s]: %.1f°C → %.1f°C (−%.1f°C)",
+                    room_name, target_temp + setback, target_temp, setback,
+                )
 
             # ── PID tick → power fraction 0..1 ──────────────────────────
             power = pid.update(setpoint=target_temp, current=current_temp)
