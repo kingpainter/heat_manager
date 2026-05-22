@@ -1,7 +1,7 @@
 # Heat Manager — Project Status
 
-**Last updated:** 2026-05-03 · v0.3.9
-**Version:** 0.3.9
+**Last updated:** 2026-05-22 · v0.4.1
+**Version:** 0.4.1
 **Target:** Home Assistant 2025.1+
 **Language:** English primary · Danish translations included
 **Status:** Stable — full stability pass, HomeKit-first routing, Netatmo weather integration, inline panel config

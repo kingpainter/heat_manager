@@ -13,6 +13,19 @@ _Nothing yet._
 
 ---
 
+## [0.4.1] — 2026-05-22
+
+### Changed
+- `coordinator.py` — `_async_update_data()` rewritten with per-engine isolation.
+  Each of the 8 engine ticks (season, controller, presence, window, waste,
+  preheat, valve_protection, pid) is now wrapped in its own `try/except`.
+  An exception in one engine is logged as `WARNING` and skipped; the remaining
+  engines continue normally. Previously, any single engine failure raised
+  `UpdateFailed` and marked all Heat Manager entities `unavailable` until the
+  next successful tick.
+
+---
+
 ## [0.3.9] — 2026-05-03
 
 ### Added
@@ -309,7 +322,8 @@ _Nothing yet._
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.3.9...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/kingpainter/heat-manager/compare/v0.3.9...v0.4.1
 [0.3.9]: https://github.com/kingpainter/heat-manager/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/kingpainter/heat-manager/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/kingpainter/heat-manager/compare/v0.3.6...v0.3.7

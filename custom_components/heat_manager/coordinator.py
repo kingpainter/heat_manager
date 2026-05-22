@@ -19,6 +19,11 @@ v0.2.9 additions:
 - CONF_CO2_SENSOR per room: get_room_co2() helper for WindowEngine/WasteCalculator
 - CONF_ROOM_TEMP_SENSOR per room: get_room_current_temp() feeds PID with an
   independent probe instead of the TRV's own (radiator-biased) sensor
+
+v0.4.1 additions:
+- _async_update_data: each engine tick is individually isolated — an exception
+  in one engine is logged as WARNING and skipped rather than raising UpdateFailed
+  and marking all entities unavailable.
 """
 from __future__ import annotations
 
@@ -500,25 +505,56 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
           5. Window engine (open-window escalation warnings)
           6. Waste calculator (energy accounting)
           7. Preheat engine (travel_time polling no-op)
-          8. PID tick (proportional TRV setpoints for NORMAL rooms)
-        """
-        try:
-            self._refresh_outdoor_temperature()
+          8. Valve protection (weekly exercise)
+          9. PID tick (proportional TRV setpoints for NORMAL rooms)
 
+        Each engine is isolated: an exception in one engine is logged and
+        skipped rather than taking down the entire tick and marking all
+        entities unavailable.
+        """
+        self._refresh_outdoor_temperature()
+
+        try:
             await self.season_engine.async_tick()
             if self.season_mode != SeasonMode.AUTO:
                 self.effective_season = self.season_mode
-
-            await self.controller.async_tick()
-            await self.presence_engine.async_tick()
-            await self.window_engine.async_tick()
-            await self.waste_calculator.async_tick()
-            await self.preheat_engine.async_tick()
-            await self.valve_protection.async_tick()
-            await self._async_pid_tick()
-
         except Exception as err:  # noqa: BLE001
-            raise UpdateFailed(f"Heat Manager update failed: {err}") from err
+            _LOGGER.warning("season_engine tick failed: %s", err)
+
+        try:
+            await self.controller.async_tick()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("controller tick failed: %s", err)
+
+        try:
+            await self.presence_engine.async_tick()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("presence_engine tick failed: %s", err)
+
+        try:
+            await self.window_engine.async_tick()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("window_engine tick failed: %s", err)
+
+        try:
+            await self.waste_calculator.async_tick()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("waste_calculator tick failed: %s", err)
+
+        try:
+            await self.preheat_engine.async_tick()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("preheat_engine tick failed: %s", err)
+
+        try:
+            await self.valve_protection.async_tick()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("valve_protection tick failed: %s", err)
+
+        try:
+            await self._async_pid_tick()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("pid_tick failed: %s", err)
 
         return {
             "controller_state":        self.controller.state,
