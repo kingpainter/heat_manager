@@ -20,7 +20,6 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     CONTROLLER_STATE_OPTIONS,
-    DOMAIN,
     SEASON_MODE_OPTIONS,
     ControllerState,
     SeasonMode,

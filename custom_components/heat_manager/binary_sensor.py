@@ -18,12 +18,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     CONF_CLIMATE_ENTITY,
-    CONF_CO2_SENSOR,
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_HUMIDITY_SENSOR,
     CONF_ROOM_TEMP_SENSOR,
     CONF_WINDOW_SENSORS,
-    DOMAIN,
     RoomState,
 )
 from .coordinator import HeatManagerCoordinator

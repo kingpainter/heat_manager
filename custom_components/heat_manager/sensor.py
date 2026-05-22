@@ -37,7 +37,6 @@ from .const import (
     CONF_CLIMATE_ENTITY,
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_WINDOW_SENSORS,
-    DOMAIN,
     RoomState,
 )
 from .coordinator import HeatManagerCoordinator

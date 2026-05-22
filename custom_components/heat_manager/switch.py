@@ -17,12 +17,11 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     CONF_CLIMATE_ENTITY,
-    DOMAIN,
+    CONF_TRV_TYPE,
+    HVAC_OFF,
     PRESET_SCHEDULE,
     RoomState,
     TRV_TYPE_ZIGBEE,
-    CONF_TRV_TYPE,
-    HVAC_OFF,
 )
 from .coordinator import HeatManagerCoordinator
 

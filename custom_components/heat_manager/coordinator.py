@@ -35,21 +35,19 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
     CONF_ALARM_PANEL,
-    CONF_AUTO_OFF_TEMP_DAYS,
-    CONF_AUTO_OFF_TEMP_THRESHOLD,
     CONF_AWAY_TEMP_COLD,
     CONF_AWAY_TEMP_MILD,
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
+    CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_MILD_THRESHOLD,
     CONF_OUTDOOR_HUMIDITY_SENSOR,
     CONF_OUTDOOR_TEMP_SENSOR,
     CONF_PERSONS,
-    CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_PID_ENABLED,
     CONF_PID_KD,
     CONF_PID_KI,
@@ -61,8 +59,6 @@ from .const import (
     CONF_WEATHER_ENTITY,
     CONF_WIND_SPEED_SENSOR,
     CONF_WINDOW_SENSORS,
-    DEFAULT_AUTO_OFF_TEMP_DAYS,
-    DEFAULT_AUTO_OFF_TEMP_THRESHOLD,
     DEFAULT_AWAY_TEMP_COLD,
     DEFAULT_AWAY_TEMP_MILD,
     DEFAULT_MILD_THRESHOLD,
@@ -551,9 +547,11 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         from .const import (
             CONF_NIGHT_SETBACK_ENABLED,
+            CONF_NIGHT_END_HOUR,
+            CONF_NIGHT_START_HOUR,
+            DEFAULT_NIGHT_END_HOUR,
             DEFAULT_NIGHT_SETBACK_ENABLED,
             DEFAULT_NIGHT_START_HOUR,
-            DEFAULT_NIGHT_END_HOUR,
         )
         if not self.config.get(CONF_NIGHT_SETBACK_ENABLED, DEFAULT_NIGHT_SETBACK_ENABLED):
             return False
