@@ -9,7 +9,7 @@ Covers:
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.heat_manager.const import (
@@ -94,7 +94,7 @@ async def test_full_setup_wizard_creates_entry():
         "custom_components.heat_manager.config_flow.HeatManagerConfigFlow._abort_if_unique_id_configured"
     ), patch(
         "custom_components.heat_manager.config_flow.HeatManagerConfigFlow.async_set_unique_id",
-        new_callable=lambda: lambda self, *a, **kw: None,
+        new=AsyncMock(),
     ):
         await flow.async_step_user()  # initialise
 
@@ -165,7 +165,7 @@ async def test_multiple_rooms_and_persons():
         "custom_components.heat_manager.config_flow.HeatManagerConfigFlow._abort_if_unique_id_configured"
     ), patch(
         "custom_components.heat_manager.config_flow.HeatManagerConfigFlow.async_set_unique_id",
-        new_callable=lambda: lambda self, *a, **kw: None,
+        new=AsyncMock(),
     ):
         await flow.async_step_user()
 
@@ -245,7 +245,7 @@ async def test_step_user_invalid_weather_entity():
         "custom_components.heat_manager.config_flow.HeatManagerConfigFlow._abort_if_unique_id_configured"
     ), patch(
         "custom_components.heat_manager.config_flow.HeatManagerConfigFlow.async_set_unique_id",
-        new_callable=lambda: lambda self, *a, **kw: None,
+        new=AsyncMock(),
     ):
         await flow.async_step_user()
 
