@@ -89,26 +89,30 @@ async def test_full_setup_wizard_creates_entry():
     flow = HeatManagerConfigFlow()
     flow.hass = hass
     flow.context = {}
-    flow._async_current_entries = MagicMock(return_value=[])
-    with patch.object(flow, "_abort_if_unique_id_configured"):
+
+    with patch(
+        "custom_components.heat_manager.config_flow.HeatManagerConfigFlow._abort_if_unique_id_configured"
+    ), patch(
+        "custom_components.heat_manager.config_flow.HeatManagerConfigFlow.async_set_unique_id",
+        new_callable=lambda: lambda self, *a, **kw: None,
+    ):
         await flow.async_step_user()  # initialise
 
-    # Step 1 — global settings (no weather entity)
-    result = await flow.async_step_user(user_input={
-        CONF_WEATHER_ENTITY: "",
-        "notify_service": "",
-        CONF_AWAY_TEMP_MILD: 17.0,
-        CONF_AWAY_TEMP_COLD: 15.0,
-        "mild_threshold": 8.0,
-        CONF_GRACE_DAY_MIN: 30,
-        CONF_GRACE_NIGHT_MIN: 15,
-        "auto_off_temp_threshold": 18.0,
-        "auto_off_temp_days": 5,
-    })
+        result = await flow.async_step_user(user_input={
+            CONF_WEATHER_ENTITY: "",
+            "notify_service": "",
+            CONF_AWAY_TEMP_MILD: 17.0,
+            CONF_AWAY_TEMP_COLD: 15.0,
+            "mild_threshold": 8.0,
+            CONF_GRACE_DAY_MIN: 30,
+            CONF_GRACE_NIGHT_MIN: 15,
+            "auto_off_temp_threshold": 18.0,
+            "auto_off_temp_days": 5,
+        })
+
     assert result["type"] == "form"
     assert result["step_id"] == "room"
 
-    # Step 2 — add a room, then move on
     result = await flow.async_step_room(user_input={
         CONF_ROOM_NAME: "Kitchen",
         CONF_CLIMATE_ENTITY: "climate.kitchen",
@@ -120,7 +124,6 @@ async def test_full_setup_wizard_creates_entry():
     assert result["type"] == "form"
     assert result["step_id"] == "person"
 
-    # Step 3 — add a person, then move on
     result = await flow.async_step_person(user_input={
         CONF_PERSON_ENTITY: "person.flemming",
         CONF_PERSON_TRACKING: True,
@@ -130,12 +133,10 @@ async def test_full_setup_wizard_creates_entry():
     assert result["type"] == "form"
     assert result["step_id"] == "presence_global"
 
-    # Step 4 — alarm panel (optional, leave blank)
     result = await flow.async_step_presence_global(user_input={"alarm_panel": ""})
     assert result["type"] == "form"
     assert result["step_id"] == "notifications"
 
-    # Step 5 — notifications → creates entry
     result = await flow.async_step_notifications(user_input=_notifications_data())
     assert result["type"] == "create_entry"
     assert result["title"] == "Heat Manager"
@@ -159,16 +160,21 @@ async def test_multiple_rooms_and_persons():
     flow = HeatManagerConfigFlow()
     flow.hass = hass
     flow.context = {}
-    flow._async_current_entries = MagicMock(return_value=[])
-    with patch.object(flow, "_abort_if_unique_id_configured"):
+
+    with patch(
+        "custom_components.heat_manager.config_flow.HeatManagerConfigFlow._abort_if_unique_id_configured"
+    ), patch(
+        "custom_components.heat_manager.config_flow.HeatManagerConfigFlow.async_set_unique_id",
+        new_callable=lambda: lambda self, *a, **kw: None,
+    ):
         await flow.async_step_user()
 
-    await flow.async_step_user(user_input={
-        CONF_WEATHER_ENTITY: "", "notify_service": "",
-        CONF_AWAY_TEMP_MILD: 17, CONF_AWAY_TEMP_COLD: 15, "mild_threshold": 8,
-        CONF_GRACE_DAY_MIN: 30, CONF_GRACE_NIGHT_MIN: 15,
-        "auto_off_temp_threshold": 18, "auto_off_temp_days": 5,
-    })
+        await flow.async_step_user(user_input={
+            CONF_WEATHER_ENTITY: "", "notify_service": "",
+            CONF_AWAY_TEMP_MILD: 17, CONF_AWAY_TEMP_COLD: 15, "mild_threshold": 8,
+            CONF_GRACE_DAY_MIN: 30, CONF_GRACE_NIGHT_MIN: 15,
+            "auto_off_temp_threshold": 18, "auto_off_temp_days": 5,
+        })
 
     # Room 1 — add another
     await flow.async_step_room(user_input={
@@ -234,17 +240,22 @@ async def test_step_user_invalid_weather_entity():
     flow = HeatManagerConfigFlow()
     flow.hass = hass
     flow.context = {}
-    flow._async_current_entries = MagicMock(return_value=[])
-    with patch.object(flow, "_abort_if_unique_id_configured"):
+
+    with patch(
+        "custom_components.heat_manager.config_flow.HeatManagerConfigFlow._abort_if_unique_id_configured"
+    ), patch(
+        "custom_components.heat_manager.config_flow.HeatManagerConfigFlow.async_set_unique_id",
+        new_callable=lambda: lambda self, *a, **kw: None,
+    ):
         await flow.async_step_user()
 
-    result = await flow.async_step_user(user_input={
-        CONF_WEATHER_ENTITY: "weather.nonexistent",
-        "notify_service": "",
-        CONF_AWAY_TEMP_MILD: 17, CONF_AWAY_TEMP_COLD: 15, "mild_threshold": 8,
-        CONF_GRACE_DAY_MIN: 30, CONF_GRACE_NIGHT_MIN: 15,
-        "auto_off_temp_threshold": 18, "auto_off_temp_days": 5,
-    })
+        result = await flow.async_step_user(user_input={
+            CONF_WEATHER_ENTITY: "weather.nonexistent",
+            "notify_service": "",
+            CONF_AWAY_TEMP_MILD: 17, CONF_AWAY_TEMP_COLD: 15, "mild_threshold": 8,
+            CONF_GRACE_DAY_MIN: 30, CONF_GRACE_NIGHT_MIN: 15,
+            "auto_off_temp_threshold": 18, "auto_off_temp_days": 5,
+        })
     assert result["type"] == "form"
     assert result["step_id"] == "user"
     assert CONF_WEATHER_ENTITY in result["errors"]
