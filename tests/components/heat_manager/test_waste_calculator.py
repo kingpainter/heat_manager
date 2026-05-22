@@ -18,6 +18,10 @@ def _make_coordinator(rooms=None, outdoor_temp=5.0) -> MagicMock:
         return coord.room_states.get(name, RoomState.NORMAL)
     coord.get_room_state.side_effect = get_room_state
 
+    coord.is_raining = MagicMock(return_value=False)
+    coord.get_room_co2 = MagicMock(return_value=None)
+    coord.get_room_co2_threshold = MagicMock(return_value=900)
+
     coord.hass = MagicMock()
     coord.hass.states = MagicMock()
     coord.hass.states.get.return_value = None
@@ -130,12 +134,14 @@ async def test_midnight_reset():
     assert engine.energy_wasted_today > 0.0
     pre_reset = engine.energy_wasted_today
 
-    # Advance to next day
+    # Advance to next day at midnight — reset fires, no new waste at hour 0
     with patch("custom_components.heat_manager.engine.waste_calculator.ha_now") as mock_now:
         mock_now.return_value = MagicMock(date=lambda: date_cls(2026, 3, 2), hour=0)
+        # Temporarily set room to NORMAL so no waste accumulates after reset
+        coord.room_states["Kitchen"] = RoomState.NORMAL
         await engine.async_tick()
 
-    assert engine.energy_wasted_today < pre_reset  # reset then re-accumulated one tick
+    assert engine.energy_wasted_today == 0.0  # reset to zero, no re-accumulation
 
 
 @pytest.mark.asyncio

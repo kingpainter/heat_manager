@@ -30,6 +30,12 @@ def _make_coordinator(rooms=None, someone_home=True, config=None):
 
     coordinator.someone_home = MagicMock(return_value=someone_home)
     coordinator.get_climate_entity = MagicMock(return_value="climate.kitchen")
+    coordinator.get_write_entity = MagicMock(return_value="climate.kitchen")
+    coordinator.get_room_co2_threshold = MagicMock(return_value=900)
+    coordinator.get_room_co2 = MagicMock(return_value=None)
+    coordinator.is_raining = MagicMock(return_value=False)
+    coordinator.get_precipitation = MagicMock(return_value=None)
+    coordinator.get_wind_speed = MagicMock(return_value=None)
     coordinator.set_room_state = MagicMock()
     coordinator.get_room_state = MagicMock(return_value=RoomState.NORMAL)
     coordinator.async_update_listeners = MagicMock()

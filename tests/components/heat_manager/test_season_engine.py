@@ -36,12 +36,11 @@ async def test_no_op_when_manual_winter():
 
 @pytest.mark.asyncio
 async def test_no_op_when_manual_summer():
-    """Manual SUMMER mode — no-op."""
+    """Manual SUMMER mode — engine sets effective_season to SUMMER and returns."""
     coord = _make_coordinator(season_mode=SeasonMode.SUMMER, outdoor_temp=5.0)
     engine = SeasonEngine(coord)
     await engine.async_tick()
-    # effective_season not written by engine when manual
-    assert coord.effective_season == SeasonMode.WINTER  # unchanged from init
+    assert coord.effective_season == SeasonMode.SUMMER
 
 
 @pytest.mark.asyncio
