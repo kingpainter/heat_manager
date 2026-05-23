@@ -8,6 +8,10 @@ FIX: async_tick no longer holds _lock while calling private methods.
      Lock is only held for the minimal critical section of reading/writing
      self._state — not for the full await chain. This prevents the lock
      being held across awaits which could block manual transitions.
+
+v0.5.0: Outdoor temperature auto-off logic removed from ControllerEngine.
+         SeasonEngine is now the single source of truth for EffectiveSeason.
+         ControllerEngine only reacts to coordinator.effective_season.
 """
 
 from __future__ import annotations
@@ -22,14 +26,13 @@ from typing import TYPE_CHECKING
 from homeassistant.util.dt import utcnow
 
 from ..const import (
-    DEFAULT_AUTO_OFF_TEMP_DAYS,
-    DEFAULT_AUTO_OFF_TEMP_THRESHOLD,
     DEFAULT_PAUSE_DURATION_MIN,
     HVAC_OFF,
     NETATMO_API_CALL_DELAY_SEC,
     PRESET_SCHEDULE,
     AutoOffReason,
     ControllerState,
+    EffectiveSeason,
     SeasonMode,
 )
 
@@ -70,9 +73,6 @@ class ControllerEngine:
         self._state: ControllerState = ControllerState.ON
         self._auto_off_reason: AutoOffReason = AutoOffReason.NONE
         self._pause_until: datetime | None = None
-        # S-1 FIX: day-counter instead of raw timestamp list — survives HA restart
-        self._days_above_high: int = 0
-        self._last_high_date: str | None = None
         # Lock only guards _state reads/writes, not full async chains
         self._lock = asyncio.Lock()
 
@@ -176,15 +176,16 @@ class ControllerEngine:
     # ── Auto-off checks ───────────────────────────────────────────────────────
 
     async def _check_auto_off(self) -> None:
+        """Trigger auto-off when SeasonEngine resolves to DORMANT.
+
+        SeasonEngine is the single source of truth for effective season.
+        ControllerEngine no longer tracks outdoor temperature directly.
+        """
         if self._state == ControllerState.OFF:
             return
-        if self.coordinator.season_mode == SeasonMode.SUMMER:
-            _LOGGER.info("Auto-off triggered: season = SUMMER")
+        if self.coordinator.effective_season == EffectiveSeason.DORMANT:
+            _LOGGER.info("Auto-off triggered: effective_season = DORMANT")
             await self._auto_off(AutoOffReason.SEASON)
-            return
-        if await self._outdoor_temp_sustained_high():
-            _LOGGER.info("Auto-off triggered: outdoor temp sustained high")
-            await self._auto_off(AutoOffReason.TEMPERATURE)
 
     async def _auto_off(self, reason: AutoOffReason) -> None:
         self._auto_off_reason = reason
@@ -197,82 +198,36 @@ class ControllerEngine:
     # ── Auto-resume checks ────────────────────────────────────────────────────
 
     async def _check_auto_resume(self) -> None:
+        """Auto-resume whenever effective_season leaves DORMANT.
+
+        This covers both calendar-driven (summer end) and temperature-driven
+        (sustained warmth reversal) dormancy in a single check.
+        """
         if self._state != ControllerState.OFF:
             return
         if self._auto_off_reason == AutoOffReason.NONE:
             return  # Manual OFF — never auto-resume
 
-        should_resume = False
-        if self._auto_off_reason == AutoOffReason.SEASON:
-            should_resume = self.coordinator.season_mode != SeasonMode.SUMMER
-        elif self._auto_off_reason == AutoOffReason.TEMPERATURE:
-            should_resume = not await self._outdoor_temp_sustained_high()
-
-        if should_resume:
-            _LOGGER.info("Auto-resume: condition reversed")
+        if self.coordinator.effective_season != EffectiveSeason.DORMANT:
+            _LOGGER.info(
+                "Auto-resume: effective_season = %s",
+                self.coordinator.effective_season.value,
+            )
             async with self._lock:
                 self._state = ControllerState.ON
                 self._auto_off_reason = AutoOffReason.NONE
             self.coordinator.async_update_listeners()
 
-    # ── Outdoor temperature tracking ──────────────────────────────────────────
-
-    async def _outdoor_temp_sustained_high(self) -> bool:
-        """S-1 FIX: Use a per-day counter instead of a raw timestamp list.
-
-        The old list was lost on every HA restart, resetting the N-day clock.
-        This counter increments once per calendar day. On restart the counter
-        begins at 0 again — correct safe default: we need N days of confirmed
-        high temp, not partial evidence from before the restart.
-        """
-        threshold = float(
-            self.coordinator.config.get(
-                "auto_off_temp_threshold", DEFAULT_AUTO_OFF_TEMP_THRESHOLD
-            )
-        )
-        days_required = int(
-            self.coordinator.config.get(
-                "auto_off_temp_days", DEFAULT_AUTO_OFF_TEMP_DAYS
-            )
-        )
-
-        current_temp = self.coordinator.outdoor_temperature
-        if current_temp is None:
-            return False
-
-        today = utcnow().date().isoformat()
-        if today != self._last_high_date:
-            self._last_high_date = today
-            if current_temp > threshold:
-                self._days_above_high += 1
-                _LOGGER.debug(
-                    "ControllerEngine: %.1f°C > %.1f°C — day %d/%d above threshold",
-                    current_temp,
-                    threshold,
-                    self._days_above_high,
-                    days_required,
-                )
-            else:
-                if self._days_above_high > 0:
-                    _LOGGER.debug(
-                        "ControllerEngine: %.1f°C ≤ threshold — resetting counter (was %d)",
-                        current_temp,
-                        self._days_above_high,
-                    )
-                self._days_above_high = 0
-
-        return self._days_above_high >= days_required
-
     # ── Climate fallback on OFF ────────────────────────────────────────────────
 
     async def _apply_off_fallback(self) -> None:
-        """S-5 FIX: Use effective_season (not season_mode) so AUTO resolves correctly.
+        """Apply climate state when controller transitions to OFF.
 
-        H-5: For SUMMER (hvac_mode: off) we prefer the HomeKit entity — it is
-        a local set_hvac_mode call that does not touch Netatmo's cloud schedule.
-        For WINTER restore (preset_mode: schedule) we must use the cloud entity
-        because preset_mode is not exposed via HomeKit HAP.
-        H-6: Delay is only applied when writing to the cloud entity.
+        For DORMANT (summer): turn off TRVs via hvac_mode off (HomeKit preferred).
+        For WAKING/ACTIVE restore: set preset_mode schedule (cloud entity required).
+
+        H-5: HomeKit entity preferred for hvac_mode writes (local, no rate limit).
+        H-6: Delay only applied when writing to Netatmo cloud entity.
         """
         season = self.coordinator.effective_season
         hass = self.coordinator.hass
@@ -283,7 +238,7 @@ class ControllerEngine:
             if not cloud_id:
                 continue
             try:
-                if season == SeasonMode.SUMMER:
+                if season == EffectiveSeason.DORMANT:
                     # H-5: prefer HomeKit for local hvac_mode: off
                     write_id = self.coordinator.get_write_entity(room_name) or cloud_id
                     await hass.services.async_call(

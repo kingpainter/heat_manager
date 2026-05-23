@@ -13,6 +13,45 @@ _Nothing yet._
 
 ---
 
+## [0.5.0] — 2026-05-23
+
+### Added
+- **Three-tier `EffectiveSeason` system** — `SeasonEngine` now resolves `AUTO`
+  to one of three phases: `DORMANT` (summer sleep), `WAKING` (transitional),
+  or `ACTIVE` (full winter operation). Previously only `WINTER`/`SUMMER` (on/off)
+  were used.
+- **`WAKING` phase** — during spring/autumn, when outdoor temperature is still
+  below the auto-off threshold but the house is already warm (indoor temp
+  above `CONF_INDOOR_WAKE_THRESHOLD`, default 21 °C), the system enters WAKING:
+  heating is on, but PID setpoints are reduced by `CONF_WAKE_SETBACK_TEMP`
+  (default 2 °C) to avoid over-heating a warm house.
+- **Indoor wake sensor** (`CONF_INDOOR_WAKE_SENSOR`) — optional global sensor
+  used to distinguish WAKING vs ACTIVE. Falls back to ACTIVE when absent
+  (fail-safe: never under-heat).
+- **`wake_setback_delta()`** helper on coordinator — returns the reduction
+  in °C during WAKING, 0.0 otherwise. Applied cumulatively with
+  `night_setback_delta()` in the PID tick.
+- `const.py` — `EffectiveSeason` enum, `CONF_INDOOR_WAKE_SENSOR`,
+  `CONF_INDOOR_WAKE_THRESHOLD` (default 21.0 °C), `CONF_WAKE_SETBACK_TEMP`
+  (default 2.0 °C).
+- `strings.json` / `translations/da.json` — `effective_season` select entity
+  states: `dormant` / `waking` / `active` (DA: Dvale / Vågner / Aktiv).
+
+### Changed
+- **`SeasonEngine`** is now the single source of truth for `EffectiveSeason`.
+  Manual season overrides (WINTER/SPRING/AUTUMN → ACTIVE, SUMMER → DORMANT)
+  are mapped here rather than in coordinator.
+- **`ControllerEngine`** simplified — removed the duplicate outdoor-temperature
+  day-counter (`_days_above_high`, `_outdoor_temp_sustained_high()`). Auto-off
+  and auto-resume now react solely to `coordinator.effective_season`.
+- **PID tick** — now active in both ACTIVE and WAKING phases (previously
+  only ACTIVE). DORMANT still resets all PIDs.
+- `coordinator.py` — `effective_season` type changed from `SeasonMode` to
+  `EffectiveSeason`; initial value `ACTIVE` (was `WINTER`).
+- Version bumped `0.4.6` → `0.5.0`.
+
+---
+
 ## [0.4.6] — 2026-05-22
 
 ### Added

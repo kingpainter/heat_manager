@@ -71,6 +71,7 @@ from .const import (
     SCAN_INTERVAL_SECONDS,
     AutoOffReason,
     ControllerState,
+    EffectiveSeason,
     RoomState,
     SeasonMode,
 )
@@ -114,7 +115,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.season_mode: SeasonMode = SeasonMode(_saved_season)
         except ValueError:
             self.season_mode = SeasonMode.AUTO
-        self.effective_season: SeasonMode = SeasonMode.WINTER
+        self.effective_season: EffectiveSeason = EffectiveSeason.ACTIVE
         self.outdoor_temperature: float | None = None
         self._event_log: deque[dict[str, Any]] = deque(maxlen=_MAX_EVENT_LOG)
 
@@ -547,6 +548,20 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return float(self.config.get(CONF_AWAY_TEMP_MILD, DEFAULT_AWAY_TEMP_MILD))
         return float(self.config.get(CONF_AWAY_TEMP_COLD, DEFAULT_AWAY_TEMP_COLD))
 
+    def wake_setback_delta(self) -> float:
+        """Return the wake setback delta in °C. 0.0 when not in WAKING phase.
+
+        Applied to PID setpoints during the transitional WAKING phase so the
+        system heats gently rather than at full winter capacity.
+        """
+        from .const import CONF_WAKE_SETBACK_TEMP, DEFAULT_WAKE_SETBACK_TEMP
+
+        if self.effective_season != EffectiveSeason.WAKING:
+            return 0.0
+        return float(
+            self.config.get(CONF_WAKE_SETBACK_TEMP, DEFAULT_WAKE_SETBACK_TEMP)
+        )
+
     def is_night_setback_active(self) -> bool:
         """Return True when night setback is enabled and the current time is within
         the configured night window (CONF_NIGHT_START_HOUR – CONF_NIGHT_END_HOUR).
@@ -614,8 +629,6 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             await self.season_engine.async_tick()
-            if self.season_mode != SeasonMode.AUTO:
-                self.effective_season = self.season_mode
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("season_engine tick failed: %s", err)
 
@@ -657,7 +670,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {
             "controller_state": self.controller.state,
             "season_mode": self.season_mode,
-            "effective_season": self.effective_season,
+            "effective_season": self.effective_season.value,
             "outdoor_temperature": self.outdoor_temperature,
             "room_states": dict(self.room_states),
             "pause_remaining_minutes": self.pause_remaining_minutes,
@@ -681,7 +694,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for pid in self.pid_controllers.values():
                 pid.reset()
             return
-        if self.effective_season != SeasonMode.WINTER:
+        # PID runs in both ACTIVE and WAKING phases.
+        # WAKING uses a reduced setpoint via wake_setback_delta().
+        if self.effective_season == EffectiveSeason.DORMANT:
             for pid in self.pid_controllers.values():
                 pid.reset()
             return
@@ -731,19 +746,20 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except (TypeError, ValueError):
                 continue
 
-            # ── Night setback — reduce target during configured night hours ──
-            setback = self.night_setback_delta()
+            # ── Setbacks: night + wake — applied cumulatively ─────────────────────
+            setback = self.night_setback_delta() + self.wake_setback_delta()
             if setback > 0.0:
                 target_temp = max(
                     target_temp - setback,
                     float(room.get("away_temp_override", 10.0)),
                 )
                 _LOGGER.debug(
-                    "Night setback [%s]: %.1f°C → %.1f°C (−%.1f°C)",
+                    "Setback [%s]: %.1f°C → %.1f°C (night=−0.1f°C wake=−0.1f°C)",
                     room_name,
                     target_temp + setback,
                     target_temp,
-                    setback,
+                    self.night_setback_delta(),
+                    self.wake_setback_delta(),
                 )
 
             # ── PID tick → power fraction 0..1 ──────────────────────────

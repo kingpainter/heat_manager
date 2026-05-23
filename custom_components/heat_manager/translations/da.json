@@ -204,6 +204,14 @@
           "summer": "Sommer",
           "autumn": "Efterår"
         }
+      },
+      "effective_season": {
+        "name": "Aktiv sæsonfase",
+        "state": {
+          "dormant": "Dvale",
+          "waking":  "Vågner",
+          "active":  "Aktiv"
+        }
       }
     },
     "binary_sensor": {

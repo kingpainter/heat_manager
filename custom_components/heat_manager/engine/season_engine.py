@@ -161,5 +161,10 @@ class SeasonEngine:
         """Current meteorological calendar season (read-only)."""
         return _calendar_season()
 
+    @property
+    def effective_season(self) -> EffectiveSeason:
+        """Current resolved effective season (convenience read-only access)."""
+        return self.coordinator.effective_season
+
     async def async_shutdown(self) -> None:
         _LOGGER.debug("SeasonEngine shut down")

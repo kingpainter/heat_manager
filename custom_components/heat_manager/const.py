@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 DOMAIN = "heat_manager"
-VERSION = "0.4.6"
+VERSION = "0.5.0"
 
 # ── Config entry keys ────────────────────────────────────────────────────────
 
@@ -155,6 +155,24 @@ CONF_CO2_THRESHOLD = "co2_threshold"
 # Cleared automatically when the entity becomes available on next reload.
 REPAIR_ISSUE_MISSING_CLIMATE = "missing_climate_entity"
 
+# ── Effective season (resolved — three-tier) ─────────────────────────────────
+
+
+class EffectiveSeason(StrEnum):
+    """Resolved heating phase — drives controller and PID behaviour.
+
+    DORMANT : Full summer sleep.  Heating disabled, TRVs set to hvac_mode off.
+    WAKING  : Transitional (early autumn / late spring).  Heating allowed but
+              setpoints are reduced by CONF_WAKE_SETBACK_TEMP.  Pre-heat
+              suspended.  Triggered when indoor temp > CONF_INDOOR_WAKE_THRESHOLD.
+    ACTIVE  : Full winter operation.  Normal setpoints, pre-heat enabled.
+    """
+
+    DORMANT = "dormant"
+    WAKING = "waking"
+    ACTIVE = "active"
+
+
 # ── Controller state ──────────────────────────────────────────────────────────
 
 
@@ -197,6 +215,25 @@ class RoomState(StrEnum):
     AWAY = "away"
     PRE_HEAT = "pre_heat"
     OVERRIDE = "override"
+
+
+# ── Wake / indoor threshold config keys ─────────────────────────────────────
+
+# Primary indoor temperature sensor — used to decide WAKING vs ACTIVE.
+# Typically a shared sensor in the main living area or a computed average.
+# Falls back to reading the first available room temperature sensor when absent.
+CONF_INDOOR_WAKE_SENSOR = "indoor_wake_sensor"
+
+# Indoor temperature above which the system enters WAKING instead of ACTIVE
+# during the transitional seasons (spring / autumn).  Default 21 °C.
+CONF_INDOOR_WAKE_THRESHOLD = "indoor_wake_threshold"
+DEFAULT_INDOOR_WAKE_THRESHOLD: float = 21.0
+
+# Setpoint reduction applied to all rooms while in WAKING phase.
+# Expressed as °C subtracted from the normal schedule setpoint.
+# Default 2 °C — gentle warmth without full winter consumption.
+CONF_WAKE_SETBACK_TEMP = "wake_setback_temp"
+DEFAULT_WAKE_SETBACK_TEMP: float = 2.0
 
 
 # ── Auto-off reason ───────────────────────────────────────────────────────────

@@ -186,6 +186,14 @@
           "summer": "Summer",
           "autumn": "Autumn"
         }
+      },
+      "effective_season": {
+        "name": "Effective season",
+        "state": {
+          "dormant": "Dormant",
+          "waking":  "Waking",
+          "active":  "Active"
+        }
       }
     },
     "binary_sensor": {
