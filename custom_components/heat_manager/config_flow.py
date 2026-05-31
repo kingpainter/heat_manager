@@ -37,6 +37,7 @@ from .const import (
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
     CONF_HOMEKIT_CLIMATE_ENTITY,
+    CONF_HOUSE_VOICE_ENABLED,
     CONF_HUMIDITY_SENSOR,
     CONF_MILD_THRESHOLD,
     CONF_NIGHT_END_HOUR,
@@ -253,6 +254,10 @@ def _step1_schema(defaults: dict = {}) -> vol.Schema:
             ): selector.selector(
                 {"number": {"min": 4, "max": 10, "step": 1, "unit_of_measurement": "h"}}
             ),
+            vol.Optional(
+                CONF_HOUSE_VOICE_ENABLED,
+                default=defaults.get(CONF_HOUSE_VOICE_ENABLED, False),
+            ): selector.selector({"boolean": {}}),
         }
     )
 

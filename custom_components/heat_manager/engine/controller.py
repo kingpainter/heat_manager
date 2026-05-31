@@ -28,6 +28,8 @@ from homeassistant.util.dt import utcnow
 from ..const import (
     DEFAULT_PAUSE_DURATION_MIN,
     HVAC_OFF,
+    HV_EVENT_CONTROLLER_OFF,
+    HV_EVENT_CONTROLLER_PAUSED,
     NETATMO_API_CALL_DELAY_SEC,
     PRESET_SCHEDULE,
     AutoOffReason,
@@ -122,6 +124,10 @@ class ControllerEngine:
         if new_state == ControllerState.OFF:
             await self._apply_off_fallback()
             self._reset_room_states()
+            await self.coordinator.async_house_voice_say(HV_EVENT_CONTROLLER_OFF)
+
+        if new_state == ControllerState.PAUSE:
+            await self.coordinator.async_house_voice_say(HV_EVENT_CONTROLLER_PAUSED)
 
         self.coordinator.async_update_listeners()
 

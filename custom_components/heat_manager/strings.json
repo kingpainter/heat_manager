@@ -17,12 +17,14 @@
           "night_setback_enabled": "Enable night setback",
           "night_setback_temp": "Night setback (\u00b0C to reduce)",
           "night_start_hour": "Night start hour",
-          "night_end_hour": "Night end hour"
+          "night_end_hour": "Night end hour",
+          "house_voice_enabled": "Enable House Voice announcements"
         },
         "data_description": {
           "outdoor_temp_sensor": "Local weather station or outdoor module (e.g. Netatmo, Aqara). Overrides the weather entity temperature for adaptive away setpoint and season detection. Leave blank to use the weather entity.",
           "night_setback_enabled": "When enabled, the PID target temperature is reduced by the setback value during the configured night hours. Uses the existing night start/end hours.",
-          "night_setback_temp": "Degrees Celsius subtracted from the Netatmo schedule setpoint during night hours. The setpoint will not go below the room away temperature."
+          "night_setback_temp": "Degrees Celsius subtracted from the Netatmo schedule setpoint during night hours. The setpoint will not go below the room away temperature.",
+          "house_voice_enabled": "Requires the House Voice integration to be installed. When enabled, Heat Manager will announce events such as boost activation, season changes, and controller state changes."
         }
       },
       "room": {
@@ -104,12 +106,14 @@
           "night_setback_enabled": "Enable night setback",
           "night_setback_temp": "Night setback (\u00b0C to reduce)",
           "night_start_hour": "Night start hour",
-          "night_end_hour": "Night end hour"
+          "night_end_hour": "Night end hour",
+          "house_voice_enabled": "Enable House Voice announcements"
         },
         "data_description": {
           "outdoor_temp_sensor": "Local weather station or outdoor module. Overrides the weather entity temperature. Leave blank to use the weather entity.",
           "night_setback_enabled": "When enabled, the PID target temperature is reduced by the setback value during the configured night hours.",
-          "night_setback_temp": "Degrees Celsius subtracted from the Netatmo schedule setpoint during night hours. The setpoint will not go below the room away temperature."
+          "night_setback_temp": "Degrees Celsius subtracted from the Netatmo schedule setpoint during night hours. The setpoint will not go below the room away temperature.",
+          "house_voice_enabled": "Requires the House Voice integration to be installed. When enabled, Heat Manager will announce events such as boost activation, season changes, and controller state changes."
         }
       },
       "rooms_menu": {

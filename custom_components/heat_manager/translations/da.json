@@ -17,12 +17,14 @@
           "night_setback_enabled": "Aktiver natreduktion",
           "night_setback_temp": "Natreduktion (°C der trækkes fra)",
           "night_start_hour": "Natstart (time)",
-          "night_end_hour": "Natslut (time)"
+          "night_end_hour": "Natslut (time)",
+          "house_voice_enabled": "Aktiver House Voice-meddelelser"
         },
         "data_description": {
           "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul (fx Netatmo, Aqara). Overskriver vejr-entitetens temperatur ved beregning af fraværstemperatur og sæsondetektering. Lad feltet stå tomt for at bruge vejr-entiteten.",
           "night_setback_enabled": "Når aktiveret reduceres PID-måltemperaturen med den angivne værdi i de konfigurerede nattimer. Bruger de eksisterende nat-start/slut-timer.",
-          "night_setback_temp": "Antal grader der trækkes fra Netatmos planlægte temperatur om natten. Setpointet vil aldrig gå under rummets fraværstemperatur."
+          "night_setback_temp": "Antal grader der trækkes fra Netatmos planlagte temperatur om natten. Setpointet vil aldrig gå under rummets fraværstemperatur.",
+          "house_voice_enabled": "Kræver at House Voice-integrationen er installeret. Når aktiveret annoncerer Heat Manager hændelser som boost-aktivering, sæsonskift og controllerskift."
         }
       },
       "room": {
@@ -106,12 +108,14 @@
           "night_setback_enabled": "Aktiver natreduktion",
           "night_setback_temp": "Natreduktion (°C der trækkes fra)",
           "night_start_hour": "Natstart (time)",
-          "night_end_hour": "Natslut (time)"
+          "night_end_hour": "Natslut (time)",
+          "house_voice_enabled": "Aktiver House Voice-meddelelser"
         },
         "data_description": {
           "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul. Overskriver vejr-entitetens temperatur. Lad feltet stå tomt for at bruge vejr-entiteten.",
           "night_setback_enabled": "Når aktiveret reduceres PID-måltemperaturen med den angivne værdi i de konfigurerede nattimer.",
-          "night_setback_temp": "Antal grader der trækkes fra Netatmos planlægte temperatur om natten. Setpointet vil aldrig gå under rummets fraværstemperatur."
+          "night_setback_temp": "Antal grader der trækkes fra Netatmos planlagte temperatur om natten. Setpointet vil aldrig gå under rummets fraværstemperatur.",
+          "house_voice_enabled": "Kræver at House Voice-integrationen er installeret. Når aktiveret annoncerer Heat Manager hændelser som boost-aktivering, sæsonskift og controllerskift."
         }
       },
       "rooms_menu": {

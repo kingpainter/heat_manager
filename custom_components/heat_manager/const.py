@@ -259,6 +259,18 @@ ACTION_DISMISS = "HM_DISMISS"
 ACTION_PAUSE_1H = "HM_PAUSE_1H"
 ACTION_PAUSE_TODAY = "HM_PAUSE_TODAY"
 
+# ── House Voice integration ──────────────────────────────────────────────────
+
+CONF_HOUSE_VOICE_ENABLED = "house_voice_enabled"
+HOUSE_VOICE_DOMAIN = "house_voice"
+HOUSE_VOICE_SERVICE_SAY = "say"
+
+# Event IDs — must match events created in House Voice
+HV_EVENT_CONTROLLER_PAUSED = "heat_manager_controller_paused"
+HV_EVENT_CONTROLLER_OFF = "heat_manager_controller_off"
+HV_EVENT_SEASON_SUMMER = "heat_manager_season_summer"
+HV_EVENT_SEASON_WINTER = "heat_manager_season_winter"
+
 # ── Services ──────────────────────────────────────────────────────────────────
 
 SERVICE_SET_CONTROLLER_STATE = "set_controller_state"

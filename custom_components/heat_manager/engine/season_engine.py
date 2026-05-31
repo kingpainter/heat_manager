@@ -38,6 +38,8 @@ from ..const import (
     CONF_AUTO_OFF_TEMP_THRESHOLD,
     DEFAULT_AUTO_OFF_TEMP_DAYS,
     DEFAULT_AUTO_OFF_TEMP_THRESHOLD,
+    HV_EVENT_SEASON_SUMMER,
+    HV_EVENT_SEASON_WINTER,
     METEO_SEASONS,
     SeasonMode,
 )
@@ -72,12 +74,14 @@ class SeasonEngine:
         self.coordinator = coordinator
         self._days_above: int = 0
         self._last_date: str | None = None
+        self._prev_effective_season: SeasonMode | None = None
 
     async def async_tick(self) -> None:
         """Called every SCAN_INTERVAL_SECONDS by the coordinator."""
         if self.coordinator.season_mode != SeasonMode.AUTO:
             # Manual override — propagate it directly as effective season
             self.coordinator.effective_season = self.coordinator.season_mode
+            self._prev_effective_season = self.coordinator.season_mode
             return
 
         cal_season = _calendar_season()
@@ -85,13 +89,21 @@ class SeasonEngine:
         # Summer is definitive — no temperature check needed.
         if cal_season == SeasonMode.SUMMER:
             self._days_above = 0
-            self.coordinator.effective_season = SeasonMode.SUMMER
+            new_season = SeasonMode.SUMMER
+            self.coordinator.effective_season = new_season
+            if new_season != self._prev_effective_season and self._prev_effective_season is not None:
+                await self.coordinator.async_house_voice_say(HV_EVENT_SEASON_SUMMER)
+            self._prev_effective_season = new_season
             return
 
         # Winter is definitive — always heat.
         if cal_season == SeasonMode.WINTER:
             self._days_above = 0
-            self.coordinator.effective_season = SeasonMode.WINTER
+            new_season = SeasonMode.WINTER
+            self.coordinator.effective_season = new_season
+            if new_season != self._prev_effective_season and self._prev_effective_season == SeasonMode.SUMMER:
+                await self.coordinator.async_house_voice_say(HV_EVENT_SEASON_WINTER)
+            self._prev_effective_season = new_season
             return
 
         # Spring / Autumn: apply temperature guard.
@@ -151,6 +163,15 @@ class SeasonEngine:
             self._days_above,
             days_needed,
         )
+
+        # Trigger House Voice on effective season change (summer ↔ heating)
+        new_season = self.coordinator.effective_season
+        if new_season != self._prev_effective_season and self._prev_effective_season is not None:
+            if new_season == SeasonMode.SUMMER:
+                await self.coordinator.async_house_voice_say(HV_EVENT_SEASON_SUMMER)
+            elif self._prev_effective_season == SeasonMode.SUMMER:
+                await self.coordinator.async_house_voice_say(HV_EVENT_SEASON_WINTER)
+        self._prev_effective_season = new_season
 
     @property
     def days_above_threshold(self) -> int:

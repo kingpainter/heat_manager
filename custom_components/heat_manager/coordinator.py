@@ -45,6 +45,7 @@ from .const import (
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
     CONF_HOMEKIT_CLIMATE_ENTITY,
+    CONF_HOUSE_VOICE_ENABLED,
     CONF_MILD_THRESHOLD,
     CONF_OUTDOOR_HUMIDITY_SENSOR,
     CONF_OUTDOOR_TEMP_SENSOR,
@@ -68,6 +69,8 @@ from .const import (
     DEFAULT_PID_KP,
     DEFAULT_TRV_MAX_TEMP,
     DOMAIN,
+    HOUSE_VOICE_DOMAIN,
+    HOUSE_VOICE_SERVICE_SAY,
     SCAN_INTERVAL_SECONDS,
     AutoOffReason,
     ControllerState,
@@ -804,6 +807,32 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    async def async_house_voice_say(self, event_id: str) -> None:
+        """Trigger a House Voice event if the integration is enabled and available.
+
+        Requires house_voice integration to be installed and running.
+        Fails silently with a debug log if disabled or unavailable.
+        """
+        if not self.config.get(CONF_HOUSE_VOICE_ENABLED, False):
+            return
+        if not self.hass.services.has_service(HOUSE_VOICE_DOMAIN, HOUSE_VOICE_SERVICE_SAY):
+            _LOGGER.debug(
+                "House Voice: service '%s.%s' not available — is house_voice installed?",
+                HOUSE_VOICE_DOMAIN,
+                HOUSE_VOICE_SERVICE_SAY,
+            )
+            return
+        try:
+            await self.hass.services.async_call(
+                HOUSE_VOICE_DOMAIN,
+                HOUSE_VOICE_SERVICE_SAY,
+                {"event": event_id},
+                blocking=False,
+            )
+            _LOGGER.debug("House Voice: triggered event '%s'", event_id)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("House Voice: failed to trigger '%s': %s", event_id, err)
 
     async def async_shutdown(self) -> None:
         await self.presence_engine.async_shutdown()
