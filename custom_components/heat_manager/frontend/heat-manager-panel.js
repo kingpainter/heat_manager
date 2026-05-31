@@ -671,6 +671,37 @@ class HeatManagerPanel extends HTMLElement {
       .cfg-k { font-size: 13px; color: var(--sub); }
       .cfg-v { font-size: 13px; font-weight: 500; font-family: 'DM Mono', monospace; }
 
+      /* ── Config edit rows ── */
+      .cfg-edit-row {
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px 16px 14px;
+      }
+      .cfg-edit-label {
+        font-size: 12px; color: var(--sub); white-space: nowrap; flex-shrink: 0;
+      }
+      .cfg-edit-input {
+        flex: 1; min-width: 0;
+        background: var(--bg3); border: 1px solid var(--div);
+        border-radius: 8px; padding: 6px 10px;
+        font-size: 12px; color: var(--text); font-family: 'DM Mono', monospace;
+        outline: none;
+      }
+      .cfg-edit-input:focus { border-color: var(--accent); }
+      .cfg-save-btn {
+        flex-shrink: 0;
+        background: var(--accent); color: #fff;
+        border: none; border-radius: 8px;
+        padding: 6px 14px; font-size: 12px; font-weight: 600;
+        cursor: pointer; transition: opacity 0.15s;
+      }
+      .cfg-save-btn:hover { opacity: 0.85; }
+      .cfg-save-btn:disabled { opacity: 0.45; cursor: default; }
+      .cfg-save-ok {
+        flex-shrink: 0; font-size: 12px; color: var(--green);
+        opacity: 0; transition: opacity 0.3s;
+      }
+      .cfg-save-ok.visible { opacity: 1; }
+
       /* ── Energy chart ── */
       .chart-area  { padding: 12px 16px 6px; }
       .chart-bars  { display: flex; align-items: flex-end; gap: 5px; height: 72px; }
@@ -1154,13 +1185,12 @@ class HeatManagerPanel extends HTMLElement {
           fraværsmodus øjeblikkeligt uden grace period. Når den deaktiveres og nogen
           er hjemme, genoptages opvarmningen automatisk.
         </div>
-        <div class="cfg-edit-row">
-          <span class="cfg-edit-label">Entity ID</span>
+        <div class="cfg-edit-row" style="padding-top:12px">
           <input class="cfg-edit-input" id="cfg-alarm-input"
             placeholder="alarm_control_panel.mit_alarm"
             value="${this._esc(d.alarm_panel ?? '')}">
           <button class="cfg-save-btn" data-action="save-alarm">Gem</button>
-          <span class="cfg-save-ok" id="cfg-alarm-ok">✔ Gemt</span>
+          <span class="cfg-save-ok" id="cfg-alarm-ok">✔</span>
         </div>
       </div>
 
