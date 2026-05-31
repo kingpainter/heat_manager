@@ -27,15 +27,14 @@ from homeassistant.util.dt import utcnow
 
 from ..const import (
     DEFAULT_PAUSE_DURATION_MIN,
-    HVAC_OFF,
     HV_EVENT_CONTROLLER_OFF,
     HV_EVENT_CONTROLLER_PAUSED,
+    HVAC_OFF,
     NETATMO_API_CALL_DELAY_SEC,
     PRESET_SCHEDULE,
     AutoOffReason,
     ControllerState,
     EffectiveSeason,
-    SeasonMode,
 )
 
 if TYPE_CHECKING:

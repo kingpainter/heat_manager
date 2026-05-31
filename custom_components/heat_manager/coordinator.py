@@ -561,9 +561,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if self.effective_season != EffectiveSeason.WAKING:
             return 0.0
-        return float(
-            self.config.get(CONF_WAKE_SETBACK_TEMP, DEFAULT_WAKE_SETBACK_TEMP)
-        )
+        return float(self.config.get(CONF_WAKE_SETBACK_TEMP, DEFAULT_WAKE_SETBACK_TEMP))
 
     def is_night_setback_active(self) -> bool:
         """Return True when night setback is enabled and the current time is within
@@ -816,7 +814,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         if not self.config.get(CONF_HOUSE_VOICE_ENABLED, False):
             return
-        if not self.hass.services.has_service(HOUSE_VOICE_DOMAIN, HOUSE_VOICE_SERVICE_SAY):
+        if not self.hass.services.has_service(
+            HOUSE_VOICE_DOMAIN, HOUSE_VOICE_SERVICE_SAY
+        ):
             _LOGGER.debug(
                 "House Voice: service '%s.%s' not available — is house_voice installed?",
                 HOUSE_VOICE_DOMAIN,
