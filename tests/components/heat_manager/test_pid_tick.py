@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from custom_components.heat_manager.const import ControllerState, RoomState, SeasonMode
+from custom_components.heat_manager.const import ControllerState, EffectiveSeason, RoomState, SeasonMode
 from custom_components.heat_manager.engine.pid_controller import PidController
 
 
@@ -96,7 +96,7 @@ async def test_controller_off_resets_pid():
 
 @pytest.mark.asyncio
 async def test_summer_season_resets_pid_no_call():
-    coord = make_coordinator(effective_season=SeasonMode.SUMMER)
+    coord = make_coordinator(effective_season=EffectiveSeason.DORMANT)
     pid = coord.pid_controllers["living_room"]
     pid.update(22.0, 20.0)
     await _pid_tick(coord)

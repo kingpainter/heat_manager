@@ -31,6 +31,7 @@ from .const import (
     CONF_AWAY_TEMP_MILD,
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
+    CONF_HOUSE_VOICE_ENABLED,
     CONF_NOTIFY_SERVICE,
     CONF_PERSON_ENTITY,
     CONF_PERSON_TRACKING,
@@ -148,6 +149,7 @@ async def ws_get_state(
         "auto_off_temp_days": cfg.get(CONF_AUTO_OFF_TEMP_DAYS),
         "alarm_panel": cfg.get(CONF_ALARM_PANEL, ""),
         "notify_service": cfg.get(CONF_NOTIFY_SERVICE, ""),
+        "house_voice_enabled": cfg.get(CONF_HOUSE_VOICE_ENABLED, False),
     }
 
     payload: dict[str, Any] = {

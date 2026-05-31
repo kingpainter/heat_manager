@@ -1176,6 +1176,12 @@ class HeatManagerPanel extends HTMLElement {
           ankomst hjem, preheat startet og ventilbeskyttelse gennemført.<br>
           Format: <strong style="color:var(--text)">notify.mobile_app_min_telefon</strong>
         </div>
+        ${d.house_voice_enabled ? `
+        <div style="padding:4px 16px 10px;display:flex;align-items:center;gap:8px">
+          <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:rgba(20,184,166,0.12);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">
+            <span style="font-size:14px">🔊</span> Koblet til House Voice
+          </span>
+        </div>` : ''}
         <div class="cfg-edit-row">
           <span class="cfg-edit-label">Service</span>
           <input class="cfg-edit-input" id="cfg-notify-input"
