@@ -1164,31 +1164,56 @@ class HeatManagerPanel extends HTMLElement {
         </div>
       </div>
 
-      <div class="section-box">
-        <div class="section-box-header">
-          <div class="section-box-title">Notifikationsservice</div>
-          <div class="section-box-badge" style="background:rgba(249,115,22,0.12);color:var(--amber)">
-            ${d.notify_service ? 'Konfigureret' : 'Ikke sat'}
+      <div class="section-box" style="padding:0">
+        <div class="section-box-header" style="padding:12px 16px 10px;border-bottom:1px solid var(--div)">
+          <div class="section-box-title">Notifikationer</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr${d.house_voice_enabled ? ' 1fr' : ''};gap:0">
+
+          <!-- Venstre: Push-notifikationer -->
+          <div style="padding:14px 16px 16px;${d.house_voice_enabled ? 'border-right:1px solid var(--div)' : ''}">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+              <div style="width:30px;height:30px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">📱</div>
+              <div>
+                <div style="font-size:13px;font-weight:600;color:var(--text)">Push-notifikationer</div>
+                <div style="font-size:11px;color:var(--sub);margin-top:1px">${d.notify_service ? '<span style="color:#10b981">● Konfigureret</span>' : '<span style="color:var(--sub)">● Ikke sat</span>'}</div>
+              </div>
+            </div>
+            <div style="font-size:11px;color:var(--sub);line-height:1.6;margin-bottom:12px">
+              Sendes ved: vindue åbnet/lukket, fraværsmodus,
+              ankomst, preheat og ventilbeskyttelse.
+            </div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <input class="cfg-edit-input" id="cfg-notify-input" style="flex:1;min-width:0"
+                placeholder="notify.mobile_app_min_telefon"
+                value="${this._esc(d.notify_service ?? '')}">
+              <button class="cfg-save-btn" data-action="save-notify">Gem</button>
+              <span class="cfg-save-ok" id="cfg-notify-ok">✔</span>
+            </div>
           </div>
-        </div>
-        <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
-          Push-notifikationer sendes ved: vindue åbnet/lukket, fraværsmodus aktiveret,
-          ankomst hjem, preheat startet og ventilbeskyttelse gennemført.<br>
-          Format: <strong style="color:var(--text)">notify.mobile_app_min_telefon</strong>
-        </div>
-        ${d.house_voice_enabled ? `
-        <div style="padding:4px 16px 10px;display:flex;align-items:center;gap:8px">
-          <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:rgba(20,184,166,0.12);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">
-            <span style="font-size:14px">🔊</span> Koblet til House Voice
-          </span>
-        </div>` : ''}
-        <div class="cfg-edit-row">
-          <span class="cfg-edit-label">Service</span>
-          <input class="cfg-edit-input" id="cfg-notify-input"
-            placeholder="notify.mobile_app_min_telefon"
-            value="${this._esc(d.notify_service ?? '')}">
-          <button class="cfg-save-btn" data-action="save-notify">Gem</button>
-          <span class="cfg-save-ok" id="cfg-notify-ok">✔ Gemt</span>
+
+          <!-- Højre: House Voice (kun hvis aktiveret) -->
+          ${d.house_voice_enabled ? `
+          <div style="padding:14px 16px 16px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+              <div style="width:30px;height:30px;background:linear-gradient(135deg,#14b8a6,#34d399);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">🔊</div>
+              <div>
+                <div style="font-size:13px;font-weight:600;color:var(--text)">House Voice</div>
+                <div style="font-size:11px;margin-top:1px"><span style="color:#14b8a6">● Aktiv</span></div>
+              </div>
+            </div>
+            <div style="font-size:11px;color:var(--sub);line-height:1.6;margin-bottom:12px">
+              Talemeddelelser ved: controller pause/sluk
+              og sæsonskift sommer/vinter.
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+              <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.1);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">⏸ Pause</span>
+              <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.1);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">⏹ Sluk</span>
+              <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.1);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">☀ Sommer</span>
+              <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.1);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">❄ Vinter</span>
+            </div>
+          </div>` : ''}
+
         </div>
       </div>
 
