@@ -92,7 +92,10 @@ class SeasonEngine:
             self._days_above = 0
             new_season = SeasonMode.SUMMER
             self.coordinator.effective_season = new_season
-            if new_season != self._prev_effective_season and self._prev_effective_season is not None:
+            if (
+                new_season != self._prev_effective_season
+                and self._prev_effective_season is not None
+            ):
                 await self.coordinator.async_house_voice_say(HV_EVENT_SEASON_SUMMER)
             self._prev_effective_season = new_season
             return
@@ -102,7 +105,10 @@ class SeasonEngine:
             self._days_above = 0
             new_season = SeasonMode.WINTER
             self.coordinator.effective_season = new_season
-            if new_season != self._prev_effective_season and self._prev_effective_season == SeasonMode.SUMMER:
+            if (
+                new_season != self._prev_effective_season
+                and self._prev_effective_season == SeasonMode.SUMMER
+            ):
                 await self.coordinator.async_house_voice_say(HV_EVENT_SEASON_WINTER)
             self._prev_effective_season = new_season
             return
@@ -167,7 +173,10 @@ class SeasonEngine:
 
         # Trigger House Voice on effective season change (summer ↔ heating)
         new_season = self.coordinator.effective_season
-        if new_season != self._prev_effective_season and self._prev_effective_season is not None:
+        if (
+            new_season != self._prev_effective_season
+            and self._prev_effective_season is not None
+        ):
             if new_season == SeasonMode.SUMMER:
                 await self.coordinator.async_house_voice_say(HV_EVENT_SEASON_SUMMER)
             elif self._prev_effective_season == SeasonMode.SUMMER:
