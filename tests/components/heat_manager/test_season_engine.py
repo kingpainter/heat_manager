@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date as date_type
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.heat_manager.engine.season_engine import SeasonEngine
@@ -23,6 +23,7 @@ def _make_coordinator(
         "auto_off_temp_threshold": auto_off_threshold,
         "auto_off_temp_days": auto_off_days,
     }
+    coord.async_house_voice_say = AsyncMock()
     return coord
 
 

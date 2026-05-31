@@ -41,6 +41,7 @@ from ..const import (
     HV_EVENT_SEASON_SUMMER,
     HV_EVENT_SEASON_WINTER,
     METEO_SEASONS,
+    EffectiveSeason,
     SeasonMode,
 )
 
