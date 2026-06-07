@@ -43,11 +43,59 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+@websocket_api.websocket_command({vol.Required("type"): "heat_manager/boost_start"})
+@websocket_api.async_response
+async def ws_boost_start(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """WebSocket: start boost mode for all rooms.
+
+    Sets boost_active_rooms flag on coordinator and triggers a load()
+    from the frontend. Actual TRV commands are handled by the boost engine
+    when it is implemented. For now, sets the flag and notifies the panel.
+    """
+    entry = _get_entry(hass)
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "Heat Manager not loaded")
+        return
+    coordinator: HeatManagerCoordinator = entry.runtime_data
+    for room in coordinator.rooms:
+        name = room.get("room_name", "")
+        if name:
+            coordinator.boost_active_rooms[name] = True
+    coordinator.log_event("Boost aktiveret", reason="manuel", event_type="boost")
+    _LOGGER.info("Boost started — %d rooms", len(coordinator.boost_active_rooms))
+    connection.send_result(msg["id"], {"success": True, "rooms_boosted": len(coordinator.boost_active_rooms)})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "heat_manager/boost_stop"})
+@websocket_api.async_response
+async def ws_boost_stop(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """WebSocket: stop boost mode."""
+    entry = _get_entry(hass)
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "Heat Manager not loaded")
+        return
+    coordinator: HeatManagerCoordinator = entry.runtime_data
+    coordinator.boost_active_rooms.clear()
+    coordinator.log_event("Boost deaktiveret", reason="manuel", event_type="boost")
+    _LOGGER.info("Boost stopped")
+    connection.send_result(msg["id"], {"success": True})
+
+
 def async_register_websocket_commands(hass: HomeAssistant) -> None:
     """Register all Heat Manager WebSocket commands."""
     websocket_api.async_register_command(hass, ws_get_state)
     websocket_api.async_register_command(hass, ws_get_history)
     websocket_api.async_register_command(hass, ws_update_config)
+    websocket_api.async_register_command(hass, ws_boost_start)
+    websocket_api.async_register_command(hass, ws_boost_stop)
     _LOGGER.debug("WebSocket commands registered")
 
 

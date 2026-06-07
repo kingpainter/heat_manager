@@ -39,6 +39,7 @@ from .const import (
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_HOUSE_VOICE_ENABLED,
     CONF_HUMIDITY_SENSOR,
+    CONF_PAUSE_DURATION_MIN,
     CONF_MILD_THRESHOLD,
     CONF_NIGHT_END_HOUR,
     CONF_NIGHT_SETBACK_ENABLED,
@@ -76,6 +77,7 @@ from .const import (
     DEFAULT_MILD_THRESHOLD,
     DEFAULT_NIGHT_END_HOUR,
     DEFAULT_NIGHT_SETBACK_ENABLED,
+    DEFAULT_PAUSE_DURATION_MIN,
     DEFAULT_NIGHT_SETBACK_TEMP,
     DEFAULT_NIGHT_START_HOUR,
     DEFAULT_PREHEAT_LEAD_TIME_MIN,
@@ -258,6 +260,19 @@ def _step1_schema(defaults: dict = {}) -> vol.Schema:
                 CONF_HOUSE_VOICE_ENABLED,
                 default=defaults.get(CONF_HOUSE_VOICE_ENABLED, False),
             ): selector.selector({"boolean": {}}),
+            vol.Optional(
+                CONF_PAUSE_DURATION_MIN,
+                default=defaults.get(CONF_PAUSE_DURATION_MIN, DEFAULT_PAUSE_DURATION_MIN),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": 15,
+                        "max": 480,
+                        "step": 15,
+                        "unit_of_measurement": "min",
+                    }
+                }
+            ),
         }
     )
 

@@ -9,7 +9,62 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **Panel v0.3.5** — Scroll-position preserved on auto-refresh. `_load()` calls
+  `_patchAll()` instead of `_scheduleRender()` when panel is already rendered.
+  Surgical patch methods: `_patchRooms()`, `_patchPersons()`, `_patchAutoOff()`,
+  `_patchQuickStats()`, `_patchTopbarVersion()`, `_patchCloudBanner()`. Room
+  cards carry `data-room-id`; QS cells carry `data-qs-*`; persons/autooff
+  sections carry wrapper IDs.
+- **Panel v0.3.6** — UX polish batch: (A) controller ring patches surgically
+  on state change via new `_patchControllerHero()`; (B) pause countdown ticks
+  locally every 60 s without WS poll; (C) room cards show valve position badge
+  (`🔥 42%` / `❄ 0%`) and boost badge when `boost_active` is set; (D) boost
+  button added to controller row — calls `heat_manager/boost_start|stop` WS;
+  (E) refresh button shows spinner during load; (F) rooms tab differentiated
+  with per-room valve bar, boost badge, and `X/Y varmer` count; (G) history
+  tab shows last-fetched timestamp + manual refresh button; (H) history loading
+  skeleton shown while WS call is in-flight.
+- **Panel v0.3.7** — Bug fixes: (UX1) controller ring transition fixed —
+  `style.strokeDashoffset` instead of `setAttribute` triggers CSS transition;
+  (UX2) rooms tab patches surgically via `_patchRoomsTab()` on each refresh;
+  (UX3) refresh button shows `↻ HH:MM` after successful fetch; (UX4) boost
+  button `active` class set from backend data on render.
+- **B1** `websocket.py` — `valve_position` added to room payload. Zigbee
+  `pi_demand_entity` takes priority over Netatmo `heating_power_request`.
+- **B2** `websocket.py` / `coordinator.py` — `boost_active` per room added to
+  WS payload, read from `coordinator.boost_active_rooms`.
+- **B3/B7** `coordinator.py` / `websocket.py` — Energy history persisted to
+  `entry.options` as JSON at midnight and on shutdown. Historical bars in the
+  history chart now show real data instead of always zero.
+- **B4** `engine/season_engine.py` — `coordinator.effective_season` is now
+  always a proper `EffectiveSeason` enum (DORMANT/WAKING/ACTIVE). Previously
+  `SeasonMode` values were assigned, causing a type mismatch.
+- **B5** `const.py` / `engine/controller.py` — `CONF_PAUSE_DURATION_MIN`
+  constant added. Controller now reads it via the constant instead of a bare
+  string literal that was always falling back to default.
+- **B6** `coordinator.py` — PID setback log format-string fixed: `−0.1f` was
+  invalid Python; corrected to `%.1f`.
+- **B8** `websocket.py` — `heat_manager/boost_start` and `boost_stop` WS
+  endpoints implemented. Set/clear `coordinator.boost_active_rooms` and log
+  event. Frontend boost button wired to these endpoints.
+- **B9** `engine/season_engine.py` — WAKING phase now fully functional.
+  `_apply_waking_check()` reads `CONF_INDOOR_WAKE_SENSOR` and returns
+  `EffectiveSeason.WAKING` when indoor temp ≥ `CONF_INDOOR_WAKE_THRESHOLD`.
+  Previously WAKING was defined but never activated.
+- **B10** `coordinator.py` — Event log persisted to `entry.options` (last 50
+  entries as JSON) at midnight and on shutdown. Restored on startup.
+- **Config flow** — `pause_duration_min` field added to global step
+  (15–480 min, step 15).
+- **Coordinator shutdown** — `_persist_energy_snapshot()` called in
+  `async_shutdown()` so today's energy data survives HA restarts.
+- **Tests** — `test_season_engine.py` updated for `EffectiveSeason` (B4/B9):
+  all assertions use `EffectiveSeason.ACTIVE/DORMANT/WAKING`; four new tests
+  cover WAKING activation, ACTIVE fallback, no-sensor fallback, and DORMANT
+  immunity to WAKING downgrade.
+
+### Fixed
+- `manifest.json` version was stuck at `0.4.6`; synced to `0.5.0`.
 
 ---
 

@@ -894,6 +894,12 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("House Voice: failed to trigger '%s': %s", event_id, err)
 
     async def async_shutdown(self) -> None:
+        """Persist energy/event snapshot and shut down all engines cleanly."""
+        # Persist today's energy + event log so data survives HA restart
+        try:
+            self._persist_energy_snapshot()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Energy persist on shutdown failed: %s", err)
         await self.presence_engine.async_shutdown()
         await self.window_engine.async_shutdown()
         await self.season_engine.async_shutdown()

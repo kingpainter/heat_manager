@@ -1805,13 +1805,14 @@ class HeatManagerPanel extends HTMLElement {
       if (!btn) return;
       const isActive = btn.classList.contains("active");
       try {
-        await this._hass.callService("heat_manager", isActive ? "boost_stop" : "boost_start", {});
+        await this._hass.callWS({ type: isActive ? "heat_manager/boost_stop" : "heat_manager/boost_start" });
         btn.classList.toggle("active", !isActive);
+        // Refresh data so room cards update
+        setTimeout(() => this._load(), 300);
       } catch (e) {
-        // Service not yet available — show tooltip feedback only
         btn.style.opacity = "0.4";
         setTimeout(() => { btn.style.opacity = ""; }, 800);
-        console.info("[HeatManager] boost service not available yet");
+        console.info("[HeatManager] boost WS failed:", e);
       }
     });
     root.querySelector("[data-action='dismiss-cloud-banner']")?.addEventListener("click", () => {
