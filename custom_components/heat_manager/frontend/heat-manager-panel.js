@@ -1,5 +1,5 @@
 // Heat Manager Panel
-// Version: 0.3.4
+// Version: 0.3.5
 //
 // Design: Unified visual language with Indeklima — same font (DM Sans/DM Mono),
 // same card system, same section-box pattern, same score ring, same chip/badge
@@ -23,6 +23,15 @@
 //     HA climate entity availability and last_updated staleness.
 //     Shown across all tabs when cloud is degraded. Configurable via
 //     _showCloudBanner flag (can be disabled in config tab).
+//
+// v0.3.5:
+//   • Scroll-position preserved on auto-refresh. _load() now calls
+//     _patchAll() instead of _scheduleRender() when the panel is already
+//     rendered. Full _render() only runs on initial mount and tab switches.
+//   • Surgical patches: _patchRooms(), _patchPersons(), _patchQuickStats(),
+//     _patchAutoOff(), _patchTopbarVersion() — all update DOM nodes in-place.
+//   • Room cards carry data-room-id attribute; QS cells carry data-qs-* ids;
+//     persons/autooff sections carry wrapper IDs for targeted updates.
 
 class HeatManagerPanel extends HTMLElement {
   constructor() {
@@ -102,7 +111,13 @@ class HeatManagerPanel extends HTMLElement {
     }
     if (this._tab === "history" && !this._history) await this._loadHistory();
     this._lastCtrlState = this._data?.controller_state ?? null;
-    this._scheduleRender();
+    // If the panel is already rendered, patch in-place to preserve scroll position.
+    // Only fall back to full render on initial load (no .panel-scroll yet).
+    if (this.shadowRoot.querySelector(".panel-scroll")) {
+      this._patchAll();
+    } else {
+      this._scheduleRender();
+    }
   }
 
   async _loadHistory() {
@@ -192,6 +207,147 @@ class HeatManagerPanel extends HTMLElement {
     badge.style.background  = c.bg;
     badge.style.color       = c.color;
     badge.style.borderColor = c.border;
+  }
+
+  // ── Orchestrate all surgical patches ─────────────────────────────────────
+
+  _patchAll() {
+    this._patchController();
+    this._patchTopbarBadge();
+    this._patchTopbarVersion();
+    this._patchQuickStats();
+    this._patchRooms();
+    this._patchPersons();
+    this._patchAutoOff();
+    this._patchCloudBanner();
+  }
+
+  // Update the version/temp/season line in the header without re-rendering topbar.
+  _patchTopbarVersion() {
+    const root   = this.shadowRoot;
+    const verEl  = root.querySelector(".header-text .version");
+    if (!verEl) return;
+    const d      = this._data;
+    const season = ({ winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår", auto:"Auto" })[d?.season_mode] ?? "Auto";
+    const otemp  = d?.outdoor_temp != null ? `${Math.round(d.outdoor_temp)}°C · ` : "";
+    verEl.textContent = `${otemp}${season}`;
+  }
+
+  // Update the four quick-stat numbers in the overview Rum section.
+  _patchQuickStats() {
+    const root  = this.shadowRoot;
+    const rooms = this._data?.rooms ?? [];
+    const vals  = {
+      "qs-active":  { v: rooms.filter(r => r.state === "normal").length,     color: "var(--amber)" },
+      "qs-away":    { v: rooms.filter(r => r.state === "away").length,        color: "var(--sub)"   },
+      "qs-window":  { v: rooms.filter(r => r.state === "window_open").length, color: null           },
+      "qs-preheat": { v: rooms.filter(r => r.state === "pre_heat").length,    color: "var(--teal)"  },
+    };
+    for (const [id, { v, color }] of Object.entries(vals)) {
+      const el = root.querySelector(`[data-qs="${id}"]`);
+      if (!el) return; // Not on current tab — skip silently
+      el.textContent = String(v);
+      if (id === "qs-window") {
+        el.style.color = v > 0 ? "var(--red)" : "var(--sub)";
+      } else if (color) {
+        el.style.color = color;
+      }
+    }
+  }
+
+  // Update room cards in-place. Matches by data-room-id.
+  // Falls back to full re-render of the grid container if structure changed.
+  _patchRooms() {
+    const root  = this.shadowRoot;
+    const rooms = this._data?.rooms ?? [];
+
+    // Try surgical update first: update each existing card by room name key
+    const grid = root.querySelector(".rooms-grid");
+    if (!grid) return;
+
+    const cards = grid.querySelectorAll("[data-room-id]");
+    // If room count changed, re-render the whole grid
+    if (cards.length !== rooms.length) {
+      grid.innerHTML = rooms.length
+        ? rooms.map(r => this._roomCardHTML(r)).join("")
+        : `<div class="empty">Ingen rum konfigureret</div>`;
+      return;
+    }
+
+    // Surgical: update each card
+    rooms.forEach(room => {
+      const card = grid.querySelector(`[data-room-id="${CSS.escape(room.name)}"]`);
+      if (!card) return;
+      const state   = room.state ?? "normal";
+      const color   = this._stateColor(state);
+      const grad    = this._stateGradient(state);
+      const label   = this._stateLabel(state);
+      const temp    = room.climate_entity ? this._climateTemp(room.climate_entity) : null;
+      const setpt   = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
+      const tempStr = temp ?? (room.current_temp != null ? Math.round(room.current_temp * 10) / 10 + "°C" : "–");
+      const fillPct = state === "normal" ? "100" : state === "away" ? "20" : state === "window_open" ? "50" : state === "pre_heat" ? "75" : "40";
+
+      // Update card styles
+      card.style.background = grad;
+      card.style.borderLeftColor = color;
+      card.className = `room-card state-${state}`;
+
+      // Update pill
+      const pill = card.querySelector(".room-state-pill");
+      if (pill) { pill.textContent = label; pill.style.background = `${color}22`; pill.style.color = color; }
+
+      // Update temps
+      const vals = card.querySelectorAll(".room-temp-val");
+      if (vals[0]) vals[0].textContent = tempStr;
+      if (vals[1]) vals[1].textContent = setpt ?? "–";
+
+      // Update state bar fill
+      const fill = card.querySelector(".room-state-fill");
+      if (fill) { fill.style.width = fillPct + "%"; fill.style.background = color; }
+    });
+  }
+
+  // Update person rows in-place.
+  _patchPersons() {
+    const root    = this.shadowRoot;
+    const wrapper = root.querySelector("#persons-wrapper");
+    if (!wrapper) return;
+    wrapper.innerHTML = this._personsInnerHTML();
+  }
+
+  // Update the auto-off aocard values in-place.
+  _patchAutoOff() {
+    const root    = this.shadowRoot;
+    const wrapper = root.querySelector("#autooff-wrapper");
+    if (!wrapper) return;
+    wrapper.innerHTML = this._autoOffInnerHTML();
+  }
+
+  // Show/hide cloud banner without full render.
+  _patchCloudBanner() {
+    const root    = this.shadowRoot;
+    const scroll  = root.querySelector(".panel-scroll");
+    if (!scroll) return;
+
+    const existing = root.querySelector(".cloud-banner");
+    const html     = this._cloudBannerHTML();
+
+    if (html && !existing) {
+      // Insert banner as first child of scroll content
+      const tmp = document.createElement("div");
+      tmp.innerHTML = html;
+      const content = scroll.firstElementChild;
+      if (content) content.insertBefore(tmp.firstElementChild, content.firstChild);
+    } else if (!html && existing) {
+      existing.remove();
+    } else if (html && existing) {
+      // Update detail text (stale minutes may have changed)
+      const detail = existing.querySelector(".cloud-banner-detail");
+      const tmp = document.createElement("div");
+      tmp.innerHTML = html;
+      const newDetail = tmp.querySelector(".cloud-banner-detail");
+      if (detail && newDetail) detail.innerHTML = newDetail.innerHTML;
+    }
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -930,40 +1086,45 @@ class HeatManagerPanel extends HTMLElement {
       </div>`;
   }
 
-  _roomsGridHTML(rooms) {
-    if (!rooms?.length) return `<div class="empty">Ingen rum konfigureret</div>`;
-    return `<div class="rooms-grid">${rooms.map(room => {
-      const state   = room.state ?? "normal";
-      const color   = this._stateColor(state);
-      const grad    = this._stateGradient(state);
-      const label   = this._stateLabel(state);
-      const temp    = room.climate_entity ? this._climateTemp(room.climate_entity) : null;
-      const setpt   = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
-      const tempStr = temp ?? (room.current_temp != null ? Math.round(room.current_temp * 10) / 10 + "°C" : "–");
-      return `
-        <div class="room-card state-${state}" style="background:${grad};border-left-color:${color}">
-          <div class="room-card-header">
-            <div class="room-card-name">${this._esc(room.name)}</div>
-            <div class="room-state-pill" style="background:${color}22;color:${color}">${label}</div>
+  // Build a single room card HTML string (with data-room-id for surgical patching).
+  _roomCardHTML(room) {
+    const state   = room.state ?? "normal";
+    const color   = this._stateColor(state);
+    const grad    = this._stateGradient(state);
+    const label   = this._stateLabel(state);
+    const temp    = room.climate_entity ? this._climateTemp(room.climate_entity) : null;
+    const setpt   = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
+    const tempStr = temp ?? (room.current_temp != null ? Math.round(room.current_temp * 10) / 10 + "°C" : "–");
+    const fillPct = state === "normal" ? "100" : state === "away" ? "20" : state === "window_open" ? "50" : state === "pre_heat" ? "75" : "40";
+    return `
+      <div class="room-card state-${state}" data-room-id="${this._esc(room.name)}"
+           style="background:${grad};border-left-color:${color}">
+        <div class="room-card-header">
+          <div class="room-card-name">${this._esc(room.name)}</div>
+          <div class="room-state-pill" style="background:${color}22;color:${color}">${label}</div>
+        </div>
+        <div class="room-temps">
+          <div class="room-temp-box">
+            <div class="room-temp-val">${tempStr}</div>
+            <div class="room-temp-lbl">Aktuelt</div>
           </div>
-          <div class="room-temps">
-            <div class="room-temp-box">
-              <div class="room-temp-val">${tempStr}</div>
-              <div class="room-temp-lbl">Aktuelt</div>
-            </div>
-            <div class="room-temp-box">
-              <div class="room-temp-val">${setpt ?? "–"}</div>
-              <div class="room-temp-lbl">Sætpunkt</div>
-            </div>
+          <div class="room-temp-box">
+            <div class="room-temp-val">${setpt ?? "–"}</div>
+            <div class="room-temp-lbl">Sætpunkt</div>
           </div>
-          <div class="room-state-bar">
-            <div class="room-state-fill" style="width:${state === "normal" ? "100" : state === "away" ? "20" : state === "window_open" ? "50" : state === "pre_heat" ? "75" : "40"}%;background:${color}"></div>
-          </div>
-        </div>`;
-    }).join("")}</div>`;
+        </div>
+        <div class="room-state-bar">
+          <div class="room-state-fill" style="width:${fillPct}%;background:${color}"></div>
+        </div>
+      </div>`;
   }
 
-  _personsHTML() {
+  _roomsGridHTML(rooms) {
+    if (!rooms?.length) return `<div class="empty">Ingen rum konfigureret</div>`;
+    return `<div class="rooms-grid">${rooms.map(r => this._roomCardHTML(r)).join("")}</div>`;
+  }
+
+  _personsInnerHTML() {
     const persons = this._data?.persons ?? [];
     if (!persons.length) return `<div class="empty">Ingen personer konfigureret</div>`;
     return persons.map(p => {
@@ -988,42 +1149,46 @@ class HeatManagerPanel extends HTMLElement {
     }).join("");
   }
 
-  _autoOffSectionHTML() {
+  _personsHTML() {
+    return `<div id="persons-wrapper">${this._personsInnerHTML()}</div>`;
+  }
+
+  _autoOffInnerHTML() {
     const d      = this._data;
-    const reason = d?.auto_off_reason ?? "none";
     const isOff  = d?.controller_state === "off";
-    const season = d?.season_mode ?? "auto";
     const calMap = { winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår" };
     const calLabel = calMap[d?.calendar_season] ?? "–";
     const effLabel = calMap[d?.effective_season] ?? "–";
     const otemp  = d?.outdoor_temp != null ? Math.round(d.outdoor_temp) + "°C" : "–";
     return `
-      <div class="section-box">
-        <div class="section-box-header">
-          <div class="section-box-title">Auto-off status</div>
-          <div class="section-box-badge" style="background:${isOff?"rgba(239,68,68,0.15)":"rgba(249,115,22,0.15)"};color:${isOff?"#ef4444":"#f97316"}">
-            ${isOff ? "Slukket" : "Aktiv"}
-          </div>
+      <div class="section-box-header">
+        <div class="section-box-title">Auto-off status</div>
+        <div class="section-box-badge" style="background:${isOff?"rgba(239,68,68,0.15)":"rgba(249,115,22,0.15)"};color:${isOff?"#ef4444":"#f97316"}">
+          ${isOff ? "Slukket" : "Aktiv"}
         </div>
-        <div class="autooff-grid">
-          <div class="aocard">
-            <div class="aocard-lbl">Kalender-sæson</div>
-            <div class="aocard-val">${calLabel}</div>
-          </div>
-          <div class="aocard">
-            <div class="aocard-lbl">Effektiv sæson</div>
-            <div class="aocard-val">${effLabel}</div>
-          </div>
-          <div class="aocard">
-            <div class="aocard-lbl">Udetemperatur</div>
-            <div class="aocard-val">${otemp} / ${d?.auto_off_threshold ?? 18}°C grænse</div>
-          </div>
-          <div class="aocard">
-            <div class="aocard-lbl">Dage over grænse</div>
-            <div class="aocard-val">${d?.auto_off_days ?? 0} / ${d?.auto_off_days_required ?? 5}</div>
-          </div>
+      </div>
+      <div class="autooff-grid">
+        <div class="aocard">
+          <div class="aocard-lbl">Kalender-sæson</div>
+          <div class="aocard-val">${calLabel}</div>
+        </div>
+        <div class="aocard">
+          <div class="aocard-lbl">Effektiv sæson</div>
+          <div class="aocard-val">${effLabel}</div>
+        </div>
+        <div class="aocard">
+          <div class="aocard-lbl">Udetemperatur</div>
+          <div class="aocard-val">${otemp} / ${d?.auto_off_threshold ?? 18}°C grænse</div>
+        </div>
+        <div class="aocard">
+          <div class="aocard-lbl">Dage over grænse</div>
+          <div class="aocard-val">${d?.auto_off_days ?? 0} / ${d?.auto_off_days_required ?? 5}</div>
         </div>
       </div>`;
+  }
+
+  _autoOffSectionHTML() {
+    return `<div id="autooff-wrapper" class="section-box">${this._autoOffInnerHTML()}</div>`;
   }
 
   _energyChartHTML() {
@@ -1083,22 +1248,22 @@ class HeatManagerPanel extends HTMLElement {
           <div class="qs-card" style="--c:var(--amber)">
             <div class="qs-card" style="position:absolute;inset:0;border-radius:12px;background:linear-gradient(135deg,rgba(249,115,22,0.08) 0%,transparent 100%);pointer-events:none"></div>
             <div class="qs-icon">🔥</div>
-            <div class="qs-value" style="color:var(--amber)">${active}</div>
+            <div class="qs-value" data-qs="qs-active" style="color:var(--amber)">${active}</div>
             <div class="qs-label">Aktiv</div>
           </div>
           <div class="qs-card">
             <div class="qs-icon">🏃</div>
-            <div class="qs-value" style="color:var(--sub)">${away}</div>
+            <div class="qs-value" data-qs="qs-away" style="color:var(--sub)">${away}</div>
             <div class="qs-label">Fraværende</div>
           </div>
           <div class="qs-card">
             <div class="qs-icon">🪟</div>
-            <div class="qs-value" style="color:${winOpen > 0 ? "var(--red)" : "var(--sub)"}">${winOpen}</div>
+            <div class="qs-value" data-qs="qs-window" style="color:${winOpen > 0 ? "var(--red)" : "var(--sub)"}">${winOpen}</div>
             <div class="qs-label">Vindue åbent</div>
           </div>
           <div class="qs-card">
             <div class="qs-icon">❄️</div>
-            <div class="qs-value" style="color:var(--teal)">${rooms.filter(r => r.state === "pre_heat").length}</div>
+            <div class="qs-value" data-qs="qs-preheat" style="color:var(--teal)">${rooms.filter(r => r.state === "pre_heat").length}</div>
             <div class="qs-label">Forvarmning</div>
           </div>
         </div>
