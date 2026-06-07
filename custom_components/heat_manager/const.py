@@ -122,6 +122,7 @@ DEFAULT_PREHEAT_LEAD_TIME_MIN = 20
 DEFAULT_AUTO_OFF_TEMP_THRESHOLD = 18.0
 DEFAULT_AUTO_OFF_TEMP_DAYS = 5
 DEFAULT_PAUSE_DURATION_MIN = 120
+CONF_PAUSE_DURATION_MIN = "pause_duration_min"  # B5: was missing, causing config reads to fall back to default always
 
 # Night setback — reduce PID target temperature during night hours.
 # Applied on top of the Netatmo cloud schedule setpoint.

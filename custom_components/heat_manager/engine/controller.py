@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 from homeassistant.util.dt import utcnow
 
 from ..const import (
+    CONF_PAUSE_DURATION_MIN,
     DEFAULT_PAUSE_DURATION_MIN,
     HV_EVENT_CONTROLLER_OFF,
     HV_EVENT_CONTROLLER_PAUSED,
@@ -107,7 +108,7 @@ class ControllerEngine:
             )
             if new_state == ControllerState.PAUSE:
                 duration = self.coordinator.config.get(
-                    "pause_duration_min", DEFAULT_PAUSE_DURATION_MIN
+                    CONF_PAUSE_DURATION_MIN, DEFAULT_PAUSE_DURATION_MIN
                 )
                 self._pause_until = utcnow() + timedelta(minutes=duration)
                 _LOGGER.info("Paused for %d min until %s", duration, self._pause_until)

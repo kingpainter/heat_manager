@@ -85,6 +85,9 @@ async def ws_get_state(
 
         current_temp: float | None = coordinator.get_room_current_temp(name, climate_id)
         heating_power: float | None = None
+        valve_position: float | None = None  # B1: valve % for Zigbee and Netatmo
+        boost_active: bool = False            # B2: boost state per room
+
         if climate_id:
             cs = hass.states.get(climate_id)
             if cs:
@@ -92,6 +95,20 @@ async def ws_get_state(
                 if raw is not None:
                     with contextlib.suppress(TypeError, ValueError):
                         heating_power = float(raw)
+                        valve_position = heating_power  # Netatmo: heating_power_request IS valve %
+
+        # B1: Zigbee pi_demand_entity overrides Netatmo valve when present
+        from .const import CONF_PI_DEMAND_ENTITY
+        pi_entity = room.get(CONF_PI_DEMAND_ENTITY) or None
+        if pi_entity:
+            pi_state = hass.states.get(pi_entity)
+            if pi_state and pi_state.state not in ("unknown", "unavailable"):
+                with contextlib.suppress(TypeError, ValueError):
+                    valve_position = float(pi_state.state)
+
+        # B2: boost_active — read from coordinator boost state when available
+        boost_state = getattr(coordinator, "boost_active_rooms", {})
+        boost_active = bool(boost_state.get(name, False))
 
         windows_open = any(
             (s := hass.states.get(sid)) is not None and s.state == "on"
@@ -105,6 +122,8 @@ async def ws_get_state(
                 "state": room_state.value,
                 "current_temp": current_temp,
                 "heating_power": heating_power,
+                "valve_position": valve_position,  # B1
+                "boost_active": boost_active,       # B2
                 "windows_open": windows_open,
                 "why": _why_label(room_state),
             }
@@ -332,23 +351,35 @@ def _get_event_log(coordinator: Any, days: int) -> list[dict]:
 
 
 def _build_daily_energy(coordinator: Any, days: int) -> list[dict]:
-    """Today uses live WasteCalculator values; past days are 0 until persistent storage exists."""
+    """B3/B7: Today from live WasteCalculator; past days from persistent snapshot.
+
+    Energy snapshots are saved to coordinator._energy_history (dict keyed by
+    ISO date string) each midnight via _persist_energy_snapshot(). This gives
+    meaningful historical bars without requiring a database.
+    """
     from homeassistant.util.dt import now as ha_now
 
     today = ha_now().date()
     day_labels = ["man", "tir", "ons", "tor", "fre", "lør", "søn"]
+    history: dict = getattr(coordinator, "_energy_history", {})
+
     result = []
     for i in range(days - 1, -1, -1):
         d = today - timedelta(days=i)
         is_today = i == 0
+        if is_today:
+            saved  = round(coordinator.energy_saved_today, 3)
+            wasted = round(coordinator.energy_wasted_today, 3)
+        else:
+            snap   = history.get(d.isoformat(), {})
+            saved  = round(float(snap.get("saved",  0.0)), 3)
+            wasted = round(float(snap.get("wasted", 0.0)), 3)
         result.append(
             {
-                "label": day_labels[d.weekday()],
-                "date": d.isoformat(),
-                "saved": round(coordinator.energy_saved_today, 3) if is_today else 0.0,
-                "wasted": round(coordinator.energy_wasted_today, 3)
-                if is_today
-                else 0.0,
+                "label":  day_labels[d.weekday()],
+                "date":   d.isoformat(),
+                "saved":  saved,
+                "wasted": wasted,
             }
         )
     return result

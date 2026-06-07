@@ -1,5 +1,5 @@
 // Heat Manager Panel
-// Version: 0.3.6
+// Version: 0.3.7
 //
 // Design: Unified visual language with Indeklima — same font (DM Sans/DM Mono),
 // same card system, same section-box pattern, same score ring, same chip/badge
@@ -42,6 +42,14 @@
 //   F) Rooms tab differentiated: valve %, boost status, last-updated per room.
 //   G) History tab shows last-fetched timestamp + manual refresh button.
 //   H) History loading skeleton shown while WS call is in-flight.
+//
+// v0.3.7 — Frontend UX fixes:
+//   UX1) Controller ring SVG transition fixed: use style.strokeDashoffset
+//        (triggers CSS transition) instead of setAttribute (doesn't).
+//   UX2) Rooms tab patched by _patchAll() via new _patchRoomsTab().
+//   UX3) "Synkroniseret kl. HH:MM" timestamp in header refresh button.
+//   UX4) Boost button active state set on initial render from backend data.
+//   Backend data: valve_position + boost_active now in room payload.
 
 class HeatManagerPanel extends HTMLElement {
   constructor() {
@@ -61,6 +69,7 @@ class HeatManagerPanel extends HTMLElement {
     this._historyLoading  = false; // skeleton guard
     this._historyFetchedAt = null; // timestamp of last history fetch
     this._refreshing      = false; // refresh button spinner guard
+    this._lastSyncTime    = null;  // UX3: timestamp of last successful WS fetch
   }
 
   set hass(h) {
@@ -122,6 +131,7 @@ class HeatManagerPanel extends HTMLElement {
     try {
       this._data     = await this._hass.callWS({ type: "heat_manager/get_state" });
       this._errCount = 0;
+      this._lastSyncTime = new Date();  // UX3
     } catch (e) {
       this._errCount++;
       this._data = this._entitiesSnapshot();
@@ -247,6 +257,8 @@ class HeatManagerPanel extends HTMLElement {
     this._patchAutoOff();
     this._patchCloudBanner();
     this._patchHistoryTab();
+    this._patchRoomsTab();    // UX2
+    this._patchRefreshBtn();  // UX3
   }
 
   // Update the version/temp/season line in the header without re-rendering topbar.
@@ -406,11 +418,17 @@ class HeatManagerPanel extends HTMLElement {
     const btn = this.shadowRoot.querySelector("[data-action='refresh']");
     if (!btn) return;
     if (this._refreshing) {
-      btn.textContent = "↻ Opdater";
-      btn.style.animation = "spin-refresh 0.7s linear infinite";
+      btn.innerHTML = '<span class="refresh-spinner">↻</span> Opdater';
       btn.disabled = true;
     } else {
-      btn.textContent = "↻ Opdater";
+      // UX3: show last sync time
+      if (this._lastSyncTime) {
+        const hh = String(this._lastSyncTime.getHours()).padStart(2,"0");
+        const mm = String(this._lastSyncTime.getMinutes()).padStart(2,"0");
+        btn.textContent = `↻ ${hh}:${mm}`;
+      } else {
+        btn.textContent = "↻ Opdater";
+      }
       btn.style.animation = "";
       btn.disabled = false;
     }
@@ -430,8 +448,9 @@ class HeatManagerPanel extends HTMLElement {
 
     const ringFill = root.querySelector(".ctrl-ring-fill");
     if (ringFill) {
-      ringFill.setAttribute("stroke", ringColor);
-      ringFill.setAttribute("stroke-dashoffset", String(dashOffset));
+      // UX1: style.* triggers CSS transitions; setAttribute does not
+      ringFill.style.stroke = ringColor;
+      ringFill.style.strokeDashoffset = String(dashOffset);
     }
     const ringIcon = root.querySelector(".ctrl-ring-icon");
     if (ringIcon) ringIcon.textContent = this._ctrlIcon(ctrl);
@@ -492,6 +511,24 @@ class HeatManagerPanel extends HTMLElement {
             </div>`).join("")}
         </div>`;
     }
+  }
+
+  // UX2: Rooms tab detail rows — patch in-place like overview rooms
+  _patchRoomsTab() {
+    const root = this.shadowRoot;
+    if (this._tab !== "rooms") return;
+    // Find the rooms detail section — rebuild its inner content surgically
+    const container = root.querySelector(".rooms-detail-container");
+    if (!container) return;
+    const rooms = this._data?.rooms ?? [];
+    const heatingCount = rooms.filter(r => (r.valve_position ?? 0) > 0).length;
+    // Update badge
+    const badge = root.querySelector(".rooms-detail-badge");
+    if (badge) badge.textContent = `${heatingCount} / ${rooms.length} varmer`;
+    // Rebuild rows (they're cheap — just text + one bar per room)
+    container.innerHTML = rooms.length
+      ? rooms.map(r => this._roomDetailRowHTML(r)).join("")
+      : `<div class="empty">Ingen rum konfigureret</div>`;
   }
 
   // G) History tab: patch timestamp label + re-render rows after fresh fetch
@@ -1543,13 +1580,15 @@ class HeatManagerPanel extends HTMLElement {
       <div class="section-box">
         <div class="section-box-header">
           <div class="section-box-title">Rum — detaljer</div>
-          <div class="section-box-badge" style="background:rgba(249,115,22,0.15);color:var(--amber)">
+          <div class="section-box-badge rooms-detail-badge" style="background:rgba(249,115,22,0.15);color:var(--amber)">
             ${heatingCount} / ${rooms.length} varmer
           </div>
         </div>
-        ${rooms.length
-          ? rooms.map(r => this._roomDetailRowHTML(r)).join("")
-          : `<div class="empty">Ingen rum konfigureret</div>`}
+        <div class="rooms-detail-container">
+          ${rooms.length
+            ? rooms.map(r => this._roomDetailRowHTML(r)).join("")
+            : `<div class="empty">Ingen rum konfigureret</div>`}
+        </div>
       </div>
       <div class="section-box">
         <div class="section-box-header">
@@ -1753,6 +1792,13 @@ class HeatManagerPanel extends HTMLElement {
       const min = parseInt(root.querySelector("#pause-dur")?.value ?? "120", 10);
       this._pause(min);
     });
+    // UX4: sync boost button active state from backend data on each render
+    const boostBtn = root.querySelector("#ctrl-btn-boost");
+    if (boostBtn) {
+      const anyBoostActive = (this._data?.rooms ?? []).some(r => r.boost_active);
+      boostBtn.classList.toggle("active", anyBoostActive);
+    }
+
     // D) Boost button — toggles boost service if available
     root.querySelector("[data-action='boost']")?.addEventListener("click", async () => {
       const btn = root.querySelector("#ctrl-btn-boost");

@@ -121,6 +121,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.effective_season: EffectiveSeason = EffectiveSeason.ACTIVE
         self.outdoor_temperature: float | None = None
         self._event_log: deque[dict[str, Any]] = deque(maxlen=_MAX_EVENT_LOG)
+        # B3/B7: Persistent energy history — keyed by ISO date string.
+        self._energy_history: dict[str, dict] = self._load_energy_history()
+        self._energy_history_date: str = ""  # tracks last persist date
 
         # ── Engines ───────────────────────────────────────────────────────────
         self.controller = ControllerEngine(self)
@@ -133,6 +136,10 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self.pid_controllers: dict[str, PidController] = {}
         self._init_pid_controllers()
+        # B2: boost state per room
+        self.boost_active_rooms: dict[str, bool] = {}
+        # B10: restore persisted event log on startup
+        self._restore_event_log()
 
         _LOGGER.debug(
             "Coordinator initialised — %d room(s), %d person(s)",
@@ -501,6 +508,51 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         _LOGGER.debug("Event logged: %s (%s)", description, reason)
 
+    # ── Energy history persistence (B3/B7) ──────────────────────────────────
+
+    def _load_energy_history(self) -> dict[str, dict]:
+        """Load energy history snapshot from entry.options (survives HA restarts)."""
+        import json
+        raw = self.entry.options.get("_energy_history", "{}")
+        try:
+            return json.loads(raw)
+        except (ValueError, TypeError):
+            return {}
+
+    def _persist_energy_snapshot(self) -> None:
+        """Save yesterday's energy totals into persistent history. Called at midnight."""
+        import json
+        import datetime as _dt
+        from homeassistant.util.dt import now as ha_now
+
+        yesterday = (ha_now().date() - _dt.timedelta(days=1)).isoformat()
+        self._energy_history[yesterday] = {
+            "saved":  round(self.energy_saved_today, 3),
+            "wasted": round(self.energy_wasted_today, 3),
+        }
+        if len(self._energy_history) > 30:
+            oldest = sorted(self._energy_history.keys())[0]
+            del self._energy_history[oldest]
+
+        event_snap = list(self._event_log)[:50]
+        options = dict(self.entry.options)
+        options["_energy_history"] = json.dumps(self._energy_history)
+        options["_event_log_snap"] = json.dumps(event_snap)
+        self.hass.config_entries.async_update_entry(self.entry, options=options)
+        _LOGGER.debug("Energy history persisted for %s", yesterday)
+
+    def _restore_event_log(self) -> None:
+        """Restore event log from persisted snapshot on startup (B10)."""
+        import json
+        raw = self.entry.options.get("_event_log_snap", "[]")
+        try:
+            events = json.loads(raw)
+            for e in reversed(events):
+                self._event_log.appendleft(e)
+            _LOGGER.debug("Event log restored: %d entries", len(events))
+        except (ValueError, TypeError):
+            pass
+
     # ── Outdoor temperature ───────────────────────────────────────────────────
 
     def _refresh_outdoor_temperature(self) -> None:
@@ -668,6 +720,13 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("pid_tick failed: %s", err)
 
+        # B3/B7: persist energy snapshot at midnight
+        from homeassistant.util.dt import now as ha_now
+        today_str = ha_now().date().isoformat()
+        if self._energy_history_date and self._energy_history_date != today_str:
+            self._persist_energy_snapshot()
+        self._energy_history_date = today_str
+
         return {
             "controller_state": self.controller.state,
             "season_mode": self.season_mode,
@@ -755,7 +814,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     float(room.get("away_temp_override", 10.0)),
                 )
                 _LOGGER.debug(
-                    "Setback [%s]: %.1f°C → %.1f°C (night=−0.1f°C wake=−0.1f°C)",
+                    "Setback [%s]: %.1f°C → %.1f°C (night=−%.1f°C wake=−%.1f°C)",
                     room_name,
                     target_temp + setback,
                     target_temp,
