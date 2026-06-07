@@ -89,6 +89,100 @@ async def ws_boost_stop(
     connection.send_result(msg["id"], {"success": True})
 
 
+@websocket_api.websocket_command({
+    vol.Required("type"): "heat_manager/set_room_temp",
+    vol.Required("room_name"): str,
+    vol.Optional("temperature"): vol.Any(float, int, None),
+    vol.Optional("duration_min", default=60): int,
+})
+@websocket_api.async_response
+async def ws_set_room_temp(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """WebSocket: set a manual temperature override for one room.
+
+    temperature=None restores the Netatmo cloud schedule (preset_mode: schedule)
+    or the Zigbee thermostat setpoint from config.
+    duration_min=0 means permanent override until manually reset.
+    """
+    entry = _get_entry(hass)
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "Heat Manager not loaded")
+        return
+    coordinator: HeatManagerCoordinator = entry.runtime_data
+    room_name   = msg["room_name"]
+    temperature = msg.get("temperature")
+    duration    = int(msg.get("duration_min", 60))
+
+    # Find room config
+    room_cfg = next(
+        (r for r in coordinator.rooms if r.get("room_name") == room_name), None
+    )
+    if room_cfg is None:
+        connection.send_error(msg["id"], "not_found", f"Room '{room_name}' not configured")
+        return
+
+    write_entity = coordinator.get_write_entity(room_name)
+    if write_entity is None:
+        connection.send_error(msg["id"], "not_found", f"No write entity for room '{room_name}'")
+        return
+
+    trv_type = room_cfg.get("trv_type", "netatmo")
+
+    try:
+        if temperature is None:
+            # Restore to schedule
+            if trv_type == "zigbee":
+                await hass.services.async_call(
+                    "climate", "set_hvac_mode",
+                    {"entity_id": write_entity, "hvac_mode": "heat"},
+                    blocking=True,
+                )
+            else:
+                cloud_entity = coordinator.get_climate_entity(room_name)
+                await hass.services.async_call(
+                    "climate", "set_preset_mode",
+                    {"entity_id": cloud_entity, "preset_mode": "schedule"},
+                    blocking=True,
+                )
+            coordinator.log_event(
+                f"{room_name}: schedule gendannet", reason="manuel panel", event_type="manual"
+            )
+            _LOGGER.info("Room '%s' restored to schedule", room_name)
+        else:
+            # Set temperature
+            temp = float(temperature)
+            await hass.services.async_call(
+                "climate", "set_temperature",
+                {"entity_id": write_entity, "temperature": temp},
+                blocking=True,
+            )
+            dur_label = f"{duration} min" if duration > 0 else "permanent"
+            coordinator.log_event(
+                f"{room_name}: {temp}\u00b0C ({dur_label})",
+                reason="manuel panel",
+                event_type="manual",
+            )
+            _LOGGER.info(
+                "Room '%s' set to %.1f\u00b0C for %s via %s",
+                room_name, temp, dur_label, write_entity,
+            )
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.error("set_room_temp failed for '%s': %s", room_name, err)
+        connection.send_error(msg["id"], "service_error", str(err))
+        return
+
+    connection.send_result(msg["id"], {
+        "success": True,
+        "room": room_name,
+        "temperature": temperature,
+        "duration_min": duration,
+        "write_entity": write_entity,
+    })
+
+
 def async_register_websocket_commands(hass: HomeAssistant) -> None:
     """Register all Heat Manager WebSocket commands."""
     websocket_api.async_register_command(hass, ws_get_state)
@@ -96,6 +190,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_update_config)
     websocket_api.async_register_command(hass, ws_boost_start)
     websocket_api.async_register_command(hass, ws_boost_stop)
+    websocket_api.async_register_command(hass, ws_set_room_temp)
     _LOGGER.debug("WebSocket commands registered")
 
 

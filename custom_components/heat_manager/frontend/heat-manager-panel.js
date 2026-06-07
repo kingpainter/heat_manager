@@ -1,5 +1,5 @@
 // Heat Manager Panel
-// Version: 0.3.7
+// Version: 0.3.8
 //
 // Design: Unified visual language with Indeklima — same font (DM Sans/DM Mono),
 // same card system, same section-box pattern, same score ring, same chip/badge
@@ -50,6 +50,14 @@
 //   UX3) "Synkroniseret kl. HH:MM" timestamp in header refresh button.
 //   UX4) Boost button active state set on initial render from backend data.
 //   Backend data: valve_position + boost_active now in room payload.
+//
+// v0.3.8:
+//   • Cloud banner moved into topbar — compact inline chip instead of
+//     full-width banner. Dismissing hides chip without re-render.
+//   • _patchCloudChip() updates topbar chip surgically.
+//   • Manual TRV control in Rum tab — per-room temp slider + Send button.
+//     Calls heat_manager/set_room_temp WS. Duration: 30/60/120 min or permanent.
+//   • Config tab toggle: "Manuel TRV-kontrol" (session-scoped).
 
 class HeatManagerPanel extends HTMLElement {
   constructor() {
@@ -69,7 +77,8 @@ class HeatManagerPanel extends HTMLElement {
     this._historyLoading  = false; // skeleton guard
     this._historyFetchedAt = null; // timestamp of last history fetch
     this._refreshing      = false; // refresh button spinner guard
-    this._lastSyncTime    = null;  // UX3: timestamp of last successful WS fetch
+    this._lastSyncTime       = null;  // UX3: timestamp of last successful WS fetch
+    this._manualControlEnabled = false; // manual TRV control toggle
   }
 
   set hass(h) {
@@ -255,7 +264,7 @@ class HeatManagerPanel extends HTMLElement {
     this._patchRooms();
     this._patchPersons();
     this._patchAutoOff();
-    this._patchCloudBanner();
+    this._patchCloudChip();   // replaces _patchCloudBanner (now in topbar)
     this._patchHistoryTab();
     this._patchRoomsTab();    // UX2
     this._patchRefreshBtn();  // UX3
@@ -384,30 +393,23 @@ class HeatManagerPanel extends HTMLElement {
     wrapper.innerHTML = this._autoOffInnerHTML();
   }
 
-  // Show/hide cloud banner without full render.
-  _patchCloudBanner() {
-    const root    = this.shadowRoot;
-    const scroll  = root.querySelector(".panel-scroll");
-    if (!scroll) return;
-
-    const existing = root.querySelector(".cloud-banner");
-    const html     = this._cloudBannerHTML();
-
-    if (html && !existing) {
-      // Insert banner as first child of scroll content
-      const tmp = document.createElement("div");
-      tmp.innerHTML = html;
-      const content = scroll.firstElementChild;
-      if (content) content.insertBefore(tmp.firstElementChild, content.firstChild);
-    } else if (!html && existing) {
-      existing.remove();
-    } else if (html && existing) {
-      // Update detail text (stale minutes may have changed)
-      const detail = existing.querySelector(".cloud-banner-detail");
-      const tmp = document.createElement("div");
-      tmp.innerHTML = html;
-      const newDetail = tmp.querySelector(".cloud-banner-detail");
-      if (detail && newDetail) detail.innerHTML = newDetail.innerHTML;
+  // Update compact cloud status chip in the topbar (replaces full-width banner).
+  _patchCloudChip() {
+    const root  = this.shadowRoot;
+    const chip  = root.querySelector("#cloud-chip");
+    if (!chip) return;
+    const { ok, allUnavailable, staleMinutes } = this._cloudStatus();
+    if (!ok && this._showCloudBanner) {
+      chip.hidden = false;
+      chip.title  = allUnavailable
+        ? "Netatmo cloud utilgængelig"
+        : `Netatmo data ${staleMinutes} min forsinket`;
+      chip.querySelector(".cloud-chip-dot").style.background =
+        allUnavailable ? "#ef4444" : "#f97316";
+      chip.querySelector(".cloud-chip-label").textContent =
+        allUnavailable ? "Cloud nede" : `⏱ ${staleMinutes} min`;
+    } else {
+      chip.hidden = true;
     }
   }
 
@@ -786,35 +788,90 @@ class HeatManagerPanel extends HTMLElement {
       .section-box-body { padding: 14px 16px; }
 
       /* ── Cloud status banner ── */
-      .cloud-banner {
-        display: flex; align-items: flex-start; gap: 12px;
-        padding: 12px 16px;
-        background: rgba(239,68,68,0.12);
+      /* Cloud status chip — compact, lives in topbar */
+      .cloud-chip {
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 3px 8px 3px 6px;
+        border-radius: 20px;
+        background: rgba(239,68,68,0.15);
         border: 1px solid rgba(239,68,68,0.35);
-        border-radius: 12px;
-        margin-bottom: 12px;
-        animation: banner-in .25s ease;
+        cursor: pointer; font-family: 'DM Sans', sans-serif;
+        transition: background .15s;
       }
-      @keyframes banner-in {
-        from { opacity: 0; transform: translateY(-6px); }
-        to   { opacity: 1; transform: translateY(0); }
+      .cloud-chip:hover { background: rgba(239,68,68,0.25); }
+      .cloud-chip-dot {
+        width: 6px; height: 6px; border-radius: 50%;
+        flex-shrink: 0; animation: chip-pulse 2s ease-in-out infinite;
       }
-      .cloud-banner-icon { font-size: 20px; line-height: 1.3; flex-shrink: 0; }
-      .cloud-banner-body { flex: 1; }
-      .cloud-banner-title {
-        font-size: 13px; font-weight: 600;
-        color: #fca5a5; margin-bottom: 3px;
+      @keyframes chip-pulse {
+        0%,100% { opacity: 1; } 50% { opacity: 0.4; }
       }
-      .cloud-banner-detail {
-        font-size: 12px; color: rgba(252,165,165,0.75); line-height: 1.4;
+      .cloud-chip-label { font-size: 11px; font-weight: 600; color: #fca5a5; }
+      .cloud-chip-x { font-size: 10px; color: rgba(252,165,165,0.5); margin-left:2px; }
+
+      /* Manual TRV control */
+      .room-manual {
+        padding: 10px 16px 12px;
+        background: rgba(99,102,241,0.06);
+        border-top: 1px solid rgba(99,102,241,0.15);
       }
-      .cloud-banner-dismiss {
-        background: none; border: none; color: rgba(252,165,165,0.6);
-        cursor: pointer; font-size: 14px; padding: 2px 4px;
-        border-radius: 4px; flex-shrink: 0;
-        transition: color .15s;
+      .room-manual-row {
+        display: flex; align-items: center; gap: 8px;
       }
-      .cloud-banner-dismiss:hover { color: #fca5a5; }
+      .room-manual-lbl {
+        font-size: 11px; color: var(--sub); width: 52px; flex-shrink: 0;
+      }
+      .room-manual-slider {
+        flex: 1; -webkit-appearance: none; appearance: none;
+        height: 4px; border-radius: 2px;
+        background: linear-gradient(to right, #6366f1 var(--pct,50%), var(--bg3) var(--pct,50%));
+        outline: none; cursor: pointer;
+      }
+      .room-manual-slider::-webkit-slider-thumb {
+        -webkit-appearance: none; width: 14px; height: 14px;
+        border-radius: 50%; background: #818cf8;
+        border: 2px solid var(--bg2); cursor: pointer;
+      }
+      .room-manual-val {
+        font-size: 12px; font-weight: 600; font-family: 'DM Mono', monospace;
+        color: #818cf8; width: 38px; text-align: right; flex-shrink: 0;
+      }
+      .room-manual-dur {
+        flex: 1; background: var(--bg3); border: 1px solid var(--div);
+        color: var(--fg); border-radius: 7px; padding: 4px 8px;
+        font-size: 12px; font-family: 'DM Sans', sans-serif; cursor: pointer;
+      }
+      .room-manual-send {
+        padding: 5px 11px; border-radius: 7px; border: 1px solid rgba(99,102,241,0.4);
+        background: rgba(99,102,241,0.12); color: #818cf8;
+        font-size: 11px; font-weight: 700; cursor: pointer;
+        font-family: 'DM Sans', sans-serif; white-space: nowrap;
+        transition: background .15s;
+      }
+      .room-manual-send:hover { background: rgba(99,102,241,0.25); }
+      .room-manual-send.sending { opacity: 0.5; pointer-events: none; }
+      .room-manual-reset {
+        padding: 5px 10px; border-radius: 7px; border: 1px solid var(--div);
+        background: transparent; color: var(--sub);
+        font-size: 11px; font-weight: 600; cursor: pointer;
+        font-family: 'DM Sans', sans-serif; white-space: nowrap;
+        transition: color .15s, border-color .15s;
+      }
+      .room-manual-reset:hover { color: var(--fg); border-color: var(--fg); }
+
+      /* Toggle button (used for manual control) */
+      .toggle-btn {
+        padding: 6px 14px; border-radius: 8px;
+        border: 1px solid var(--div); background: transparent;
+        color: var(--sub); font-size: 12px; font-weight: 600;
+        cursor: pointer; font-family: 'DM Sans', sans-serif;
+        transition: all .15s;
+      }
+      .toggle-btn.active {
+        border-color: rgba(99,102,241,0.5); color: #818cf8;
+        background: rgba(99,102,241,0.12);
+      }
+      .toggle-btn:hover { color: var(--fg); border-color: var(--fg); }
 
       /* ── Controller hero card ── */
       .ctrl-hero {
@@ -1230,6 +1287,12 @@ class HeatManagerPanel extends HTMLElement {
           <h1>Heat Manager</h1>
           <div class="version">${otemp}${season}</div>
         </div>
+        <button id="cloud-chip" class="cloud-chip" hidden
+          data-action="dismiss-cloud-banner" title="">
+          <span class="cloud-chip-dot"></span>
+          <span class="cloud-chip-label"></span>
+          <span class="cloud-chip-x">✕</span>
+        </button>
         <div id="topbar-badge" class="topbar-badge"
           style="background:${bc.bg};color:${bc.color};border-color:${bc.border}">
           <div class="badge-dot" style="background:${bc.color}"></div>
@@ -1489,7 +1552,6 @@ class HeatManagerPanel extends HTMLElement {
     const away   = rooms.filter(r => r.state === "away").length;
     const winOpen = rooms.filter(r => r.state === "window_open").length;
     return `
-      ${this._cloudBannerHTML()}
       ${this._controllerSectionHTML()}
 
       <div class="section-box">
@@ -1556,20 +1618,46 @@ class HeatManagerPanel extends HTMLElement {
            </div>
          </div>`
       : "";
-    return `
-      <div style="padding:12px 16px;border-bottom:1px solid var(--div)">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:14px;font-weight:600">${this._esc(room.name)}</span>
-            ${boostBadge}
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:12px;font-family:'DM Mono',monospace">${tempStr}</span>
-            <span style="font-size:11px;color:var(--sub)">→ ${setpt ?? "–"}</span>
-            <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:${color}22;color:${color}">${this._stateLabel(state)}</span>
-          </div>
+    // Manual control section — only rendered when enabled
+    const manualHTML = this._manualControlEnabled ? `
+      <div class="room-manual" data-room="${this._esc(room.name)}">
+        <div class="room-manual-row">
+          <span class="room-manual-lbl">Mål °C</span>
+          <input class="room-manual-slider" type="range" min="10" max="28" step="0.5"
+            value="${setpt ? parseFloat(setpt) : 20}"
+            data-room="${this._esc(room.name)}">
+          <span class="room-manual-val">${setpt ? parseFloat(setpt) : 20}°C</span>
         </div>
-        ${valveBar}
+        <div class="room-manual-row" style="margin-top:6px">
+          <span class="room-manual-lbl">Varighed</span>
+          <select class="room-manual-dur" data-room="${this._esc(room.name)}">
+            <option value="30">30 min</option>
+            <option value="60" selected>1 time</option>
+            <option value="120">2 timer</option>
+            <option value="0">Permanent</option>
+          </select>
+          <button class="room-manual-send" data-room="${this._esc(room.name)}">Send ↗</button>
+          <button class="room-manual-reset" data-room="${this._esc(room.name)}">↺ Schedule</button>
+        </div>
+      </div>` : "";
+
+    return `
+      <div class="room-detail-row" style="border-bottom:1px solid var(--div)">
+        <div style="padding:12px 16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:14px;font-weight:600">${this._esc(room.name)}</span>
+              ${boostBadge}
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:12px;font-family:'DM Mono',monospace">${tempStr}</span>
+              <span style="font-size:11px;color:var(--sub)">→ ${setpt ?? "–"}</span>
+              <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:${color}22;color:${color}">${this._stateLabel(state)}</span>
+            </div>
+          </div>
+          ${valveBar}
+        </div>
+        ${manualHTML}
       </div>`;
   }
 
@@ -1668,6 +1756,29 @@ class HeatManagerPanel extends HTMLElement {
             value="${this._esc(d.alarm_panel ?? '')}">
           <button class="cfg-save-btn" data-action="save-alarm">Gem</button>
           <span class="cfg-save-ok" id="cfg-alarm-ok">✔</span>
+        </div>
+      </div>
+
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Manuel TRV-kontrol</div>
+          <div class="section-box-badge" style="background:${this._manualControlEnabled?'rgba(99,102,241,0.15)':'rgba(71,85,105,0.15)'};color:${this._manualControlEnabled?'#818cf8':'var(--sub)'}">
+            ${this._manualControlEnabled ? 'Aktiv' : 'Inaktiv'}
+          </div>
+        </div>
+        <div style="padding:14px 16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+            <div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:4px">Vis manuel temperatur-kontrol i Rum-fanen</div>
+              <div style="font-size:12px;color:var(--sub);line-height:1.5">
+                Tilføjer en slider og Send-knap per rum — sæt en midlertidig temperatur direkte fra panelet.
+              </div>
+            </div>
+            <button class="toggle-btn${this._manualControlEnabled?' active':''}"
+              style="flex-shrink:0" data-action="toggle-manual-control">
+              ${this._manualControlEnabled ? 'Slå fra' : 'Slå til'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1773,6 +1884,7 @@ class HeatManagerPanel extends HTMLElement {
 
     this._patchController();
     this._patchControllerHero();
+    this._patchCloudChip();
     this._startPauseCountdown();
     this._attachEvents();
   }
@@ -1817,7 +1929,78 @@ class HeatManagerPanel extends HTMLElement {
     });
     root.querySelector("[data-action='dismiss-cloud-banner']")?.addEventListener("click", () => {
       this._showCloudBanner = false;
+      this._patchCloudChip();
+    });
+
+    // Manual TRV control toggle
+    root.querySelector("[data-action='toggle-manual-control']")?.addEventListener("click", () => {
+      this._manualControlEnabled = !this._manualControlEnabled;
       this._scheduleRender();
+    });
+
+    // Slider live update + gradient fill
+    root.querySelectorAll(".room-manual-slider").forEach(slider => {
+      const updateSlider = () => {
+        const min = parseFloat(slider.min), max = parseFloat(slider.max);
+        const val = parseFloat(slider.value);
+        const pct = ((val - min) / (max - min) * 100).toFixed(1) + "%";
+        slider.style.setProperty("--pct", pct);
+        const row  = slider.closest(".room-manual-row");
+        const valEl = row?.querySelector(".room-manual-val");
+        if (valEl) valEl.textContent = val + "°C";
+      };
+      updateSlider();
+      slider.addEventListener("input", updateSlider);
+    });
+
+    // Send button — set_room_temp WS
+    root.querySelectorAll(".room-manual-send").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const roomName = btn.dataset.room;
+        const row      = btn.closest(".room-manual");
+        const slider   = row?.querySelector(".room-manual-slider");
+        const durSel   = row?.querySelector(".room-manual-dur");
+        if (!slider || !roomName) return;
+        const temp     = parseFloat(slider.value);
+        const duration = parseInt(durSel?.value ?? "60", 10);
+        btn.classList.add("sending");
+        try {
+          await this._hass.callWS({
+            type: "heat_manager/set_room_temp",
+            room_name: roomName,
+            temperature: temp,
+            duration_min: duration,
+          });
+          btn.textContent = "✓ Sendt";
+          setTimeout(() => { btn.textContent = "Send ↗"; btn.classList.remove("sending"); }, 2000);
+        } catch (e) {
+          btn.textContent = "Fejl ✗";
+          setTimeout(() => { btn.textContent = "Send ↗"; btn.classList.remove("sending"); }, 2000);
+          console.error("[HeatManager] set_room_temp failed:", e);
+        }
+      });
+    });
+
+    // Reset button — restore to schedule
+    root.querySelectorAll(".room-manual-reset").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const roomName = btn.dataset.room;
+        if (!roomName) return;
+        btn.textContent = "↺ ...";
+        try {
+          await this._hass.callWS({
+            type: "heat_manager/set_room_temp",
+            room_name: roomName,
+            temperature: null,   // null = restore schedule
+            duration_min: 0,
+          });
+          btn.textContent = "↺ OK";
+        } catch (e) {
+          btn.textContent = "↺ Fejl";
+          console.error("[HeatManager] reset_room_temp failed:", e);
+        }
+        setTimeout(() => { btn.textContent = "↺ Schedule"; }, 1500);
+      });
     });
     // G) History manual refresh
     root.querySelector("[data-action='refresh-history']")?.addEventListener("click", async () => {
