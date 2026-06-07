@@ -78,7 +78,9 @@ class SeasonEngine:
         self.coordinator = coordinator
         self._days_above: int = 0
         self._last_date: str | None = None
-        self._prev_effective_season: EffectiveSeason | None = None  # B4: was SeasonMode, now EffectiveSeason
+        self._prev_effective_season: EffectiveSeason | None = (
+            None  # B4: was SeasonMode, now EffectiveSeason
+        )
 
     async def async_tick(self) -> None:
         """Called every SCAN_INTERVAL_SECONDS by the coordinator.
@@ -148,14 +150,19 @@ class SeasonEngine:
                 self._days_above += 1
                 _LOGGER.debug(
                     "SeasonEngine [%s]: %.1f°C > %.1f°C — day %d/%d above threshold",
-                    cal_season.value, outdoor, threshold,
-                    self._days_above, days_needed,
+                    cal_season.value,
+                    outdoor,
+                    threshold,
+                    self._days_above,
+                    days_needed,
                 )
             else:
                 if self._days_above > 0:
                     _LOGGER.debug(
                         "SeasonEngine [%s]: %.1f°C ≤ threshold — resetting counter (was %d)",
-                        cal_season.value, outdoor, self._days_above,
+                        cal_season.value,
+                        outdoor,
+                        self._days_above,
                     )
                 self._days_above = 0
 
@@ -169,8 +176,11 @@ class SeasonEngine:
 
         _LOGGER.debug(
             "SeasonEngine: calendar=%s outdoor=%.1f effective=%s (days_above=%d/%d)",
-            cal_season.value, outdoor, new_eff.value,
-            self._days_above, days_needed,
+            cal_season.value,
+            outdoor,
+            new_eff.value,
+            self._days_above,
+            days_needed,
         )
 
         self._maybe_trigger_voice(new_eff)
@@ -195,12 +205,15 @@ class SeasonEngine:
         except (TypeError, ValueError):
             return EffectiveSeason.ACTIVE
         threshold = float(
-            self.coordinator.config.get(CONF_INDOOR_WAKE_THRESHOLD, DEFAULT_INDOOR_WAKE_THRESHOLD)
+            self.coordinator.config.get(
+                CONF_INDOOR_WAKE_THRESHOLD, DEFAULT_INDOOR_WAKE_THRESHOLD
+            )
         )
         if indoor_temp >= threshold:
             _LOGGER.debug(
                 "SeasonEngine: indoor %.1f°C ≥ wake threshold %.1f°C — WAKING phase",
-                indoor_temp, threshold,
+                indoor_temp,
+                threshold,
             )
             return EffectiveSeason.WAKING
         return EffectiveSeason.ACTIVE
@@ -211,6 +224,7 @@ class SeasonEngine:
         if prev is None or new_eff == prev:
             return
         import asyncio
+
         if new_eff == EffectiveSeason.DORMANT and prev != EffectiveSeason.DORMANT:
             asyncio.ensure_future(
                 self.coordinator.async_house_voice_say(HV_EVENT_SEASON_SUMMER)

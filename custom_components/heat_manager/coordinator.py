@@ -513,6 +513,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _load_energy_history(self) -> dict[str, dict]:
         """Load energy history snapshot from entry.options (survives HA restarts)."""
         import json
+
         raw = self.entry.options.get("_energy_history", "{}")
         try:
             return json.loads(raw)
@@ -521,13 +522,14 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _persist_energy_snapshot(self) -> None:
         """Save yesterday's energy totals into persistent history. Called at midnight."""
-        import json
         import datetime as _dt
+        import json
+
         from homeassistant.util.dt import now as ha_now
 
         yesterday = (ha_now().date() - _dt.timedelta(days=1)).isoformat()
         self._energy_history[yesterday] = {
-            "saved":  round(self.energy_saved_today, 3),
+            "saved": round(self.energy_saved_today, 3),
             "wasted": round(self.energy_wasted_today, 3),
         }
         if len(self._energy_history) > 30:
@@ -544,6 +546,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _restore_event_log(self) -> None:
         """Restore event log from persisted snapshot on startup (B10)."""
         import json
+
         raw = self.entry.options.get("_event_log_snap", "[]")
         try:
             events = json.loads(raw)
@@ -722,6 +725,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # B3/B7: persist energy snapshot at midnight
         from homeassistant.util.dt import now as ha_now
+
         today_str = ha_now().date().isoformat()
         if self._energy_history_date and self._energy_history_date != today_str:
             self._persist_energy_snapshot()

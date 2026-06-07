@@ -134,7 +134,7 @@ async def ws_get_state(
         current_temp: float | None = coordinator.get_room_current_temp(name, climate_id)
         heating_power: float | None = None
         valve_position: float | None = None  # B1: valve % for Zigbee and Netatmo
-        boost_active: bool = False            # B2: boost state per room
+        boost_active: bool = False  # B2: boost state per room
 
         if climate_id:
             cs = hass.states.get(climate_id)
@@ -143,10 +143,13 @@ async def ws_get_state(
                 if raw is not None:
                     with contextlib.suppress(TypeError, ValueError):
                         heating_power = float(raw)
-                        valve_position = heating_power  # Netatmo: heating_power_request IS valve %
+                        valve_position = (
+                            heating_power  # Netatmo: heating_power_request IS valve %
+                        )
 
         # B1: Zigbee pi_demand_entity overrides Netatmo valve when present
         from .const import CONF_PI_DEMAND_ENTITY
+
         pi_entity = room.get(CONF_PI_DEMAND_ENTITY) or None
         if pi_entity:
             pi_state = hass.states.get(pi_entity)
@@ -171,7 +174,7 @@ async def ws_get_state(
                 "current_temp": current_temp,
                 "heating_power": heating_power,
                 "valve_position": valve_position,  # B1
-                "boost_active": boost_active,       # B2
+                "boost_active": boost_active,  # B2
                 "windows_open": windows_open,
                 "why": _why_label(room_state),
             }
@@ -416,17 +419,17 @@ def _build_daily_energy(coordinator: Any, days: int) -> list[dict]:
         d = today - timedelta(days=i)
         is_today = i == 0
         if is_today:
-            saved  = round(coordinator.energy_saved_today, 3)
+            saved = round(coordinator.energy_saved_today, 3)
             wasted = round(coordinator.energy_wasted_today, 3)
         else:
-            snap   = history.get(d.isoformat(), {})
-            saved  = round(float(snap.get("saved",  0.0)), 3)
+            snap = history.get(d.isoformat(), {})
+            saved = round(float(snap.get("saved", 0.0)), 3)
             wasted = round(float(snap.get("wasted", 0.0)), 3)
         result.append(
             {
-                "label":  day_labels[d.weekday()],
-                "date":   d.isoformat(),
-                "saved":  saved,
+                "label": day_labels[d.weekday()],
+                "date": d.isoformat(),
+                "saved": saved,
                 "wasted": wasted,
             }
         )
