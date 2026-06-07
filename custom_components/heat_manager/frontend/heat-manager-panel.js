@@ -1,5 +1,5 @@
 // Heat Manager Panel
-// Version: 0.3.5
+// Version: 0.3.6
 //
 // Design: Unified visual language with Indeklima — same font (DM Sans/DM Mono),
 // same card system, same section-box pattern, same score ring, same chip/badge
@@ -32,6 +32,16 @@
 //     _patchAutoOff(), _patchTopbarVersion() — all update DOM nodes in-place.
 //   • Room cards carry data-room-id attribute; QS cells carry data-qs-* ids;
 //     persons/autooff sections carry wrapper IDs for targeted updates.
+//
+// v0.3.6:
+//   A) Controller ring + title + ringColor patched surgically on state change.
+//   B) Pause countdown ticks locally every 60 s — no WS poll needed.
+//   C) Room cards show valve position badge when available.
+//   D) Boost button added to controller row (greyed when unavailable).
+//   E) Refresh button shows spinner animation during _load().
+//   F) Rooms tab differentiated: valve %, boost status, last-updated per room.
+//   G) History tab shows last-fetched timestamp + manual refresh button.
+//   H) History loading skeleton shown while WS call is in-flight.
 
 class HeatManagerPanel extends HTMLElement {
   constructor() {
@@ -43,10 +53,14 @@ class HeatManagerPanel extends HTMLElement {
     this._history        = null;
     this._errCount       = 0;
     this._interval       = null;
-    this._loadInFlight   = false;
-    this._renderPending  = false;
-    this._lastCtrlState  = null;
+    this._loadInFlight    = false;
+    this._renderPending   = false;
+    this._lastCtrlState   = null;
     this._showCloudBanner = true;  // can be toggled off in config tab
+    this._pauseTimer      = null;  // local countdown interval
+    this._historyLoading  = false; // skeleton guard
+    this._historyFetchedAt = null; // timestamp of last history fetch
+    this._refreshing      = false; // refresh button spinner guard
   }
 
   set hass(h) {
@@ -59,6 +73,7 @@ class HeatManagerPanel extends HTMLElement {
     if (newCtrl !== this._lastCtrlState) {
       this._lastCtrlState = newCtrl;
       this._patchController();
+      this._patchControllerHero();
       this._patchTopbarBadge();
     }
   }
@@ -80,7 +95,10 @@ class HeatManagerPanel extends HTMLElement {
     }, 30000);
   }
 
-  disconnectedCallback() { clearInterval(this._interval); }
+  disconnectedCallback() {
+    clearInterval(this._interval);
+    clearInterval(this._pauseTimer);
+  }
 
   _srAppendHTML(html) {
     const tmp = document.createElement("div");
@@ -97,9 +115,10 @@ class HeatManagerPanel extends HTMLElement {
 
   // ── Data ──────────────────────────────────────────────────────────────────
 
-  async _load() {
+  async _load(fromRefreshBtn = false) {
     if (!this._hass || this._loadInFlight) return;
     this._loadInFlight = true;
+    if (fromRefreshBtn) { this._refreshing = true; this._patchRefreshBtn(); }
     try {
       this._data     = await this._hass.callWS({ type: "heat_manager/get_state" });
       this._errCount = 0;
@@ -108,9 +127,11 @@ class HeatManagerPanel extends HTMLElement {
       this._data = this._entitiesSnapshot();
     } finally {
       this._loadInFlight = false;
+      if (fromRefreshBtn) { this._refreshing = false; this._patchRefreshBtn(); }
     }
     if (this._tab === "history" && !this._history) await this._loadHistory();
     this._lastCtrlState = this._data?.controller_state ?? null;
+    this._startPauseCountdown();
     // If the panel is already rendered, patch in-place to preserve scroll position.
     // Only fall back to full render on initial load (no .panel-scroll yet).
     if (this.shadowRoot.querySelector(".panel-scroll")) {
@@ -121,9 +142,13 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   async _loadHistory() {
+    this._historyLoading = true;
+    this._patchHistorySkeleton();
     try {
       this._history = await this._hass.callWS({ type: "heat_manager/get_history", days: 7 });
+      this._historyFetchedAt = new Date();
     } catch (e) { this._history = { events: [], days: [] }; }
+    finally { this._historyLoading = false; }
   }
 
   _resolveEntityIds() {
@@ -213,6 +238,7 @@ class HeatManagerPanel extends HTMLElement {
 
   _patchAll() {
     this._patchController();
+    this._patchControllerHero();
     this._patchTopbarBadge();
     this._patchTopbarVersion();
     this._patchQuickStats();
@@ -220,6 +246,7 @@ class HeatManagerPanel extends HTMLElement {
     this._patchPersons();
     this._patchAutoOff();
     this._patchCloudBanner();
+    this._patchHistoryTab();
   }
 
   // Update the version/temp/season line in the header without re-rendering topbar.
@@ -304,6 +331,28 @@ class HeatManagerPanel extends HTMLElement {
       // Update state bar fill
       const fill = card.querySelector(".room-state-fill");
       if (fill) { fill.style.width = fillPct + "%"; fill.style.background = color; }
+
+      // Update valve badge
+      const valve     = room.valve_position != null ? Math.round(room.valve_position) : null;
+      const isHeating = valve != null && valve > 0;
+      let vb = card.querySelector(".room-valve-badge");
+      if (valve != null) {
+        const newCls = "room-valve-badge" + (isHeating ? " room-valve-heating" : "");
+        const newTxt = (isHeating ? "🔥" : "❄") + " " + valve + "%";
+        if (!vb) {
+          const el = document.createElement("div");
+          el.className = newCls; el.textContent = newTxt;
+          card.appendChild(el);
+        } else { vb.className = newCls; vb.textContent = newTxt; }
+      } else if (vb) { vb.remove(); }
+
+      // Update boost badge
+      const bb = card.querySelector(".room-boost-badge");
+      if (room.boost_active && !bb) {
+        const el = document.createElement("div");
+        el.className = "room-boost-badge"; el.textContent = "⚡ Boost";
+        card.querySelector(".room-card-header")?.querySelector("div:last-child")?.prepend(el);
+      } else if (!room.boost_active && bb) { bb.remove(); }
     });
   }
 
@@ -350,6 +399,116 @@ class HeatManagerPanel extends HTMLElement {
     }
   }
 
+  // ── Additional surgical patches ──────────────────────────────────────────
+
+  // E) Refresh button spinner
+  _patchRefreshBtn() {
+    const btn = this.shadowRoot.querySelector("[data-action='refresh']");
+    if (!btn) return;
+    if (this._refreshing) {
+      btn.textContent = "↻ Opdater";
+      btn.style.animation = "spin-refresh 0.7s linear infinite";
+      btn.disabled = true;
+    } else {
+      btn.textContent = "↻ Opdater";
+      btn.style.animation = "";
+      btn.disabled = false;
+    }
+  }
+
+  // A) Controller ring + title + badge patched in-place
+  _patchControllerHero() {
+    const root  = this.shadowRoot;
+    const ctrl  = this._data?.controller_state ?? "unknown";
+    const otemp = this._data?.outdoor_temp;
+    const season = this._data?.season_mode ?? "auto";
+    const r     = 38;
+    const circ  = 2 * Math.PI * r;
+    const fill  = ctrl === "on" ? circ : ctrl === "pause" ? circ * 0.5 : 0;
+    const dashOffset = circ - fill;
+    const ringColor  = ctrl === "on" ? "#f97316" : ctrl === "pause" ? "#eab308" : "#475569";
+
+    const ringFill = root.querySelector(".ctrl-ring-fill");
+    if (ringFill) {
+      ringFill.setAttribute("stroke", ringColor);
+      ringFill.setAttribute("stroke-dashoffset", String(dashOffset));
+    }
+    const ringIcon = root.querySelector(".ctrl-ring-icon");
+    if (ringIcon) ringIcon.textContent = this._ctrlIcon(ctrl);
+
+    const ctrlTitle = root.querySelector(".ctrl-title");
+    if (ctrlTitle) { ctrlTitle.textContent = this._ctrlTitle(ctrl); ctrlTitle.style.color = ringColor; }
+
+    const ctrlSub = root.querySelector(".ctrl-sub");
+    if (ctrlSub) ctrlSub.textContent = `${(this._data?.rooms ?? []).length} rum konfigureret`;
+
+    // Meta chips
+    const chips = root.querySelectorAll(".ctrl-meta-chip strong");
+    if (chips[0]) chips[0].textContent = otemp != null ? Math.round(otemp) + "°C" : "–";
+    if (chips[1]) chips[1].textContent = ({ winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår", auto:"Auto" })[season] ?? season;
+
+    // Section badge
+    const badge = root.querySelector(".section-box-badge");
+    if (badge) {
+      badge.textContent = this._ctrlTitle(ctrl);
+      badge.style.background = `${ringColor}22`;
+      badge.style.color = ringColor;
+    }
+  }
+
+  // B) Local pause countdown — ticks every 60 s without WS poll
+  _startPauseCountdown() {
+    clearInterval(this._pauseTimer);
+    if (this._data?.controller_state !== "pause") return;
+    this._pauseTimer = setInterval(() => {
+      if (!this._data || this._data.controller_state !== "pause") {
+        clearInterval(this._pauseTimer);
+        return;
+      }
+      if (this._data.pause_remaining > 0) {
+        this._data.pause_remaining = Math.max(0, this._data.pause_remaining - 1);
+      }
+      this._patchController();
+      this._patchControllerHero();
+      if (this._data.pause_remaining === 0) clearInterval(this._pauseTimer);
+    }, 60000);
+  }
+
+  // H) History skeleton — show/clear in history tab
+  _patchHistorySkeleton() {
+    const root = this.shadowRoot;
+    if (this._tab !== "history") return;
+    const container = root.querySelector(".hist-container");
+    if (!container) return;
+    if (this._historyLoading) {
+      container.innerHTML = `
+        <div style="padding:16px;display:flex;flex-direction:column;gap:8px">
+          ${Array(6).fill(0).map(() => `
+            <div style="display:flex;align-items:center;gap:10px;padding:4px 0">
+              <div class="skel" style="width:7px;height:7px;border-radius:50%;flex-shrink:0"></div>
+              <div class="skel" style="width:44px;height:13px;border-radius:4px"></div>
+              <div class="skel" style="flex:1;height:13px;border-radius:4px"></div>
+              <div class="skel" style="width:60px;height:11px;border-radius:4px"></div>
+            </div>`).join("")}
+        </div>`;
+    }
+  }
+
+  // G) History tab: patch timestamp label + re-render rows after fresh fetch
+  _patchHistoryTab() {
+    const root = this.shadowRoot;
+    if (this._tab !== "history") return;
+    const container = root.querySelector(".hist-container");
+    if (!container || this._historyLoading) return;
+    container.innerHTML = this._historyRowsHTML();
+    const tsEl = root.querySelector("#hist-fetched-at");
+    if (tsEl && this._historyFetchedAt) {
+      const hh = String(this._historyFetchedAt.getHours()).padStart(2,"0");
+      const mm = String(this._historyFetchedAt.getMinutes()).padStart(2,"0");
+      tsEl.textContent = `Opdateret kl. ${hh}:${mm}`;
+    }
+  }
+
   // ── Actions ───────────────────────────────────────────────────────────────
 
   async _setController(state) {
@@ -358,7 +517,9 @@ class HeatManagerPanel extends HTMLElement {
       if (this._data) this._data.controller_state = state;
       this._lastCtrlState = state;
       this._patchController();
+      this._patchControllerHero();
       this._patchTopbarBadge();
+      this._startPauseCountdown();
     } catch (e) { console.error("[HeatManager]", e); }
   }
 
@@ -368,7 +529,9 @@ class HeatManagerPanel extends HTMLElement {
       if (this._data) { this._data.controller_state = "pause"; this._data.pause_remaining = minutes; }
       this._lastCtrlState = "pause";
       this._patchController();
+      this._patchControllerHero();
       this._patchTopbarBadge();
+      this._startPauseCountdown();
     } catch (e) { console.error("[HeatManager]", e); }
   }
 
@@ -377,7 +540,9 @@ class HeatManagerPanel extends HTMLElement {
       await this._hass.callService("heat_manager", "resume", {});
       if (this._data) { this._data.controller_state = "on"; this._data.pause_remaining = 0; }
       this._lastCtrlState = "on";
+      clearInterval(this._pauseTimer);
       this._patchController();
+      this._patchControllerHero();
       this._patchTopbarBadge();
     } catch (e) { console.error("[HeatManager]", e); }
   }
@@ -652,7 +817,7 @@ class HeatManagerPanel extends HTMLElement {
 
       /* ── Controller buttons ── */
       .ctrl-btns-wrap { padding: 0 16px 16px; }
-      .ctrl-btn-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+      .ctrl-btn-row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px; }
       .ctrl-btn {
         padding: 11px 0; border-radius: 10px; border: 1px solid rgba(148,163,184,0.2);
         background: transparent; font-size: 13px; font-weight: 600;
@@ -684,6 +849,40 @@ class HeatManagerPanel extends HTMLElement {
         font-family: 'DM Sans', sans-serif;
       }
       .resume-btn:hover { background: rgba(234,179,8,0.1); }
+
+      /* D) Boost button */
+      .ctrl-btn-boost {
+        border-color: rgba(168,85,247,0.3) !important;
+        color: rgba(168,85,247,0.6) !important;
+      }
+      .ctrl-btn-boost:hover { border-color: #a855f7 !important; color: #d8b4fe !important; background: rgba(168,85,247,0.12) !important; }
+      .ctrl-btn-boost.active {
+        background: rgba(168,85,247,0.18) !important;
+        border-color: #a855f7 !important; color: #d8b4fe !important;
+      }
+
+      /* C) Valve + boost badges on room cards */
+      .room-valve-badge {
+        font-size: 10px; font-weight: 600;
+        color: var(--sub); margin-top: 5px;
+        font-family: 'DM Mono', monospace;
+      }
+      .room-valve-heating { color: #f97316; }
+      .room-boost-badge {
+        display: inline-flex; align-items: center; gap: 3px;
+        font-size: 9px; font-weight: 700;
+        padding: 2px 6px; border-radius: 5px;
+        background: rgba(168,85,247,0.15); color: #c084fc;
+        text-transform: uppercase; letter-spacing: 0.4px;
+      }
+
+      /* E) Refresh button spin */
+      @keyframes spin-refresh {
+        from { display: inline-block; transform: rotate(0deg); }
+        to   { display: inline-block; transform: rotate(360deg); }
+      }
+      .header-refresh { display: inline-flex; align-items: center; gap: 6px; }
+      .refresh-spinner { display: inline-block; animation: spin-refresh 0.7s linear infinite; }
 
       /* ── Efficiency ring / stats (same pattern as Indeklima score) ── */
       .score-section {
@@ -1066,6 +1265,8 @@ class HeatManagerPanel extends HTMLElement {
             <button id="ctrl-btn-on"    class="ctrl-btn" data-action="on">🔥 On</button>
             <button id="ctrl-btn-pause" class="ctrl-btn" data-action="pause">⏸ Pause</button>
             <button id="ctrl-btn-off"   class="ctrl-btn" data-action="off">❄️ Off</button>
+            <button id="ctrl-btn-boost" class="ctrl-btn ctrl-btn-boost" data-action="boost"
+              title="Boost — varm op hurtigt">⚡ Boost</button>
           </div>
           <div class="ctrl-pause-row">
             <span class="ctrl-pause-label">Pause varighed</span>
@@ -1088,20 +1289,33 @@ class HeatManagerPanel extends HTMLElement {
 
   // Build a single room card HTML string (with data-room-id for surgical patching).
   _roomCardHTML(room) {
-    const state   = room.state ?? "normal";
-    const color   = this._stateColor(state);
-    const grad    = this._stateGradient(state);
-    const label   = this._stateLabel(state);
-    const temp    = room.climate_entity ? this._climateTemp(room.climate_entity) : null;
-    const setpt   = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
-    const tempStr = temp ?? (room.current_temp != null ? Math.round(room.current_temp * 10) / 10 + "°C" : "–");
-    const fillPct = state === "normal" ? "100" : state === "away" ? "20" : state === "window_open" ? "50" : state === "pre_heat" ? "75" : "40";
+    const state    = room.state ?? "normal";
+    const color    = this._stateColor(state);
+    const grad     = this._stateGradient(state);
+    const label    = this._stateLabel(state);
+    const temp     = room.climate_entity ? this._climateTemp(room.climate_entity) : null;
+    const setpt    = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
+    const tempStr  = temp ?? (room.current_temp != null ? Math.round(room.current_temp * 10) / 10 + "°C" : "–");
+    const fillPct  = state === "normal" ? "100" : state === "away" ? "20" : state === "window_open" ? "50" : state === "pre_heat" ? "75" : "40";
+    // C) Valve badge
+    const valve    = room.valve_position != null ? Math.round(room.valve_position) : null;
+    const isHeating = valve != null && valve > 0;
+    const valveBadge = valve != null
+      ? `<div class="room-valve-badge${isHeating ? " room-valve-heating" : ""}">${isHeating ? "🔥" : "❄"} ${valve}%</div>`
+      : "";
+    // Boost badge
+    const boostBadge = room.boost_active
+      ? `<div class="room-boost-badge">⚡ Boost</div>`
+      : "";
     return `
       <div class="room-card state-${state}" data-room-id="${this._esc(room.name)}"
            style="background:${grad};border-left-color:${color}">
         <div class="room-card-header">
           <div class="room-card-name">${this._esc(room.name)}</div>
-          <div class="room-state-pill" style="background:${color}22;color:${color}">${label}</div>
+          <div style="display:flex;align-items:center;gap:5px">
+            ${boostBadge}
+            <div class="room-state-pill" style="background:${color}22;color:${color}">${label}</div>
+          </div>
         </div>
         <div class="room-temps">
           <div class="room-temp-box">
@@ -1116,6 +1330,7 @@ class HeatManagerPanel extends HTMLElement {
         <div class="room-state-bar">
           <div class="room-state-fill" style="width:${fillPct}%;background:${color}"></div>
         </div>
+        ${valveBadge}
       </div>`;
   }
 
@@ -1282,18 +1497,59 @@ class HeatManagerPanel extends HTMLElement {
       ${this._autoOffSectionHTML()}`;
   }
 
+  _roomDetailRowHTML(room) {
+    const state    = room.state ?? "normal";
+    const color    = this._stateColor(state);
+    const temp     = room.climate_entity ? this._climateTemp(room.climate_entity) : null;
+    const setpt    = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
+    const tempStr  = temp ?? (room.current_temp != null ? Math.round(room.current_temp * 10) / 10 + "°C" : "–");
+    const valve    = room.valve_position != null ? Math.round(room.valve_position) : null;
+    const isHeat   = valve != null && valve > 0;
+    const boostBadge = room.boost_active
+      ? `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(168,85,247,0.15);color:#c084fc;margin-left:4px">⚡ BOOST</span>`
+      : "";
+    const valveBar = valve != null
+      ? `<div style="margin-top:6px">
+           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+             <span style="font-size:10px;color:var(--sub)">Ventil</span>
+             <span style="font-size:10px;font-weight:600;color:${isHeat?'#f97316':'var(--sub)'};font-family:'DM Mono',monospace">${valve}%${isHeat?' 🔥':''}</span>
+           </div>
+           <div style="height:4px;background:var(--bg3);border-radius:2px;overflow:hidden">
+             <div style="height:100%;width:${valve}%;background:${isHeat?"#f97316":"#475569"};border-radius:2px;transition:width .4s"></div>
+           </div>
+         </div>`
+      : "";
+    return `
+      <div style="padding:12px 16px;border-bottom:1px solid var(--div)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:14px;font-weight:600">${this._esc(room.name)}</span>
+            ${boostBadge}
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:12px;font-family:'DM Mono',monospace">${tempStr}</span>
+            <span style="font-size:11px;color:var(--sub)">→ ${setpt ?? "–"}</span>
+            <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:${color}22;color:${color}">${this._stateLabel(state)}</span>
+          </div>
+        </div>
+        ${valveBar}
+      </div>`;
+  }
+
   _roomsTabHTML() {
+    const rooms = this._data?.rooms ?? [];
+    const heatingCount = rooms.filter(r => (r.valve_position ?? 0) > 0).length;
     return `
       <div class="section-box">
         <div class="section-box-header">
-          <div class="section-box-title">Alle rum</div>
+          <div class="section-box-title">Rum — detaljer</div>
           <div class="section-box-badge" style="background:rgba(249,115,22,0.15);color:var(--amber)">
-            ${(this._data?.rooms ?? []).length} rum
+            ${heatingCount} / ${rooms.length} varmer
           </div>
         </div>
-        <div style="padding:14px 16px;">
-          ${this._roomsGridHTML(this._data?.rooms ?? [])}
-        </div>
+        ${rooms.length
+          ? rooms.map(r => this._roomDetailRowHTML(r)).join("")
+          : `<div class="empty">Ingen rum konfigureret</div>`}
       </div>
       <div class="section-box">
         <div class="section-box-header">
@@ -1304,15 +1560,32 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   _historyTabHTML() {
+    const tsText = this._historyFetchedAt
+      ? `Opdateret kl. ${String(this._historyFetchedAt.getHours()).padStart(2,"0")}:${String(this._historyFetchedAt.getMinutes()).padStart(2,"0")}`
+      : "";
     return `
       <div class="section-box">
         <div class="section-box-header">
           <div class="section-box-title">Hændelseslog</div>
-          <div class="section-box-badge" style="background:rgba(14,165,233,0.12);color:var(--teal)">
-            Seneste 7 dage
-          </div>
+          <span id="hist-fetched-at" style="font-size:10px;color:var(--sub);margin-left:auto;margin-right:8px">${tsText}</span>
+          <button class="section-box-badge" data-action="refresh-history"
+            style="background:rgba(14,165,233,0.12);color:var(--teal);border:none;cursor:pointer;padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">
+            ↻ 7 dage
+          </button>
         </div>
-        ${this._historyRowsHTML()}
+        <div class="hist-container">
+          ${this._historyLoading
+            ? `<div style="padding:16px;display:flex;flex-direction:column;gap:8px">
+                ${Array(6).fill(0).map(() => `
+                  <div style="display:flex;align-items:center;gap:10px;padding:4px 0">
+                    <div class="skel" style="width:7px;height:7px;border-radius:50%;flex-shrink:0"></div>
+                    <div class="skel" style="width:44px;height:13px;border-radius:4px"></div>
+                    <div class="skel" style="flex:1;height:13px;border-radius:4px"></div>
+                    <div class="skel" style="width:60px;height:11px;border-radius:4px"></div>
+                  </div>`).join("")}
+               </div>`
+            : this._historyRowsHTML()}
+        </div>
       </div>`;
   }
 
@@ -1460,6 +1733,8 @@ class HeatManagerPanel extends HTMLElement {
     }
 
     this._patchController();
+    this._patchControllerHero();
+    this._startPauseCountdown();
     this._attachEvents();
   }
 
@@ -1470,7 +1745,7 @@ class HeatManagerPanel extends HTMLElement {
       if (this._tab === "history" && !this._history) this._loadHistory().then(() => this._scheduleRender());
       else this._scheduleRender();
     }));
-    root.querySelector("[data-action='refresh']")?.addEventListener("click", () => this._load());
+    root.querySelector("[data-action='refresh']")?.addEventListener("click", () => this._load(true));
     root.querySelector("[data-action='on']"    )?.addEventListener("click", () => this._setController("on"));
     root.querySelector("[data-action='off']"   )?.addEventListener("click", () => this._setController("off"));
     root.querySelector("[data-action='resume']")?.addEventListener("click", () => this._resume());
@@ -1478,9 +1753,31 @@ class HeatManagerPanel extends HTMLElement {
       const min = parseInt(root.querySelector("#pause-dur")?.value ?? "120", 10);
       this._pause(min);
     });
+    // D) Boost button — toggles boost service if available
+    root.querySelector("[data-action='boost']")?.addEventListener("click", async () => {
+      const btn = root.querySelector("#ctrl-btn-boost");
+      if (!btn) return;
+      const isActive = btn.classList.contains("active");
+      try {
+        await this._hass.callService("heat_manager", isActive ? "boost_stop" : "boost_start", {});
+        btn.classList.toggle("active", !isActive);
+      } catch (e) {
+        // Service not yet available — show tooltip feedback only
+        btn.style.opacity = "0.4";
+        setTimeout(() => { btn.style.opacity = ""; }, 800);
+        console.info("[HeatManager] boost service not available yet");
+      }
+    });
     root.querySelector("[data-action='dismiss-cloud-banner']")?.addEventListener("click", () => {
       this._showCloudBanner = false;
       this._scheduleRender();
+    });
+    // G) History manual refresh
+    root.querySelector("[data-action='refresh-history']")?.addEventListener("click", async () => {
+      this._history = null;
+      this._historyFetchedAt = null;
+      await this._loadHistory();
+      this._patchHistoryTab();
     });
 
     // ── Config tab inline save ────────────────────────────────────────────
