@@ -6,6 +6,9 @@ FIX: asyncio.ensure_future → hass.async_create_task throughout.
 FIX B-429-RESTORE-RACE: _restore_lock serialises concurrent restore callers.
 FIX B-LOG-RESTORE-SPAM: per-room NORMAL idempotency skips redundant API calls
   and prevents repeated WARNING log entries.
+FIX B11-INITIAL-PRESENCE: _check_initial_presence() reads current person
+  state at startup and syncs heating accordingly, since
+  async_track_state_change_event only fires on future changes.
 """
 
 from __future__ import annotations
@@ -70,6 +73,7 @@ class PresenceEngine:
         self._grace_timer_task: asyncio.Task | None = None  # type: ignore[type-arg]
         self._unsubs: list[Any] = []
         self._register_listeners()
+        self._check_initial_presence()
 
     # ── Listener registration ─────────────────────────────────────────────────
 
@@ -96,6 +100,38 @@ class PresenceEngine:
                 async_track_state_change_event(hass, [alarm], self._handle_alarm_change)
             )
             _LOGGER.debug("Tracking alarm panel: %s", alarm)
+
+    def _check_initial_presence(self) -> None:
+        """Sync heating state with current presence at startup (B11 fix).
+
+        ``async_track_state_change_event`` only fires on *future* state
+        changes, so after a HA restart PresenceEngine has no knowledge of
+        who is currently home until the next person state change — which
+        could be hours away. Without this check, heating could remain on
+        full schedule with nobody home, or stay stuck in away mode while
+        someone is actually home.
+
+        Scheduled as background tasks so __init__ stays synchronous; the
+        guarded handlers below run once the event loop is free.
+        """
+        if not self.coordinator.persons:
+            return
+        if self.coordinator.someone_home():
+            _LOGGER.debug(
+                "PresenceEngine: someone home at startup — syncing schedule"
+            )
+            self.coordinator.hass.async_create_task(
+                self._restore_all_schedule(force=True),
+                name="heat_manager_initial_presence_restore",
+            )
+        else:
+            _LOGGER.debug(
+                "PresenceEngine: nobody home at startup — syncing away mode"
+            )
+            self.coordinator.hass.async_create_task(
+                self._set_all_away(),
+                name="heat_manager_initial_presence_away",
+            )
 
     # ── Person state changes ──────────────────────────────────────────────────
 
@@ -271,7 +307,7 @@ class PresenceEngine:
             await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
     @guarded
-    async def _restore_all_schedule(self) -> None:
+    async def _restore_all_schedule(self, force: bool = False) -> None:
         """
         Restore all rooms to schedule / heating-on.
 
@@ -292,6 +328,13 @@ class PresenceEngine:
         Rooms already in NORMAL state skip the API call entirely.  This
         eliminates repeated WARNING logs when a second concurrent caller
         would otherwise attempt (and fail with 429) on rooms already restored.
+
+        force
+        -----
+        When True, the NORMAL-state idempotency skip is bypassed (B11 fix).
+        Used for the initial presence sync at startup, where in-memory
+        room_states default to NORMAL even though the physical device may
+        still be stuck in away/off from before the restart.
         """
         if self._restore_lock.locked():
             _LOGGER.debug(
@@ -308,8 +351,12 @@ class PresenceEngine:
                     continue
                 if self.coordinator.get_room_state(room_name) == RoomState.WINDOW_OPEN:
                     continue
-                # Idempotency: skip rooms already in normal heating state.
-                if self.coordinator.get_room_state(room_name) == RoomState.NORMAL:
+                # Idempotency: skip rooms already in normal heating state,
+                # unless force=True (initial startup sync, B11 — see docstring).
+                if (
+                    not force
+                    and self.coordinator.get_room_state(room_name) == RoomState.NORMAL
+                ):
                     _LOGGER.debug(
                         "_restore_all_schedule: %s already NORMAL — skipping", room_name
                     )

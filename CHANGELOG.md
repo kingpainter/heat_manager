@@ -65,6 +65,25 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 - `manifest.json` version was stuck at `0.4.6`; synced to `0.5.0`.
+- **B11** `engine/presence_engine.py` — Initial presence is now checked at
+  startup via `_check_initial_presence()`. Previously
+  `async_track_state_change_event` only reacted to future changes, so
+  heating could remain on full schedule with nobody home, or stay stuck in
+  away mode with someone home, until the next person state change.
+  `_restore_all_schedule()` gained a `force` parameter to bypass the
+  NORMAL-state idempotency skip for this initial sync.
+- **B12** `coordinator.py` — `_refresh_outdoor_temperature()` now falls back
+  through `temperature`, `current_temperature` and `temp` weather attribute
+  keys in order, since not all weather integrations expose `temperature`.
+- **B13** `coordinator.py` — `async_shutdown()` now stores a
+  `<date>_partial` snapshot of the in-progress day's energy totals, so data
+  accrued since the last midnight tick survives an unexpected restart.
+  `_load_energy_history()` strips `_partial` keys on load to avoid stale
+  accumulation.
+- **B14** `__init__.py` — `async_setup_entry()` now logs a `WARNING` per room
+  with a missing climate entity at startup, even when setup fails entirely
+  with `ConfigEntryNotReady` (previously only logged once setup succeeded
+  far enough to reach `_async_check_repair_issues`).
 
 ---
 

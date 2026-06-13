@@ -70,6 +70,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # HA will retry setup automatically once entities become available.
     rooms = entry.data.get(CONF_ROOMS, [])
     if rooms:
+        # B14 fix: log each unreachable room individually at startup, so the
+        # specific missing entity is visible in the log even when setup
+        # fails entirely (before _async_check_repair_issues runs).
+        for room in rooms:
+            climate_id = room.get("climate_entity", "")
+            room_name = room.get("room_name", "?")
+            if climate_id and hass.states.get(climate_id) is None:
+                _LOGGER.warning(
+                    "Heat Manager: climate entity '%s' for room '%s' not found"
+                    " at startup",
+                    climate_id,
+                    room_name,
+                )
         reachable = [
             r for r in rooms if hass.states.get(r.get("climate_entity", "")) is not None
         ]

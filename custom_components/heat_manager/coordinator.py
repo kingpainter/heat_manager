@@ -511,14 +511,21 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ── Energy history persistence (B3/B7) ──────────────────────────────────
 
     def _load_energy_history(self) -> dict[str, dict]:
-        """Load energy history snapshot from entry.options (survives HA restarts)."""
+        """Load energy history snapshot from entry.options (survives HA restarts).
+
+        B13 fix: drop any "<date>_partial" keys on load. These are written by
+        async_shutdown() as a best-effort snapshot of the in-progress day and
+        are superseded by the proper midnight snapshot — left as-is they
+        would accumulate indefinitely as stale entries.
+        """
         import json
 
         raw = self.entry.options.get("_energy_history", "{}")
         try:
-            return json.loads(raw)
+            history = json.loads(raw)
         except (ValueError, TypeError):
             return {}
+        return {k: v for k, v in history.items() if not k.endswith("_partial")}
 
     def _persist_energy_snapshot(self) -> None:
         """Save yesterday's energy totals into persistent history. Called at midnight."""
@@ -568,6 +575,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
            actual microclimate at the property rather than a forecast grid point.
         2. weather.* entity temperature attribute — existing behaviour, used as
            fallback when the dedicated sensor is absent or unavailable.
+           Tries "temperature", "current_temperature" and "temp" attribute
+           keys in that order (B12 fix), since not all weather integrations
+           expose the same attribute name.
         """
         # 1. Local outdoor temperature sensor (v0.2.9)
         outdoor_sensor = self.config.get(CONF_OUTDOOR_TEMP_SENSOR) or None
@@ -590,12 +600,21 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         state = self.hass.states.get(entity_id)
         if state is None or state.state in ("unavailable", "unknown"):
             return
-        try:
-            temp = state.attributes.get("temperature")
-            if temp is not None:
+        for temp_key in ("temperature", "current_temperature", "temp"):
+            temp = state.attributes.get(temp_key)
+            if temp is None:
+                continue
+            try:
                 self.outdoor_temperature = float(temp)
-        except (TypeError, ValueError):
-            _LOGGER.debug("Could not parse outdoor temperature from %s", entity_id)
+                break
+            except (TypeError, ValueError):
+                _LOGGER.debug(
+                    "Could not parse outdoor temperature '%s' from %s (%s)",
+                    temp,
+                    entity_id,
+                    temp_key,
+                )
+                continue
 
     def get_away_temperature(self) -> float:
         mild_threshold = self.config.get(CONF_MILD_THRESHOLD, DEFAULT_MILD_THRESHOLD)
@@ -899,8 +918,20 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_shutdown(self) -> None:
         """Persist energy/event snapshot and shut down all engines cleanly."""
-        # Persist today's energy + event log so data survives HA restart
+        # Persist today's energy + event log so data survives HA restart.
+        # B13 fix: also stash a "<today>_partial" snapshot of the in-progress
+        # day's totals — _persist_energy_snapshot() only saves *yesterday's*
+        # totals, so without this, energy accrued since the last midnight
+        # tick is lost on an unexpected shutdown/restart.
         try:
+            from homeassistant.util.dt import now as ha_now
+
+            if self._energy_history_date:
+                today_str = ha_now().date().isoformat()
+                self._energy_history[f"{today_str}_partial"] = {
+                    "saved": round(self.energy_saved_today, 3),
+                    "wasted": round(self.energy_wasted_today, 3),
+                }
             self._persist_energy_snapshot()
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Energy persist on shutdown failed: %s", err)
