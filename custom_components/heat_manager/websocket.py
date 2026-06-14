@@ -10,6 +10,8 @@ Phase 3: energy values now come directly from coordinator.waste_calculator.
          Daily energy chart shows live today + zeros for past days.
 
 v0.4.2: _get_entry() uses entry.runtime_data exclusively — no hass.data lookup.
+B15: room payload now includes "trv_type" (netatmo/zigbee) so the panel can
+     show a TRV-type badge per room without guessing from entity IDs.
 """
 
 from __future__ import annotations
@@ -265,6 +267,7 @@ async def ws_get_state(
             {
                 "name": name,
                 "climate_entity": climate_id,
+                "trv_type": room.get("trv_type", "netatmo"),  # B15: for UI badge
                 "state": room_state.value,
                 "current_temp": current_temp,
                 "heating_power": heating_power,

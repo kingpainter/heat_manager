@@ -70,7 +70,7 @@ heat_manager/
 
 | File | Notes |
 |------|-------|
-| `frontend/heat-manager-panel.js` | v0.3.9 — Cloud banner, inline alarm/notify editing, Konfiguration tab |
+| `frontend/heat-manager-panel.js` | v0.3.9 — Energi i dag-kort, effektiv-sæson-chip, TRV-badge, historik-graf + filter, toasts |
 | `frontend/heat-manager-card.js` | v0.3.1 — Indeklima design system |
 | `frontend/heat_manager_logo1.png` | 44 KB. Served at `/api/heat_manager-logo` |
 

@@ -58,6 +58,25 @@
 //   • Manual TRV control in Rum tab — per-room temp slider + Send button.
 //     Calls heat_manager/set_room_temp WS. Duration: 30/60/120 min or permanent.
 //   • Config tab toggle: "Manuel TRV-kontrol" (session-scoped).
+//
+// v0.3.9 — UI/UX pass:
+//   • Overview: new "Energi i dag" card (sparet/spildt kWh + efficiency ring),
+//     using energy_saved_today/energy_wasted_today/efficiency_score (already
+//     in the get_state payload).
+//   • Controller hero: third meta-chip shows the *effective* season
+//     (Dvale/Opvågning/Aktiv) with icon. Also fixes a pre-existing bug where
+//     "Effektiv sæson" on the auto-off card always showed "–" because it was
+//     looked up in the calendar-season label map (winter/summer/...) instead
+//     of the DORMANT/WAKING/ACTIVE map.
+//   • Rum tab: TRV-type badge (Netatmo/Zigbee) per room detail row. Backend
+//     now includes "trv_type" in the room payload (websocket.py).
+//   • Historik tab: weekly energy chart (existing _energyChartHTML, formerly
+//     only on Rum tab) moved above the event log, plus filter chips to show
+//     only one event type (alle/normal/away/window/boost/manual/override).
+//   • Toast notifications: action failures (boost, manual TRV, config save)
+//     now surface a dismissible toast instead of only console.error.
+//   • a11y: cloud-status dismiss button gets aria-label; tab buttons get
+//     role="tab"/aria-selected.
 
 class HeatManagerPanel extends HTMLElement {
   constructor() {
@@ -79,6 +98,8 @@ class HeatManagerPanel extends HTMLElement {
     this._refreshing      = false; // refresh button spinner guard
     this._lastSyncTime       = null;  // UX3: timestamp of last successful WS fetch
     this._manualControlEnabled = false; // manual TRV control toggle
+    this._historyFilter   = "all"; // v0.3.9: event-type filter on Historik tab
+    this._toastTimer      = null;  // v0.3.9: auto-dismiss timer for toast
   }
 
   set hass(h) {
@@ -129,6 +150,27 @@ class HeatManagerPanel extends HTMLElement {
     if (this._renderPending) return;
     this._renderPending = true;
     setTimeout(() => { this._renderPending = false; this._render(); }, 0);
+  }
+
+  // v0.3.9: lightweight toast for action failures/successes (boost, manual
+  // TRV, config save). Previously these only logged to console.error and the
+  // user saw nothing. Auto-dismisses after 4s or on click of the close button.
+  _showToast(message, kind = "error") {
+    const container = this.shadowRoot.querySelector("#toast-container");
+    if (!container) return;
+    const toast = document.createElement("div");
+    toast.className = `toast toast-${kind}`;
+    toast.innerHTML = `
+      <span class="toast-icon">${kind === "error" ? "⚠️" : "✅"}</span>
+      <span class="toast-msg">${this._esc(message)}</span>
+      <button class="toast-close" aria-label="Luk besked">✕</button>`;
+    const remove = () => {
+      toast.classList.add("toast-out");
+      setTimeout(() => toast.remove(), 220);
+    };
+    toast.querySelector(".toast-close").addEventListener("click", remove);
+    setTimeout(remove, 4000);
+    container.appendChild(toast);
   }
 
   // ── Data ──────────────────────────────────────────────────────────────────
@@ -261,6 +303,7 @@ class HeatManagerPanel extends HTMLElement {
     this._patchTopbarBadge();
     this._patchTopbarVersion();
     this._patchQuickStats();
+    this._patchEnergyToday(); // v0.3.9
     this._patchRooms();
     this._patchPersons();
     this._patchAutoOff();
@@ -393,6 +436,14 @@ class HeatManagerPanel extends HTMLElement {
     wrapper.innerHTML = this._autoOffInnerHTML();
   }
 
+  // v0.3.9: refresh "Energi i dag" card in-place on auto-refresh.
+  _patchEnergyToday() {
+    const root    = this.shadowRoot;
+    const wrapper = root.querySelector("#energy-today-wrapper");
+    if (!wrapper) return;
+    wrapper.innerHTML = this._energyTodayInnerHTML();
+  }
+
   // Update compact cloud status chip in the topbar (replaces full-width banner).
   _patchCloudChip() {
     const root  = this.shadowRoot;
@@ -467,6 +518,12 @@ class HeatManagerPanel extends HTMLElement {
     const chips = root.querySelectorAll(".ctrl-meta-chip strong");
     if (chips[0]) chips[0].textContent = otemp != null ? Math.round(otemp) + "°C" : "–";
     if (chips[1]) chips[1].textContent = ({ winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår", auto:"Auto" })[season] ?? season;
+    if (chips[2]) {
+      const eff = this._effSeasonInfo(this._data?.effective_season); // v0.3.9
+      chips[2].textContent = eff.label;
+      const chipIcon = chips[2].parentElement?.firstChild;
+      if (chipIcon && chipIcon.nodeType === Node.TEXT_NODE) chipIcon.textContent = eff.icon + " ";
+    }
 
     // Section badge
     const badge = root.querySelector(".section-box-badge");
@@ -546,6 +603,11 @@ class HeatManagerPanel extends HTMLElement {
       const mm = String(this._historyFetchedAt.getMinutes()).padStart(2,"0");
       tsEl.textContent = `Opdateret kl. ${hh}:${mm}`;
     }
+    // v0.3.9: keep filter chip active-state and energy chart in sync.
+    const filterRow = root.querySelector("#hist-filter-row");
+    if (filterRow) filterRow.innerHTML = this._historyFilterChipsHTML();
+    const chartEl = root.querySelector("#hist-energy-chart");
+    if (chartEl) chartEl.innerHTML = this._energyChartHTML();
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -612,6 +674,35 @@ class HeatManagerPanel extends HTMLElement {
     })[s] ?? "linear-gradient(135deg,rgba(100,116,139,0.1) 0%,transparent 100%)";
   }
 
+  // v0.3.9: event-type metadata for the Historik filter chips + hist-dot colour.
+  // Covers every event_type written via coordinator.log_event() across the
+  // engines (normal, away, window_open, override, boost, manual).
+  _eventTypeInfo(type) {
+    return ({
+      all:         { label: "Alle",     color: "#94a3b8" },
+      normal:      { label: "Normal",   color: "#f97316" },
+      away:        { label: "Fravær",   color: "#64748b" },
+      window_open: { label: "Vindue",   color: "#ef4444" },
+      boost:       { label: "Boost",    color: "#c084fc" },
+      manual:      { label: "Manuel",   color: "#0ea5e9" },
+      override:    { label: "Override", color: "#a855f7" },
+    })[type] ?? { label: type ?? "–", color: "#64748b" };
+  }
+
+  // Filter chip row for the Historik tab. Active filter highlighted with its
+  // own colour; click handling lives in _attachEvents().
+  _historyFilterChipsHTML() {
+    const types = ["all","normal","away","window_open","boost","manual","override"];
+    return types.map(t => {
+      const info   = this._eventTypeInfo(t);
+      const active = this._historyFilter === t;
+      const style  = active
+        ? `background:${info.color}22;color:${info.color};border-color:${info.color}66`
+        : "";
+      return `<button class="hist-filter-chip${active ? " active" : ""}" data-filter="${t}" style="${style}">${info.label}</button>`;
+    }).join("");
+  }
+
   _reasonLabel(r) { return ({ season:"Sæson — sommer", temperature:"Ude-temp over grænse", none:"Manuel" })[r] ?? r ?? "–"; }
   _seasonTriggerLabel(season, reason) {
     if (season === "summer") return reason === "season" ? "Sommer — slået fra" : "Sommer — auto-off klar";
@@ -623,6 +714,27 @@ class HeatManagerPanel extends HTMLElement {
 
   _ctrlIcon(s) { return ({ on:"🔥", pause:"⏸", off:"❄️" })[s] ?? "●"; }
   _ctrlTitle(s) { return ({ on:"Varme aktiv", pause:"Pause", off:"Slukket" })[s] ?? s; }
+
+  // v0.3.9: effective_season (dormant/waking/active) → label + icon + colour.
+  // Used for the controller-hero meta-chip and the auto-off "Effektiv sæson"
+  // card. Distinct from calendar_season/season_mode (winter/spring/...).
+  _effSeasonInfo(season) {
+    return ({
+      dormant: { label: "Dvale",     icon: "😴", color: "#64748b" },
+      waking:  { label: "Opvågning", icon: "🌅", color: "#eab308" },
+      active:  { label: "Aktiv",      icon: "🔥", color: "#f97316" },
+    })[season] ?? { label: "–", icon: "•", color: "#64748b" };
+  }
+
+  // v0.3.9 (B15): small pill showing which TRV protocol a room uses.
+  // room.trv_type comes from websocket.py's get_state room payload.
+  _trvBadgeHTML(trvType) {
+    const info = ({
+      netatmo: { label: "Netatmo", color: "#0ea5e9" },
+      zigbee:  { label: "Zigbee",  color: "#22c55e" },
+    })[trvType] ?? { label: trvType ?? "–", color: "#64748b" };
+    return `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:${info.color}1f;color:${info.color}">${info.label}</span>`;
+  }
 
   _climateTemp(id) {
     const t = this._hass?.states?.[id]?.attributes?.current_temperature;
@@ -687,7 +799,7 @@ class HeatManagerPanel extends HTMLElement {
       * { box-sizing: border-box; margin: 0; padding: 0; }
 
       /* ── Layout ── */
-      .panel { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+      .panel { display: flex; flex-direction: column; height: 100%; overflow: hidden; position: relative; }
       .panel-topbar {
         flex-shrink: 0;
         padding: 16px 24px 12px;
@@ -702,6 +814,31 @@ class HeatManagerPanel extends HTMLElement {
       .panel-scroll::-webkit-scrollbar { width: 5px; }
       .panel-scroll::-webkit-scrollbar-track { background: transparent; }
       .panel-scroll::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 3px; }
+
+      /* ── Toast notifications (v0.3.9) ── */
+      .toast-container {
+        position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+        display: flex; flex-direction: column; gap: 6px; z-index: 50;
+        width: calc(100% - 28px); max-width: 420px;
+        align-items: center; pointer-events: none;
+      }
+      .toast {
+        display: flex; align-items: center; gap: 8px; width: 100%;
+        background: var(--bg2); border: 1px solid var(--div); border-left-width: 3px;
+        border-radius: 10px; padding: 9px 12px; font-size: 12px; color: var(--text);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+        pointer-events: auto; animation: toast-in .2s ease-out;
+      }
+      .toast-error   { border-left-color: var(--red); }
+      .toast-success { border-left-color: var(--green); }
+      .toast-msg  { flex: 1; line-height: 1.4; }
+      .toast-close {
+        background: none; border: none; color: var(--sub); cursor: pointer;
+        font-size: 11px; padding: 2px 4px; line-height: 1;
+      }
+      .toast-out { animation: toast-out .2s ease-in forwards; }
+      @keyframes toast-in  { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
+      @keyframes toast-out { from { opacity:1; transform: translateY(0); } to { opacity:0; transform: translateY(8px); } }
 
       /* ── Header ── */
       .header { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
@@ -1035,6 +1172,33 @@ class HeatManagerPanel extends HTMLElement {
       .qs-value { font-size: 16px; font-weight: 700; font-family: 'DM Mono', monospace; line-height: 1; }
       .qs-label { font-size: 9px; color: var(--sub); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
 
+      /* ── Energi i dag (v0.3.9) ── */
+      .energy-today-grid {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px; padding: 4px 16px 18px; flex-wrap: wrap;
+      }
+      .energy-stat { text-align: center; flex: 1; min-width: 90px; }
+      .energy-stat-icon { font-size: 14px; margin-bottom: 2px; }
+      .energy-stat-val {
+        font-size: 17px; font-weight: 700; font-family: 'DM Mono', monospace; line-height: 1.2;
+      }
+      .energy-stat-unit { font-size: 10px; font-weight: 500; color: var(--sub); }
+      .energy-stat-lbl { font-size: 10px; color: var(--sub); margin-top: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+      .energy-eff-ring-wrap { position: relative; width: 64px; height: 64px; flex-shrink: 0; }
+      .eff-ring-svg { width: 64px; height: 64px; transform: rotate(-90deg); }
+      .eff-ring-bg   { fill: none; stroke: var(--div); stroke-width: 8; }
+      .eff-ring-fill {
+        fill: none; stroke-width: 8; stroke-linecap: round;
+        transition: stroke .4s, stroke-dashoffset .6s cubic-bezier(.4,0,.2,1);
+      }
+      .eff-ring-center {
+        position: absolute; inset: 0;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+      }
+      .eff-ring-val { font-size: 16px; font-weight: 700; font-family: 'DM Mono', monospace; line-height: 1; }
+      .eff-ring-lbl { font-size: 8px; color: var(--sub); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 1px; }
+
       /* ── Room cards (grid) ── */
       .rooms-grid {
         display: grid; grid-template-columns: repeat(auto-fill, minmax(240px,1fr));
@@ -1090,6 +1254,19 @@ class HeatManagerPanel extends HTMLElement {
       .hist-time { font-size: 11px; color: var(--sub); min-width: 44px; font-family: 'DM Mono', monospace; }
       .hist-desc { flex: 1; font-size: 13px; }
       .hist-reason { font-size: 11px; color: var(--sub); }
+
+      /* ── History filter chips (v0.3.9) ── */
+      .hist-filter-row {
+        display: flex; gap: 6px; flex-wrap: wrap;
+        padding: 0 16px 10px;
+      }
+      .hist-filter-chip {
+        font-size: 10px; font-weight: 600; padding: 4px 9px;
+        border-radius: 999px; border: 1px solid var(--div);
+        background: transparent; color: var(--sub);
+        cursor: pointer; transition: background .15s, color .15s, border-color .15s;
+      }
+      .hist-filter-chip:hover:not(.active) { background: rgba(255,255,255,0.04); }
 
       /* ── Person rows ── */
       .person-row {
@@ -1288,7 +1465,7 @@ class HeatManagerPanel extends HTMLElement {
           <div class="version">${otemp}${season}</div>
         </div>
         <button id="cloud-chip" class="cloud-chip" hidden
-          data-action="dismiss-cloud-banner" title="">
+          data-action="dismiss-cloud-banner" title="" aria-label="Skjul cloud-status besked">
           <span class="cloud-chip-dot"></span>
           <span class="cloud-chip-label"></span>
           <span class="cloud-chip-x">✕</span>
@@ -1300,12 +1477,12 @@ class HeatManagerPanel extends HTMLElement {
         </div>
         <button class="header-refresh" data-action="refresh">↻ Opdater</button>
       </div>
-      <div class="tabs">${[
+      <div class="tabs" role="tablist">${[
         { id:"overview", label:"Oversigt"  },
         { id:"rooms",    label:"Rum"       },
         { id:"history",  label:"Historik"  },
         { id:"config",   label:"Konfiguration" },
-      ].map(t => `<button class="tab${this._tab===t.id?" active":""}" data-tab="${t.id}">${t.label}</button>`).join("")}</div>`;
+      ].map(t => `<button class="tab${this._tab===t.id?" active":""}" data-tab="${t.id}" role="tab" aria-selected="${this._tab===t.id}">${t.label}</button>`).join("")}</div>`;
   }
 
   _controllerSectionHTML() {
@@ -1314,6 +1491,7 @@ class HeatManagerPanel extends HTMLElement {
     const otemp     = this._data?.outdoor_temp;
     const pauseLeft = this._data?.pause_remaining ?? 0;
     const showPause = ctrl === "pause" && pauseLeft > 0;
+    const eff       = this._effSeasonInfo(this._data?.effective_season); // v0.3.9
 
     // Ring: fully lit = ON (amber), half = PAUSE (yellow), empty = OFF (grey)
     const r          = 38;
@@ -1355,6 +1533,10 @@ class HeatManagerPanel extends HTMLElement {
               <div class="ctrl-meta-chip">
                 🍂 <span>Sæson</span>
                 <strong>${({ winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår", auto:"Auto" })[season] ?? season}</strong>
+              </div>
+              <div class="ctrl-meta-chip">
+                ${eff.icon} <span>Status</span>
+                <strong>${eff.label}</strong>
               </div>
             </div>
           </div>
@@ -1473,7 +1655,9 @@ class HeatManagerPanel extends HTMLElement {
     const isOff  = d?.controller_state === "off";
     const calMap = { winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår" };
     const calLabel = calMap[d?.calendar_season] ?? "–";
-    const effLabel = calMap[d?.effective_season] ?? "–";
+    // v0.3.9 fix: effective_season is dormant/waking/active, not a calendar
+    // season — previously looked up in calMap and always showed "–".
+    const eff      = this._effSeasonInfo(d?.effective_season);
     const otemp  = d?.outdoor_temp != null ? Math.round(d.outdoor_temp) + "°C" : "–";
     return `
       <div class="section-box-header">
@@ -1489,7 +1673,7 @@ class HeatManagerPanel extends HTMLElement {
         </div>
         <div class="aocard">
           <div class="aocard-lbl">Effektiv sæson</div>
-          <div class="aocard-val">${effLabel}</div>
+          <div class="aocard-val">${eff.icon} ${eff.label}</div>
         </div>
         <div class="aocard">
           <div class="aocard-lbl">Udetemperatur</div>
@@ -1504,6 +1688,61 @@ class HeatManagerPanel extends HTMLElement {
 
   _autoOffSectionHTML() {
     return `<div id="autooff-wrapper" class="section-box">${this._autoOffInnerHTML()}</div>`;
+  }
+
+  // v0.3.9: "Energi i dag" card for the Oversigt tab. Uses energy_saved_today /
+  // energy_wasted_today / efficiency_score — already in the get_state payload,
+  // so no backend changes needed. Mirrors the controller-ring visual language
+  // at a smaller scale for the efficiency score.
+  _energyTodayInnerHTML() {
+    const d      = this._data;
+    const saved  = d?.energy_saved_today;
+    const wasted = d?.energy_wasted_today;
+    const score  = d?.efficiency_score;
+    const lastSaved  = this._fmtEventTime(d?.last_saved_time);
+    const lastWasted = this._fmtEventTime(d?.last_waste_time);
+
+    const r          = 40;
+    const circ       = 2 * Math.PI * r;
+    const pct        = score != null ? Math.max(0, Math.min(100, score)) : 0;
+    const dashOffset = circ - (circ * pct) / 100;
+    const ringColor  = this._ringColor(score);
+
+    const fmt = v => v != null ? (Math.round(v * 100) / 100).toLocaleString("da-DK") : "–";
+
+    return `
+      <div class="section-box-header">
+        <div class="section-box-title">Energi i dag</div>
+      </div>
+      <div class="energy-today-grid">
+        <div class="energy-stat">
+          <div class="energy-stat-icon" style="color:var(--green)">🟢</div>
+          <div class="energy-stat-val" style="color:var(--green)">${fmt(saved)} <span class="energy-stat-unit">kWh</span></div>
+          <div class="energy-stat-lbl">Sparet${lastSaved ? ` · ${lastSaved}` : ""}</div>
+        </div>
+        <div class="energy-eff-ring-wrap">
+          <svg class="eff-ring-svg" viewBox="0 0 100 100">
+            <circle class="eff-ring-bg" cx="50" cy="50" r="${r}" />
+            <circle class="eff-ring-fill" cx="50" cy="50" r="${r}"
+              stroke="${ringColor}"
+              stroke-dasharray="${circ}"
+              stroke-dashoffset="${dashOffset}" />
+          </svg>
+          <div class="eff-ring-center">
+            <div class="eff-ring-val" style="color:${ringColor}">${score ?? "–"}</div>
+            <div class="eff-ring-lbl">score</div>
+          </div>
+        </div>
+        <div class="energy-stat">
+          <div class="energy-stat-icon" style="color:var(--amber)">🔥</div>
+          <div class="energy-stat-val" style="color:var(--amber)">${fmt(wasted)} <span class="energy-stat-unit">kWh</span></div>
+          <div class="energy-stat-lbl">Spildt${lastWasted ? ` · ${lastWasted}` : ""}</div>
+        </div>
+      </div>`;
+  }
+
+  _energyTodaySectionHTML() {
+    return `<div id="energy-today-wrapper" class="section-box">${this._energyTodayInnerHTML()}</div>`;
   }
 
   _energyChartHTML() {
@@ -1533,11 +1772,16 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   _historyRowsHTML() {
-    const events = this._history?.events ?? [];
-    if (!events.length) return `<div class="empty">Ingen hændelser endnu</div>`;
+    const all = this._history?.events ?? [];
+    const events = this._historyFilter === "all"
+      ? all
+      : all.filter(e => (e.type ?? "normal") === this._historyFilter);
+    if (!events.length) {
+      return `<div class="empty">${all.length ? "Ingen hændelser af denne type" : "Ingen hændelser endnu"}</div>`;
+    }
     return events.slice(0, 25).map(e => `
       <div class="hist-row">
-        <div class="hist-dot" style="background:${this._stateColor(e.type ?? "normal")}"></div>
+        <div class="hist-dot" style="background:${this._eventTypeInfo(e.type ?? "normal").color}"></div>
         <div class="hist-time">${this._esc(e.time ?? "")}</div>
         <div class="hist-desc">${this._esc(e.description ?? "")}</div>
         <div class="hist-reason">${this._esc(e.reason ?? "")}</div>
@@ -1553,6 +1797,8 @@ class HeatManagerPanel extends HTMLElement {
     const winOpen = rooms.filter(r => r.state === "window_open").length;
     return `
       ${this._controllerSectionHTML()}
+
+      ${this._energyTodaySectionHTML()}
 
       <div class="section-box">
         <div class="section-box-header">
@@ -1604,6 +1850,7 @@ class HeatManagerPanel extends HTMLElement {
     const tempStr  = temp ?? (room.current_temp != null ? Math.round(room.current_temp * 10) / 10 + "°C" : "–");
     const valve    = room.valve_position != null ? Math.round(room.valve_position) : null;
     const isHeat   = valve != null && valve > 0;
+    const trvBadge = this._trvBadgeHTML(room.trv_type); // v0.3.9 (B15)
     const boostBadge = room.boost_active
       ? `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(168,85,247,0.15);color:#c084fc;margin-left:4px">⚡ BOOST</span>`
       : "";
@@ -1647,6 +1894,7 @@ class HeatManagerPanel extends HTMLElement {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
             <div style="display:flex;align-items:center;gap:6px">
               <span style="font-size:14px;font-weight:600">${this._esc(room.name)}</span>
+              ${trvBadge}
               ${boostBadge}
             </div>
             <div style="display:flex;align-items:center;gap:8px">
@@ -1677,12 +1925,6 @@ class HeatManagerPanel extends HTMLElement {
             ? rooms.map(r => this._roomDetailRowHTML(r)).join("")
             : `<div class="empty">Ingen rum konfigureret</div>`}
         </div>
-      </div>
-      <div class="section-box">
-        <div class="section-box-header">
-          <div class="section-box-title">Energi — denne uge</div>
-        </div>
-        ${this._energyChartHTML()}
       </div>`;
   }
 
@@ -1693,6 +1935,13 @@ class HeatManagerPanel extends HTMLElement {
     return `
       <div class="section-box">
         <div class="section-box-header">
+          <div class="section-box-title">Energi — sidste 7 dage</div>
+        </div>
+        <div id="hist-energy-chart">${this._energyChartHTML()}</div>
+      </div>
+
+      <div class="section-box">
+        <div class="section-box-header">
           <div class="section-box-title">Hændelseslog</div>
           <span id="hist-fetched-at" style="font-size:10px;color:var(--sub);margin-left:auto;margin-right:8px">${tsText}</span>
           <button class="section-box-badge" data-action="refresh-history"
@@ -1700,6 +1949,7 @@ class HeatManagerPanel extends HTMLElement {
             ↻ 7 dage
           </button>
         </div>
+        <div id="hist-filter-row" class="hist-filter-row">${this._historyFilterChipsHTML()}</div>
         <div class="hist-container">
           ${this._historyLoading
             ? `<div style="padding:16px;display:flex;flex-direction:column;gap:8px">
@@ -1871,6 +2121,7 @@ class HeatManagerPanel extends HTMLElement {
       <div class="panel">
         <div class="panel-topbar">${this._topbarHTML()}</div>
         <div class="panel-scroll"><div>${content}</div></div>
+        <div id="toast-container" class="toast-container"></div>
       </div>`;
 
     const existing = root.querySelector(".panel");
@@ -1919,11 +2170,13 @@ class HeatManagerPanel extends HTMLElement {
       try {
         await this._hass.callWS({ type: isActive ? "heat_manager/boost_stop" : "heat_manager/boost_start" });
         btn.classList.toggle("active", !isActive);
+        this._showToast(isActive ? "Boost deaktiveret" : "Boost aktiveret", "success"); // v0.3.9
         // Refresh data so room cards update
         setTimeout(() => this._load(), 300);
       } catch (e) {
         btn.style.opacity = "0.4";
         setTimeout(() => { btn.style.opacity = ""; }, 800);
+        this._showToast("Kunne ikke ændre boost-tilstand", "error"); // v0.3.9
         console.info("[HeatManager] boost WS failed:", e);
       }
     });
@@ -1976,6 +2229,7 @@ class HeatManagerPanel extends HTMLElement {
         } catch (e) {
           btn.textContent = "Fejl ✗";
           setTimeout(() => { btn.textContent = "Send ↗"; btn.classList.remove("sending"); }, 2000);
+          this._showToast(`${roomName}: kunne ikke sætte temperatur`, "error"); // v0.3.9
           console.error("[HeatManager] set_room_temp failed:", e);
         }
       });
@@ -1997,6 +2251,7 @@ class HeatManagerPanel extends HTMLElement {
           btn.textContent = "↺ OK";
         } catch (e) {
           btn.textContent = "↺ Fejl";
+          this._showToast(`${roomName}: kunne ikke gendanne schedule`, "error"); // v0.3.9
           console.error("[HeatManager] reset_room_temp failed:", e);
         }
         setTimeout(() => { btn.textContent = "↺ Schedule"; }, 1500);
@@ -2007,6 +2262,15 @@ class HeatManagerPanel extends HTMLElement {
       this._history = null;
       this._historyFetchedAt = null;
       await this._loadHistory();
+      this._patchHistoryTab();
+    });
+
+    // v0.3.9: event-type filter chips (Historik tab). Delegated on the wrapper
+    // so the listener survives _patchHistoryTab() rebuilding the chip buttons.
+    root.querySelector("#hist-filter-row")?.addEventListener("click", (ev) => {
+      const btn = ev.target.closest(".hist-filter-chip");
+      if (!btn) return;
+      this._historyFilter = btn.dataset.filter;
       this._patchHistoryTab();
     });
 
@@ -2027,7 +2291,10 @@ class HeatManagerPanel extends HTMLElement {
           ok.classList.add("visible");
           setTimeout(() => ok.classList.remove("visible"), 2500);
         }
-      } catch(e) { console.error("Heat Manager: save alarm failed", e); }
+      } catch(e) {
+        this._showToast("Kunne ikke gemme alarm-panel", "error"); // v0.3.9
+        console.error("Heat Manager: save alarm failed", e);
+      }
       btn.disabled = false;
     });
 
@@ -2047,7 +2314,10 @@ class HeatManagerPanel extends HTMLElement {
           ok.classList.add("visible");
           setTimeout(() => ok.classList.remove("visible"), 2500);
         }
-      } catch(e) { console.error("Heat Manager: save notify failed", e); }
+      } catch(e) {
+        this._showToast("Kunne ikke gemme notify-service", "error"); // v0.3.9
+        console.error("Heat Manager: save notify failed", e);
+      }
       btn.disabled = false;
     });
   }

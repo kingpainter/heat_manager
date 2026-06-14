@@ -62,6 +62,26 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   all assertions use `EffectiveSeason.ACTIVE/DORMANT/WAKING`; four new tests
   cover WAKING activation, ACTIVE fallback, no-sensor fallback, and DORMANT
   immunity to WAKING downgrade.
+- **Panel v0.3.9** — UI/UX pass:
+  - Oversigt: new "Energi i dag" card (sparet/spildt kWh + efficiency-score
+    ring), using `energy_saved_today`/`energy_wasted_today`/`efficiency_score`
+    (already in the `get_state` payload — no backend changes needed).
+  - Controller hero gains a third meta-chip showing the *effective* season
+    (Dvale 😴 / Opvågning 🌅 / Aktiv 🔥). Also fixes a pre-existing bug where the
+    "Effektiv sæson" field on the auto-off card always showed "–" (it was
+    looked up in the calendar-season label map instead of the
+    DORMANT/WAKING/ACTIVE map).
+  - Rum tab: TRV-type badge (Netatmo/Zigbee) per room detail row.
+  - Historik tab: weekly energy chart (previously only on Rum tab) moved
+    above the event log, plus filter chips to show only one event type
+    (alle/normal/fravær/vindue/boost/manuel/override).
+  - Toast notifications for action failures (boost, manual TRV set/reset,
+    config save) — previously these only logged to `console.error` and the
+    user saw nothing.
+  - a11y: cloud-status dismiss button gets `aria-label`; tab buttons get
+    `role="tab"`/`aria-selected`.
+- **B15** `websocket.py` — `get_state` room payload now includes `trv_type`
+  (netatmo/zigbee), used by the new panel TRV badge.
 
 ### Fixed
 - `manifest.json` version was stuck at `0.4.6`; synced to `0.5.0`.
