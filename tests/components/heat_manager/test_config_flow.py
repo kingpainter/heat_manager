@@ -474,6 +474,120 @@ async def test_options_flow_delete_room():
 
 
 @pytest.mark.asyncio
+async def test_options_flow_edit_room_updates_window_sensor():
+    """Editing a room replaces its window sensor without touching other rooms."""
+    hass = _make_hass({
+        "climate.kitchen": MagicMock(),
+        "climate.bedroom": MagicMock(),
+    })
+    entry = _make_entry(rooms=[
+        _minimal_room("Kitchen", "climate.kitchen"),
+        _minimal_room("Bedroom", "climate.bedroom"),
+    ])
+
+    flow = HeatManagerOptionsFlow(entry)
+    flow.hass = hass
+
+    await flow.async_step_init(user_input={"section": "rooms"})
+    result = await flow.async_step_rooms_menu(user_input={"action": "edit:Kitchen"})
+    assert result["type"] == "form"
+    assert result["step_id"] == "room_edit"
+
+    result = await flow.async_step_room_edit(user_input={
+        CONF_ROOM_NAME: "Kitchen",
+        CONF_CLIMATE_ENTITY: "climate.kitchen",
+        CONF_WINDOW_SENSORS: ["binary_sensor.kitchen_window_new"],
+        "window_delay_min": 5,
+        "away_temp_override": 10,
+    })
+    assert result["type"] == "create_entry"
+    rooms = result["data"][CONF_ROOMS]
+    assert len(rooms) == 2
+    kitchen = next(r for r in rooms if r[CONF_ROOM_NAME] == "Kitchen")
+    assert kitchen[CONF_WINDOW_SENSORS] == ["binary_sensor.kitchen_window_new"]
+    bedroom = next(r for r in rooms if r[CONF_ROOM_NAME] == "Bedroom")
+    assert bedroom[CONF_CLIMATE_ENTITY] == "climate.bedroom"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_edit_room_invalid_climate_entity():
+    """Editing a room with an unknown climate entity → entity_not_found error."""
+    hass = _make_hass({"climate.kitchen": MagicMock()})
+    entry = _make_entry(rooms=[_minimal_room("Kitchen", "climate.kitchen")])
+
+    flow = HeatManagerOptionsFlow(entry)
+    flow.hass = hass
+
+    await flow.async_step_init(user_input={"section": "rooms"})
+    await flow.async_step_rooms_menu(user_input={"action": "edit:Kitchen"})
+
+    result = await flow.async_step_room_edit(user_input={
+        CONF_ROOM_NAME: "Kitchen",
+        CONF_CLIMATE_ENTITY: "climate.nonexistent",
+        CONF_WINDOW_SENSORS: [],
+        "window_delay_min": 5,
+        "away_temp_override": 10,
+    })
+    assert result["type"] == "form"
+    assert result["step_id"] == "room_edit"
+    assert result["errors"].get(CONF_CLIMATE_ENTITY) == "entity_not_found"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_edit_room_duplicate_name():
+    """Renaming a room to another existing room's name → duplicate_room error."""
+    hass = _make_hass({
+        "climate.kitchen": MagicMock(),
+        "climate.bedroom": MagicMock(),
+    })
+    entry = _make_entry(rooms=[
+        _minimal_room("Kitchen", "climate.kitchen"),
+        _minimal_room("Bedroom", "climate.bedroom"),
+    ])
+
+    flow = HeatManagerOptionsFlow(entry)
+    flow.hass = hass
+
+    await flow.async_step_init(user_input={"section": "rooms"})
+    await flow.async_step_rooms_menu(user_input={"action": "edit:Bedroom"})
+
+    result = await flow.async_step_room_edit(user_input={
+        CONF_ROOM_NAME: "Kitchen",  # collides with the other room
+        CONF_CLIMATE_ENTITY: "climate.bedroom",
+        CONF_WINDOW_SENSORS: [],
+        "window_delay_min": 5,
+        "away_temp_override": 10,
+    })
+    assert result["type"] == "form"
+    assert result["errors"].get(CONF_ROOM_NAME) == "duplicate_room"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_edit_room_keeps_own_name():
+    """Saving a room edit without changing its name must not trigger duplicate_room."""
+    hass = _make_hass({"climate.kitchen": MagicMock()})
+    entry = _make_entry(rooms=[_minimal_room("Kitchen", "climate.kitchen")])
+
+    flow = HeatManagerOptionsFlow(entry)
+    flow.hass = hass
+
+    await flow.async_step_init(user_input={"section": "rooms"})
+    await flow.async_step_rooms_menu(user_input={"action": "edit:Kitchen"})
+
+    result = await flow.async_step_room_edit(user_input={
+        CONF_ROOM_NAME: "Kitchen",  # unchanged
+        CONF_CLIMATE_ENTITY: "climate.kitchen",
+        CONF_WINDOW_SENSORS: ["binary_sensor.kitchen_window"],
+        "window_delay_min": 10,
+        "away_temp_override": 12,
+    })
+    assert result["type"] == "create_entry"
+    rooms = result["data"][CONF_ROOMS]
+    assert len(rooms) == 1
+    assert rooms[0]["window_delay_min"] == 10
+
+
+@pytest.mark.asyncio
 async def test_options_flow_add_person():
     """Options flow can add a new person."""
     hass = _make_hass({"person.lukas": MagicMock()})
@@ -515,6 +629,92 @@ async def test_options_flow_delete_person():
     persons = result["data"][CONF_PERSONS]
     assert len(persons) == 1
     assert persons[0][CONF_PERSON_ENTITY] == "person.lukas"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_edit_person():
+    """Editing a person updates its fields without touching other persons."""
+    hass = _make_hass({
+        "person.flemming": MagicMock(),
+        "person.lukas": MagicMock(),
+    })
+    entry = _make_entry(persons=[
+        _minimal_person("person.flemming"),
+        _minimal_person("person.lukas"),
+    ])
+
+    flow = HeatManagerOptionsFlow(entry)
+    flow.hass = hass
+
+    await flow.async_step_init(user_input={"section": "persons"})
+    result = await flow.async_step_persons_menu(
+        user_input={"action": "edit:person.flemming"}
+    )
+    assert result["type"] == "form"
+    assert result["step_id"] == "person_edit"
+
+    result = await flow.async_step_person_edit(user_input={
+        CONF_PERSON_ENTITY: "person.flemming",
+        CONF_PERSON_TRACKING: False,
+        CONF_PREHEAT_LEAD_TIME_MIN: 30,
+    })
+    assert result["type"] == "create_entry"
+    persons = result["data"][CONF_PERSONS]
+    assert len(persons) == 2
+    flemming = next(p for p in persons if p[CONF_PERSON_ENTITY] == "person.flemming")
+    assert flemming[CONF_PERSON_TRACKING] is False
+    assert flemming[CONF_PREHEAT_LEAD_TIME_MIN] == 30
+    lukas = next(p for p in persons if p[CONF_PERSON_ENTITY] == "person.lukas")
+    assert lukas[CONF_PERSON_TRACKING] is True
+
+
+@pytest.mark.asyncio
+async def test_options_flow_edit_person_invalid_entity():
+    """Editing a person to an unknown entity → entity_not_found error."""
+    hass = _make_hass({"person.flemming": MagicMock()})
+    entry = _make_entry(persons=[_minimal_person("person.flemming")])
+
+    flow = HeatManagerOptionsFlow(entry)
+    flow.hass = hass
+
+    await flow.async_step_init(user_input={"section": "persons"})
+    await flow.async_step_persons_menu(user_input={"action": "edit:person.flemming"})
+
+    result = await flow.async_step_person_edit(user_input={
+        CONF_PERSON_ENTITY: "person.nobody",
+        CONF_PERSON_TRACKING: True,
+        CONF_PREHEAT_LEAD_TIME_MIN: 20,
+    })
+    assert result["type"] == "form"
+    assert result["step_id"] == "person_edit"
+    assert result["errors"].get(CONF_PERSON_ENTITY) == "entity_not_found"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_edit_person_duplicate():
+    """Editing a person to an entity already used by another person → duplicate_person."""
+    hass = _make_hass({
+        "person.flemming": MagicMock(),
+        "person.lukas": MagicMock(),
+    })
+    entry = _make_entry(persons=[
+        _minimal_person("person.flemming"),
+        _minimal_person("person.lukas"),
+    ])
+
+    flow = HeatManagerOptionsFlow(entry)
+    flow.hass = hass
+
+    await flow.async_step_init(user_input={"section": "persons"})
+    await flow.async_step_persons_menu(user_input={"action": "edit:person.lukas"})
+
+    result = await flow.async_step_person_edit(user_input={
+        CONF_PERSON_ENTITY: "person.flemming",  # collides with the other person
+        CONF_PERSON_TRACKING: True,
+        CONF_PREHEAT_LEAD_TIME_MIN: 20,
+    })
+    assert result["type"] == "form"
+    assert result["errors"].get(CONF_PERSON_ENTITY) == "duplicate_person"
 
 
 @pytest.mark.asyncio

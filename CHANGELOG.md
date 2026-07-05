@@ -10,6 +10,14 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## [Unreleased]
 
 ### Added
+- **Options flow** — rooms and persons can now be edited in place via
+  `Manage rooms` / `Manage persons`, not just added or deleted. New
+  `room_edit` / `person_edit` steps pre-fill the existing values (e.g. window
+  sensors, climate entity) so a single field — such as swapping in a newly
+  mounted window sensor — can be changed without recreating the whole room.
+  Room/person name and entity validation still applies, checked against all
+  *other* rooms/persons so the entry being edited doesn't collide with
+  itself.
 - **Panel v0.3.5** — Scroll-position preserved on auto-refresh. `_load()` calls
   `_patchAll()` instead of `_scheduleRender()` when panel is already rendered.
   Surgical patch methods: `_patchRooms()`, `_patchPersons()`, `_patchAutoOff()`,

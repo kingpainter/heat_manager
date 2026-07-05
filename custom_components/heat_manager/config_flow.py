@@ -618,6 +618,8 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
         self._config_entry = config_entry
         self._rooms: list[dict] = []
         self._persons: list[dict] = []
+        self._editing_room_name: str | None = None
+        self._editing_person_entity: str | None = None
 
     def _current(self) -> dict:
         return {**self._config_entry.data, **self._config_entry.options}
@@ -682,6 +684,11 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
             if action == "add":
                 self._rooms = list(current_rooms)
                 return await self.async_step_room_add()
+            if action and action.startswith("edit:"):
+                room_name = action[len("edit:") :]
+                self._rooms = list(current_rooms)
+                self._editing_room_name = room_name
+                return await self.async_step_room_edit()
             if action and action.startswith("delete:"):
                 room_name = action[len("delete:") :]
                 updated = [
@@ -692,6 +699,13 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
                 )
 
         options = [
+            {
+                "value": f"edit:{r[CONF_ROOM_NAME]}",
+                "label": f"Edit: {r[CONF_ROOM_NAME]}",
+            }
+            for r in current_rooms
+        ]
+        options += [
             {
                 "value": f"delete:{r[CONF_ROOM_NAME]}",
                 "label": f"Delete: {r[CONF_ROOM_NAME]}",
@@ -710,6 +724,49 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
                 }
             ),
             description_placeholders={"room_count": str(len(current_rooms))},
+        )
+
+    async def async_step_room_edit(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        errors: dict[str, str] = {}
+        original_name = self._editing_room_name
+        current_room = next(
+            (r for r in self._rooms if r.get(CONF_ROOM_NAME) == original_name), None
+        )
+        if current_room is None:
+            return await self.async_step_rooms_menu()
+
+        if user_input is not None:
+            room_name = user_input.get(CONF_ROOM_NAME, "").strip()
+            climate = user_input.get(CONF_CLIMATE_ENTITY, "")
+            other_names = [
+                r[CONF_ROOM_NAME].lower()
+                for r in self._rooms
+                if r.get(CONF_ROOM_NAME) != original_name
+            ]
+
+            if room_name.lower() in other_names:
+                errors[CONF_ROOM_NAME] = "duplicate_room"
+            elif climate and self.hass.states.get(climate) is None:
+                errors[CONF_CLIMATE_ENTITY] = "entity_not_found"
+            else:
+                user_input[CONF_ROOM_NAME] = room_name
+                updated_rooms = [
+                    dict(user_input)
+                    if r.get(CONF_ROOM_NAME) == original_name
+                    else r
+                    for r in self._rooms
+                ]
+                return self.async_create_entry(
+                    data={**self._current(), CONF_ROOMS: updated_rooms}
+                )
+
+        return self.async_show_form(
+            step_id="room_edit",
+            data_schema=_room_schema(current_room),
+            errors=errors,
+            description_placeholders={"room_name": original_name},
         )
 
     async def async_step_room_add(
@@ -749,6 +806,11 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
             if action == "add":
                 self._persons = list(current_persons)
                 return await self.async_step_person_add()
+            if action and action.startswith("edit:"):
+                entity_id = action[len("edit:") :]
+                self._persons = list(current_persons)
+                self._editing_person_entity = entity_id
+                return await self.async_step_person_edit()
             if action and action.startswith("delete:"):
                 entity_id = action[len("delete:") :]
                 updated = [
@@ -759,6 +821,13 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
                 )
 
         options = [
+            {
+                "value": f"edit:{p[CONF_PERSON_ENTITY]}",
+                "label": f"Edit: {p[CONF_PERSON_ENTITY].split('.')[-1]}",
+            }
+            for p in current_persons
+        ]
+        options += [
             {
                 "value": f"delete:{p[CONF_PERSON_ENTITY]}",
                 "label": f"Delete: {p[CONF_PERSON_ENTITY].split('.')[-1]}",
@@ -777,6 +846,52 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
                 }
             ),
             description_placeholders={"person_count": str(len(current_persons))},
+        )
+
+    async def async_step_person_edit(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        errors: dict[str, str] = {}
+        original_entity = self._editing_person_entity
+        current_person = next(
+            (
+                p
+                for p in self._persons
+                if p.get(CONF_PERSON_ENTITY) == original_entity
+            ),
+            None,
+        )
+        if current_person is None:
+            return await self.async_step_persons_menu()
+
+        if user_input is not None:
+            person = user_input.get(CONF_PERSON_ENTITY, "")
+            other_entities = [
+                p[CONF_PERSON_ENTITY]
+                for p in self._persons
+                if p.get(CONF_PERSON_ENTITY) != original_entity
+            ]
+
+            if person in other_entities:
+                errors[CONF_PERSON_ENTITY] = "duplicate_person"
+            elif person and self.hass.states.get(person) is None:
+                errors[CONF_PERSON_ENTITY] = "entity_not_found"
+            else:
+                updated_persons = [
+                    dict(user_input)
+                    if p.get(CONF_PERSON_ENTITY) == original_entity
+                    else p
+                    for p in self._persons
+                ]
+                return self.async_create_entry(
+                    data={**self._current(), CONF_PERSONS: updated_persons}
+                )
+
+        return self.async_show_form(
+            step_id="person_edit",
+            data_schema=_person_schema(current_person),
+            errors=errors,
+            description_placeholders={"person_entity": original_entity},
         )
 
     async def async_step_person_add(

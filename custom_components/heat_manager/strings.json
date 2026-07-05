@@ -118,7 +118,7 @@
       },
       "rooms_menu": {
         "title": "Manage rooms",
-        "description": "Current rooms: {room_count}. Select a room to delete it, or add a new one.",
+        "description": "Current rooms: {room_count}. Select a room to edit or delete it, or add a new one.",
         "data": {"action": "Action"}
       },
       "room_add": {
@@ -139,13 +139,41 @@
           "room_temp_sensor": "Independent room probe for PID temperature feedback."
         }
       },
+      "room_edit": {
+        "title": "Edit room",
+        "description": "Editing: {room_name}",
+        "data": {
+          "room_name": "Room name",
+          "climate_entity": "Climate entity",
+          "window_sensors": "Window / door sensors",
+          "window_delay_min": "Window open delay (minutes)",
+          "away_temp_override": "Away temperature for this room",
+          "co2_sensor": "CO\u2082 sensor (optional)",
+          "co2_threshold": "CO\u2082 ventilation threshold (ppm)",
+          "room_temp_sensor": "Room temperature sensor (optional)"
+        },
+        "data_description": {
+          "co2_sensor": "Used for context-aware window notifications and energy waste classification.",
+          "co2_threshold": "CO\u2082 level above which an open window is classified as ventilation. Default 900 ppm.",
+          "room_temp_sensor": "Independent room probe for PID temperature feedback."
+        }
+      },
       "persons_menu": {
         "title": "Manage persons",
-        "description": "Current persons: {person_count}. Select a person to delete, or add a new one.",
+        "description": "Current persons: {person_count}. Select a person to edit or delete, or add a new one.",
         "data": {"action": "Action"}
       },
       "person_add": {
         "title": "Add a person",
+        "data": {
+          "person_entity": "Person entity",
+          "person_tracking": "Enable presence tracking",
+          "preheat_lead_time_min": "Pre-heat lead time (minutes)"
+        }
+      },
+      "person_edit": {
+        "title": "Edit person",
+        "description": "Editing: {person_entity}",
         "data": {
           "person_entity": "Person entity",
           "person_tracking": "Enable presence tracking",

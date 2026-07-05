@@ -120,7 +120,7 @@
       },
       "rooms_menu": {
         "title": "Administrér rum",
-        "description": "Aktuelle rum: {room_count}. Vælg et rum for at slette det, eller tilføj et nyt.",
+        "description": "Aktuelle rum: {room_count}. Vælg et rum for at redigere eller slette det, eller tilføj et nyt.",
         "data": {
           "action": "Handling"
         }
@@ -143,15 +143,43 @@
           "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering."
         }
       },
+      "room_edit": {
+        "title": "Rediger rum",
+        "description": "Redigerer: {room_name}",
+        "data": {
+          "room_name": "Rumnavn",
+          "climate_entity": "Klimaenhed",
+          "window_sensors": "Vindue- / dørsensorer",
+          "window_delay_min": "Forsinkelse ved åbent vindue (minutter)",
+          "away_temp_override": "Fraværstemperatur for dette rum",
+          "co2_sensor": "CO₂-sensor (valgfrit)",
+          "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
+          "room_temp_sensor": "Rumtemperatursensor (valgfrit)"
+        },
+        "data_description": {
+          "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering.",
+          "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som ventilation. Standard 900 ppm.",
+          "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering."
+        }
+      },
       "persons_menu": {
         "title": "Administrér personer",
-        "description": "Aktuelle personer: {person_count}. Vælg en person for at slette, eller tilføj ny.",
+        "description": "Aktuelle personer: {person_count}. Vælg en person for at redigere eller slette, eller tilføj ny.",
         "data": {
           "action": "Handling"
         }
       },
       "person_add": {
         "title": "Tilføj en person",
+        "data": {
+          "person_entity": "Person-entitet",
+          "person_tracking": "Aktivér tilstedeværelsessporing",
+          "preheat_lead_time_min": "Forvarmning — forspring (minutter)"
+        }
+      },
+      "person_edit": {
+        "title": "Rediger person",
+        "description": "Redigerer: {person_entity}",
         "data": {
           "person_entity": "Person-entitet",
           "person_tracking": "Aktivér tilstedeværelsessporing",
