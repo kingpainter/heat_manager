@@ -10,6 +10,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## [Unreleased]
 
 ### Fixed
+- **trans(en)** `translations/en.json` — resynced to match `strings.json`
+  (the canonical English source). It had drifted since ~0.4.x and was
+  missing `house_voice_enabled`, `night_setback_*`, `pause_duration_min`,
+  `co2_threshold`, `effective_season`, the `cloud_available` binary sensor,
+  the entire `issues` block, and now the new `room_edit`/`person_edit`
+  options-flow steps. This was one of five files flagged as out-of-sync in
+  an earlier session (`presence_engine.py`, `select.py`, `strings.json`,
+  `translations/en.json`, `translations/da.json`) — all five are now
+  confirmed byte-identical between the GitHub repo and the HA server.
 - **B16** `engine/window_engine.py` — rooms with more than one window/door
   sensor could have heating restored while a second sensor in the same room
   was still open. `_close_after_delay()` only checked the state of the
