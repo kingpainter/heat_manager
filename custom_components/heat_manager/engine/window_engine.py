@@ -197,14 +197,20 @@ class WindowEngine:
     async def _close_after_delay(
         self, sensor_id: str, room_name: str, delay_min: int
     ) -> None:
-        """B3 FIX: Only restore to schedule if someone is home."""
+        """B3 FIX: Only restore to schedule if someone is home.
+
+        B16 FIX: A room can have more than one window/door sensor. Only the
+        sensor that just triggered this close event was being checked here,
+        so if room X has sensor A and B open, and A closes first, heating
+        would be restored even though B is still open. Now every sensor
+        configured for this room must report closed before we proceed.
+        """
         try:
             await asyncio.sleep(delay_min * 60)
         except asyncio.CancelledError:
             return
 
-        state = self.coordinator.hass.states.get(sensor_id)
-        if state and state.state == "on":
+        if not self._all_room_sensors_closed(room_name):
             return
 
         self._window_opened_at.pop(room_name, None)
@@ -339,6 +345,20 @@ class WindowEngine:
             if state and state.state == "on":
                 open_rooms.append(room_name)
         return sorted(set(open_rooms))
+
+    def _all_room_sensors_closed(self, room_name: str) -> bool:
+        """True only when every window/door sensor configured for this room
+        is currently closed (B16). A room's heating must stay suppressed as
+        long as at least one of its sensors reports open, regardless of
+        which specific sensor triggered the close event being processed.
+        """
+        for sid, r_name in self._sensor_to_room.items():
+            if r_name != room_name:
+                continue
+            state = self.coordinator.hass.states.get(sid)
+            if state and state.state == "on":
+                return False
+        return True
 
     async def _notify(self, message: str) -> None:
         service = self.coordinator.config.get("notify_service", "")

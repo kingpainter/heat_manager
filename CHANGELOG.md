@@ -9,6 +9,16 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed
+- **B16** `engine/window_engine.py` — rooms with more than one window/door
+  sensor could have heating restored while a second sensor in the same room
+  was still open. `_close_after_delay()` only checked the state of the
+  specific sensor that triggered the close event, not the other sensors
+  configured for that room. Added `_all_room_sensors_closed()` and require
+  every sensor in the room to report closed before heating is restored.
+  Relevant now that Lukas' and Sebastian's rooms each have two window
+  sensors.
+
 ### Added
 - **Options flow** — rooms and persons can now be edited in place via
   `Manage rooms` / `Manage persons`, not just added or deleted. New

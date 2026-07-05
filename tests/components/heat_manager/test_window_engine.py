@@ -347,3 +347,101 @@ async def test_close_after_delay_blocked_when_controller_paused():
     await engine._close_after_delay("binary_sensor.kitchen_window", "Kitchen", 0)
 
     coordinator.hass.services.async_call.assert_not_awaited()
+
+
+# ── Bug B16: multi-sensor rooms must not restore heating early ─────────────────
+
+@pytest.mark.asyncio
+async def test_bug_b16_close_does_not_restore_while_second_sensor_still_open():
+    """
+    Regression test for B16.
+    Room has two window sensors. Sensor A closes (triggering this call) but
+    sensor B is still open. Heating must NOT be restored yet.
+    """
+    rooms = [
+        _make_room(
+            sensors=["binary_sensor.kitchen_window_a", "binary_sensor.kitchen_window_b"]
+        )
+    ]
+    coordinator = _make_coordinator(rooms=rooms, someone_home=True)
+
+    def state_for(entity_id):
+        if entity_id == "binary_sensor.kitchen_window_a":
+            return _sensor_state(is_open=False)  # just closed
+        if entity_id == "binary_sensor.kitchen_window_b":
+            return _sensor_state(is_open=True)  # still open
+        return None
+
+    coordinator.hass.states.get = MagicMock(side_effect=state_for)
+
+    engine = WindowEngine(coordinator)
+    engine._window_opened_at["Kitchen"] = MagicMock()
+    engine._warning_sent["Kitchen"] = False
+
+    await engine._close_after_delay("binary_sensor.kitchen_window_a", "Kitchen", 0)
+
+    # Heating must stay suppressed — no service call, no state change
+    coordinator.hass.services.async_call.assert_not_awaited()
+    coordinator.set_room_state.assert_not_called()
+    # Window-open bookkeeping must NOT be cleared while B is still open
+    assert "Kitchen" in engine._window_opened_at
+
+
+@pytest.mark.asyncio
+async def test_bug_b16_close_restores_once_all_sensors_closed():
+    """
+    B16: Once every sensor in the room reports closed, heating is restored
+    as before (B3 behaviour unaffected for the fully-closed case).
+    """
+    rooms = [
+        _make_room(
+            sensors=["binary_sensor.kitchen_window_a", "binary_sensor.kitchen_window_b"]
+        )
+    ]
+    coordinator = _make_coordinator(rooms=rooms, someone_home=True)
+    coordinator.hass.states.get = MagicMock(
+        return_value=_sensor_state(is_open=False)  # both sensors closed
+    )
+
+    engine = WindowEngine(coordinator)
+    engine._window_opened_at["Kitchen"] = MagicMock()
+    engine._warning_sent["Kitchen"] = False
+
+    await engine._close_after_delay("binary_sensor.kitchen_window_b", "Kitchen", 0)
+
+    coordinator.hass.services.async_call.assert_awaited_once_with(
+        "climate",
+        "set_preset_mode",
+        {"entity_id": "climate.kitchen", "preset_mode": "schedule"},
+        blocking=True,
+    )
+    coordinator.set_room_state.assert_called_once_with("Kitchen", RoomState.NORMAL)
+    assert "Kitchen" not in engine._window_opened_at
+
+
+def test_bug_b16_all_room_sensors_closed_helper():
+    """Direct unit test of the new _all_room_sensors_closed() helper."""
+    rooms = [
+        _make_room(
+            name="Lukas",
+            climate="climate.lukas",
+            sensors=["binary_sensor.lukas_window_a", "binary_sensor.lukas_window_b"],
+        )
+    ]
+    coordinator = _make_coordinator(rooms=rooms)
+
+    def state_for(entity_id):
+        if entity_id == "binary_sensor.lukas_window_a":
+            return _sensor_state(is_open=False)
+        if entity_id == "binary_sensor.lukas_window_b":
+            return _sensor_state(is_open=True)
+        return None
+
+    coordinator.hass.states.get = MagicMock(side_effect=state_for)
+    engine = WindowEngine(coordinator)
+
+    assert engine._all_room_sensors_closed("Lukas") is False
+
+    # Now both closed
+    coordinator.hass.states.get = MagicMock(return_value=_sensor_state(is_open=False))
+    assert engine._all_room_sensors_closed("Lukas") is True
