@@ -10,6 +10,17 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## [Unreleased]
 
 ### Fixed
+- **B-CARD-PANEL** `frontend/heat-manager-card.js` — card did not fill a
+  `type: panel` view correctly on landscape tablet dashboards (e.g. 7"
+  Lenovo), following the same sizing pattern already proven correct in
+  `secure_me_alarm_tab_card.js`. `:host` now declares `height: 100%`; the
+  `ha-card`/`.card` wrapper is a `width:100%; height:100%; min-height:0;`
+  column flexbox instead of plain block flow; the header and the
+  Controller/Boost section-boxes get `flex-shrink: 0` so they keep their
+  natural size; and the Rooms section (new `.rooms-section` class) grows
+  to fill the remaining height with its `.section-body` as the scroll
+  region, so the room list scrolls internally instead of overflowing the
+  panel. `getCardSize()` is unchanged (irrelevant in a panel view).
 - **trans(en)** `translations/en.json` — resynced to match `strings.json`
   (the canonical English source). It had drifted since ~0.4.x and was
   missing `house_voice_enabled`, `night_setback_*`, `pause_duration_min`,

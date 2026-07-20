@@ -1,10 +1,16 @@
 // Heat Manager — Custom Lovelace Card
-// Version: 0.4.0
+// Version: 0.4.1
 //
 // Fix B-CARD-IAH: _render() used optional-chaining syntax on replaceWith()
 // that is invalid in some JS engines. Replaced with explicit null check.
 // Also adds _srAppendHTML() helper (WebKit-safe, same as panel) so the
 // first-render path never calls insertAdjacentHTML on a ShadowRoot.
+//
+// Fix B-CARD-PANEL: card did not fill a `type: panel` view correctly on
+// tablet dashboards (e.g. 7" Lenovo, landscape) — :host lacked an explicit
+// height, the ha-card/.card wrapper used fixed content flow instead of a
+// column flexbox, and the rooms list had no flex-grow/scroll region.
+// Aligned with secure_me_alarm_tab_card.js's panel-sizing pattern.
 //
 // Design: Unified with Indeklima — DM Sans/DM Mono, section-box system,
 // SVG efficiency ring, amber/orange heat palette.
@@ -229,6 +235,7 @@ class HeatManagerCard extends HTMLElement {
 
       :host {
         display: block;
+        height: 100%;
         --bg:    var(--card-background-color, #1a2535);
         --bg2:   var(--secondary-background-color, #243044);
         --bg3:   #2d3c52;
@@ -248,8 +255,13 @@ class HeatManagerCard extends HTMLElement {
         background: var(--bg);
         border-radius: var(--ha-card-border-radius, 16px);
         color: var(--text);
-        overflow: hidden;
         box-shadow: var(--ha-card-box-shadow, 0 2px 8px rgba(0,0,0,.18));
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
       }
 
       /* ── Header ── */
@@ -258,6 +270,7 @@ class HeatManagerCard extends HTMLElement {
         padding: 14px 16px 10px;
         border-bottom: 1px solid var(--div);
         position: relative; overflow: hidden;
+        flex-shrink: 0;
       }
       .card-header::before {
         content: ''; position: absolute; inset: 0;
@@ -289,8 +302,22 @@ class HeatManagerCard extends HTMLElement {
       }
 
       /* ── Section box ── */
-      .section-box { border-bottom: 1px solid var(--div); }
+      .section-box { border-bottom: 1px solid var(--div); flex-shrink: 0; }
       .section-box:last-child { border-bottom: none; }
+      /* Rooms section grows to fill remaining panel height on tablet views;
+         its own body becomes the scroll region so header/controller/boost
+         stay fixed. See B-CARD-PANEL. */
+      .section-box.rooms-section {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .section-box.rooms-section .section-body {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+      }
       .section-header {
         display: flex; align-items: center; gap: 8px;
         padding: 8px 14px;
@@ -518,7 +545,7 @@ class HeatManagerCard extends HTMLElement {
       </div>
 
       ${rooms.length ? `
-      <div class="section-box">
+      <div class="section-box rooms-section">
         <div class="section-header">
           <div class="section-title">Rum</div>
           <div class="section-badge" style="background:rgba(249,115,22,0.15);color:#f97316">
