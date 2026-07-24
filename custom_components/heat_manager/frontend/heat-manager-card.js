@@ -1,5 +1,11 @@
 // Heat Manager — Custom Lovelace Card
-// Version: 0.4.1
+// Version: 0.4.2
+//
+// UI-CARD: Rooms section now renders as a 2-column grid instead of a
+// single stacked column. Grid-auto-flow fills row-wise, so odd room
+// counts (e.g. 5 rooms) naturally land as 3-over-2 without any manual
+// splitting logic. Falls back to 1 column via a container query when
+// the card itself is narrow (sidebar / small mobile width).
 //
 // Fix B-CARD-IAH: _render() used optional-chaining syntax on replaceWith()
 // that is invalid in some JS engines. Replaced with explicit null check.
@@ -317,6 +323,7 @@ class HeatManagerCard extends HTMLElement {
         flex: 1;
         min-height: 0;
         overflow-y: auto;
+        container-type: inline-size;
       }
       .section-header {
         display: flex; align-items: center; gap: 8px;
@@ -390,19 +397,35 @@ class HeatManagerCard extends HTMLElement {
         font-family: 'DM Mono', monospace; display: none;
       }
 
-      /* ── Room cards ── */
-      .rooms-list { display: flex; flex-direction: column; gap: 6px; }
-      .room-card {
-        display: flex; align-items: center; gap: 10px;
-        background: var(--bg2); border-radius: 11px;
-        padding: 9px 11px; border-left: 3px solid transparent;
-        position: relative; overflow: hidden;
+      /* ── Room cards ──
+         2-column grid — grid-auto-flow is row-wise, so 5 rooms naturally
+         land as 3 (row 1+2 left+right, row 2 left) / 2 (row 3 would-be),
+         i.e. reading order 1,2 / 3,4 / 5,— giving a 3-over-2 layout when
+         the room count is odd. Falls back to a single column on very
+         narrow cards (e.g. sidebar/mobile width). */
+      .rooms-list {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 7px 8px;
       }
-      .room-card-name { font-size: 13px; font-weight: 600; flex: 1; }
+      @container (max-width: 340px) {
+        .rooms-list { grid-template-columns: 1fr; }
+      }
+      .room-card {
+        display: flex; align-items: center; gap: 8px;
+        background: var(--bg2); border-radius: 11px;
+        padding: 9px 10px; border-left: 3px solid transparent;
+        position: relative; overflow: hidden;
+        min-width: 0;
+      }
+      .room-card-name {
+        font-size: 13px; font-weight: 600; flex: 1;
+        min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
       .room-state-pill {
         font-size: 9px; font-weight: 700;
-        padding: 2px 7px; border-radius: 20px;
-        text-transform: uppercase; letter-spacing: .4px; flex-shrink: 0;
+        padding: 2px 6px; border-radius: 20px;
+        text-transform: uppercase; letter-spacing: .3px; flex-shrink: 0;
       }
       .room-card.state-window_open .room-state-pill,
       .room-card.state-pre_heat .room-state-pill {
