@@ -68,6 +68,7 @@ class HeatManagerCard extends HTMLElement {
 
   setConfig(config) {
     this._config = config || {};
+    this._updateScale();
     this._render();
   }
 
@@ -77,6 +78,31 @@ class HeatManagerCard extends HTMLElement {
   }
 
   getCardSize() { return 4; }
+
+  // Tablet height-scale (WIP — testing against the new 11" tablet before
+  // this gets a version bump). Same pattern as pc-user-statistics-tablet-card
+  // and secure_me_alarm_tab_card: computed in JS via window.innerHeight
+  // rather than CSS calc(100vh / Npx), which does not reliably resolve in
+  // all kiosk WebViews.
+  _updateScale() {
+    const h = window.innerHeight || 800;
+    const scale = Math.min(2.0, Math.max(0.85, h / 800));
+    this.style.setProperty("--hm-scale-h", scale.toFixed(4));
+    // Defensive: explicit pixel height on the host, in case the % height
+    // chain up through the panel-view wrapper doesn't resolve cleanly in
+    // this tablet's WebView (belt-and-suspenders alongside :host{height:100%}).
+    this.style.height = h + "px";
+  }
+
+  connectedCallback() {
+    this._updateScale();
+    this._resizeHandler = () => this._updateScale();
+    window.addEventListener("resize", this._resizeHandler);
+  }
+
+  disconnectedCallback() {
+    if (this._resizeHandler) window.removeEventListener("resize", this._resizeHandler);
+  }
 
   // WebKit-safe helper — ShadowRoot does not support insertAdjacentHTML
   _srAppend(html) {
@@ -242,6 +268,9 @@ class HeatManagerCard extends HTMLElement {
       :host {
         display: block;
         height: 100%;
+        /* Fallback only — real value set at runtime via
+           this.style.setProperty() in _updateScale() (JS). */
+        --hm-scale-h: 1;
         --bg:    var(--card-background-color, #1a2535);
         --bg2:   var(--secondary-background-color, #243044);
         --bg3:   #2d3c52;
@@ -273,7 +302,7 @@ class HeatManagerCard extends HTMLElement {
       /* ── Header ── */
       .card-header {
         display: flex; align-items: center; gap: 12px;
-        padding: 14px 16px 10px;
+        padding: calc(14px * var(--hm-scale-h)) 16px calc(10px * var(--hm-scale-h));
         border-bottom: 1px solid var(--div);
         position: relative; overflow: hidden;
         flex-shrink: 0;
@@ -284,19 +313,19 @@ class HeatManagerCard extends HTMLElement {
         pointer-events: none;
       }
       .header-icon {
-        width: 38px; height: 38px; border-radius: 10px;
+        width: calc(38px * var(--hm-scale-h)); height: calc(38px * var(--hm-scale-h)); border-radius: 10px;
         background: linear-gradient(135deg, #f97316 0%, #eab308 100%);
         display: flex; align-items: center; justify-content: center;
-        font-size: 20px; flex-shrink: 0;
+        font-size: calc(20px * var(--hm-scale-h)); flex-shrink: 0;
         box-shadow: 0 0 14px rgba(249,115,22,0.3);
       }
       .header-text { flex: 1; }
-      .header-title { font-size: 15px; font-weight: 700; line-height: 1.2; }
-      .header-sub   { font-size: 11px; color: var(--sub); margin-top: 2px; font-family: 'DM Mono', monospace; }
+      .header-title { font-size: calc(15px * var(--hm-scale-h)); font-weight: 700; line-height: 1.2; }
+      .header-sub   { font-size: calc(11px * var(--hm-scale-h)); color: var(--sub); margin-top: 2px; font-family: 'DM Mono', monospace; }
       .ctrl-badge {
         display: inline-flex; align-items: center; gap: 5px;
-        padding: 4px 10px; border-radius: 20px; border: 1px solid;
-        font-size: 11px; font-weight: 700;
+        padding: calc(4px * var(--hm-scale-h)) 10px; border-radius: 20px; border: 1px solid;
+        font-size: calc(11px * var(--hm-scale-h)); font-weight: 700;
       }
       .badge-dot {
         width: 6px; height: 6px; border-radius: 50%;
@@ -324,37 +353,39 @@ class HeatManagerCard extends HTMLElement {
         min-height: 0;
         overflow-y: auto;
         container-type: inline-size;
+        display: flex;
+        flex-direction: column;
       }
       .section-header {
         display: flex; align-items: center; gap: 8px;
-        padding: 8px 14px;
+        padding: calc(8px * var(--hm-scale-h)) 14px;
         background: rgba(0,0,0,0.15);
         border-bottom: 1px solid var(--div);
       }
       .section-title {
-        font-size: 10px; font-weight: 600; text-transform: uppercase;
+        font-size: calc(10px * var(--hm-scale-h)); font-weight: 600; text-transform: uppercase;
         letter-spacing: 1px; color: var(--sub); flex: 1;
       }
       .section-badge {
-        font-size: 9px; font-weight: 700;
+        font-size: calc(9px * var(--hm-scale-h)); font-weight: 700;
         padding: 2px 6px; border-radius: 4px;
         letter-spacing: 0.5px; text-transform: uppercase;
       }
-      .section-body { padding: 12px 14px; }
+      .section-body { padding: calc(12px * var(--hm-scale-h)) 14px; }
 
       /* ── Controller buttons ── */
-      .ctrl-btn-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 7px; margin-bottom: 8px; }
+      .ctrl-btn-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 7px; margin-bottom: calc(8px * var(--hm-scale-h)); }
       .ctrl-btn {
-        padding: 10px 0; border-radius: 9px; border: 1px solid rgba(148,163,184,0.2);
-        background: transparent; font-size: 12px; font-weight: 700;
+        padding: calc(10px * var(--hm-scale-h)) 0; border-radius: 9px; border: 1px solid rgba(148,163,184,0.2);
+        background: transparent; font-size: calc(12px * var(--hm-scale-h)); font-weight: 700;
         font-family: 'DM Sans', sans-serif; cursor: pointer; text-align: center;
         color: var(--sub); transition: transform .1s;
       }
       .ctrl-btn:active { transform: scale(0.97); }
       .ctrl-pause-row { display: flex; align-items: center; gap: 8px; }
-      .ctrl-pause-label { font-size: 11px; color: var(--sub); white-space: nowrap; }
+      .ctrl-pause-label { font-size: calc(11px * var(--hm-scale-h)); color: var(--sub); white-space: nowrap; }
       .ctrl-pause-select {
-        flex: 1; font-size: 11px; padding: 5px 8px;
+        flex: 1; font-size: calc(11px * var(--hm-scale-h)); padding: calc(5px * var(--hm-scale-h)) 8px;
         border-radius: 7px; border: 1px solid var(--div);
         background: var(--bg2); color: var(--text);
         font-family: 'DM Sans', sans-serif;
@@ -362,7 +393,7 @@ class HeatManagerCard extends HTMLElement {
       .pause-bar {
         margin-top: 8px;
         display: flex; align-items: center; justify-content: space-between;
-        padding: 8px 12px;
+        padding: calc(8px * var(--hm-scale-h)) 12px;
         background: rgba(234,179,8,0.1);
         border: 1px solid rgba(234,179,8,0.25);
         border-radius: 9px;
@@ -379,21 +410,21 @@ class HeatManagerCard extends HTMLElement {
       /* ── Boost ── */
       .boost-row {
         display: flex; align-items: center; gap: 10px;
-        padding: 12px 16px 14px;
+        padding: calc(12px * var(--hm-scale-h)) 16px calc(14px * var(--hm-scale-h));
       }
       .boost-btn {
         flex-shrink: 0;
         background: rgba(249,115,22,0.12); border: 1px solid var(--amber);
-        color: var(--amber); border-radius: 10px; padding: 8px 16px;
-        font-size: 13px; font-weight: 700; font-family: 'DM Sans', sans-serif;
+        color: var(--amber); border-radius: 10px; padding: calc(8px * var(--hm-scale-h)) 16px;
+        font-size: calc(13px * var(--hm-scale-h)); font-weight: 700; font-family: 'DM Sans', sans-serif;
         cursor: pointer; transition: all .15s;
       }
       .boost-btn:hover { background: rgba(249,115,22,0.22); }
       .boost-info {
-        flex: 1; font-size: 12px; color: var(--sub); line-height: 1.4;
+        flex: 1; font-size: calc(12px * var(--hm-scale-h)); color: var(--sub); line-height: 1.4;
       }
       .boost-countdown {
-        font-size: 12px; font-weight: 600; color: var(--red);
+        font-size: calc(12px * var(--hm-scale-h)); font-weight: 600; color: var(--red);
         font-family: 'DM Mono', monospace; display: none;
       }
 
@@ -406,7 +437,10 @@ class HeatManagerCard extends HTMLElement {
       .rooms-list {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 7px 8px;
+        gap: calc(7px * var(--hm-scale-h)) 8px;
+        flex: 1;
+        min-height: 0;
+        align-content: space-evenly;
       }
       @container (max-width: 340px) {
         .rooms-list { grid-template-columns: 1fr; }
@@ -414,16 +448,16 @@ class HeatManagerCard extends HTMLElement {
       .room-card {
         display: flex; align-items: center; gap: 8px;
         background: var(--bg2); border-radius: 11px;
-        padding: 9px 10px; border-left: 3px solid transparent;
+        padding: calc(9px * var(--hm-scale-h)) 10px; border-left: 3px solid transparent;
         position: relative; overflow: hidden;
         min-width: 0;
       }
       .room-card-name {
-        font-size: 13px; font-weight: 600; flex: 1;
+        font-size: calc(13px * var(--hm-scale-h)); font-weight: 600; flex: 1;
         min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       }
       .room-state-pill {
-        font-size: 9px; font-weight: 700;
+        font-size: calc(9px * var(--hm-scale-h)); font-weight: 700;
         padding: 2px 6px; border-radius: 20px;
         text-transform: uppercase; letter-spacing: .3px; flex-shrink: 0;
       }
@@ -433,8 +467,8 @@ class HeatManagerCard extends HTMLElement {
       }
       @keyframes badge-pulse { 0%,100%{opacity:1}50%{opacity:.55} }
       .room-temps { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex-shrink: 0; }
-      .room-temp-current  { font-size: 13px; font-weight: 700; font-family: 'DM Mono', monospace; }
-      .room-temp-setpoint { font-size: 10px; color: var(--sub); }
+      .room-temp-current  { font-size: calc(13px * var(--hm-scale-h)); font-weight: 700; font-family: 'DM Mono', monospace; }
+      .room-temp-setpoint { font-size: calc(10px * var(--hm-scale-h)); color: var(--sub); }
     `;
   }
 
