@@ -33,6 +33,7 @@ from .const import (
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
     CONF_CO2_THRESHOLD,
+    CONF_COMFORT_TEMP,
     CONF_ENERGY_TRACKING,
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
@@ -80,6 +81,7 @@ from .const import (
     DEFAULT_AWAY_TEMP_COLD,
     DEFAULT_AWAY_TEMP_MILD,
     DEFAULT_CO2_VENTILATION_THRESHOLD,
+    DEFAULT_COMFORT_TEMP,
     DEFAULT_GRACE_DAY_MIN,
     DEFAULT_GRACE_NIGHT_MIN,
     DEFAULT_INDOOR_WAKE_THRESHOLD,
@@ -436,6 +438,22 @@ def _room_schema(defaults: dict = {}) -> vol.Schema:
             vol.Optional(
                 CONF_PI_DEMAND_ENTITY, default=defaults.get(CONF_PI_DEMAND_ENTITY, "")
             ): selector.selector({"text": {}}),
+            # PID target for rooms without a HomeKit entity (Zigbee today,
+            # Matter/Thread later) — ignored for Netatmo rooms, which use the
+            # cloud entity's own schedule setpoint as PID target instead.
+            vol.Optional(
+                CONF_COMFORT_TEMP,
+                default=defaults.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": 15,
+                        "max": 26,
+                        "step": 0.5,
+                        "unit_of_measurement": "°C",
+                    }
+                }
+            ),
             # ── Sensor inputs ─────────────────────────────────────────────────
             vol.Optional(
                 CONF_CO2_SENSOR, default=defaults.get(CONF_CO2_SENSOR, "")

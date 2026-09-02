@@ -132,6 +132,28 @@ CONF_NIGHT_SETBACK_TEMP = "night_setback_temp"
 DEFAULT_NIGHT_SETBACK_ENABLED = False
 DEFAULT_NIGHT_SETBACK_TEMP: float = 2.0  # °C — subtracted from schedule setpoint
 
+# Per-room comfort temperature — used as the PID target for rooms WITHOUT a
+# homekit_climate_entity (Zigbee today; Matter/Thread later). Those rooms
+# have only ONE climate entity total, unlike Netatmo's cloud+HomeKit split
+# where the cloud entity's own schedule setpoint serves as the PID target.
+# Combined with RoomState (AWAY/NORMAL) and night_setback_delta() for
+# presence + day/night — the same logic Netatmo rooms already get for free
+# from the cloud schedule.
+CONF_COMFORT_TEMP = "comfort_temp"
+DEFAULT_COMFORT_TEMP: float = 20.0
+
+# ── PID outdoor feedforward (weather compensation) ──────────────────────────
+# Adds a small proactive power contribution based on outdoor temperature, on
+# top of PID's reactive correction — classic "heating curve" style weather
+# compensation used in boiler control. With a 60 s tick and several minutes
+# of TRV thermal lag, pure PID only starts correcting once the room has
+# already begun cooling; feedforward starts pushing power up as soon as the
+# outdoor temperature drops, before the room itself has drifted.
+# Conservative defaults, not yet exposed in the UI.
+FF_REFERENCE_OUTDOOR_TEMP: float = 15.0  # °C — outdoor temp at/above which feedforward is 0
+FF_WEIGHT: float = 0.02  # power fraction added per °C outdoor temp is below reference
+FF_MAX_CONTRIBUTION: float = 0.3  # cap — feedforward alone never exceeds 30% power
+
 # PID defaults
 DEFAULT_PID_KP: float = 0.5
 DEFAULT_PID_KI: float = 0.02

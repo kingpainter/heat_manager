@@ -1,5 +1,5 @@
 // Heat Manager Panel
-// Version: 0.3.8
+// Version: 0.3.10
 //
 // Design: Unified visual language with Indeklima — same font (DM Sans/DM Mono),
 // same card system, same section-box pattern, same score ring, same chip/badge
@@ -77,6 +77,17 @@
 //     now surface a dismissible toast instead of only console.error.
 //   • a11y: cloud-status dismiss button gets aria-label; tab buttons get
 //     role="tab"/aria-selected.
+//
+// v0.3.10:
+//   • Boost button active/countdown state was only ever synced once, at the
+//     panel's very first render (_attachEvents()) — every later 30 s refresh
+//     went through _patchAll() instead, which never touched it. A boost
+//     stopped externally (backend auto-expiry, the heat_manager.boost_stop
+//     service, another client) left the button stuck "active" until a full
+//     reload. Sync moved into _patchControllerHero(), called every refresh.
+//   • Boost button now shows a live "⚡ Boost (N min)" countdown using
+//     boost_remaining_minutes from the WS payload. New _startBoostCountdown()
+//     mirrors the existing _startPauseCountdown() 60 s local-tick pattern.
 
 class HeatManagerPanel extends HTMLElement {
   constructor() {
@@ -93,6 +104,7 @@ class HeatManagerPanel extends HTMLElement {
     this._lastCtrlState   = null;
     this._showCloudBanner = true;  // can be toggled off in config tab
     this._pauseTimer      = null;  // local countdown interval
+    this._boostTimer      = null;  // local boost countdown interval
     this._historyLoading  = false; // skeleton guard
     this._historyFetchedAt = null; // timestamp of last history fetch
     this._refreshing      = false; // refresh button spinner guard
@@ -137,6 +149,7 @@ class HeatManagerPanel extends HTMLElement {
   disconnectedCallback() {
     clearInterval(this._interval);
     clearInterval(this._pauseTimer);
+    clearInterval(this._boostTimer);
   }
 
   _srAppendHTML(html) {
@@ -193,6 +206,7 @@ class HeatManagerPanel extends HTMLElement {
     if (this._tab === "history" && !this._history) await this._loadHistory();
     this._lastCtrlState = this._data?.controller_state ?? null;
     this._startPauseCountdown();
+    this._startBoostCountdown();
     // If the panel is already rendered, patch in-place to preserve scroll position.
     // Only fall back to full render on initial load (no .panel-scroll yet).
     if (this.shadowRoot.querySelector(".panel-scroll")) {
@@ -532,6 +546,45 @@ class HeatManagerPanel extends HTMLElement {
       badge.style.background = `${ringColor}22`;
       badge.style.color = ringColor;
     }
+
+    // Boost button — active state + remaining-time label, synced on every
+    // refresh (not just the one-time initial render). Previously this only
+    // lived in _attachEvents(), which runs exactly once at first render, so
+    // a boost stopped externally (auto-expiry, heat_manager.boost_stop
+    // service, another client) never visually updated the button until the
+    // whole panel was reloaded.
+    const boostBtn = root.querySelector("#ctrl-btn-boost");
+    if (boostBtn) {
+      const anyBoostActive = (this._data?.rooms ?? []).some(r => r.boost_active);
+      boostBtn.classList.toggle("active", anyBoostActive);
+      const remain = this._data?.boost_remaining_minutes;
+      boostBtn.textContent = anyBoostActive && remain != null && remain > 0
+        ? `⚡ Boost (${remain} min)`
+        : "⚡ Boost";
+    }
+  }
+
+  // Local boost countdown — ticks every 60 s without WS poll, mirrors
+  // _startPauseCountdown() below. boost_remaining_minutes comes from the
+  // coordinator's own backend auto-expiry (boost_expires_at) — this timer
+  // only counts down the locally-cached copy for a smooth display between
+  // the 30 s periodic _load() polls; the backend remains authoritative.
+  _startBoostCountdown() {
+    clearInterval(this._boostTimer);
+    const anyBoostActive = (this._data?.rooms ?? []).some(r => r.boost_active);
+    if (!anyBoostActive) return;
+    this._boostTimer = setInterval(() => {
+      const stillActive = (this._data?.rooms ?? []).some(r => r.boost_active);
+      if (!this._data || !stillActive) {
+        clearInterval(this._boostTimer);
+        return;
+      }
+      if (this._data.boost_remaining_minutes > 0) {
+        this._data.boost_remaining_minutes = Math.max(0, this._data.boost_remaining_minutes - 1);
+      }
+      this._patchControllerHero();
+      if (this._data.boost_remaining_minutes === 0) clearInterval(this._boostTimer);
+    }, 60000);
   }
 
   // B) Local pause countdown — ticks every 60 s without WS poll
@@ -2137,6 +2190,7 @@ class HeatManagerPanel extends HTMLElement {
     this._patchControllerHero();
     this._patchCloudChip();
     this._startPauseCountdown();
+    this._startBoostCountdown();
     this._attachEvents();
   }
 
@@ -2155,12 +2209,9 @@ class HeatManagerPanel extends HTMLElement {
       const min = parseInt(root.querySelector("#pause-dur")?.value ?? "120", 10);
       this._pause(min);
     });
-    // UX4: sync boost button active state from backend data on each render
-    const boostBtn = root.querySelector("#ctrl-btn-boost");
-    if (boostBtn) {
-      const anyBoostActive = (this._data?.rooms ?? []).some(r => r.boost_active);
-      boostBtn.classList.toggle("active", anyBoostActive);
-    }
+    // Boost button active-state + countdown syncing now lives in
+    // _patchControllerHero(), called on every refresh via _patchAll() —
+    // see that method for why the old one-time sync here was insufficient.
 
     // D) Boost button — toggles boost service if available
     root.querySelector("[data-action='boost']")?.addEventListener("click", async () => {
@@ -2168,8 +2219,15 @@ class HeatManagerPanel extends HTMLElement {
       if (!btn) return;
       const isActive = btn.classList.contains("active");
       try {
-        await this._hass.callWS({ type: isActive ? "heat_manager/boost_stop" : "heat_manager/boost_start" });
-        btn.classList.toggle("active", !isActive);
+        const result = await this._hass.callWS({ type: isActive ? "heat_manager/boost_stop" : "heat_manager/boost_start" });
+        // Reflect immediately instead of waiting for the next 30 s poll —
+        // _load() below will reconcile with authoritative backend data shortly.
+        if (this._data) {
+          this._data.boost_remaining_minutes = isActive ? 0 : (result?.boost_remaining_minutes ?? 30);
+          (this._data.rooms ?? []).forEach(r => { r.boost_active = !isActive; });
+        }
+        this._patchControllerHero();
+        this._startBoostCountdown();
         this._showToast(isActive ? "Boost deaktiveret" : "Boost aktiveret", "success"); // v0.3.9
         // Refresh data so room cards update
         setTimeout(() => this._load(), 300);

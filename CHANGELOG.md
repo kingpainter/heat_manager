@@ -9,6 +9,93 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added
+- **Hybrid PID engine** `coordinator.py`, `const.py`, `config_flow.py`,
+  `strings.json`, `translations/{en,da}.json` — `_async_pid_tick()`
+  generalised from a Netatmo-only engine into a single regulation engine for
+  **all** room types:
+  - **Netatmo rooms** (with `homekit_climate_entity`): unchanged — target
+    comes from the cloud entity's schedule setpoint, PID writes to the local
+    HomeKit entity.
+  - **Local rooms** (Zigbee today, Matter/Thread later — no
+    `homekit_climate_entity`): NEW. Previously these rooms received *no*
+    positive temperature regulation from Heat Manager at all — only the
+    negative actions (away setback, window-open shutoff) applied, since PID
+    unconditionally skipped any room without a HomeKit entity. A new
+    per-room `comfort_temp` field (default 20°C) now serves as the PID
+    target — playing the same role Netatmo's cloud schedule setpoint plays
+    for HomeKit rooms — combined with the same `RoomState` (AWAY/NORMAL) and
+    `night_setback_delta()` presence + day/night logic. PID writes directly
+    to the room's own `climate_entity`, since Zigbee2MQTT/Matter/Thread are
+    local with no cloud rate-limit concern.
+  - **Outdoor feedforward** (both room types): a small proactive power
+    contribution based on outdoor temperature (`FF_REFERENCE_OUTDOOR_TEMP`,
+    `FF_WEIGHT`, `FF_MAX_CONTRIBUTION` in `const.py`) is now added on top of
+    PID's reactive correction — classic "heating curve" weather
+    compensation. With a 60 s tick and several minutes of TRV thermal lag,
+    pure PID only starts correcting once a room has already begun cooling;
+    feedforward starts pushing power up as soon as the outdoor temperature
+    drops, reducing undershoot during a sudden cold snap. Conservative
+    defaults, not yet exposed in the UI.
+
+### Fixed (post-hybrid-engine review)
+- **BUG** `sensor.py` — `RoomPidPowerSensor` was only created
+  `if room.get(CONF_HOMEKIT_CLIMATE_ENTITY)`. Since the hybrid PID engine
+  now regulates local/Zigbee rooms too (against `comfort_temp`), those rooms
+  had an actively-computed PID power value with no sensor entity to expose
+  it. Now created unconditionally for every room. Removed the now-unused
+  `CONF_HOMEKIT_CLIMATE_ENTITY` import.
+- **Test bug** `tests/.../test_pid_tick.py` — `make_coordinator()` never set
+  `coord.outdoor_temperature`, defaulting to an unconfigured `MagicMock`
+  (truthy, not `None`). The new outdoor-feedforward code's
+  `max(0.0, (FF_REFERENCE_OUTDOOR_TEMP - self.outdoor_temperature) * FF_WEIGHT)`
+  raised `TypeError: '>' not supported between instances of 'MagicMock' and
+  'float'` for any test reaching that code path — confirmed by actually
+  running the suite (3 tests failed before this fix). Fixed by defaulting
+  `outdoor_temperature=None` in the fixture, and by explicitly mocking
+  `get_homekit_climate_entity()` instead of relying on MagicMock's
+  auto-truthy default (which accidentally exercised only the Netatmo path in
+  every existing test, giving zero coverage of the new local/Zigbee path).
+  Added 7 new tests: local/Zigbee target-selection, comfort_temp default
+  fallback, and 3 feedforward behaviours (additive, zero when mild, capped).
+  Full suite re-run afterwards: **160/160 tests pass**, confirmed by actually
+  installing Home Assistant core + pytest and executing the suite rather
+  than relying on static review alone.
+- **BUG** `frontend/heat-manager-panel.js` — the boost button's active/
+  inactive visual state was only ever synced from backend data once, inside
+  `_attachEvents()`, which runs exactly one time at the panel's very first
+  render. Every subsequent 30 s refresh goes through `_patchAll()` instead,
+  which never touched the button. A boost stopped from anywhere other than
+  that same click (backend auto-expiry, the new `heat_manager.boost_stop`
+  service, an automation, another browser tab) left the button looking
+  "active" indefinitely until a full page reload. Low-impact before today
+  (boost could only be toggled via that one button), but a real, visible bug
+  now that boost has other ways to start/stop. Moved the sync into
+  `_patchControllerHero()` (already called by `_patchAll()` every refresh).
+- **Feature** `frontend/heat-manager-panel.js` — boost button now shows a
+  live "⚡ Boost (23 min)" countdown using `boost_remaining_minutes` from the
+  `heat_manager/get_state`/`boost_start` WS payload (added earlier but
+  previously unused by the frontend). New `_startBoostCountdown()` mirrors
+  the existing `_startPauseCountdown()` pattern — ticks the locally-cached
+  value down every 60 s between polls; the backend remains authoritative.
+- **Unification** `frontend/heat-manager-card.js` — the card's boost button
+  duplicated its own boost implementation (direct `climate.set_temperature`
+  writes + direct `force_room_on` calls), fully independent of the panel and
+  backend. Now delegates to `heat_manager/boost_start`/`boost_stop` WS
+  commands — the exact same `coordinator.async_boost_start()`/
+  `async_boost_stop()` used by the panel and the `heat_manager.boost_start`
+  service. Fixes three concrete problems: (1) a boost started from the
+  panel/an automation was invisible to the card and vice versa, so clicking
+  boost on one could redundantly re-boost rooms already boosted by the
+  other; (2) the backend's own `boost_expires_at` auto-restore never applied
+  to card-started boosts, since `boost_active_rooms` was never set
+  server-side — only the card's own `setInterval` tracked expiry, which
+  stopped the moment the dashboard tab closed; (3) the card only ever
+  boosted the subset of rooms listed in *that specific card instance's*
+  config, not all of Heat Manager's actual configured rooms — now boosts
+  every eligible room regardless of which cards exist. Card bumped to
+  v0.4.3 (separate versioning from the integration, as established).
+
 ---
 
 ## [0.7.0] — 2026-09-02

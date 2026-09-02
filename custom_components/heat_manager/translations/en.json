@@ -55,9 +55,11 @@
           "co2_sensor": "CO\u2082 sensor (optional)",
           "co2_threshold": "CO\u2082 ventilation threshold (ppm)",
           "room_temp_sensor": "Room temperature sensor (optional)",
+          "comfort_temp": "Comfort temperature (Zigbee/local TRVs)",
           "_action": "What next?"
         },
         "data_description": {
+          "comfort_temp": "PID target temperature for rooms with no HomeKit entity (Zigbee today, Matter/Thread later) — these have no separate cloud schedule to read a target from. Ignored for Netatmo rooms, which use the cloud entity's own schedule setpoint instead. Default 20°C.",
           "co2_sensor": "Used for context-aware window notifications and energy waste classification. When CO\u2082 is high, an open window is marked as ventilation rather than heat loss.",
           "co2_threshold": "CO\u2082 level above which an open window is classified as intentional ventilation. Default is 900 ppm. Increase for bedrooms (higher tolerance) or decrease for seldom-occupied rooms.",
           "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1\u20133\u00b0C too high)."
@@ -163,9 +165,11 @@
           "away_temp_override": "Away temperature for this room",
           "co2_sensor": "CO\u2082 sensor (optional)",
           "co2_threshold": "CO\u2082 ventilation threshold (ppm)",
-          "room_temp_sensor": "Room temperature sensor (optional)"
+          "room_temp_sensor": "Room temperature sensor (optional)",
+          "comfort_temp": "Comfort temperature (Zigbee/local TRVs)"
         },
         "data_description": {
+          "comfort_temp": "PID target for rooms with no HomeKit entity (Zigbee/Matter/Thread). Ignored for Netatmo rooms. Default 20°C.",
           "co2_sensor": "Used for context-aware window notifications and energy waste classification.",
           "co2_threshold": "CO\u2082 level above which an open window is classified as ventilation. Default 900 ppm.",
           "room_temp_sensor": "Independent room probe for PID temperature feedback."
@@ -182,9 +186,11 @@
           "away_temp_override": "Away temperature for this room",
           "co2_sensor": "CO\u2082 sensor (optional)",
           "co2_threshold": "CO\u2082 ventilation threshold (ppm)",
-          "room_temp_sensor": "Room temperature sensor (optional)"
+          "room_temp_sensor": "Room temperature sensor (optional)",
+          "comfort_temp": "Comfort temperature (Zigbee/local TRVs)"
         },
         "data_description": {
+          "comfort_temp": "PID target for rooms with no HomeKit entity (Zigbee/Matter/Thread). Ignored for Netatmo rooms. Default 20°C.",
           "co2_sensor": "Used for context-aware window notifications and energy waste classification.",
           "co2_threshold": "CO\u2082 level above which an open window is classified as ventilation. Default 900 ppm.",
           "room_temp_sensor": "Independent room probe for PID temperature feedback."

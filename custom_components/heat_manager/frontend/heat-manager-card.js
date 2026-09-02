@@ -1,5 +1,16 @@
 // Heat Manager — Custom Lovelace Card
-// Version: 0.4.2
+// Version: 0.4.3
+//
+// v0.4.3:
+//   • Boost button now delegates to heat_manager/boost_start|stop WS
+//     commands (coordinator.async_boost_start/stop) instead of writing
+//     climate.set_temperature / calling force_room_on directly. Fixes three
+//     things: card and panel/service boosts no longer conflict or double up;
+//     the backend's own boost_expires_at auto-restore now applies to
+//     card-started boosts too (previously only this card's own JS timer
+//     tracked expiry, which stopped the moment the tab closed); and boost
+//     now applies to ALL of Heat Manager's configured rooms, not just the
+//     subset listed in this particular card instance's config.
 //
 // UI-CARD: Rooms section now renders as a 2-column grid instead of a
 // single stacked column. Grid-auto-flow fills row-wise, so odd room
@@ -188,33 +199,39 @@ class HeatManagerCard extends HTMLElement {
 
     const boostTemp    = parseFloat(this._config.boost_temp    ?? 24);
     const boostMinutes = parseInt(this._config.boost_minutes   ?? 30, 10);
-    const rooms        = this._config.rooms ?? [];
 
-    // Only boost NORMAL rooms (not AWAY, WINDOW_OPEN etc.)
-    const targets = rooms.filter(r => {
-      const state = this._roomState(r.room_name ?? "");
-      return state === "normal" || state === "override";
-    });
-
-    if (!targets.length) return;
-
-    // Write boost setpoint to write entity (HomeKit preferred, cloud fallback)
-    for (const room of targets) {
-      const entityId = room.homekit_climate_entity || room.climate_entity;
-      if (!entityId) continue;
-      try {
-        await this._hass.callService("climate", "set_temperature", {
-          entity_id: entityId,
-          temperature: boostTemp,
-        });
-      } catch(e) { console.warn("Heat Manager boost failed for", entityId, e); }
+    // Delegates to coordinator.async_boost_start() — the same shared
+    // implementation the sidebar panel and the heat_manager.boost_start
+    // service use. Previously this card wrote climate.set_temperature
+    // directly to every eligible room itself, fully independent of the
+    // panel/backend. That meant: (1) boosting from the panel or an
+    // automation was invisible to the card and vice versa, so a second
+    // click here could re-boost an already-boosted room; (2) the backend's
+    // own boost_expires_at auto-restore never applied to card-started
+    // boosts, since boost_active_rooms was never set server-side — only
+    // this card's own setInterval tracked expiry, which stopped the moment
+    // the dashboard tab closed; and (3) this card only ever boosted the
+    // subset of rooms listed in ITS OWN config, not all of Heat Manager's
+    // actual configured rooms. All three are fixed by delegating here.
+    let result;
+    try {
+      result = await this._hass.callWS({
+        type: "heat_manager/boost_start",
+        temperature: boostTemp,
+        duration_minutes: boostMinutes,
+      });
+    } catch (e) {
+      console.warn("Heat Manager boost_start failed:", e);
+      return;
     }
 
     this._boostActive = true;
-    this._boostRemain = boostMinutes * 60;
+    this._boostRemain = (result?.boost_remaining_minutes ?? boostMinutes) * 60;
     this._render();
 
-    // Countdown tick every second
+    // Local countdown tick every second — display only. The backend's own
+    // boost_expires_at is authoritative; this just ticks the on-screen
+    // timer down smoothly between hass state updates.
     this._boostTimer = setInterval(() => {
       this._boostRemain -= 1;
       this._patchBoost();
@@ -227,15 +244,11 @@ class HeatManagerCard extends HTMLElement {
     this._boostActive = false;
     this._boostRemain = 0;
 
-    // Restore boosted rooms via force_room_on (respects TRV type + HomeKit routing)
-    const rooms = this._config.rooms ?? [];
-    for (const room of rooms) {
-      if (!room.room_name) continue;
-      try {
-        await this._hass.callService("heat_manager", "force_room_on", {
-          room_name: room.room_name,
-        });
-      } catch(e) { console.warn("Heat Manager boost-stop failed for", room.room_name, e); }
+    // Delegates to coordinator.async_boost_stop() — see _boost() above.
+    try {
+      await this._hass.callWS({ type: "heat_manager/boost_stop" });
+    } catch (e) {
+      console.warn("Heat Manager boost_stop failed:", e);
     }
     this._render();
   }

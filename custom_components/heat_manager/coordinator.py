@@ -45,6 +45,7 @@ from .const import (
     CONF_AWAY_TEMP_MILD,
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
+    CONF_COMFORT_TEMP,
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_HOUSE_VOICE_ENABLED,
     CONF_MILD_THRESHOLD,
@@ -66,12 +67,16 @@ from .const import (
     DEFAULT_AWAY_TEMP_MILD,
     DEFAULT_BOOST_MINUTES,
     DEFAULT_BOOST_TEMP,
+    DEFAULT_COMFORT_TEMP,
     DEFAULT_MILD_THRESHOLD,
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
     DEFAULT_TRV_MAX_TEMP,
     DOMAIN,
+    FF_MAX_CONTRIBUTION,
+    FF_REFERENCE_OUTDOOR_TEMP,
+    FF_WEIGHT,
     HOUSE_VOICE_DOMAIN,
     HOUSE_VOICE_SERVICE_SAY,
     SCAN_INTERVAL_SECONDS,
@@ -895,10 +900,35 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         Drive the PID controller for every room currently in NORMAL state.
 
-        v0.2.9: current_temperature is now read via get_room_current_temp()
-        which prefers CONF_ROOM_TEMP_SENSOR over HomeKit entity over cloud entity.
-        This improves PID accuracy for Zigbee TRV rooms where the TRV's built-in
-        probe sits on the hot radiator body and reads 1–3 °C above actual room temp.
+        v0.8.0: generalised to a hybrid PID + outdoor-feedforward engine that
+        now regulates BOTH room types, not just Netatmo HomeKit rooms:
+
+          - Netatmo rooms (homekit_climate_entity set): unchanged behaviour.
+            Target temperature comes from the cloud entity's own schedule
+            setpoint; PID writes to the local HomeKit entity.
+          - Local rooms (Zigbee today, Matter/Thread later — no
+            homekit_climate_entity): NEW. These have only one climate entity
+            total, so there is no separate "cloud schedule" to read a target
+            from. CONF_COMFORT_TEMP fills that role instead — combined with
+            the same RoomState (AWAY/NORMAL) and night_setback_delta() logic
+            Netatmo rooms already get for free from the cloud schedule.
+            PID writes directly to the room's single climate_entity, since
+            Zigbee2MQTT/Matter/Thread are local with no cloud rate limit.
+
+        Both paths now also receive a small proactive "feedforward" power
+        contribution based on outdoor temperature (see FF_* constants) on
+        top of PID's reactive correction — classic weather-compensation
+        "heating curve" behaviour. With a 60 s tick and several minutes of
+        TRV thermal lag, pure PID only starts correcting once the room has
+        already begun cooling; feedforward starts pushing power up as soon
+        as the outdoor temperature drops, reducing undershoot during a
+        sudden cold snap.
+
+        current_temperature is read via get_room_current_temp() which
+        prefers CONF_ROOM_TEMP_SENSOR over HomeKit entity over cloud entity
+        — improves accuracy for Zigbee TRV rooms where the TRV's built-in
+        probe sits on the hot radiator body and reads 1–3 °C above actual
+        room temp.
         """
         if not self.pid_enabled:
             return
@@ -915,8 +945,8 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         for room in self.rooms:
             room_name = room.get("room_name", "")
-            cloud_id = room.get(CONF_CLIMATE_ENTITY, "")
-            if not room_name or not cloud_id:
+            primary_id = room.get(CONF_CLIMATE_ENTITY, "")
+            if not room_name or not primary_id:
                 continue
 
             pid = self.pid_controllers.get(room_name)
@@ -927,38 +957,49 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 pid.reset()
                 continue
 
-            # H-4: use get_write_entity() — HomeKit preferred, cloud fallback
-            # PID setpoints should only be written locally (HomeKit) to avoid
-            # disturbing Netatmo's cloud schedule. Skip rooms without HomeKit.
-            hk_id = self.get_homekit_climate_entity(room_name)
-            if not hk_id:
-                pid.reset()
-                continue
-            write_id = hk_id  # confirmed local write channel
-
             # ── Read current temperature via unified helper ────────────────
             # Preference: room_temp_sensor → HomeKit entity → cloud entity
-            current_temp = self.get_room_current_temp(room_name, cloud_id)
+            current_temp = self.get_room_current_temp(room_name, primary_id)
             if current_temp is None:
                 pid.reset()
                 continue
 
-            # ── Read schedule setpoint from cloud entity ──────────────────
-            cloud_state = self.hass.states.get(cloud_id)
-            if cloud_state is None or cloud_state.state in ("unavailable", "unknown"):
-                pid.reset()
-                continue
+            hk_id = self.get_homekit_climate_entity(room_name)
 
-            target_temp = cloud_state.attributes.get("temperature")
-            if target_temp is None:
-                continue
+            if hk_id:
+                # ── Netatmo split-entity path (unchanged) ───────────────
+                write_id = hk_id
+                primary_state = self.hass.states.get(primary_id)
+                if primary_state is None or primary_state.state in (
+                    "unavailable",
+                    "unknown",
+                ):
+                    pid.reset()
+                    continue
+                target_temp = primary_state.attributes.get("temperature")
+                if target_temp is None:
+                    continue
+                try:
+                    target_temp = float(target_temp)
+                except (TypeError, ValueError):
+                    continue
+                demand_pct = primary_state.attributes.get(
+                    "heating_power_request", "?"
+                )
+            else:
+                # ── Local TRV path (Zigbee today, Matter/Thread later) ──
+                # No separate cloud schedule entity exists here —
+                # CONF_COMFORT_TEMP is the target, playing the same role
+                # Netatmo's cloud schedule setpoint plays above. Write
+                # directly to the room's own climate_entity: Z2M/Matter/
+                # Thread are local, no rate-limit stagger needed.
+                write_id = primary_id
+                target_temp = float(
+                    room.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP)
+                )
+                demand_pct = "n/a (local)"
 
-            try:
-                target_temp = float(target_temp)
-            except (TypeError, ValueError):
-                continue
-
-            # ── Setbacks: night + wake — applied cumulatively ─────────────────────
+            # ── Setbacks: night + wake — applied cumulatively, both paths ──
             setback = self.night_setback_delta() + self.wake_setback_delta()
             if setback > 0.0:
                 target_temp = max(
@@ -977,6 +1018,21 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # ── PID tick → power fraction 0..1 ──────────────────────────
             power = pid.update(setpoint=target_temp, current=current_temp)
 
+            # ── Outdoor feedforward (weather compensation) ──────────────
+            # Proactive contribution added on top of PID's reactive term.
+            # Applies to both room types — independent of write target.
+            if self.outdoor_temperature is not None:
+                feedforward = min(
+                    FF_MAX_CONTRIBUTION,
+                    max(
+                        0.0,
+                        (FF_REFERENCE_OUTDOOR_TEMP - self.outdoor_temperature)
+                        * FF_WEIGHT,
+                    ),
+                )
+                if feedforward > 0.0:
+                    power = min(1.0, power + feedforward)
+
             trv_setpoint = PidController.power_to_setpoint(
                 power=power,
                 current_temp=current_temp,
@@ -985,12 +1041,16 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
             # Suppress command if change < 0.5 °C
-            hk_state = self.hass.states.get(write_id)
-            if hk_state is None or hk_state.state in ("unavailable", "unknown", "off"):
+            write_state = self.hass.states.get(write_id)
+            if write_state is None or write_state.state in (
+                "unavailable",
+                "unknown",
+                "off",
+            ):
                 pid.reset()
                 continue
-            hk_current_setpoint = hk_state.attributes.get("temperature", 0.0)
-            if abs(trv_setpoint - float(hk_current_setpoint)) < 0.5:
+            write_current_setpoint = write_state.attributes.get("temperature", 0.0)
+            if abs(trv_setpoint - float(write_current_setpoint)) < 0.5:
                 continue
 
             try:
@@ -1001,18 +1061,22 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     blocking=True,
                 )
                 _LOGGER.debug(
-                    "PID tick [%s]: schedule_sp=%.1f cur=%.1f pwr=%.2f → HAP %.1f°C"
+                    "PID tick [%s] (%s): target=%.1f cur=%.1f pwr=%.2f → %.1f°C"
                     "  (heating_power_request=%s%%)",
                     room_name,
+                    "HomeKit" if hk_id else "local",
                     target_temp,
                     current_temp,
                     power,
                     trv_setpoint,
-                    cloud_state.attributes.get("heating_power_request", "?"),
+                    demand_pct,
                 )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning(
-                    "PID setpoint failed for '%s' via HomeKit: %s", room_name, err
+                    "PID setpoint failed for '%s' via %s: %s",
+                    room_name,
+                    "HomeKit" if hk_id else write_id,
+                    err,
                 )
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────

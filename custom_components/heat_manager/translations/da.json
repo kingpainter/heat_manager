@@ -55,9 +55,11 @@
           "co2_sensor": "CO₂-sensor (valgfrit)",
           "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
           "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
+          "comfort_temp": "Komfort-temperatur (Zigbee/lokale TRV'er)",
           "_action": "Hvad nu?"
         },
         "data_description": {
+          "comfort_temp": "PID-måltemperatur for rum uden en HomeKit-entity (Zigbee i dag, Matter/Thread senere) — disse har intet separat cloud-skema at hente et mål fra. Ignoreres for Netatmo-rum, som i stedet bruger cloud-entityens eget skema-setpunkt. Standard 20°C.",
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO₂ er høj, registreres et åbent vindue som ventilation frem for varmespild.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som bevidst ventilation. Standard er 900 ppm. Hæv for soveværelser eller sænk for sjældent benyttede rum.",
           "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering. Anbefales til Zigbee TRV'er, hvis indbyggede sensor sidder på radiatorlegemet (typisk 1–3°C for høj)."
@@ -167,9 +169,11 @@
           "away_temp_override": "Fraværstemperatur for dette rum",
           "co2_sensor": "CO₂-sensor (valgfrit)",
           "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
-          "room_temp_sensor": "Rumtemperatursensor (valgfrit)"
+          "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
+          "comfort_temp": "Komfort-temperatur (Zigbee/lokale TRV'er)"
         },
         "data_description": {
+          "comfort_temp": "PID-mål for rum uden HomeKit-entity (Zigbee/Matter/Thread). Ignoreres for Netatmo-rum. Standard 20°C.",
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som ventilation. Standard 900 ppm.",
           "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering."
@@ -186,9 +190,11 @@
           "away_temp_override": "Fraværstemperatur for dette rum",
           "co2_sensor": "CO₂-sensor (valgfrit)",
           "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
-          "room_temp_sensor": "Rumtemperatursensor (valgfrit)"
+          "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
+          "comfort_temp": "Komfort-temperatur (Zigbee/lokale TRV'er)"
         },
         "data_description": {
+          "comfort_temp": "PID-mål for rum uden HomeKit-entity (Zigbee/Matter/Thread). Ignoreres for Netatmo-rum. Standard 20°C.",
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som ventilation. Standard 900 ppm.",
           "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering."

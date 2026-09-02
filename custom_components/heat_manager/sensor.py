@@ -36,7 +36,6 @@ from homeassistant.util.dt import utcnow
 
 from .const import (
     CONF_CLIMATE_ENTITY,
-    CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_WINDOW_SENSORS,
     RoomState,
 )
@@ -65,8 +64,13 @@ async def async_setup_entry(
         entities.append(RoomStateSensor(coordinator, entry, room))
         if room.get(CONF_WINDOW_SENSORS):
             entities.append(RoomWindowDurationSensor(coordinator, entry, room))
-        if room.get(CONF_HOMEKIT_CLIMATE_ENTITY):
-            entities.append(RoomPidPowerSensor(coordinator, entry, room))
+        # Hybrid PID engine (v0.8.0) regulates every configured room, not
+        # just Netatmo/HomeKit ones (see coordinator._async_pid_tick()) —
+        # so the PID power sensor is now created unconditionally instead of
+        # only when CONF_HOMEKIT_CLIMATE_ENTITY is set. Local/Zigbee rooms
+        # regulate against CONF_COMFORT_TEMP and previously had no way to
+        # expose their PID output at all.
+        entities.append(RoomPidPowerSensor(coordinator, entry, room))
 
     async_add_entities(entities)
 
@@ -299,8 +303,10 @@ class RoomPidPowerSensor(CoordinatorEntity, SensorEntity):
 
     Exposes the last computed PID power fraction as a sensor so users
     can monitor and tune PID gains without enabling debug logging.
-    Only created for rooms that have a HomeKit entity configured
-    (i.e. rooms where PID actually writes setpoints).
+    Created for every room — the hybrid PID engine (v0.8.0) regulates
+    Netatmo/HomeKit rooms (against the cloud schedule setpoint) AND
+    local/Zigbee rooms (against CONF_COMFORT_TEMP), so every room has a
+    live PidController instance and a meaningful power value.
     """
 
     _attr_has_entity_name = True

@@ -38,7 +38,7 @@ heat_manager/
 | `__init__.py` | Setup, ConfigEntryNotReady, service registration, repair issues, stale device cleanup |
 | `manifest.json` | v0.7.0, config_flow: true, iot_class: local_push |
 | `const.py` | All constants. CONF_NIGHT_SETBACK_*, CONF_CO2_THRESHOLD, CONF_PID_*, DEFAULT_BOOST_TEMP, REPAIR_ISSUE_MISSING_CLIMATE |
-| `coordinator.py` | DataUpdateCoordinator — 7 engines + PID tick, per-room. Per-engine exception isolation. global_device_info(), room_device_info(), get_room_co2_threshold(), is_night_setback_active(), wake_setback_delta(), async_boost_start()/async_boost_stop() (shared boost implementation), _last_known_rooms/_persons snapshot for reload-skip logic |
+| `coordinator.py` | DataUpdateCoordinator — 7 engines + hybrid PID tick, per-room. Per-engine exception isolation. global_device_info(), room_device_info(), get_room_co2_threshold(), is_night_setback_active(), wake_setback_delta(), async_boost_start()/async_boost_stop() (shared boost implementation), _last_known_rooms/_persons snapshot for reload-skip logic. _async_pid_tick() now regulates Netatmo (HomeKit split-entity) AND local/Zigbee (single-entity, comfort_temp target) rooms, plus outdoor feedforward on both |
 | `config_flow.py` | 4-step setup wizard + options flow (incl. room_edit/person_edit, PID + wake settings) |
 | `diagnostics.py` | async_get_config_entry_diagnostics() — fixed 2026-09: removed stale ctrl._days_above_high/_last_high_date references left over from the v0.5.0 controller refactor |
 | `panel.py` | Static paths (process-level async_setup). Sidebar panel (async_setup_entry) |
@@ -69,8 +69,8 @@ heat_manager/
 
 | File | Notes |
 |------|-------|
-| `frontend/heat-manager-panel.js` | Surgical DOM patching, 4 tabs (Oversigt/Rum/Historik/Konfiguration), toast notifications, cloud-status chip, manual TRV control |
-| `frontend/heat-manager-card.js` | Tablet height-scaling (`--hm-scale-h`), 2-col room grid, own boost implementation (client-side climate.set_temperature) |
+| `frontend/heat-manager-panel.js` | Surgical DOM patching, 4 tabs (Oversigt/Rum/Historik/Konfiguration), toast notifications, cloud-status chip, manual TRV control, boost countdown (v0.3.10, synced every refresh via `_patchControllerHero()`) |
+| `frontend/heat-manager-card.js` | Tablet height-scaling (`--hm-scale-h`), 2-col room grid, boost delegates to `heat_manager/boost_start\|stop` WS (v0.4.3, unified with panel/service — no more separate client-side implementation) |
 | `frontend/heat_manager_logo1.png` | 44 KB. Served at `/api/heat_manager-logo`. (The stray `heat_manager_logo2.png` on the HA server has been deleted by dev — resolved 2026-09-02.) |
 
 ### Tests (10 files)
@@ -215,8 +215,10 @@ current.
 | `brands/icon.png` | Medium — required for HACS/official listing |
 | `strict-typing` | Low — full mypy pass |
 | Deploy 0.7.0 → HA server (currently 0.6.2) | High — pending manual deploy |
-| Unify panel-boost and card-boost into one code path (card call the WS commands instead of duplicating logic) | Low-medium — backend now unified via coordinator methods; the card still has its own separate client-side implementation |
+| Unify panel-boost and card-boost into one code path (card call the WS commands instead of duplicating logic) | ✅ Done — card now delegates to heat_manager/boost_start\|stop WS, same coordinator methods as panel and service |
 | Boost auto-expiry/countdown on the backend (currently only the card has a local, frontend-only timer) | ✅ Done — coordinator now auto-restores after `duration_minutes` |
+| Zigbee rooms unregulated by PID | ✅ Done — hybrid PID engine now regulates local/Zigbee rooms too via new `comfort_temp` field, plus outdoor feedforward ("heating curve") on both room types |
+| Boost button never re-synced after backend-side stop (auto-expiry, service, another client) | ✅ Done — sync moved from one-time `_attachEvents()` into `_patchControllerHero()`, called every refresh; live countdown added |
 | Manual TRV override auto-restore | Low — Phase B |
 | Per-room always-on toggle | Low — bypass presence for bathrooms/offices |
 | Daily heating summary notification | Low — feedback loop for user |
