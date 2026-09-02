@@ -18,13 +18,29 @@
           "night_setback_temp": "Night setback (\u00b0C to reduce)",
           "night_start_hour": "Night start hour",
           "night_end_hour": "Night end hour",
-          "house_voice_enabled": "Enable House Voice announcements"
+          "house_voice_enabled": "Enable House Voice announcements",
+          "pid_enabled": "Enable PID heating control",
+          "pid_kp": "PID proportional gain (Kp)",
+          "pid_ki": "PID integral gain (Ki)",
+          "pid_kd": "PID derivative gain (Kd)",
+          "trv_max_temp": "TRV maximum setpoint",
+          "indoor_wake_sensor": "Indoor wake sensor (optional)",
+          "indoor_wake_threshold": "Indoor wake threshold",
+          "wake_setback_temp": "Wake phase setback (°C to reduce)"
         },
         "data_description": {
           "outdoor_temp_sensor": "Local weather station or outdoor module (e.g. Netatmo, Aqara). Overrides the weather entity temperature for adaptive away setpoint and season detection. Leave blank to use the weather entity.",
           "night_setback_enabled": "When enabled, the PID target temperature is reduced by the setback value during the configured night hours. Uses the existing night start/end hours.",
           "night_setback_temp": "Degrees Celsius subtracted from the Netatmo schedule setpoint during night hours. The setpoint will not go below the room away temperature.",
-          "house_voice_enabled": "Requires the House Voice integration to be installed. When enabled, Heat Manager will announce events such as boost activation, season changes, and controller state changes."
+          "house_voice_enabled": "Requires the House Voice integration to be installed. When enabled, Heat Manager will announce events such as boost activation, season changes, and controller state changes.",
+          "pid_enabled": "When disabled, TRVs follow the Netatmo/Zigbee schedule directly with no proportional adjustment.",
+          "pid_kp": "Proportional gain — higher values react more aggressively to temperature error. Default 0.5.",
+          "pid_ki": "Integral gain — corrects a persistent offset over time. Default 0.02. Keep small; large values cause overshoot.",
+          "pid_kd": "Derivative gain — reacts to the rate of change. Disabled (0) by default: TRVs have several minutes of thermal lag, so a derivative term mostly amplifies sensor noise.",
+          "trv_max_temp": "TRV setpoint sent when PID power is at 100%. Default 28°C.",
+          "indoor_wake_sensor": "Shared indoor temperature sensor used to detect the gentler WAKING phase during spring/autumn. Falls back to full ACTIVE heating when not set.",
+          "indoor_wake_threshold": "Indoor temperature above which the system enters the WAKING phase instead of full ACTIVE heating. Default 21°C.",
+          "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2°C."
         }
       },
       "room": {
@@ -107,13 +123,29 @@
           "night_setback_temp": "Night setback (\u00b0C to reduce)",
           "night_start_hour": "Night start hour",
           "night_end_hour": "Night end hour",
-          "house_voice_enabled": "Enable House Voice announcements"
+          "house_voice_enabled": "Enable House Voice announcements",
+          "pid_enabled": "Enable PID heating control",
+          "pid_kp": "PID proportional gain (Kp)",
+          "pid_ki": "PID integral gain (Ki)",
+          "pid_kd": "PID derivative gain (Kd)",
+          "trv_max_temp": "TRV maximum setpoint",
+          "indoor_wake_sensor": "Indoor wake sensor (optional)",
+          "indoor_wake_threshold": "Indoor wake threshold",
+          "wake_setback_temp": "Wake phase setback (°C to reduce)"
         },
         "data_description": {
           "outdoor_temp_sensor": "Local weather station or outdoor module. Overrides the weather entity temperature. Leave blank to use the weather entity.",
           "night_setback_enabled": "When enabled, the PID target temperature is reduced by the setback value during the configured night hours.",
           "night_setback_temp": "Degrees Celsius subtracted from the Netatmo schedule setpoint during night hours. The setpoint will not go below the room away temperature.",
-          "house_voice_enabled": "Requires the House Voice integration to be installed. When enabled, Heat Manager will announce events such as boost activation, season changes, and controller state changes."
+          "house_voice_enabled": "Requires the House Voice integration to be installed. When enabled, Heat Manager will announce events such as boost activation, season changes, and controller state changes.",
+          "pid_enabled": "When disabled, TRVs follow the Netatmo/Zigbee schedule directly with no proportional adjustment.",
+          "pid_kp": "Proportional gain — higher values react more aggressively to temperature error. Default 0.5.",
+          "pid_ki": "Integral gain — corrects a persistent offset over time. Default 0.02. Keep small; large values cause overshoot.",
+          "pid_kd": "Derivative gain — reacts to the rate of change. Disabled (0) by default: TRVs have several minutes of thermal lag, so a derivative term mostly amplifies sensor noise.",
+          "trv_max_temp": "TRV setpoint sent when PID power is at 100%. Default 28°C.",
+          "indoor_wake_sensor": "Shared indoor temperature sensor used to detect the gentler WAKING phase during spring/autumn. Falls back to full ACTIVE heating when not set.",
+          "indoor_wake_threshold": "Indoor temperature above which the system enters the WAKING phase instead of full ACTIVE heating. Default 21°C.",
+          "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2°C."
         }
       },
       "rooms_menu": {

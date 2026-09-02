@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 DOMAIN = "heat_manager"
-VERSION = "0.6.3"
+VERSION = "0.7.0"
 
 # ── Config entry keys ────────────────────────────────────────────────────────
 
@@ -150,6 +150,17 @@ DEFAULT_CO2_VENTILATION_THRESHOLD: int = 900  # ppm
 # (e.g. bedrooms vs. living rooms vs. offices).
 CONF_CO2_THRESHOLD = "co2_threshold"
 
+# ── Boost ─────────────────────────────────────────────────────────────────────
+
+# Default TRV setpoint applied by the heat_manager/boost_start WS command when
+# no "temperature" is given. Mirrors heat-manager-card.js's own boost_temp
+# default (24°C) so panel and card boost to the same temperature by default.
+DEFAULT_BOOST_TEMP: float = 24.0
+
+# Default boost duration (minutes) before the coordinator auto-restores every
+# boosted room, when no "duration_minutes" is given.
+DEFAULT_BOOST_MINUTES: float = 30.0
+
 # ── Repair issue identifiers ────────────────────────────────────────────────────
 
 # Raised when a configured climate entity does not exist in HA at startup.
@@ -278,6 +289,8 @@ SERVICE_SET_CONTROLLER_STATE = "set_controller_state"
 SERVICE_PAUSE = "pause"
 SERVICE_RESUME = "resume"
 SERVICE_FORCE_ROOM_ON = "force_room_on"
+SERVICE_BOOST_START = "boost_start"
+SERVICE_BOOST_STOP = "boost_stop"
 
 # ── Platforms ─────────────────────────────────────────────────────────────────
 

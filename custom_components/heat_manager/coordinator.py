@@ -30,13 +30,14 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util.dt import utcnow
 
 from .const import (
     CONF_ALARM_PANEL,
@@ -63,6 +64,8 @@ from .const import (
     CONF_WINDOW_SENSORS,
     DEFAULT_AWAY_TEMP_COLD,
     DEFAULT_AWAY_TEMP_MILD,
+    DEFAULT_BOOST_MINUTES,
+    DEFAULT_BOOST_TEMP,
     DEFAULT_MILD_THRESHOLD,
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
@@ -138,8 +141,19 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._init_pid_controllers()
         # B2: boost state per room
         self.boost_active_rooms: dict[str, bool] = {}
+        # Boost auto-expiry (Phase B) — None when no boost is active
+        self.boost_expires_at: datetime | None = None
         # B10: restore persisted event log on startup
         self._restore_event_log()
+
+        # Snapshot of rooms/persons at last successful setup — used by
+        # __init__.py's _async_update_listener to decide whether an
+        # entry.options write actually needs a full reload (only true when
+        # rooms/persons themselves changed) or can be skipped (internal
+        # writes like the midnight energy snapshot, season_mode persistence,
+        # or a panel config save — all already applied live via self.config).
+        self._last_known_rooms: list[dict[str, Any]] = list(self.rooms)
+        self._last_known_persons: list[dict[str, Any]] = list(self.persons)
 
         _LOGGER.debug(
             "Coordinator initialised — %d room(s), %d person(s)",
@@ -485,6 +499,115 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def last_saved_time(self) -> str | None:
         return self.waste_calculator.last_saved_time
 
+    # ── Boost (shared by heat_manager.boost_start/stop service and
+    # ── heat_manager/boost_start/stop WS command) ─────────────────────
+
+    @property
+    def boost_remaining_minutes(self) -> int:
+        """Minutes remaining until boost auto-restores. 0 when not boosted."""
+        if self.boost_expires_at is None:
+            return 0
+        remaining = (self.boost_expires_at - utcnow()).total_seconds()
+        return max(0, int(remaining / 60))
+
+    async def async_boost_start(
+        self,
+        temperature: float | None = None,
+        duration_minutes: float | None = None,
+    ) -> list[str]:
+        """Raise every NORMAL/OVERRIDE room to the boost temperature.
+
+        Single source of truth for "boost", called by both the
+        heat_manager.boost_start service and the heat_manager/boost_start WS
+        command (used by the sidebar panel) — previously the WS handler only
+        toggled a flag with no heating effect, and the Lovelace card
+        duplicated a separate client-side implementation. Both now delegate
+        here so there is exactly one code path that actually moves a TRV.
+
+        Rooms currently AWAY, WINDOW_OPEN or PRE_HEAT are left untouched.
+        Sets boost_expires_at so the coordinator tick can auto-restore after
+        duration_minutes (default DEFAULT_BOOST_MINUTES) even if nobody ever
+        calls async_boost_stop() — the Lovelace card's own boost only ever
+        had a client-side countdown that stopped working the moment the
+        dashboard was closed; this gives boost a real backend expiry.
+        """
+        temp = float(temperature) if temperature is not None else DEFAULT_BOOST_TEMP
+
+        boosted: list[str] = []
+        for room in self.rooms:
+            room_name = room.get("room_name", "")
+            if not room_name:
+                continue
+            if self.get_room_state(room_name) not in (
+                RoomState.NORMAL,
+                RoomState.OVERRIDE,
+            ):
+                continue
+            write_entity = self.get_write_entity(room_name)
+            if not write_entity:
+                continue
+            try:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {"entity_id": write_entity, "temperature": temp},
+                    blocking=True,
+                )
+                self.boost_active_rooms[room_name] = True
+                boosted.append(room_name)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Boost failed for '%s': %s", room_name, err)
+
+        if boosted:
+            minutes = (
+                float(duration_minutes)
+                if duration_minutes is not None
+                else DEFAULT_BOOST_MINUTES
+            )
+            self.boost_expires_at = utcnow() + timedelta(minutes=minutes)
+        else:
+            self.boost_expires_at = None
+
+        detail = f" — {', '.join(boosted)}" if boosted else " — ingen rum klar til boost"
+        self.log_event(f"Boost aktiveret{detail}", reason="manuel", event_type="boost")
+        _LOGGER.info(
+            "Boost started — %d room(s) boosted to %.1f°C: %s",
+            len(boosted),
+            temp,
+            ", ".join(boosted) or "none",
+        )
+        return boosted
+
+    async def async_boost_stop(self) -> list[str]:
+        """Restore every currently-boosted room back to its normal schedule.
+
+        Single source of truth for stopping boost — see async_boost_start().
+        Restores via presence_engine.force_room_on(), same as the card's own
+        boost-stop and the manual force_room_on service.
+        """
+        boosted_rooms = [
+            name for name, active in self.boost_active_rooms.items() if active
+        ]
+        for room_name in boosted_rooms:
+            try:
+                await self.presence_engine.force_room_on(room_name)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Boost-stop restore failed for '%s': %s", room_name, err)
+
+        self.boost_active_rooms.clear()
+        self.boost_expires_at = None
+        self.log_event("Boost deaktiveret", reason="manuel", event_type="boost")
+        _LOGGER.info("Boost stopped — restored %d room(s)", len(boosted_rooms))
+        return boosted_rooms
+
+    async def _async_check_boost_expiry(self) -> None:
+        """Auto-restore boosted rooms once the boost duration has elapsed."""
+        if self.boost_expires_at is None:
+            return
+        if utcnow() >= self.boost_expires_at:
+            _LOGGER.info("Boost expired — auto-restoring")
+            await self.async_boost_stop()
+
     # ── Event log ─────────────────────────────────────────────────────────────
 
     def log_event(
@@ -695,6 +818,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
           7. Preheat engine (travel_time polling no-op)
           8. Valve protection (weekly exercise)
           9. PID tick (proportional TRV setpoints for NORMAL rooms)
+          10. Boost expiry check (auto-restore once boost duration elapses)
 
         Each engine is isolated: an exception in one engine is logged and
         skipped rather than taking down the entire tick and marking all
@@ -741,6 +865,11 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_pid_tick()
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("pid_tick failed: %s", err)
+
+        try:
+            await self._async_check_boost_expiry()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("boost expiry check failed: %s", err)
 
         # B3/B7: persist energy snapshot at midnight
         from homeassistant.util.dt import now as ha_now

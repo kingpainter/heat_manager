@@ -39,6 +39,8 @@ from .const import (
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_HOUSE_VOICE_ENABLED,
     CONF_HUMIDITY_SENSOR,
+    CONF_INDOOR_WAKE_SENSOR,
+    CONF_INDOOR_WAKE_THRESHOLD,
     CONF_PAUSE_DURATION_MIN,
     CONF_MILD_THRESHOLD,
     CONF_NIGHT_END_HOUR,
@@ -56,13 +58,19 @@ from .const import (
     CONF_PERSON_TRACKING,
     CONF_PERSONS,
     CONF_PI_DEMAND_ENTITY,
+    CONF_PID_ENABLED,
+    CONF_PID_KD,
+    CONF_PID_KI,
+    CONF_PID_KP,
     CONF_PRECIPITATION_SENSOR,
     CONF_PREHEAT_LEAD_TIME_MIN,
     CONF_ROOM_NAME,
     CONF_ROOM_TEMP_SENSOR,
     CONF_ROOM_WATTAGE,
     CONF_ROOMS,
+    CONF_TRV_MAX_TEMP,
     CONF_TRV_TYPE,
+    CONF_WAKE_SETBACK_TEMP,
     CONF_WEATHER_ENTITY,
     CONF_WIND_SPEED_SENSOR,
     CONF_WINDOW_DELAY_MIN,
@@ -74,14 +82,20 @@ from .const import (
     DEFAULT_CO2_VENTILATION_THRESHOLD,
     DEFAULT_GRACE_DAY_MIN,
     DEFAULT_GRACE_NIGHT_MIN,
+    DEFAULT_INDOOR_WAKE_THRESHOLD,
     DEFAULT_MILD_THRESHOLD,
     DEFAULT_NIGHT_END_HOUR,
     DEFAULT_NIGHT_SETBACK_ENABLED,
     DEFAULT_PAUSE_DURATION_MIN,
     DEFAULT_NIGHT_SETBACK_TEMP,
     DEFAULT_NIGHT_START_HOUR,
+    DEFAULT_PID_KD,
+    DEFAULT_PID_KI,
+    DEFAULT_PID_KP,
     DEFAULT_PREHEAT_LEAD_TIME_MIN,
     DEFAULT_ROOM_WATTAGE,
+    DEFAULT_TRV_MAX_TEMP,
+    DEFAULT_WAKE_SETBACK_TEMP,
     DEFAULT_WINDOW_DELAY_MIN,
     DOMAIN,
     TRV_TYPE_NETATMO,
@@ -270,6 +284,73 @@ def _step1_schema(defaults: dict = {}) -> vol.Schema:
                         "max": 480,
                         "step": 15,
                         "unit_of_measurement": "min",
+                    }
+                }
+            ),
+            # ── PID controller ─────────────────────────────────────────
+            vol.Optional(
+                CONF_PID_ENABLED,
+                default=defaults.get(CONF_PID_ENABLED, True),
+            ): selector.selector({"boolean": {}}),
+            vol.Optional(
+                CONF_PID_KP,
+                default=defaults.get(CONF_PID_KP, DEFAULT_PID_KP),
+            ): selector.selector({"number": {"min": 0, "max": 5, "step": 0.05}}),
+            vol.Optional(
+                CONF_PID_KI,
+                default=defaults.get(CONF_PID_KI, DEFAULT_PID_KI),
+            ): selector.selector({"number": {"min": 0, "max": 0.5, "step": 0.01}}),
+            vol.Optional(
+                CONF_PID_KD,
+                default=defaults.get(CONF_PID_KD, DEFAULT_PID_KD),
+            ): selector.selector({"number": {"min": 0, "max": 2, "step": 0.05}}),
+            vol.Optional(
+                CONF_TRV_MAX_TEMP,
+                default=defaults.get(CONF_TRV_MAX_TEMP, DEFAULT_TRV_MAX_TEMP),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": 20,
+                        "max": 32,
+                        "step": 0.5,
+                        "unit_of_measurement": "°C",
+                    }
+                }
+            ),
+            # ── Wake / WAKING phase ────────────────────────────────────
+            vol.Optional(
+                CONF_INDOOR_WAKE_SENSOR,
+                default=defaults.get(CONF_INDOOR_WAKE_SENSOR, ""),
+            ): selector.selector(
+                {"text": {}}
+            ),  # sensor.* — shared indoor temperature probe
+            vol.Optional(
+                CONF_INDOOR_WAKE_THRESHOLD,
+                default=defaults.get(
+                    CONF_INDOOR_WAKE_THRESHOLD, DEFAULT_INDOOR_WAKE_THRESHOLD
+                ),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": 15,
+                        "max": 25,
+                        "step": 0.5,
+                        "unit_of_measurement": "°C",
+                    }
+                }
+            ),
+            vol.Optional(
+                CONF_WAKE_SETBACK_TEMP,
+                default=defaults.get(
+                    CONF_WAKE_SETBACK_TEMP, DEFAULT_WAKE_SETBACK_TEMP
+                ),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": 0.5,
+                        "max": 5.0,
+                        "step": 0.5,
+                        "unit_of_measurement": "°C",
                     }
                 }
             ),

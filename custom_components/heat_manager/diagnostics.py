@@ -81,8 +81,6 @@ async def async_get_config_entry_diagnostics(
             "state": ctrl.state.value,
             "auto_off_reason": ctrl.auto_off_reason.value,
             "pause_remaining_min": ctrl.pause_remaining_minutes,
-            "days_above_high": ctrl._days_above_high,
-            "last_high_date": ctrl._last_high_date,
         },
         "season": {
             "mode": coordinator.season_mode.value,

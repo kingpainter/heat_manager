@@ -18,12 +18,15 @@ from homeassistant.helpers.issue_registry import (
 
 from .const import (
     CONF_ROOMS,
+    CONF_PERSONS,
     CONF_WEATHER_ENTITY,
     CONTROLLER_STATE_OPTIONS,
     DEFAULT_PAUSE_DURATION_MIN,
     DOMAIN,
     PLATFORMS,
     REPAIR_ISSUE_MISSING_CLIMATE,
+    SERVICE_BOOST_START,
+    SERVICE_BOOST_STOP,
     SERVICE_FORCE_ROOM_ON,
     SERVICE_PAUSE,
     SERVICE_RESUME,
@@ -138,6 +141,51 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the entry only when rooms/persons actually changed.
+
+    BUGFIX (2026-09): this listener previously reloaded the *entire*
+    integration on every single entry.options write — including purely
+    internal writes the coordinator makes itself: the midnight energy-
+    history snapshot (coordinator._persist_energy_snapshot), a season_mode
+    change from the select entity, and an alarm_panel/notify_service save
+    from the sidebar panel's config tab. None of those values need a reload
+    to take effect — the coordinator already reads entry.data/entry.options
+    live on every tick via its `config` property.
+
+    The unconditional reload cost more than a moment of "unavailable" on
+    every entity: it reset every engine's in-memory state (PID integrators,
+    ValveProtectionEngine's weekly exercise tracker), and — worst case —
+    WindowEngine has no startup re-sync equivalent to PresenceEngine's B11
+    fix, so a reload while a window was open could silently drop the
+    knowledge that it was open, letting heating resume in that room.
+
+    Only `rooms`/`persons` genuinely require a reload: adding, removing, or
+    editing a room can add/remove optional entities (mold_risk, pid_power,
+    window_duration sensors each depend on whether certain optional fields
+    are set), which only happens during platform setup. Everything else is
+    already applied live, so the reload is skipped.
+    """
+    coordinator: HeatManagerCoordinator | None = getattr(entry, "runtime_data", None)
+    if coordinator is None:
+        # No live coordinator to compare against — reload is the safe default.
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
+
+    new_config = {**entry.data, **entry.options}
+    new_rooms = new_config.get(CONF_ROOMS, [])
+    new_persons = new_config.get(CONF_PERSONS, [])
+
+    if (
+        new_rooms == coordinator._last_known_rooms
+        and new_persons == coordinator._last_known_persons
+    ):
+        _LOGGER.debug(
+            "Heat Manager: entry.options changed but rooms/persons unchanged — "
+            "skipping reload (already applied live)"
+        )
+        return
+
+    _LOGGER.debug("Heat Manager: rooms/persons changed — reloading entry")
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -244,6 +292,14 @@ def _register_services(
             )
         await coordinator.presence_engine.force_room_on(room_name)
 
+    async def handle_boost_start(call: ServiceCall) -> None:
+        temperature = call.data.get("temperature")
+        duration_minutes = call.data.get("duration_minutes")
+        await coordinator.async_boost_start(temperature, duration_minutes)
+
+    async def handle_boost_stop(call: ServiceCall) -> None:
+        await coordinator.async_boost_stop()
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_CONTROLLER_STATE,
@@ -273,4 +329,25 @@ def _register_services(
         SERVICE_FORCE_ROOM_ON,
         handle_force_room_on,
         schema=vol.Schema({vol.Required("room_name"): cv.string}),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_BOOST_START,
+        handle_boost_start,
+        schema=vol.Schema(
+            {
+                vol.Optional("temperature"): vol.All(
+                    vol.Coerce(float), vol.Range(min=15, max=32)
+                ),
+                vol.Optional("duration_minutes"): vol.All(
+                    vol.Coerce(float), vol.Range(min=1, max=240)
+                ),
+            }
+        ),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_BOOST_STOP,
+        handle_boost_stop,
+        schema=vol.Schema({}),
     )

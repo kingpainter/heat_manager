@@ -9,7 +9,53 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+---
+
+## [0.7.0] — 2026-09-02
+
 ### Fixed
+- **BUG** `__init__.py` — `_async_update_listener` reloaded the *entire*
+  integration on every single `entry.options` write, including three purely
+  internal writes the coordinator makes itself: the midnight energy-history
+  snapshot, a `season_mode` change from the select entity, and an
+  alarm_panel/notify_service save from the sidebar panel's config tab. None
+  of those values need a reload — the coordinator already reads
+  `entry.data`/`entry.options` live every tick. The unconditional reload
+  reset every engine's in-memory state (PID integrators,
+  `ValveProtectionEngine`'s weekly exercise tracker) and — worst case —
+  could silently drop `WindowEngine`'s knowledge that a window was open if
+  the reload happened while one was (it has no startup re-sync equivalent to
+  `PresenceEngine`'s B11 fix), letting heating resume in that room. The
+  listener now compares `rooms`/`persons` against a snapshot taken at the
+  coordinator's last successful setup (`coordinator._last_known_rooms` /
+  `_last_known_persons`, new in `coordinator.py`) and only reloads when
+  those actually changed — the only case that genuinely needs new/removed
+  entities. Every other `entry.options` write now applies live with no
+  reload, matching the project's own stability goal ("reducer kant-cases
+  der får heat_manager til at gå unavailable").
+- **BUG** `engine/season_engine.py` — `_maybe_trigger_voice()` used raw
+  `asyncio.ensure_future()`, inconsistent with the rest of the codebase
+  which explicitly moved away from this exact pattern (see
+  `window_engine.py`/`presence_engine.py` docstrings). Replaced with
+  `hass.async_create_task(..., name=...)` so the task is tracked and
+  cancelled cleanly on shutdown instead of risking an untracked
+  "Task exception was never retrieved" warning.
+- **BUG** `diagnostics.py` — `async_get_config_entry_diagnostics()` referenced
+  `ctrl._days_above_high` and `ctrl._last_high_date`, two attributes removed
+  from `ControllerEngine` in the v0.5.0 refactor that moved outdoor-temperature
+  auto-off logic into `SeasonEngine`. Downloading diagnostics from
+  Settings → Devices & Services → Heat Manager crashed with `AttributeError`
+  every time. Removed the two stale keys.
+- **BUG** `websocket.py` — `heat_manager/boost_start` and `heat_manager/boost_stop`
+  only toggled the `boost_active_rooms` flag and never touched a single TRV, so
+  the sidebar panel's Boost button had no heating effect at all — unlike
+  `heat-manager-card.js`'s own client-side boost, which does call
+  `climate.set_temperature`. The two boost UIs were also fully unsynced (each
+  had its own idea of what "boosted" meant). `boost_start` now raises every
+  NORMAL/OVERRIDE room to the boost temperature (`DEFAULT_BOOST_TEMP`, 24°C,
+  new in `const.py`, or an optional `temperature` param) via the room's
+  preferred write entity; `boost_stop` restores every boosted room via the
+  existing `force_room_on` engine call, mirroring the card's own restore path.
 - **B-CARD-PANEL** `frontend/heat-manager-card.js` — card did not fill a
   `type: panel` view correctly on landscape tablet dashboards (e.g. 7"
   Lenovo), following the same sizing pattern already proven correct in
@@ -40,6 +86,28 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   sensors.
 
 ### Added
+- **Services** `boost_start` / `boost_stop` (`__init__.py`, `services.yaml`,
+  `const.py`) — boost can now be triggered from automations, scripts, or a
+  voice assistant, not just the sidebar panel or Lovelace card. Both share
+  the exact same implementation as the WS commands via two new coordinator
+  methods, `async_boost_start()` / `async_boost_stop()` (`coordinator.py`) —
+  the single source of truth for "boost" going forward.
+- **Boost auto-expiry** (`coordinator.py`) — boost started via the service or
+  the WS command now sets `coordinator.boost_expires_at` (default
+  `DEFAULT_BOOST_MINUTES` = 30 min, or an optional `duration_minutes`
+  param) and a new coordinator tick step (`_async_check_boost_expiry`)
+  auto-restores every boosted room once it elapses. Previously only
+  `heat-manager-card.js` had a countdown, and only while its dashboard tab
+  stayed open — closing it left the boosted room heated indefinitely.
+  `boost_remaining_minutes` is now also included in the `heat_manager/get_state`
+  WS payload for future panel/card countdown UI.
+- **Config flow** `config_flow.py` + `strings.json` + `translations/{en,da}.json` —
+  PID gains (`pid_enabled`, `pid_kp`, `pid_ki`, `pid_kd`, `trv_max_temp`) and
+  wake/WAKING settings (`indoor_wake_sensor`, `indoor_wake_threshold`,
+  `wake_setback_temp`) are now exposed in the "Season & global settings" step
+  of both the initial setup wizard and the options flow. Previously these
+  seven fields only existed as `const.py` defaults, reachable only by editing
+  `entry.options` directly outside the UI.
 - **Options flow** — rooms and persons can now be edited in place via
   `Manage rooms` / `Manage persons`, not just added or deleted. New
   `room_edit` / `person_edit` steps pre-fill the existing values (e.g. window
@@ -609,7 +677,8 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
-[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.4.6...HEAD
+[Unreleased]: https://github.com/kingpainter/heat-manager/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/kingpainter/heat-manager/compare/v0.6.3...v0.7.0
 [0.4.6]: https://github.com/kingpainter/heat-manager/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/kingpainter/heat-manager/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/kingpainter/heat-manager/compare/v0.4.3...v0.4.4

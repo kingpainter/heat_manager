@@ -45,31 +45,39 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-@websocket_api.websocket_command({vol.Required("type"): "heat_manager/boost_start"})
+@websocket_api.websocket_command({
+    vol.Required("type"): "heat_manager/boost_start",
+    vol.Optional("temperature"): vol.Any(float, int),
+    vol.Optional("duration_minutes"): vol.Any(float, int),
+})
 @websocket_api.async_response
 async def ws_boost_start(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict,
 ) -> None:
-    """WebSocket: start boost mode for all rooms.
+    """WebSocket: start boost mode for all eligible rooms.
 
-    Sets boost_active_rooms flag on coordinator and triggers a load()
-    from the frontend. Actual TRV commands are handled by the boost engine
-    when it is implemented. For now, sets the flag and notifies the panel.
+    Thin wrapper around coordinator.async_boost_start() — the single shared
+    implementation also used by the heat_manager.boost_start HA service, so
+    the panel and any automation trigger the exact same TRV behaviour.
     """
     entry = _get_entry(hass)
     if entry is None:
         connection.send_error(msg["id"], "not_found", "Heat Manager not loaded")
         return
     coordinator: HeatManagerCoordinator = entry.runtime_data
-    for room in coordinator.rooms:
-        name = room.get("room_name", "")
-        if name:
-            coordinator.boost_active_rooms[name] = True
-    coordinator.log_event("Boost aktiveret", reason="manuel", event_type="boost")
-    _LOGGER.info("Boost started — %d rooms", len(coordinator.boost_active_rooms))
-    connection.send_result(msg["id"], {"success": True, "rooms_boosted": len(coordinator.boost_active_rooms)})
+    boosted = await coordinator.async_boost_start(
+        msg.get("temperature"), msg.get("duration_minutes")
+    )
+    connection.send_result(
+        msg["id"],
+        {
+            "success": True,
+            "rooms_boosted": len(boosted),
+            "boost_remaining_minutes": coordinator.boost_remaining_minutes,
+        },
+    )
 
 
 @websocket_api.websocket_command({vol.Required("type"): "heat_manager/boost_stop"})
@@ -79,16 +87,19 @@ async def ws_boost_stop(
     connection: websocket_api.ActiveConnection,
     msg: dict,
 ) -> None:
-    """WebSocket: stop boost mode."""
+    """WebSocket: stop boost mode and restore boosted rooms to schedule.
+
+    Thin wrapper around coordinator.async_boost_stop() — see ws_boost_start().
+    """
     entry = _get_entry(hass)
     if entry is None:
         connection.send_error(msg["id"], "not_found", "Heat Manager not loaded")
         return
     coordinator: HeatManagerCoordinator = entry.runtime_data
-    coordinator.boost_active_rooms.clear()
-    coordinator.log_event("Boost deaktiveret", reason="manuel", event_type="boost")
-    _LOGGER.info("Boost stopped")
-    connection.send_result(msg["id"], {"success": True})
+    restored = await coordinator.async_boost_stop()
+    connection.send_result(
+        msg["id"], {"success": True, "rooms_restored": len(restored)}
+    )
 
 
 @websocket_api.websocket_command({
@@ -332,6 +343,7 @@ async def ws_get_state(
         "energy_saved_today": coordinator.energy_saved_today,
         "energy_wasted_today": coordinator.energy_wasted_today,
         "efficiency_score": coordinator.efficiency_score,
+        "boost_remaining_minutes": coordinator.boost_remaining_minutes,
         "last_waste_time": coordinator.last_waste_time,
         "last_saved_time": coordinator.last_saved_time,
         "calendar_season": coordinator.calendar_season.value,

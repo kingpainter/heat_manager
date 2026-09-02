@@ -42,3 +42,31 @@ force_room_on:
       required: true
       selector:
         text:
+
+boost_start:
+  name: Start boost
+  description: Raise every active room (not away, not window-open) to the boost temperature for a limited duration, then auto-restore.
+  fields:
+    temperature:
+      name: Temperature
+      description: Target boost temperature. Defaults to 24°C.
+      required: false
+      selector:
+        number:
+          min: 15
+          max: 32
+          step: 0.5
+          unit_of_measurement: °C
+    duration_minutes:
+      name: Duration (minutes)
+      description: How long to hold the boost temperature before auto-restoring. Defaults to 30 minutes.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 240
+          unit_of_measurement: min
+
+boost_stop:
+  name: Stop boost
+  description: Immediately restore every currently-boosted room back to its normal schedule.

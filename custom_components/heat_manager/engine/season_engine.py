@@ -219,19 +219,29 @@ class SeasonEngine:
         return EffectiveSeason.ACTIVE
 
     def _maybe_trigger_voice(self, new_eff: EffectiveSeason) -> None:
-        """Trigger House Voice on DORMANT↔ACTIVE transitions."""
+        """Trigger House Voice on DORMANT↔ACTIVE transitions.
+
+        BUGFIX: previously used raw asyncio.ensure_future(), inconsistent with
+        the rest of the codebase which explicitly moved away from this exact
+        pattern (see window_engine.py / presence_engine.py docstrings: "FIX:
+        asyncio.ensure_future → hass.async_create_task"). An untracked task
+        is not cancelled cleanly on HA shutdown and any exception inside it
+        is only ever logged as "Task exception was never retrieved" instead
+        of surfacing through the normal HA task-tracking/logging path.
+        """
         prev = self._prev_effective_season
         if prev is None or new_eff == prev:
             return
-        import asyncio
 
         if new_eff == EffectiveSeason.DORMANT and prev != EffectiveSeason.DORMANT:
-            asyncio.ensure_future(
-                self.coordinator.async_house_voice_say(HV_EVENT_SEASON_SUMMER)
+            self.coordinator.hass.async_create_task(
+                self.coordinator.async_house_voice_say(HV_EVENT_SEASON_SUMMER),
+                name="heat_manager_season_voice_summer",
             )
         elif prev == EffectiveSeason.DORMANT and new_eff != EffectiveSeason.DORMANT:
-            asyncio.ensure_future(
-                self.coordinator.async_house_voice_say(HV_EVENT_SEASON_WINTER)
+            self.coordinator.hass.async_create_task(
+                self.coordinator.async_house_voice_say(HV_EVENT_SEASON_WINTER),
+                name="heat_manager_season_voice_winter",
             )
 
     @property

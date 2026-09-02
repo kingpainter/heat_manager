@@ -18,13 +18,29 @@
           "night_setback_temp": "Natreduktion (°C der trækkes fra)",
           "night_start_hour": "Natstart (time)",
           "night_end_hour": "Natslut (time)",
-          "house_voice_enabled": "Aktiver House Voice-meddelelser"
+          "house_voice_enabled": "Aktiver House Voice-meddelelser",
+          "pid_enabled": "Aktivér PID-varmestyring",
+          "pid_kp": "PID proportional forstærkning (Kp)",
+          "pid_ki": "PID integral forstærkning (Ki)",
+          "pid_kd": "PID derivativ forstærkning (Kd)",
+          "trv_max_temp": "TRV maks. setpunkt",
+          "indoor_wake_sensor": "Indendørs opvågningssensor (valgfrit)",
+          "indoor_wake_threshold": "Indendørs opvågningsgrænse",
+          "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)"
         },
         "data_description": {
           "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul (fx Netatmo, Aqara). Overskriver vejr-entitetens temperatur ved beregning af fraværstemperatur og sæsondetektering. Lad feltet stå tomt for at bruge vejr-entiteten.",
           "night_setback_enabled": "Når aktiveret reduceres PID-måltemperaturen med den angivne værdi i de konfigurerede nattimer. Bruger de eksisterende nat-start/slut-timer.",
           "night_setback_temp": "Antal grader der trækkes fra Netatmos planlagte temperatur om natten. Setpointet vil aldrig gå under rummets fraværstemperatur.",
-          "house_voice_enabled": "Kræver at House Voice-integrationen er installeret. Når aktiveret annoncerer Heat Manager hændelser som boost-aktivering, sæsonskift og controllerskift."
+          "house_voice_enabled": "Kræver at House Voice-integrationen er installeret. Når aktiveret annoncerer Heat Manager hændelser som boost-aktivering, sæsonskift og controllerskift.",
+          "pid_enabled": "Når deaktiveret følger TRV'erne Netatmo-/Zigbee-skemaet direkte uden proportional justering.",
+          "pid_kp": "Proportional forstærkning — højere værdier reagerer kraftigere på temperaturafvigelser. Standard 0,5.",
+          "pid_ki": "Integral forstærkning — retter en vedvarende afvigelse over tid. Standard 0,02. Hold værdien lav; høje værdier giver overshoot.",
+          "pid_kd": "Derivativ forstærkning — reagerer på ændringshastigheden. Slået fra (0) som standard: TRV'er har flere minutters termisk forsinkelse, så et derivativ-led primært forstærker sensor-støj.",
+          "trv_max_temp": "TRV-setpunkt der sendes når PID-effekten er 100%. Standard 28°C.",
+          "indoor_wake_sensor": "Fælles indendørs temperatursensor brugt til at afgøre den bløde opvågningsfase (WAKING) om forår/efterår. Falder tilbage til fuld aktiv opvarmning, hvis ikke sat.",
+          "indoor_wake_threshold": "Indendørstemperatur hvorover systemet går i opvågningsfase i stedet for fuld aktiv opvarmning. Standard 21°C.",
+          "wake_setback_temp": "Antal grader der trækkes fra alle rums setpunkt under opvågningsfasen. Standard 2°C."
         }
       },
       "room": {
@@ -109,13 +125,29 @@
           "night_setback_temp": "Natreduktion (°C der trækkes fra)",
           "night_start_hour": "Natstart (time)",
           "night_end_hour": "Natslut (time)",
-          "house_voice_enabled": "Aktiver House Voice-meddelelser"
+          "house_voice_enabled": "Aktiver House Voice-meddelelser",
+          "pid_enabled": "Aktivér PID-varmestyring",
+          "pid_kp": "PID proportional forstærkning (Kp)",
+          "pid_ki": "PID integral forstærkning (Ki)",
+          "pid_kd": "PID derivativ forstærkning (Kd)",
+          "trv_max_temp": "TRV maks. setpunkt",
+          "indoor_wake_sensor": "Indendørs opvågningssensor (valgfrit)",
+          "indoor_wake_threshold": "Indendørs opvågningsgrænse",
+          "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)"
         },
         "data_description": {
           "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul. Overskriver vejr-entitetens temperatur. Lad feltet stå tomt for at bruge vejr-entiteten.",
           "night_setback_enabled": "Når aktiveret reduceres PID-måltemperaturen med den angivne værdi i de konfigurerede nattimer.",
           "night_setback_temp": "Antal grader der trækkes fra Netatmos planlagte temperatur om natten. Setpointet vil aldrig gå under rummets fraværstemperatur.",
-          "house_voice_enabled": "Kræver at House Voice-integrationen er installeret. Når aktiveret annoncerer Heat Manager hændelser som boost-aktivering, sæsonskift og controllerskift."
+          "house_voice_enabled": "Kræver at House Voice-integrationen er installeret. Når aktiveret annoncerer Heat Manager hændelser som boost-aktivering, sæsonskift og controllerskift.",
+          "pid_enabled": "Når deaktiveret følger TRV'erne Netatmo-/Zigbee-skemaet direkte uden proportional justering.",
+          "pid_kp": "Proportional forstærkning — højere værdier reagerer kraftigere på temperaturafvigelser. Standard 0,5.",
+          "pid_ki": "Integral forstærkning — retter en vedvarende afvigelse over tid. Standard 0,02. Hold værdien lav; høje værdier giver overshoot.",
+          "pid_kd": "Derivativ forstærkning — reagerer på ændringshastigheden. Slået fra (0) som standard: TRV'er har flere minutters termisk forsinkelse, så et derivativ-led primært forstærker sensor-støj.",
+          "trv_max_temp": "TRV-setpunkt der sendes når PID-effekten er 100%. Standard 28°C.",
+          "indoor_wake_sensor": "Fælles indendørs temperatursensor brugt til at afgøre den bløde opvågningsfase (WAKING) om forår/efterår. Falder tilbage til fuld aktiv opvarmning, hvis ikke sat.",
+          "indoor_wake_threshold": "Indendørstemperatur hvorover systemet går i opvågningsfase i stedet for fuld aktiv opvarmning. Standard 21°C.",
+          "wake_setback_temp": "Antal grader der trækkes fra alle rums setpunkt under opvågningsfasen. Standard 2°C."
         }
       },
       "rooms_menu": {
