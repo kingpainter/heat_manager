@@ -17,8 +17,8 @@ from homeassistant.helpers.issue_registry import (
 )
 
 from .const import (
-    CONF_ROOMS,
     CONF_PERSONS,
+    CONF_ROOMS,
     CONF_WEATHER_ENTITY,
     CONTROLLER_STATE_OPTIONS,
     DEFAULT_PAUSE_DURATION_MIN,

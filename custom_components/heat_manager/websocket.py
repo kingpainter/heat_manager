@@ -19,7 +19,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
 from homeassistant.components import websocket_api
@@ -41,6 +41,9 @@ from .const import (
     CONF_WINDOW_SENSORS,
     DOMAIN,
 )
+
+if TYPE_CHECKING:
+    from .coordinator import HeatManagerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
