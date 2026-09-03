@@ -68,6 +68,7 @@ from .const import (
     DEFAULT_BOOST_MINUTES,
     DEFAULT_BOOST_TEMP,
     DEFAULT_COMFORT_TEMP,
+    DEFAULT_GROUP_OFFSET,
     DEFAULT_MILD_THRESHOLD,
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
@@ -86,11 +87,14 @@ from .const import (
     RoomState,
     SeasonMode,
 )
+from .engine.calibration_engine import CalibrationEngine
 from .engine.controller import ControllerEngine
 from .engine.pid_controller import PidController
 from .engine.preheat_engine import PreheatEngine
 from .engine.presence_engine import PresenceEngine
+from .engine.schedule_engine import ScheduleEngine
 from .engine.season_engine import SeasonEngine
+from .engine.sync_engine import SyncEngine
 from .engine.valve_protection_engine import ValveProtectionEngine
 from .engine.waste_calculator import WasteCalculator
 from .engine.window_engine import WindowEngine
@@ -141,6 +145,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.waste_calculator = WasteCalculator(self)
         self.preheat_engine = PreheatEngine(self)
         self.valve_protection = ValveProtectionEngine(self)
+        self.calibration_engine = CalibrationEngine(self)
+        self.sync_engine = SyncEngine(self)
+        self.schedule_engine = ScheduleEngine(self)
 
         self.pid_controllers: dict[str, PidController] = {}
         self._init_pid_controllers()
@@ -148,6 +155,20 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.boost_active_rooms: dict[str, bool] = {}
         # Boost auto-expiry (Phase B) — None when no boost is active
         self.boost_expires_at: datetime | None = None
+        # Global, non-destructive temperature shift applied on top of every
+        # room's PID target — see number.py GroupOffsetNumber. Restored from
+        # the RestoreNumber entity on startup, not persisted here directly.
+        self.group_offset: float = DEFAULT_GROUP_OFFSET
+        # Last setpoint the PID tick actually computed/wrote for a room —
+        # read-only cache used by SyncEngine to tell an external/manual TRV
+        # change apart from Heat Manager's own last write, without having
+        # to instrument every write call-site individually.
+        self.last_expected_setpoint: dict[str, float] = {}
+        # Per-room target-temperature override from an active schedule/
+        # calendar block — see engine/schedule_engine.py. Absent (no key)
+        # for a room with no CONF_SCHEDULE_ENTITY configured, or whose
+        # block/event isn't currently active.
+        self.schedule_override: dict[str, float] = {}
         # B10: restore persisted event log on startup
         self._restore_event_log()
 
@@ -470,6 +491,40 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return None
 
+    # ── Blocking sources (self-reporting diagnostics) ────────────────────────
+    # Mirrors climate_group_helper's `blocking_sources` attribute: lets the
+    # panel/card explain *why* a room isn't heating without the user having
+    # to cross-reference controller_state + room_state manually.
+
+    def get_room_blocking_sources(self, room_name: str) -> list[str]:
+        """Return the reasons this room's heating commands are held back.
+
+        Pure function over already-tracked state (controller_state,
+        room_state) — introduces no new state. Empty list means nothing is
+        blocking the room.
+        """
+        sources: list[str] = []
+        if self.controller_state == ControllerState.OFF:
+            sources.append("controller_off")
+        elif self.controller_state == ControllerState.PAUSE:
+            sources.append("controller_pause")
+
+        state = self.get_room_state(room_name)
+        if state == RoomState.WINDOW_OPEN:
+            sources.append("window")
+        elif state == RoomState.AWAY:
+            sources.append("presence")
+        return sources
+
+    def global_blocking_sources(self) -> list[str]:
+        """Deduplicated blocking reasons currently active across all rooms."""
+        sources: set[str] = set()
+        for room in self.rooms:
+            name = room.get("room_name", "")
+            if name:
+                sources.update(self.get_room_blocking_sources(name))
+        return sorted(sources)
+
     # ── Season engine helpers (I-2) ──────────────────────────────────────────
 
     @property
@@ -535,8 +590,15 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         calls async_boost_stop() — the Lovelace card's own boost only ever
         had a client-side countdown that stopped working the moment the
         dashboard was closed; this gives boost a real backend expiry.
+
+        Also resets group_offset to 0 (v0.9.0) — same "setting a temperature
+        directly clears the offset" rule climate_group_helper's Group Offset
+        follows, since boost sets an absolute temperature that would
+        otherwise silently stack with a leftover offset.
         """
         temp = float(temperature) if temperature is not None else DEFAULT_BOOST_TEMP
+        self.group_offset = DEFAULT_GROUP_OFFSET
+        self.async_update_listeners()  # refresh number.heat_manager_group_offset immediately
 
         boosted: list[str] = []
         for room in self.rooms:
@@ -573,7 +635,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             self.boost_expires_at = None
 
-        detail = f" — {', '.join(boosted)}" if boosted else " — ingen rum klar til boost"
+        detail = (
+            f" — {', '.join(boosted)}" if boosted else " — ingen rum klar til boost"
+        )
         self.log_event(f"Boost aktiveret{detail}", reason="manuel", event_type="boost")
         _LOGGER.info(
             "Boost started — %d room(s) boosted to %.1f°C: %s",
@@ -597,7 +661,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 await self.presence_engine.force_room_on(room_name)
             except Exception as err:  # noqa: BLE001
-                _LOGGER.warning("Boost-stop restore failed for '%s': %s", room_name, err)
+                _LOGGER.warning(
+                    "Boost-stop restore failed for '%s': %s", room_name, err
+                )
 
         self.boost_active_rooms.clear()
         self.boost_expires_at = None
@@ -822,8 +888,13 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
           6. Waste calculator (energy accounting)
           7. Preheat engine (travel_time polling no-op)
           8. Valve protection (weekly exercise)
-          9. PID tick (proportional TRV setpoints for NORMAL rooms)
-          10. Boost expiry check (auto-restore once boost duration elapses)
+          9. Calibration engine (write external sensor delta to TRV calibration)
+          10. Schedule engine (resolve active schedule/calendar block overrides)
+          11. PID tick (proportional TRV setpoints for NORMAL rooms)
+          12. Boost expiry check (auto-restore once boost duration elapses)
+
+        SyncEngine is event-driven (state-change listeners registered in its
+        own constructor), not part of this polling tick.
 
         Each engine is isolated: an exception in one engine is logged and
         skipped rather than taking down the entire tick and marking all
@@ -865,6 +936,16 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.valve_protection.async_tick()
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("valve_protection tick failed: %s", err)
+
+        try:
+            await self.calibration_engine.async_tick()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("calibration_engine tick failed: %s", err)
+
+        try:
+            await self.schedule_engine.async_tick()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("schedule_engine tick failed: %s", err)
 
         try:
             await self._async_pid_tick()
@@ -983,9 +1064,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     target_temp = float(target_temp)
                 except (TypeError, ValueError):
                     continue
-                demand_pct = primary_state.attributes.get(
-                    "heating_power_request", "?"
-                )
+                demand_pct = primary_state.attributes.get("heating_power_request", "?")
             else:
                 # ── Local TRV path (Zigbee today, Matter/Thread later) ──
                 # No separate cloud schedule entity exists here —
@@ -994,10 +1073,30 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # directly to the room's own climate_entity: Z2M/Matter/
                 # Thread are local, no rate-limit stagger needed.
                 write_id = primary_id
-                target_temp = float(
-                    room.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP)
-                )
+                target_temp = float(room.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP))
                 demand_pct = "n/a (local)"
+
+            # ── Schedule override (v0.9.0, Fase D) ──────────────────────────
+            # An active block on the room's CONF_SCHEDULE_ENTITY replaces
+            # whichever base target the branch above resolved (cloud
+            # schedule setpoint or CONF_COMFORT_TEMP). Read fresh every
+            # tick by schedule_engine.async_tick() earlier in this same
+            # coordinator tick — releases automatically once the block/
+            # event ends, no state to restore. Group offset and setbacks
+            # still apply on top, same as for either base target.
+            schedule_temp = self.schedule_override.get(room_name)
+            if schedule_temp is not None:
+                target_temp = schedule_temp
+
+            # ── Group offset (v0.9.0) — non-destructive global shift ────────
+            # Applied fresh every tick, on top of whichever base target the
+            # branch above resolved (cloud schedule setpoint or
+            # CONF_COMFORT_TEMP) — mirrors climate_group_helper's "Group
+            # Offset": it automatically follows the next schedule/season
+            # transition since it is never baked into a stored target, only
+            # ever added at read time. See number.py GroupOffsetNumber.
+            if self.group_offset:
+                target_temp += self.group_offset
 
             # ── Setbacks: night + wake — applied cumulatively, both paths ──
             setback = self.night_setback_delta() + self.wake_setback_delta()
@@ -1039,6 +1138,14 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 trv_max=self.trv_max_temp,
                 trv_min=float(room.get("away_temp_override", 10.0)),
             )
+
+            # Record the setpoint this tick computed as "correct" for this
+            # room — regardless of whether the suppress-check below actually
+            # sends it. SyncEngine reads this to recognise Heat Manager's
+            # own expected value and tell a genuine manual/external TRV
+            # change apart from it, without duplicating this whole
+            # computation (which would double-advance the PID integrator).
+            self.last_expected_setpoint[room_name] = trv_setpoint
 
             # Suppress command if change < 0.5 °C
             write_state = self.hass.states.get(write_id)
@@ -1134,4 +1241,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.waste_calculator.async_shutdown()
         await self.preheat_engine.async_shutdown()
         await self.valve_protection.async_shutdown()
+        await self.calibration_engine.async_shutdown()
+        await self.sync_engine.async_shutdown()
+        await self.schedule_engine.async_shutdown()
         _LOGGER.debug("Coordinator shut down cleanly")

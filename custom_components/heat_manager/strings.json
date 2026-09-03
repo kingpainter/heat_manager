@@ -7,11 +7,11 @@
           "weather_entity": "Weather entity",
           "outdoor_temp_sensor": "Outdoor temperature sensor (optional)",
           "notify_service": "Notification service",
-          "away_temp_mild": "Away temperature — mild weather",
-          "away_temp_cold": "Away temperature — cold weather",
+          "away_temp_mild": "Away temperature \u2014 mild weather",
+          "away_temp_cold": "Away temperature \u2014 cold weather",
           "mild_threshold": "Mild/cold boundary temperature",
-          "grace_day_min": "Grace period — daytime (minutes)",
-          "grace_night_min": "Grace period — night-time (minutes)",
+          "grace_day_min": "Grace period \u2014 daytime (minutes)",
+          "grace_night_min": "Grace period \u2014 night-time (minutes)",
           "auto_off_temp_threshold": "Auto-off temperature threshold",
           "auto_off_temp_days": "Auto-off sustained days",
           "night_setback_enabled": "Enable night setback",
@@ -26,7 +26,7 @@
           "trv_max_temp": "TRV maximum setpoint",
           "indoor_wake_sensor": "Indoor wake sensor (optional)",
           "indoor_wake_threshold": "Indoor wake threshold",
-          "wake_setback_temp": "Wake phase setback (°C to reduce)"
+          "wake_setback_temp": "Wake phase setback (\u00b0C to reduce)"
         },
         "data_description": {
           "outdoor_temp_sensor": "Local weather station or outdoor module (e.g. Netatmo, Aqara). Overrides the weather entity temperature for adaptive away setpoint and season detection. Leave blank to use the weather entity.",
@@ -34,13 +34,13 @@
           "night_setback_temp": "Degrees Celsius subtracted from the Netatmo schedule setpoint during night hours. The setpoint will not go below the room away temperature.",
           "house_voice_enabled": "Requires the House Voice integration to be installed. When enabled, Heat Manager will announce events such as boost activation, season changes, and controller state changes.",
           "pid_enabled": "When disabled, TRVs follow the Netatmo/Zigbee schedule directly with no proportional adjustment.",
-          "pid_kp": "Proportional gain — higher values react more aggressively to temperature error. Default 0.5.",
-          "pid_ki": "Integral gain — corrects a persistent offset over time. Default 0.02. Keep small; large values cause overshoot.",
-          "pid_kd": "Derivative gain — reacts to the rate of change. Disabled (0) by default: TRVs have several minutes of thermal lag, so a derivative term mostly amplifies sensor noise.",
-          "trv_max_temp": "TRV setpoint sent when PID power is at 100%. Default 28°C.",
+          "pid_kp": "Proportional gain \u2014 higher values react more aggressively to temperature error. Default 0.5.",
+          "pid_ki": "Integral gain \u2014 corrects a persistent offset over time. Default 0.02. Keep small; large values cause overshoot.",
+          "pid_kd": "Derivative gain \u2014 reacts to the rate of change. Disabled (0) by default: TRVs have several minutes of thermal lag, so a derivative term mostly amplifies sensor noise.",
+          "trv_max_temp": "TRV setpoint sent when PID power is at 100%. Default 28\u00b0C.",
           "indoor_wake_sensor": "Shared indoor temperature sensor used to detect the gentler WAKING phase during spring/autumn. Falls back to full ACTIVE heating when not set.",
-          "indoor_wake_threshold": "Indoor temperature above which the system enters the WAKING phase instead of full ACTIVE heating. Default 21°C.",
-          "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2°C."
+          "indoor_wake_threshold": "Indoor temperature above which the system enters the WAKING phase instead of full ACTIVE heating. Default 21\u00b0C.",
+          "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2\u00b0C."
         }
       },
       "room": {
@@ -56,13 +56,19 @@
           "co2_threshold": "CO\u2082 ventilation threshold (ppm)",
           "room_temp_sensor": "Room temperature sensor (optional)",
           "comfort_temp": "Comfort temperature (Zigbee/local TRVs)",
+          "calibration_entity": "TRV calibration entity (optional)",
+          "sync_mode": "Sync mode",
+          "schedule_entity": "Schedule / calendar entity (optional)",
           "_action": "What next?"
         },
         "data_description": {
-          "comfort_temp": "PID target temperature for rooms with no HomeKit entity (Zigbee today, Matter/Thread later) — these have no separate cloud schedule to read a target from. Ignored for Netatmo rooms, which use the cloud entity's own schedule setpoint instead. Default 20°C.",
+          "comfort_temp": "PID target temperature for rooms with no HomeKit entity (Zigbee today, Matter/Thread later) \u2014 these have no separate cloud schedule to read a target from. Ignored for Netatmo rooms, which use the cloud entity's own schedule setpoint instead. Default 20\u00b0C.",
           "co2_sensor": "Used for context-aware window notifications and energy waste classification. When CO\u2082 is high, an open window is marked as ventilation rather than heat loss.",
           "co2_threshold": "CO\u2082 level above which an open window is classified as intentional ventilation. Default is 900 ppm. Increase for bedrooms (higher tolerance) or decrease for seldom-occupied rooms.",
-          "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1\u20133\u00b0C too high)."
+          "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1\u20133\u00b0C too high).",
+          "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor above.",
+          "sync_mode": "What happens when this room's TRV is changed manually or by another automation. Disabled: ignore. Mirror: accept the change and switch the room to override. Lock: revert it back to Heat Manager's own setpoint.",
+          "schedule_entity": "A schedule.* helper or calendar.* entity. While a time block or event is active, its temperature overrides this room's normal target."
         }
       },
       "person": {
@@ -93,7 +99,7 @@
       }
     },
     "error": {
-      "entity_not_found": "Entity not found — check the entity ID.",
+      "entity_not_found": "Entity not found \u2014 check the entity ID.",
       "no_rooms": "At least one room must be added.",
       "duplicate_room": "A room with this name already exists.",
       "duplicate_person": "This person is already added."
@@ -106,7 +112,9 @@
     "step": {
       "init": {
         "title": "Heat Manager options",
-        "data": {"section": "What would you like to edit?"}
+        "data": {
+          "section": "What would you like to edit?"
+        }
       },
       "global": {
         "title": "Season & global settings",
@@ -114,11 +122,11 @@
           "weather_entity": "Weather entity",
           "outdoor_temp_sensor": "Outdoor temperature sensor (optional)",
           "notify_service": "Notification service",
-          "away_temp_mild": "Away temperature — mild weather",
-          "away_temp_cold": "Away temperature — cold weather",
+          "away_temp_mild": "Away temperature \u2014 mild weather",
+          "away_temp_cold": "Away temperature \u2014 cold weather",
           "mild_threshold": "Mild/cold boundary temperature",
-          "grace_day_min": "Grace period — daytime (minutes)",
-          "grace_night_min": "Grace period — night-time (minutes)",
+          "grace_day_min": "Grace period \u2014 daytime (minutes)",
+          "grace_night_min": "Grace period \u2014 night-time (minutes)",
           "auto_off_temp_threshold": "Auto-off temperature threshold",
           "auto_off_temp_days": "Auto-off sustained days",
           "night_setback_enabled": "Enable night setback",
@@ -133,7 +141,7 @@
           "trv_max_temp": "TRV maximum setpoint",
           "indoor_wake_sensor": "Indoor wake sensor (optional)",
           "indoor_wake_threshold": "Indoor wake threshold",
-          "wake_setback_temp": "Wake phase setback (°C to reduce)"
+          "wake_setback_temp": "Wake phase setback (\u00b0C to reduce)"
         },
         "data_description": {
           "outdoor_temp_sensor": "Local weather station or outdoor module. Overrides the weather entity temperature. Leave blank to use the weather entity.",
@@ -141,19 +149,21 @@
           "night_setback_temp": "Degrees Celsius subtracted from the Netatmo schedule setpoint during night hours. The setpoint will not go below the room away temperature.",
           "house_voice_enabled": "Requires the House Voice integration to be installed. When enabled, Heat Manager will announce events such as boost activation, season changes, and controller state changes.",
           "pid_enabled": "When disabled, TRVs follow the Netatmo/Zigbee schedule directly with no proportional adjustment.",
-          "pid_kp": "Proportional gain — higher values react more aggressively to temperature error. Default 0.5.",
-          "pid_ki": "Integral gain — corrects a persistent offset over time. Default 0.02. Keep small; large values cause overshoot.",
-          "pid_kd": "Derivative gain — reacts to the rate of change. Disabled (0) by default: TRVs have several minutes of thermal lag, so a derivative term mostly amplifies sensor noise.",
-          "trv_max_temp": "TRV setpoint sent when PID power is at 100%. Default 28°C.",
+          "pid_kp": "Proportional gain \u2014 higher values react more aggressively to temperature error. Default 0.5.",
+          "pid_ki": "Integral gain \u2014 corrects a persistent offset over time. Default 0.02. Keep small; large values cause overshoot.",
+          "pid_kd": "Derivative gain \u2014 reacts to the rate of change. Disabled (0) by default: TRVs have several minutes of thermal lag, so a derivative term mostly amplifies sensor noise.",
+          "trv_max_temp": "TRV setpoint sent when PID power is at 100%. Default 28\u00b0C.",
           "indoor_wake_sensor": "Shared indoor temperature sensor used to detect the gentler WAKING phase during spring/autumn. Falls back to full ACTIVE heating when not set.",
-          "indoor_wake_threshold": "Indoor temperature above which the system enters the WAKING phase instead of full ACTIVE heating. Default 21°C.",
-          "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2°C."
+          "indoor_wake_threshold": "Indoor temperature above which the system enters the WAKING phase instead of full ACTIVE heating. Default 21\u00b0C.",
+          "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2\u00b0C."
         }
       },
       "rooms_menu": {
         "title": "Manage rooms",
         "description": "Current rooms: {room_count}. Select a room to edit or delete it, or add a new one.",
-        "data": {"action": "Action"}
+        "data": {
+          "action": "Action"
+        }
       },
       "room_add": {
         "title": "Add a room",
@@ -166,13 +176,19 @@
           "co2_sensor": "CO\u2082 sensor (optional)",
           "co2_threshold": "CO\u2082 ventilation threshold (ppm)",
           "room_temp_sensor": "Room temperature sensor (optional)",
-          "comfort_temp": "Comfort temperature (Zigbee/local TRVs)"
+          "comfort_temp": "Comfort temperature (Zigbee/local TRVs)",
+          "calibration_entity": "TRV calibration entity (optional)",
+          "sync_mode": "Sync mode",
+          "schedule_entity": "Schedule / calendar entity (optional)"
         },
         "data_description": {
-          "comfort_temp": "PID target for rooms with no HomeKit entity (Zigbee/Matter/Thread). Ignored for Netatmo rooms. Default 20°C.",
+          "comfort_temp": "PID target for rooms with no HomeKit entity (Zigbee/Matter/Thread). Ignored for Netatmo rooms. Default 20\u00b0C.",
           "co2_sensor": "Used for context-aware window notifications and energy waste classification.",
           "co2_threshold": "CO\u2082 level above which an open window is classified as ventilation. Default 900 ppm.",
-          "room_temp_sensor": "Independent room probe for PID temperature feedback."
+          "room_temp_sensor": "Independent room probe for PID temperature feedback.",
+          "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor above.",
+          "sync_mode": "What happens when this room's TRV is changed manually or by another automation. Disabled: ignore. Mirror: accept the change and switch the room to override. Lock: revert it back to Heat Manager's own setpoint.",
+          "schedule_entity": "A schedule.* helper or calendar.* entity. While a time block or event is active, its temperature overrides this room's normal target."
         }
       },
       "room_edit": {
@@ -187,19 +203,27 @@
           "co2_sensor": "CO\u2082 sensor (optional)",
           "co2_threshold": "CO\u2082 ventilation threshold (ppm)",
           "room_temp_sensor": "Room temperature sensor (optional)",
-          "comfort_temp": "Comfort temperature (Zigbee/local TRVs)"
+          "comfort_temp": "Comfort temperature (Zigbee/local TRVs)",
+          "calibration_entity": "TRV calibration entity (optional)",
+          "sync_mode": "Sync mode",
+          "schedule_entity": "Schedule / calendar entity (optional)"
         },
         "data_description": {
-          "comfort_temp": "PID target for rooms with no HomeKit entity (Zigbee/Matter/Thread). Ignored for Netatmo rooms. Default 20°C.",
+          "comfort_temp": "PID target for rooms with no HomeKit entity (Zigbee/Matter/Thread). Ignored for Netatmo rooms. Default 20\u00b0C.",
           "co2_sensor": "Used for context-aware window notifications and energy waste classification.",
           "co2_threshold": "CO\u2082 level above which an open window is classified as ventilation. Default 900 ppm.",
-          "room_temp_sensor": "Independent room probe for PID temperature feedback."
+          "room_temp_sensor": "Independent room probe for PID temperature feedback.",
+          "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor above.",
+          "sync_mode": "What happens when this room's TRV is changed manually or by another automation. Disabled: ignore. Mirror: accept the change and switch the room to override. Lock: revert it back to Heat Manager's own setpoint.",
+          "schedule_entity": "A schedule.* helper or calendar.* entity. While a time block or event is active, its temperature overrides this room's normal target."
         }
       },
       "persons_menu": {
         "title": "Manage persons",
         "description": "Current persons: {person_count}. Select a person to edit or delete, or add a new one.",
-        "data": {"action": "Action"}
+        "data": {
+          "action": "Action"
+        }
       },
       "person_add": {
         "title": "Add a person",
@@ -230,27 +254,39 @@
       }
     },
     "error": {
-      "entity_not_found": "Entity not found — check the entity ID.",
+      "entity_not_found": "Entity not found \u2014 check the entity ID.",
       "duplicate_room": "A room with this name already exists.",
       "duplicate_person": "This person is already added."
     }
   },
   "entity": {
     "sensor": {
-      "pause_remaining":     {"name": "Pause remaining"},
-      "energy_wasted_today": {"name": "Energy wasted today"},
-      "energy_saved_today":  {"name": "Energy saved today"},
-      "efficiency_score":    {"name": "Efficiency score"}
+      "pause_remaining": {
+        "name": "Pause remaining"
+      },
+      "energy_wasted_today": {
+        "name": "Energy wasted today"
+      },
+      "energy_saved_today": {
+        "name": "Energy saved today"
+      },
+      "efficiency_score": {
+        "name": "Efficiency score"
+      }
     },
     "select": {
       "controller_state": {
         "name": "Controller state",
-        "state": {"on": "On", "pause": "Pause", "off": "Off"}
+        "state": {
+          "on": "On",
+          "pause": "Pause",
+          "off": "Off"
+        }
       },
       "season_mode": {
         "name": "Season mode",
         "state": {
-          "auto":   "Auto",
+          "auto": "Auto",
           "winter": "Winter",
           "spring": "Spring",
           "summer": "Summer",
@@ -261,17 +297,28 @@
         "name": "Effective season",
         "state": {
           "dormant": "Dormant",
-          "waking":  "Waking",
-          "active":  "Active"
+          "waking": "Waking",
+          "active": "Active"
         }
       }
     },
     "binary_sensor": {
-      "any_window_open": {"name": "Any window open"},
-      "heating_wasted":  {"name": "Heating wasted"}
+      "any_window_open": {
+        "name": "Any window open"
+      },
+      "heating_wasted": {
+        "name": "Heating wasted"
+      }
     },
     "switch": {
-      "room_override": {"name": "Override"}
+      "room_override": {
+        "name": "Override"
+      }
+    },
+    "number": {
+      "group_offset": {
+        "name": "Group offset"
+      }
     }
   },
   "issues": {
@@ -288,7 +335,7 @@
       "message": "Room '{room_name}' not found in Heat Manager configuration."
     },
     "setup_failed": {
-      "message": "Heat Manager could not complete startup — no climate entities are reachable yet."
+      "message": "Heat Manager could not complete startup \u2014 no climate entities are reachable yet."
     }
   }
 }

@@ -30,6 +30,7 @@ from .const import (
     CONF_AWAY_TEMP_COLD,
     CONF_AWAY_TEMP_MILD,
     CONF_AWAY_TEMP_OVERRIDE,
+    CONF_CALIBRATION_ENTITY,
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
     CONF_CO2_THRESHOLD,
@@ -42,7 +43,6 @@ from .const import (
     CONF_HUMIDITY_SENSOR,
     CONF_INDOOR_WAKE_SENSOR,
     CONF_INDOOR_WAKE_THRESHOLD,
-    CONF_PAUSE_DURATION_MIN,
     CONF_MILD_THRESHOLD,
     CONF_NIGHT_END_HOUR,
     CONF_NIGHT_SETBACK_ENABLED,
@@ -55,6 +55,7 @@ from .const import (
     CONF_NOTIFY_WINDOWS,
     CONF_OUTDOOR_HUMIDITY_SENSOR,
     CONF_OUTDOOR_TEMP_SENSOR,
+    CONF_PAUSE_DURATION_MIN,
     CONF_PERSON_ENTITY,
     CONF_PERSON_TRACKING,
     CONF_PERSONS,
@@ -69,6 +70,8 @@ from .const import (
     CONF_ROOM_TEMP_SENSOR,
     CONF_ROOM_WATTAGE,
     CONF_ROOMS,
+    CONF_SCHEDULE_ENTITY,
+    CONF_SYNC_MODE,
     CONF_TRV_MAX_TEMP,
     CONF_TRV_TYPE,
     CONF_WAKE_SETBACK_TEMP,
@@ -88,18 +91,22 @@ from .const import (
     DEFAULT_MILD_THRESHOLD,
     DEFAULT_NIGHT_END_HOUR,
     DEFAULT_NIGHT_SETBACK_ENABLED,
-    DEFAULT_PAUSE_DURATION_MIN,
     DEFAULT_NIGHT_SETBACK_TEMP,
     DEFAULT_NIGHT_START_HOUR,
+    DEFAULT_PAUSE_DURATION_MIN,
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
     DEFAULT_PREHEAT_LEAD_TIME_MIN,
     DEFAULT_ROOM_WATTAGE,
+    DEFAULT_SYNC_MODE,
     DEFAULT_TRV_MAX_TEMP,
     DEFAULT_WAKE_SETBACK_TEMP,
     DEFAULT_WINDOW_DELAY_MIN,
     DOMAIN,
+    SYNC_MODE_DISABLED,
+    SYNC_MODE_LOCK,
+    SYNC_MODE_MIRROR,
     TRV_TYPE_NETATMO,
 )
 
@@ -278,7 +285,9 @@ def _step1_schema(defaults: dict = {}) -> vol.Schema:
             ): selector.selector({"boolean": {}}),
             vol.Optional(
                 CONF_PAUSE_DURATION_MIN,
-                default=defaults.get(CONF_PAUSE_DURATION_MIN, DEFAULT_PAUSE_DURATION_MIN),
+                default=defaults.get(
+                    CONF_PAUSE_DURATION_MIN, DEFAULT_PAUSE_DURATION_MIN
+                ),
             ): selector.selector(
                 {
                     "number": {
@@ -343,9 +352,7 @@ def _step1_schema(defaults: dict = {}) -> vol.Schema:
             ),
             vol.Optional(
                 CONF_WAKE_SETBACK_TEMP,
-                default=defaults.get(
-                    CONF_WAKE_SETBACK_TEMP, DEFAULT_WAKE_SETBACK_TEMP
-                ),
+                default=defaults.get(CONF_WAKE_SETBACK_TEMP, DEFAULT_WAKE_SETBACK_TEMP),
             ): selector.selector(
                 {
                     "number": {
@@ -479,6 +486,46 @@ def _room_schema(defaults: dict = {}) -> vol.Schema:
             vol.Optional(
                 CONF_HUMIDITY_SENSOR, default=defaults.get(CONF_HUMIDITY_SENSOR, "")
             ): selector.selector({"text": {}}),  # sensor.* — relative humidity in %
+            # ── Calibration & Sync (v0.9.0) ─────────────────────────────────────
+            # number.* entity the TRV's own integration exposes to correct its
+            # internal reading (e.g. Zigbee2MQTT local_temperature_calibration).
+            # Only used when CONF_ROOM_TEMP_SENSOR is also set — see
+            # engine/calibration_engine.py.
+            vol.Optional(
+                CONF_CALIBRATION_ENTITY,
+                default=defaults.get(CONF_CALIBRATION_ENTITY, ""),
+            ): selector.selector({"entity": {"domain": "number"}}),
+            vol.Optional(
+                CONF_SYNC_MODE,
+                default=defaults.get(CONF_SYNC_MODE, DEFAULT_SYNC_MODE),
+            ): selector.selector(
+                {
+                    "select": {
+                        "options": [
+                            {
+                                "value": SYNC_MODE_DISABLED,
+                                "label": "Disabled — ignore manual changes",
+                            },
+                            {
+                                "value": SYNC_MODE_MIRROR,
+                                "label": "Mirror — accept manual changes (switches room to override)",
+                            },
+                            {
+                                "value": SYNC_MODE_LOCK,
+                                "label": "Lock — revert manual changes back to the expected setpoint",
+                            },
+                        ]
+                    }
+                }
+            ),
+            # ── Schedule / calendar override (v0.9.0, Fase D) ───────────────────
+            # schedule.* or calendar.* entity — see engine/schedule_engine.py.
+            # While a block/event is active, its temperature overrides this
+            # room's normal target. Optional; leave empty to disable.
+            vol.Optional(
+                CONF_SCHEDULE_ENTITY,
+                default=defaults.get(CONF_SCHEDULE_ENTITY, ""),
+            ): selector.selector({"entity": {"domain": ["schedule", "calendar"]}}),
         }
     )
 
@@ -852,9 +899,7 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
             else:
                 user_input[CONF_ROOM_NAME] = room_name
                 updated_rooms = [
-                    dict(user_input)
-                    if r.get(CONF_ROOM_NAME) == original_name
-                    else r
+                    dict(user_input) if r.get(CONF_ROOM_NAME) == original_name else r
                     for r in self._rooms
                 ]
                 return self.async_create_entry(
@@ -953,11 +998,7 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
         original_entity = self._editing_person_entity
         current_person = next(
-            (
-                p
-                for p in self._persons
-                if p.get(CONF_PERSON_ENTITY) == original_entity
-            ),
+            (p for p in self._persons if p.get(CONF_PERSON_ENTITY) == original_entity),
             None,
         )
         if current_person is None:

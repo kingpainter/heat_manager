@@ -1,11 +1,11 @@
 # Heat Manager — Project Status
 
-**Last updated:** 2026-09-02 · v0.8.0
-**Version (GitHub):** 0.8.0
-**Version (HA server):** 0.6.2 ⚠️ pending deploy
+**Last updated:** 2026-09-03 · v0.9.0
+**Version (GitHub):** 0.9.0
+**Version (HA server):** 0.6.2 ⚠️ pending deploy (0.8.0 was already pending — now two releases behind)
 **Target:** Home Assistant 2025.1+
 **Language:** English primary · Danish translations included
-**Status:** Stable — Gold IQS complete, HomeKit-first routing, PID proportional control, boost now functional end-to-end
+**Status:** Stable — Gold IQS complete, HomeKit-first routing, PID proportional control, boost functional end-to-end, five new opt-in per-room layers (calibration, sync modes, group offset, schedule/calendar, blocking-source diagnostics) built and tested in v0.9.0 but NOT yet deployed to the HA server and NOT yet surfaced in the frontend panel/card (see Backlog)
 
 ---
 
@@ -36,14 +36,15 @@ heat_manager/
 | File | Description |
 |------|-------------|
 | `__init__.py` | Setup, ConfigEntryNotReady, service registration, repair issues, stale device cleanup |
-| `manifest.json` | v0.8.0, config_flow: true, iot_class: local_push |
+| `manifest.json` | v0.9.0, config_flow: true, iot_class: local_push |
 | `const.py` | All constants. CONF_NIGHT_SETBACK_*, CONF_CO2_THRESHOLD, CONF_PID_*, DEFAULT_BOOST_TEMP, REPAIR_ISSUE_MISSING_CLIMATE |
 | `coordinator.py` | DataUpdateCoordinator — 7 engines + hybrid PID tick, per-room. Per-engine exception isolation. global_device_info(), room_device_info(), get_room_co2_threshold(), is_night_setback_active(), wake_setback_delta(), async_boost_start()/async_boost_stop() (shared boost implementation), _last_known_rooms/_persons snapshot for reload-skip logic. _async_pid_tick() now regulates Netatmo (HomeKit split-entity) AND local/Zigbee (single-entity, comfort_temp target) rooms, plus outdoor feedforward on both |
 | `config_flow.py` | 4-step setup wizard + options flow (incl. room_edit/person_edit, PID + wake settings) |
 | `diagnostics.py` | async_get_config_entry_diagnostics() — fixed 2026-09: removed stale ctrl._days_above_high/_last_high_date references left over from the v0.5.0 controller refactor |
 | `panel.py` | Static paths (process-level async_setup). Sidebar panel (async_setup_entry) |
 | `websocket.py` | get_state, get_history, update_config, boost_start/stop, set_room_temp. boost_start/stop are thin wrappers around coordinator.async_boost_start()/async_boost_stop() — shared with the heat_manager.boost_start/stop services |
-| `select.py` | controller_state + season_mode. Both assigned to global device |
+| `select.py` | controller_state + season_mode. Both assigned to global device. `blocking_sources` attribute added (v0.9.0) |
+| `number.py` | (v0.9.0, new platform) `group_offset` — RestoreNumber, ±5 °C, global |
 | `sensor.py` | pause_remaining, energy_wasted/saved, efficiency_score, room state, window duration, per-room pid_power |
 | `binary_sensor.py` | any_window_open, heating_wasted, cloud_available, per-room window, per-room mold_risk |
 | `switch.py` | Per-room override switches. Assigned to room devices |
@@ -64,6 +65,9 @@ heat_manager/
 | `engine/preheat_engine.py` | travel_time listener, per-person lead time, TRV routing |
 | `engine/pid_controller.py` | Discrete-time PI(D), power_to_setpoint(), anti-windup — HA-independent, fully unit-testable |
 | `engine/valve_protection_engine.py` | Weekly valve exercise 02–03, controller OFF only, HomeKit preferred |
+| `engine/calibration_engine.py` | (v0.9.0) Writes `room_temp_sensor − TRV raw` delta to a room's `calibration_entity` (e.g. Z2M `local_temperature_calibration`), + 30 min heartbeat resend |
+| `engine/sync_engine.py` | (v0.9.0) Per-room `sync_mode` (disabled/mirror/lock) — reacts to manual/external changes on the write entity via `coordinator.last_expected_setpoint` comparison + 12 s confirm delay |
+| `engine/schedule_engine.py` | (v0.9.0) Per-room `schedule_entity` (`schedule.*`/`calendar.*`) — active block/event `temperature` overrides the room's normal target; `coordinator.schedule_override` dict, read by `_async_pid_tick()` |
 
 ### Frontend
 
@@ -73,7 +77,7 @@ heat_manager/
 | `frontend/heat-manager-card.js` | Tablet height-scaling (`--hm-scale-h`), 2-col room grid, boost delegates to `heat_manager/boost_start\|stop` WS (v0.4.3, unified with panel/service — no more separate client-side implementation) |
 | `frontend/heat_manager_logo1.png` | 44 KB. Served at `/api/heat_manager-logo`. (The stray `heat_manager_logo2.png` on the HA server has been deleted by dev — resolved 2026-09-02.) |
 
-### Tests (10 files)
+### Tests (14 files, 225 tests, 48.00% coverage)
 
 | File | Coverage |
 |------|----------|
@@ -81,12 +85,16 @@ heat_manager/
 | `test_coordinator_co2_threshold.py` | get_room_co2_threshold() — per-room override, fallback |
 | `test_coordinator_night_setback.py` | is_night_setback_active(), night_setback_delta() — midnight-spanning windows |
 | `test_pid_controller.py` | PI control, anti-windup, power_to_setpoint |
-| `test_pid_tick.py` | Coordinator PID tick integration |
+| `test_pid_tick.py` | Coordinator PID tick integration, incl. schedule_override (v0.9.0) |
 | `test_preheat_engine.py` | Travel time, lead time, TRV routing |
 | `test_presence_engine.py` | Grace periods, alarm integration, force_room_on |
 | `test_repair_issues.py` | _async_check_repair_issues(), _async_remove_stale_devices() |
 | `test_season_engine.py` | AUTO→DORMANT/WAKING/ACTIVE, day-counter, reset |
 | `test_waste_calculator.py` | Waste/savings accumulation, CO₂ weighting, midnight reset |
+| `test_calibration_engine.py` | (v0.9.0) 15 tests — heartbeat, change threshold, clamping, error handling |
+| `test_sync_engine.py` | (v0.9.0) 20 tests — entity map, mismatch detection, mirror/lock actions, shutdown |
+| `test_schedule_engine.py` | (v0.9.0) 15 tests — schedule.* attrs, calendar.* YAML parsing, clamping, multi-room |
+| `test_blocking_sources.py` | (v0.9.0) 12 tests — get_room_blocking_sources()/global_blocking_sources() |
 
 ---
 
@@ -193,6 +201,22 @@ current.
 
 ---
 
+## Recent fixes (2026-09-03)
+
+v0.9.0 — five opt-in per-room/global layers, from a comparison against `climate_group_helper`. Full detail in `CHANGELOG.md`; summary here:
+
+| Area | File(s) | Description |
+|------|------|-------------|
+| Device calibration | `engine/calibration_engine.py`, `const.py`, `coordinator.py`, `config_flow.py`, `sensor.py` | New per-room `calibration_entity` field — writes `room_temp_sensor − TRV raw` delta to it every tick + 30 min heartbeat |
+| Sync modes | `engine/sync_engine.py`, `const.py`, `coordinator.py`, `config_flow.py` | New per-room `sync_mode` (disabled/mirror/lock) — detects external changes via `last_expected_setpoint` comparison, 12 s confirm delay |
+| Group offset | `number.py` (new platform), `const.py`, `coordinator.py` | New `number.heat_manager_group_offset`, ±5 °C, RestoreNumber, auto-resets on boost |
+| Schedule/calendar | `engine/schedule_engine.py`, `const.py`, `coordinator.py`, `config_flow.py` | New per-room `schedule_entity` (`schedule.*`/`calendar.*`) — active block/event `temperature` overrides the room's normal target |
+| Blocking-source diagnostics | `coordinator.py`, `select.py`, `sensor.py` | New `get_room_blocking_sources()`/`global_blocking_sources()`, surfaced as `blocking_sources` attribute |
+| Missing shutdown call | `coordinator.py` | `calibration_engine.async_shutdown()` was never called from `HeatManagerCoordinator.async_shutdown()` — harmless today (the engine's own shutdown is a no-op) but would have silently swallowed any future cleanup logic added to it. Fixed alongside adding `sync_engine`/`schedule_engine` shutdown calls for the same reason. |
+| Test fixture gap | `tests/.../test_pid_tick.py` | `make_coordinator()`'s `MagicMock` coordinator didn't set `group_offset`/`last_expected_setpoint`/`schedule_override` — accessing them on an unconfigured `MagicMock` auto-vivifies a truthy child mock, which then poisons `target_temp` via `__radd__` and surfaces much later as `TypeError: '<' not supported between instances of 'MagicMock' and 'float'` deep inside `pid_controller.py`'s anti-windup clamp — a confusing failure far from its real cause. Fixed by giving the fixture real values for all three; worth remembering as a pattern for the *next* new coordinator attribute `_async_pid_tick()` reads. |
+
+---
+
 ## Recent fixes (2026-09-02)
 
 | Area | File | Description |
@@ -219,6 +243,8 @@ current.
 | Boost auto-expiry/countdown on the backend (currently only the card has a local, frontend-only timer) | ✅ Done — coordinator now auto-restores after `duration_minutes` |
 | Zigbee rooms unregulated by PID | ✅ Done — hybrid PID engine now regulates local/Zigbee rooms too via new `comfort_temp` field, plus outdoor feedforward ("heating curve") on both room types |
 | Boost button never re-synced after backend-side stop (auto-expiry, service, another client) | ✅ Done — sync moved from one-time `_attachEvents()` into `_patchControllerHero()`, called every refresh; live countdown added |
+| Surface `group_offset` slider + `blocking_sources` in `frontend/heat-manager-panel.js`/`heat-manager-card.js` | High — v0.9.0 backend is done and tested, but the frontend files weren't reachable from the build environment this session (`custom_components/heat_manager/frontend/` wasn't staged) and so weren't touched at all. Both entities/attributes already work from Developer Tools / any generic dashboard card today. |
+| Schedule engine: `hvac_mode`/`turn_off` per slot, a bypass priority layer, and the wider per-slot meta-key set (`sync_mode`, `window_mode`, `presence_mode`, …) | Medium — deliberately scoped out of v0.9.0's first pass to keep it reviewable; `climate_group_helper`'s README documents the fuller design this could grow into |
 | Manual TRV override auto-restore | Low — Phase B |
 | Per-room always-on toggle | Low — bypass presence for bathrooms/offices |
 | Daily heating summary notification | Low — feedback loop for user |

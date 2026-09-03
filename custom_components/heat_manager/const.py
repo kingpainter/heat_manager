@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 
 DOMAIN = "heat_manager"
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 
 # ── Config entry keys ────────────────────────────────────────────────────────
 
@@ -65,6 +65,35 @@ TRV_TYPE_OPTIONS = [TRV_TYPE_NETATMO, TRV_TYPE_ZIGBEE]
 
 # Per-room Z2M pi_heating_demand sensor entity (optional)
 CONF_PI_DEMAND_ENTITY = "pi_demand_entity"
+
+# Per-room TRV calibration/offset entity — a `number.*` entity the TRV's own
+# integration exposes to correct its internal temperature reading (e.g.
+# Zigbee2MQTT's `local_temperature_calibration`). When set together with
+# CONF_ROOM_TEMP_SENSOR, CalibrationEngine writes the delta between the
+# external sensor and the TRV's own raw reading, so the device's internal
+# control loop stays accurate even when Heat Manager's own writes are
+# temporarily unavailable (network issue, HA restart, etc.).
+CONF_CALIBRATION_ENTITY = "calibration_entity"
+
+# Per-room sync mode — see engine/sync_engine.py. Governs what happens when
+# a room's write entity is changed by something other than Heat Manager
+# itself (the Netatmo app, a physical TRV dial, another automation).
+CONF_SYNC_MODE = "sync_mode"
+SYNC_MODE_DISABLED = "disabled"
+SYNC_MODE_MIRROR = "mirror"
+SYNC_MODE_LOCK = "lock"
+SYNC_MODE_OPTIONS = [SYNC_MODE_DISABLED, SYNC_MODE_MIRROR, SYNC_MODE_LOCK]
+DEFAULT_SYNC_MODE = SYNC_MODE_DISABLED
+
+# Per-room schedule/calendar entity — see engine/schedule_engine.py. When
+# set, a `schedule.*` entity's per-block "Additional data" (native HA
+# feature) or a `calendar.*` entity's active-event "Description" (parsed as
+# YAML, mirroring climate_group_helper's format) supplies a `temperature`
+# that overrides CONF_COMFORT_TEMP / the cloud schedule setpoint for as long
+# as the block/event is active. SeasonEngine and the existing Netatmo cloud
+# schedule are untouched — this is an optional extra layer, applied before
+# the group offset and setbacks so both still stack on top of it.
+CONF_SCHEDULE_ENTITY = "schedule_entity"
 
 # ── Sensor inputs (optional, per-room) ───────────────────────────────────────
 
@@ -150,7 +179,9 @@ DEFAULT_COMFORT_TEMP: float = 20.0
 # already begun cooling; feedforward starts pushing power up as soon as the
 # outdoor temperature drops, before the room itself has drifted.
 # Conservative defaults, not yet exposed in the UI.
-FF_REFERENCE_OUTDOOR_TEMP: float = 15.0  # °C — outdoor temp at/above which feedforward is 0
+FF_REFERENCE_OUTDOOR_TEMP: float = (
+    15.0  # °C — outdoor temp at/above which feedforward is 0
+)
 FF_WEIGHT: float = 0.02  # power fraction added per °C outdoor temp is below reference
 FF_MAX_CONTRIBUTION: float = 0.3  # cap — feedforward alone never exceeds 30% power
 
@@ -182,6 +213,61 @@ DEFAULT_BOOST_TEMP: float = 24.0
 # Default boost duration (minutes) before the coordinator auto-restores every
 # boosted room, when no "duration_minutes" is given.
 DEFAULT_BOOST_MINUTES: float = 30.0
+
+# ── Group offset (v0.9.0) ────────────────────────────────────────────────────
+# Global, non-destructive temperature shift applied on top of every room's
+# PID target every tick — see number.py GroupOffsetNumber. Mirrors
+# climate_group_helper's "Group Offset" number entity.
+
+DEFAULT_GROUP_OFFSET: float = 0.0
+GROUP_OFFSET_MIN: float = -5.0
+GROUP_OFFSET_MAX: float = 5.0
+GROUP_OFFSET_STEP: float = 0.5
+
+# ── Device calibration (v0.9.0) ──────────────────────────────────────────────
+# See engine/calibration_engine.py and CONF_CALIBRATION_ENTITY above.
+
+# How often (minutes) to re-send the calibration value even when it hasn't
+# changed — guards against Zigbee number entities silently reverting/timing
+# out, mirroring climate_group_helper's calibration "heartbeat".
+DEFAULT_CALIBRATION_HEARTBEAT_MIN: int = 30
+
+# Only re-write the calibration entity when the computed offset has moved
+# by at least this much since the last write (outside of a heartbeat
+# resend) — avoids chattering the entity on sensor noise.
+CALIBRATION_CHANGE_THRESHOLD: float = 0.2
+
+# Defensive clamp on the computed offset before it is ever sent — a sensor
+# glitch (external probe reporting a wildly wrong value) should never be
+# able to push a TRV's calibration far out of a sane range. The target
+# `number.*` entity's own min/max (set by its own integration) still
+# applies on top of this.
+CALIBRATION_OFFSET_MIN: float = -10.0
+CALIBRATION_OFFSET_MAX: float = 10.0
+
+# ── Sync engine (v0.9.0) ──────────────────────────────────────────────────────
+# See engine/sync_engine.py and CONF_SYNC_MODE above.
+
+# A state change on a room's write entity must differ from
+# coordinator.last_expected_setpoint by at least this much to be considered
+# a genuine external/manual change rather than device write-back noise —
+# matches the PID tick's own suppress threshold.
+SYNC_CHANGE_THRESHOLD: float = 0.5
+
+# Seconds a mismatched temperature must persist before SyncEngine acts.
+# Absorbs the brief window right after Heat Manager's own write where a
+# slow device (Zigbee, cloud round-trip) may still report its old value.
+SYNC_CONFIRM_DELAY_SEC: float = 12.0
+
+# ── Schedule engine (v0.9.0) ──────────────────────────────────────────────────
+# See engine/schedule_engine.py and CONF_SCHEDULE_ENTITY above.
+
+# Sanity clamp on a temperature parsed out of a schedule block or calendar
+# event description — a malformed or malicious "Additional data" / event
+# description should never be able to drive a room target outside a livable
+# range.
+SCHEDULE_TEMP_MIN: float = 5.0
+SCHEDULE_TEMP_MAX: float = 30.0
 
 # ── Repair issue identifiers ────────────────────────────────────────────────────
 
@@ -316,7 +402,7 @@ SERVICE_BOOST_STOP = "boost_stop"
 
 # ── Platforms ─────────────────────────────────────────────────────────────────
 
-PLATFORMS: list[str] = ["sensor", "binary_sensor", "select", "switch"]
+PLATFORMS: list[str] = ["sensor", "binary_sensor", "select", "switch", "number"]
 
 # ── Coordinator update interval ───────────────────────────────────────────────
 

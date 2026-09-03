@@ -16,6 +16,9 @@
     },
     "switch": {
       "room_override": {"default": "mdi:thermostat-auto"}
+    },
+    "number": {
+      "group_offset": {"default": "mdi:plus-minus-variant"}
     }
   }
 }

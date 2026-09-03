@@ -78,6 +78,13 @@ def make_coordinator(
     coord.night_setback_delta = MagicMock(return_value=0.0)
     coord.wake_setback_delta = MagicMock(return_value=0.0)
     coord.get_room_current_temp = MagicMock(return_value=current_temp)
+    # v0.9.0: real values, not auto-vivified MagicMocks — group_offset is
+    # added to target_temp, last_expected_setpoint is written to as a real
+    # dict, and schedule_override is read with .get() by _async_pid_tick(),
+    # so all three need concrete types here.
+    coord.group_offset = 0.0
+    coord.last_expected_setpoint = {}
+    coord.schedule_override = {}
     return coord
 
 
@@ -251,6 +258,9 @@ async def test_bug_b_pid_2_no_call_when_delta_below_threshold():
     coord.night_setback_delta = MagicMock(return_value=0.0)
     coord.wake_setback_delta = MagicMock(return_value=0.0)
     coord.get_room_current_temp = MagicMock(return_value=21.8)
+    coord.group_offset = 0.0
+    coord.last_expected_setpoint = {}
+    coord.schedule_override = {}
     await _pid_tick(coord)
     coord.hass.services.async_call.assert_not_called()
 
@@ -352,3 +362,47 @@ async def test_feedforward_capped_at_max_contribution():
     # FF_MAX_CONTRIBUTION, so the two setpoints should be equal, not
     # increasing further with -40°C vs -10°C.
     assert very_cold_setpoint == pytest.approx(cold_setpoint)
+
+
+# ── Schedule override (v0.9.0, Fase D) ─────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_schedule_override_replaces_local_comfort_temp():
+    """An active schedule/calendar block for the room overrides
+    CONF_COMFORT_TEMP on the local (no-HomeKit) path."""
+    coord = make_coordinator(
+        homekit_entity=None,
+        comfort_temp=16.0,  # would normally drive a low/no-op setpoint
+        current_temp=16.0,
+        climate_id="climate.zigbee_bedroom",
+    )
+    coord.schedule_override = {"living_room": 24.0}  # far above comfort_temp
+    await _pid_tick(coord)
+    coord.hass.services.async_call.assert_called_once()
+    call_args = coord.hass.services.async_call.call_args
+    # Room was already at target under comfort_temp=16 → current=16, but the
+    # schedule override (24.0) creates a large positive error → setpoint rises.
+    assert call_args[0][2]["temperature"] > 16.0
+
+
+@pytest.mark.asyncio
+async def test_schedule_override_replaces_cloud_schedule_target():
+    """An active schedule/calendar block overrides the Netatmo cloud
+    schedule's own 'temperature' attribute on the HomeKit split-entity path."""
+    coord = make_coordinator(current_temp=20.0, target_temp=17.0)  # cloud says 17°C
+    coord.schedule_override = {"living_room": 23.0}  # schedule engine overrides
+    await _pid_tick(coord)
+    coord.hass.services.async_call.assert_called_once()
+    call_args = coord.hass.services.async_call.call_args
+    assert call_args[0][2]["temperature"] > 20.0
+
+
+@pytest.mark.asyncio
+async def test_no_schedule_override_uses_normal_target():
+    """Room absent from schedule_override (no CONF_SCHEDULE_ENTITY, or no
+    active block) falls through to the normal target unchanged."""
+    coord = make_coordinator(current_temp=20.0, target_temp=22.0)
+    assert coord.schedule_override == {}
+    await _pid_tick(coord)
+    call_args = coord.hass.services.async_call.call_args
+    assert call_args[0][2]["temperature"] > 22.0

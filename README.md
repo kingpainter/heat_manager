@@ -7,7 +7,7 @@ custom integration. It manages presence-based heating, open window detection,
 pre-heating on arrival, seasonal on/off control, mold risk monitoring, and
 weather-aware energy tracking — all from the UI.
 
-[![Version](https://img.shields.io/badge/version-0.8.0-blue)](https://github.com/kingpainter/heat-manager/releases)
+[![Version](https://img.shields.io/badge/version-0.9.0-blue)](https://github.com/kingpainter/heat-manager/releases)
 [![HA min version](https://img.shields.io/badge/Home%20Assistant-%3E%3D2025.1-blue)](https://www.home-assistant.io)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange)](https://hacs.xyz)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -61,6 +61,11 @@ Off shuts everything down permanently — with the correct fallback per season.
 - **Lovelace card** — matching design: amber heat palette, SVG ring, room state chips
 - **Diagnostics** — downloadable snapshot from Settings → Heat Manager → ⋮ → Download diagnostics
 - **Full English + Danish translations**
+- **Device calibration** *(v0.9.0)* — optional per-room: writes the delta between an external room sensor and a TRV's own raw reading to the TRV's own `number.*` calibration entity (e.g. Zigbee2MQTT `local_temperature_calibration`), so the device's internal loop stays accurate even when Heat Manager isn't actively writing to it
+- **Sync modes** *(v0.9.0)* — optional per-room: `mirror` or `lock` reacts to a manual/external change on a room's write entity (Netatmo app, TRV dial, another automation) — mirror hands control to the existing override switch, lock reverts the change back
+- **Group offset** *(v0.9.0)* — `number.heat_manager_group_offset`, a ±5 °C slider layered non-destructively on every room's target, persists across restarts, auto-resets on boost
+- **Schedule / calendar integration** *(v0.9.0)* — optional per-room: a native `schedule.*` helper or `calendar.*` entity overrides the room's target temperature while a block/event is active
+- **Self-reporting diagnostics** *(v0.9.0)* — `blocking_sources` attribute on the controller and every room's state sensor lists exactly what's currently preventing heat (off/paused/window/away)
 
 ---
 
@@ -216,6 +221,39 @@ data:
 | `binary_sensor.heat_manager_<room>_window` | Binary | disabled | Per-room window open (DIAGNOSTIC) |
 | `binary_sensor.heat_manager_<room>_mold_risk` | Binary | **on** | Mold risk: RH ≥ 70 % AND T ≤ dewpoint + 1 °C — requires `humidity_sensor` |
 | `switch.heat_manager_<room>_override` | Switch | disabled | Manual heating override per room (CONFIG) |
+| `number.heat_manager_group_offset` | Number | **on** | Global ±5 °C shift applied to every room's target *(v0.9.0)* |
+| `sensor.heat_manager_<room>_calibration_offset` | Sensor | disabled | Last offset written to `calibration_entity` (DIAGNOSTIC) *(v0.9.0)* |
+
+---
+
+## Advanced per-room layers (v0.9.0)
+
+Four opt-in fields, added to a room in Step 2 of the config wizard (or its
+options-flow equivalent). None of them do anything until configured — a
+room that leaves them blank behaves exactly as in 0.7.x/0.8.0.
+
+| Field | Points at | Effect while set/active |
+|---|---|---|
+| `calibration_entity` | `number.*` — the TRV's own offset entity | With `room_temp_sensor` also set: `CalibrationEngine` writes `room_temp_sensor − TRV raw reading` to it every tick (+ a 30 min heartbeat resend) |
+| `sync_mode` | — (`disabled` / `mirror` / `lock`) | Reacts to a manual/external change on the room's write entity — `mirror` switches the room to override, `lock` reverts it |
+| `schedule_entity` | `schedule.*` or `calendar.*` | While a block/event is active, its `temperature` replaces the room's normal target for the duration |
+
+`schedule.*` blocks use HA's own native "Additional data" field (Settings →
+time block → Advanced settings), e.g.:
+```yaml
+temperature: 21.5
+```
+`calendar.*` events read the same `key: value` YAML from the event's
+**Description** field — keep that field to just the YAML, no other text.
+
+Both layers apply *before* the group offset and night/wake setbacks, so
+those still stack on top — e.g. a schedule block at 21.5 °C plus a +1 °C
+group offset heats to 22.5 °C.
+
+Not yet supported (left for a later pass): `hvac_mode`/`turn_off` per slot,
+a bypass priority layer, and per-slot meta-keys (`sync_mode`, `window_mode`,
+`presence_mode`, …) — schedule blocks/events only ever set `temperature`
+today.
 
 ---
 

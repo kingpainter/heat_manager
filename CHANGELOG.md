@@ -11,6 +11,85 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [0.9.0] — 2026-09-03
+
+Five features inspired by a comparison against
+[`climate_group_helper`](https://github.com/bjrnptrsn/climate_group_helper),
+implemented as five independent, individually opt-in layers. None of them
+touch `SeasonEngine`, the existing Netatmo cloud schedule, or any
+already-shipped engine's own behaviour — a room that doesn't configure the
+new fields behaves exactly as it did in 0.8.0.
+
+### Added
+- **Device calibration** `const.py`, new `engine/calibration_engine.py`,
+  `coordinator.py`, `config_flow.py`, `sensor.py` — new optional per-room
+  `calibration_entity` field (a `number.*` entity the TRV's own integration
+  exposes, e.g. Zigbee2MQTT's `local_temperature_calibration`). When set
+  together with the existing `room_temp_sensor` field, `CalibrationEngine`
+  writes the delta between the external sensor and the TRV's own raw
+  reading to that entity every tick, so the device's internal control loop
+  stays accurate even when Heat Manager's own writes are briefly
+  unavailable (network hiccup, HA restart). A 30-minute heartbeat re-sends
+  the value even when unchanged, guarding against Zigbee entities silently
+  reverting. A new diagnostic, disabled-by-default sensor exposes the last
+  written offset per room.
+- **Sync modes** `const.py`, new `engine/sync_engine.py`, `coordinator.py`,
+  `config_flow.py` — new optional per-room `sync_mode` field
+  (`disabled` / `mirror` / `lock`). Detects when a room's write entity
+  changes for a reason other than Heat Manager's own PID tick (the Netatmo
+  app, a physical TRV dial, another automation) by comparing the entity's
+  reported setpoint against `coordinator.last_expected_setpoint` — the
+  value the PID tick itself last computed — rather than instrumenting every
+  write call-site with a "this write is ours" flag. A mismatch must persist
+  12 s before acting, absorbing the normal round-trip window right after
+  Heat Manager's own write. `mirror` accepts the change (switches the room
+  to `OVERRIDE`, same as the existing per-room override switch); `lock`
+  reverts it back to the expected setpoint.
+- **Group offset** new `number.py` platform (`PLATFORMS` in `const.py`
+  extended), `const.py`, `coordinator.py` — new
+  `number.heat_manager_group_offset` entity (±5.0 °C slider, `RestoreNumber`
+  — persists across HA restarts). Applied fresh every PID tick on top of
+  whichever base target is in effect (cloud schedule setpoint, comfort_temp,
+  or a schedule/calendar override), so it automatically follows the next
+  schedule/season transition instead of being baked into a stored value.
+  Auto-resets to 0 °C when a boost starts, mirroring how boost already
+  overrides other temporary state.
+- **Schedule / calendar integration** `const.py`, new
+  `engine/schedule_engine.py`, `coordinator.py`, `config_flow.py` — new
+  optional per-room `schedule_entity` field, pointing at a native HA
+  `schedule.*` helper or a `calendar.*` entity. While a block/event is
+  active, its `temperature` overrides the room's normal target
+  (`comfort_temp` on the local path, or the Netatmo cloud schedule setpoint
+  on the HomeKit path) for the duration — read fresh every tick, so it
+  releases automatically once the block/event ends. `schedule.*` entities
+  use HA's own native "Additional data" per time block (copied onto the
+  entity's attributes automatically); `calendar.*` entities have the
+  event's `description` parsed as YAML `key: value` pairs, mirroring
+  `climate_group_helper`'s format. Group offset and the night/wake setbacks
+  still apply on top. A parsed temperature is clamped to 5–30 °C as a
+  defensive sanity check. Out of scope for this first pass (left for a
+  future phase): `hvac_mode`/`turn_off` overrides, a bypass priority layer,
+  and the wider CGH meta-key set (`sync_mode`, `window_mode`,
+  `presence_mode`, …) driven per slot.
+- **Self-reporting diagnostics** `coordinator.py`, `select.py`, `sensor.py`
+  — new `get_room_blocking_sources(room_name)` / `global_blocking_sources()`
+  coordinator helpers, surfaced as a `blocking_sources` attribute on
+  `select.heat_manager_controller_state` (global) and
+  `sensor.<room>_room_state` (per room): a plain list of what is currently
+  preventing that room (or the whole system) from heating —
+  `controller_off`, `controller_pause`, `window`, `presence` — so a
+  dashboard or automation can answer "why isn't this room heating right
+  now" without cross-referencing multiple entities.
+
+### Tests
+- 65 new tests across `test_calibration_engine.py` (15),
+  `test_sync_engine.py` (20), `test_schedule_engine.py` (15),
+  `test_blocking_sources.py` (12), and 3 new `test_pid_tick.py` cases
+  covering the schedule-override hook — full suite: 160 → 225 passed,
+  coverage 44.99% → 48.00%.
+
+---
+
 ## [0.8.0] — 2026-09-02
 
 ### Added

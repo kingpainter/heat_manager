@@ -35,6 +35,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util.dt import utcnow
 
 from .const import (
+    CONF_CALIBRATION_ENTITY,
     CONF_CLIMATE_ENTITY,
     CONF_WINDOW_SENSORS,
     RoomState,
@@ -71,6 +72,8 @@ async def async_setup_entry(
         # regulate against CONF_COMFORT_TEMP and previously had no way to
         # expose their PID output at all.
         entities.append(RoomPidPowerSensor(coordinator, entry, room))
+        if room.get(CONF_CALIBRATION_ENTITY):
+            entities.append(RoomCalibrationOffsetSensor(coordinator, entry, room))
 
     async_add_entities(entities)
 
@@ -217,7 +220,12 @@ class RoomStateSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return {"room_name": self._room_name}
+        return {
+            "room_name": self._room_name,
+            "blocking_sources": self.coordinator.get_room_blocking_sources(
+                self._room_name
+            ),
+        }
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -352,3 +360,36 @@ class RoomPidPowerSensor(CoordinatorEntity, SensorEntity):
             "pid_kd": getattr(pid, "kd", None),
             "integral": round(getattr(pid, "_integral", 0.0), 4),
         }
+
+
+class RoomCalibrationOffsetSensor(CoordinatorEntity, SensorEntity):
+    """Last offset CalibrationEngine wrote to the room's calibration entity.
+
+    Read-only mirror of engine/calibration_engine.py's internal state —
+    created only for rooms with CONF_CALIBRATION_ENTITY configured.
+    """
+
+    _attr_has_entity_name = True
+    _attr_native_unit_of_measurement = "°C"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_suggested_display_precision = 1
+    _attr_entity_registry_enabled_default = False  # diagnostic — off by default
+
+    def __init__(
+        self,
+        coordinator: HeatManagerCoordinator,
+        entry: ConfigEntry,
+        room: dict,
+    ) -> None:
+        super().__init__(coordinator)
+        self._room_name = room["room_name"]
+        safe_name = self._room_name.lower().replace(" ", "_")
+        self._attr_unique_id = f"{entry.entry_id}_{safe_name}_calibration_offset"
+        self._attr_name = f"{self._room_name} calibration offset"
+        self._attr_device_info = coordinator.room_device_info(self._room_name)
+
+    @property
+    def native_value(self) -> float | None:
+        value = self.coordinator.calibration_engine._last_written.get(self._room_name)
+        return round(value, 1) if value is not None else None

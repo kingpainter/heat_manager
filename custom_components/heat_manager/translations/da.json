@@ -56,13 +56,19 @@
           "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
           "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
           "comfort_temp": "Komfort-temperatur (Zigbee/lokale TRV'er)",
+          "calibration_entity": "TRV-kalibreringsentitet (valgfrit)",
+          "sync_mode": "Synkroniseringstilstand",
+          "schedule_entity": "Skema-/kalenderentitet (valgfrit)",
           "_action": "Hvad nu?"
         },
         "data_description": {
           "comfort_temp": "PID-måltemperatur for rum uden en HomeKit-entity (Zigbee i dag, Matter/Thread senere) — disse har intet separat cloud-skema at hente et mål fra. Ignoreres for Netatmo-rum, som i stedet bruger cloud-entityens eget skema-setpunkt. Standard 20°C.",
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO₂ er høj, registreres et åbent vindue som ventilation frem for varmespild.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som bevidst ventilation. Standard er 900 ppm. Hæv for soveværelser eller sænk for sjældent benyttede rum.",
-          "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering. Anbefales til Zigbee TRV'er, hvis indbyggede sensor sidder på radiatorlegemet (typisk 1–3°C for høj)."
+          "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering. Anbefales til Zigbee TRV'er, hvis indbyggede sensor sidder på radiatorlegemet (typisk 1–3°C for høj).",
+          "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren ovenfor.",
+          "sync_mode": "Hvad der sker, når dette rums TRV ændres manuelt eller af en anden automatisering. Deaktiveret: ignorer. Spejl: acceptér ændringen og skift rummet til tilsidesættelse. Lås: gendan til Heat Managers eget setpunkt.",
+          "schedule_entity": "En schedule.*-hjælper eller calendar.*-entitet. Mens en tidsblok eller begivenhed er aktiv, overstyrer dens temperatur rummets normale mål."
         }
       },
       "person": {
@@ -170,13 +176,19 @@
           "co2_sensor": "CO₂-sensor (valgfrit)",
           "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
           "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
-          "comfort_temp": "Komfort-temperatur (Zigbee/lokale TRV'er)"
+          "comfort_temp": "Komfort-temperatur (Zigbee/lokale TRV'er)",
+          "calibration_entity": "TRV-kalibreringsentitet (valgfrit)",
+          "sync_mode": "Synkroniseringstilstand",
+          "schedule_entity": "Skema-/kalenderentitet (valgfrit)"
         },
         "data_description": {
           "comfort_temp": "PID-mål for rum uden HomeKit-entity (Zigbee/Matter/Thread). Ignoreres for Netatmo-rum. Standard 20°C.",
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som ventilation. Standard 900 ppm.",
-          "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering."
+          "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering.",
+          "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren ovenfor.",
+          "sync_mode": "Hvad der sker, når dette rums TRV ændres manuelt eller af en anden automatisering. Deaktiveret: ignorer. Spejl: acceptér ændringen og skift rummet til tilsidesættelse. Lås: gendan til Heat Managers eget setpunkt.",
+          "schedule_entity": "En schedule.*-hjælper eller calendar.*-entitet. Mens en tidsblok eller begivenhed er aktiv, overstyrer dens temperatur rummets normale mål."
         }
       },
       "room_edit": {
@@ -191,13 +203,19 @@
           "co2_sensor": "CO₂-sensor (valgfrit)",
           "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
           "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
-          "comfort_temp": "Komfort-temperatur (Zigbee/lokale TRV'er)"
+          "comfort_temp": "Komfort-temperatur (Zigbee/lokale TRV'er)",
+          "calibration_entity": "TRV-kalibreringsentitet (valgfrit)",
+          "sync_mode": "Synkroniseringstilstand",
+          "schedule_entity": "Skema-/kalenderentitet (valgfrit)"
         },
         "data_description": {
           "comfort_temp": "PID-mål for rum uden HomeKit-entity (Zigbee/Matter/Thread). Ignoreres for Netatmo-rum. Standard 20°C.",
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som ventilation. Standard 900 ppm.",
-          "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering."
+          "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering.",
+          "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren ovenfor.",
+          "sync_mode": "Hvad der sker, når dette rums TRV ændres manuelt eller af en anden automatisering. Deaktiveret: ignorer. Spejl: acceptér ændringen og skift rummet til tilsidesættelse. Lås: gendan til Heat Managers eget setpunkt.",
+          "schedule_entity": "En schedule.*-hjælper eller calendar.*-entitet. Mens en tidsblok eller begivenhed er aktiv, overstyrer dens temperatur rummets normale mål."
         }
       },
       "persons_menu": {
@@ -279,8 +297,8 @@
         "name": "Aktiv sæsonfase",
         "state": {
           "dormant": "Dvale",
-          "waking":  "Vågner",
-          "active":  "Aktiv"
+          "waking": "Vågner",
+          "active": "Aktiv"
         }
       }
     },
@@ -295,6 +313,11 @@
     "switch": {
       "room_override": {
         "name": "Tilsidesæt"
+      }
+    },
+    "number": {
+      "group_offset": {
+        "name": "Gruppeoffset"
       }
     }
   },

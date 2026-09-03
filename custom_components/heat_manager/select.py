@@ -69,6 +69,7 @@ class ControllerStateSelect(CoordinatorEntity, SelectEntity):
             "auto_off_reason": self.coordinator.auto_off_reason.value,
             "pause_remaining": self.coordinator.pause_remaining_minutes,
             "effective_season": self.coordinator.effective_season.value,
+            "blocking_sources": self.coordinator.global_blocking_sources(),
         }
 
     async def async_select_option(self, option: str) -> None:
