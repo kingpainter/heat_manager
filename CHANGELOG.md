@@ -11,6 +11,37 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [0.9.1] — 2026-09-03
+
+Surfaces v0.9.0's backend-only additions in both frontend files — the
+group offset slider and self-reporting `blocking_sources` diagnostics were
+previously only reachable from Developer Tools or a generic dashboard card.
+
+### Added
+- `frontend/heat-manager-panel.js`, `frontend/heat-manager-card.js` —
+  `number.heat_manager_group_offset` now has a live slider (Controller
+  hero on the panel, its own row on the card), wired to `number.set_value`
+  and kept in sync with backend polls (paused while the user is actively
+  dragging it).
+- `frontend/heat-manager-panel.js`, `frontend/heat-manager-card.js` —
+  global and per-room `blocking_sources` are now shown as short Danish
+  tags: a global indicator under the controller title, and a per-room
+  badge for the sources not already implied by the room's state pill
+  (`controller_off` / `controller_pause` — `window`/`presence` are
+  suppressed there since `window_open`/`away` already show).
+- `custom_components/heat_manager/websocket.py` — `ws_get_state` payload
+  now includes top-level `group_offset` and `blocking_sources`, plus
+  per-room `blocking_sources`, `calibration_entity`, `sync_mode` and
+  `schedule_entity` (raw values only — the panel/card own all display
+  labels, per the existing convention).
+- `frontend/heat-manager-panel.js` — Konfiguration tab's room list now
+  shows a small read-only line when a room has calibration/sync/schedule
+  configured. The config-flow (reconfigure) wizard remains the only way
+  to actually set these three fields — a dedicated editor UI for them was
+  scoped out of this pass.
+
+---
+
 ## [0.9.0] — 2026-09-03
 
 Five features inspired by a comparison against

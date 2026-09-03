@@ -1,11 +1,11 @@
 # Heat Manager — Project Status
 
-**Last updated:** 2026-09-03 · v0.9.0
-**Version (GitHub):** 0.9.0
-**Version (HA server):** 0.6.2 ⚠️ pending deploy (0.8.0 was already pending — now two releases behind)
+**Last updated:** 2026-09-03 · v0.9.1
+**Version (GitHub):** 0.9.1
+**Version (HA server):** 0.6.2 ⚠️ pending deploy (0.8.0 was already pending — now three releases behind)
 **Target:** Home Assistant 2025.1+
 **Language:** English primary · Danish translations included
-**Status:** Stable — Gold IQS complete, HomeKit-first routing, PID proportional control, boost functional end-to-end, five new opt-in per-room layers (calibration, sync modes, group offset, schedule/calendar, blocking-source diagnostics) built and tested in v0.9.0 but NOT yet deployed to the HA server and NOT yet surfaced in the frontend panel/card (see Backlog)
+**Status:** Stable — Gold IQS complete, HomeKit-first routing, PID proportional control, boost functional end-to-end, five opt-in per-room layers from v0.9.0 (calibration, sync modes, group offset, schedule/calendar, blocking-source diagnostics) now also surfaced in the frontend panel/card (v0.9.1) — NOT yet deployed to the HA server (see Backlog)
 
 ---
 
@@ -73,8 +73,8 @@ heat_manager/
 
 | File | Notes |
 |------|-------|
-| `frontend/heat-manager-panel.js` | Surgical DOM patching, 4 tabs (Oversigt/Rum/Historik/Konfiguration), toast notifications, cloud-status chip, manual TRV control, boost countdown (v0.3.10, synced every refresh via `_patchControllerHero()`) |
-| `frontend/heat-manager-card.js` | Tablet height-scaling (`--hm-scale-h`), 2-col room grid, boost delegates to `heat_manager/boost_start\|stop` WS (v0.4.3, unified with panel/service — no more separate client-side implementation) |
+| `frontend/heat-manager-panel.js` | Surgical DOM patching, 4 tabs (Oversigt/Rum/Historik/Konfiguration), toast notifications, cloud-status chip, manual TRV control, boost countdown (v0.3.10, synced every refresh via `_patchControllerHero()`); group-offset slider + global/per-room `blocking_sources` badges (v0.9.1) |
+| `frontend/heat-manager-card.js` | Tablet height-scaling (`--hm-scale-h`), 2-col room grid, boost delegates to `heat_manager/boost_start\|stop` WS (v0.4.3, unified with panel/service — no more separate client-side implementation); group-offset slider + global/per-room `blocking_sources` badges, read directly from entity state (no WS payload used) (v0.9.1) |
 | `frontend/heat_manager_logo1.png` | 44 KB. Served at `/api/heat_manager-logo`. (The stray `heat_manager_logo2.png` on the HA server has been deleted by dev — resolved 2026-09-02.) |
 
 ### Tests (14 files, 225 tests, 48.00% coverage)
@@ -243,7 +243,7 @@ v0.9.0 — five opt-in per-room/global layers, from a comparison against `climat
 | Boost auto-expiry/countdown on the backend (currently only the card has a local, frontend-only timer) | ✅ Done — coordinator now auto-restores after `duration_minutes` |
 | Zigbee rooms unregulated by PID | ✅ Done — hybrid PID engine now regulates local/Zigbee rooms too via new `comfort_temp` field, plus outdoor feedforward ("heating curve") on both room types |
 | Boost button never re-synced after backend-side stop (auto-expiry, service, another client) | ✅ Done — sync moved from one-time `_attachEvents()` into `_patchControllerHero()`, called every refresh; live countdown added |
-| Surface `group_offset` slider + `blocking_sources` in `frontend/heat-manager-panel.js`/`heat-manager-card.js` | High — v0.9.0 backend is done and tested, but the frontend files weren't reachable from the build environment this session (`custom_components/heat_manager/frontend/` wasn't staged) and so weren't touched at all. Both entities/attributes already work from Developer Tools / any generic dashboard card today. |
+| Surface `group_offset` slider + `blocking_sources` in `frontend/heat-manager-panel.js`/`heat-manager-card.js` | ✅ Done (v0.9.1) — slider + badges added to both panel and card; `ws_get_state` payload extended for the panel, card reads the room state sensor's `blocking_sources` attribute directly. Konfiguration tab shows calibration/sync/schedule read-only (wizard remains the editor). |
 | Schedule engine: `hvac_mode`/`turn_off` per slot, a bypass priority layer, and the wider per-slot meta-key set (`sync_mode`, `window_mode`, `presence_mode`, …) | Medium — deliberately scoped out of v0.9.0's first pass to keep it reviewable; `climate_group_helper`'s README documents the fuller design this could grow into |
 | Manual TRV override auto-restore | Low — Phase B |
 | Per-room always-on toggle | Low — bypass presence for bathrooms/offices |

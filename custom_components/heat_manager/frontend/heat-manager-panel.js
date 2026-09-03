@@ -233,6 +233,7 @@ class HeatManagerPanel extends HTMLElement {
       if (id.startsWith("select.") && id.endsWith("_controller_state")) this._ctrlEntityId   = id;
       if (id.startsWith("select.") && id.endsWith("_season_mode"))      this._seasonEntityId = id;
       if (id.startsWith("sensor.") && id.endsWith("_pause_remaining"))  this._pauseEntityId  = id;
+      if (id.startsWith("number.") && id.endsWith("_group_offset"))     this._offsetEntityId = id; // v0.9.0
     }
   }
 
@@ -431,6 +432,21 @@ class HeatManagerPanel extends HTMLElement {
         el.className = "room-boost-badge"; el.textContent = "⚡ Boost";
         card.querySelector(".room-card-header")?.querySelector("div:last-child")?.prepend(el);
       } else if (!room.boost_active && bb) { bb.remove(); }
+
+      // Update blocking-sources badge (v0.9.0)
+      const extraBlocking = this._roomExtraBlocking(room);
+      let blk = card.querySelector(".room-blocking-badge");
+      if (extraBlocking.length) {
+        const title = extraBlocking.map(s => this._blockingLabel(s)).join(", ");
+        const txt   = "⛔ " + this._blockingLabel(extraBlocking[0]) + (extraBlocking.length > 1 ? ` +${extraBlocking.length - 1}` : "");
+        if (!blk) {
+          blk = document.createElement("div");
+          blk.className = "room-blocking-badge";
+          card.appendChild(blk);
+        }
+        blk.title = title;
+        blk.textContent = txt;
+      } else if (blk) { blk.remove(); }
     });
   }
 
@@ -545,6 +561,27 @@ class HeatManagerPanel extends HTMLElement {
       badge.textContent = this._ctrlTitle(ctrl);
       badge.style.background = `${ringColor}22`;
       badge.style.color = ringColor;
+    }
+
+    // v0.9.0: group offset slider — synced on every poll unless the user is
+    // actively dragging it (avoid fighting their in-progress input)
+    const groupOffset = this._data?.group_offset ?? 0;
+    const offsetSlider = root.querySelector("#ctrl-offset-slider");
+    if (offsetSlider && document.activeElement !== offsetSlider) {
+      offsetSlider.value = groupOffset;
+      offsetSlider.style.setProperty("--pct", Math.max(0, Math.min(100, (groupOffset + 5) / 10 * 100)) + "%");
+    }
+    const offsetVal = root.querySelector("#ctrl-offset-val");
+    if (offsetVal) offsetVal.textContent = (groupOffset >= 0 ? "+" : "") + groupOffset.toFixed(1) + "°C";
+
+    // v0.9.0: global blocking-sources indicator
+    const blockingSrc = this._data?.blocking_sources ?? [];
+    const blockingRow = root.querySelector("#ctrl-blocking-row");
+    if (blockingRow) {
+      blockingRow.style.display = blockingSrc.length ? "flex" : "none";
+      blockingRow.textContent = blockingSrc.length
+        ? "⛔ " + blockingSrc.map(s => this._blockingLabel(s)).join(", ")
+        : "";
     }
 
     // Boost button — active state + remaining-time label, synced on every
@@ -725,6 +762,35 @@ class HeatManagerPanel extends HTMLElement {
       pre_heat:    "linear-gradient(135deg,rgba(14,165,233,0.15) 0%,rgba(14,165,233,0.04) 100%)",
       override:    "linear-gradient(135deg,rgba(168,85,247,0.15) 0%,rgba(168,85,247,0.04) 100%)",
     })[s] ?? "linear-gradient(135deg,rgba(100,116,139,0.1) 0%,transparent 100%)";
+  }
+
+  // v0.9.0: self-reporting diagnostics — short Danish tags for the neutral
+  // blocking_sources codes the backend sends (coordinator.get_room_blocking_sources).
+  _blockingLabel(src) {
+    return ({
+      controller_off:   "Controller slukket",
+      controller_pause: "Controller pause",
+      window:           "Vindue åbent",
+      presence:         "Fraværende",
+    })[src] ?? src;
+  }
+
+  // v0.9.0: Konfiguration tab — read-only display label for a room's sync
+  // mode (the config-flow wizard remains the way to actually set this).
+  _syncModeLabel(mode) {
+    return ({ disabled: "Deaktiveret", mirror: "Spejl", lock: "Lås" })[mode] ?? mode;
+  }
+
+  // Per-room blocking sources, minus whatever the room's own state pill
+  // already communicates (window_open/away) — surfaces only the otherwise
+  // invisible controller-level reasons on the room card itself.
+  _roomExtraBlocking(room) {
+    const src = room.blocking_sources ?? [];
+    return src.filter(s => {
+      if (s === "window" && room.state === "window_open") return false;
+      if (s === "presence" && room.state === "away") return false;
+      return true;
+    });
   }
 
   // v0.3.9: event-type metadata for the Historik filter chips + hist-dot colour.
@@ -1098,6 +1164,10 @@ class HeatManagerPanel extends HTMLElement {
       }
       .ctrl-meta-chip span { color: var(--sub); }
       .ctrl-meta-chip strong { font-weight: 600; }
+      .ctrl-blocking-row {
+        align-items: center; gap: 5px; margin-top: 8px;
+        font-size: 11px; font-weight: 600; color: #fca5a5;
+      }
 
       /* ── Controller buttons ── */
       .ctrl-btns-wrap { padding: 0 16px 16px; }
@@ -1116,6 +1186,24 @@ class HeatManagerPanel extends HTMLElement {
         border-radius: 8px; border: 1px solid var(--div);
         background: var(--bg3); color: var(--text);
         font-family: 'DM Sans', sans-serif;
+      }
+      /* v0.9.0: Group offset slider */
+      .ctrl-offset-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+      .ctrl-offset-label { font-size: 12px; color: var(--sub); white-space: nowrap; }
+      .ctrl-offset-slider {
+        flex: 1; -webkit-appearance: none; appearance: none;
+        height: 4px; border-radius: 2px;
+        background: linear-gradient(to right, #f97316 var(--pct,50%), var(--bg3) var(--pct,50%));
+        outline: none; cursor: pointer;
+      }
+      .ctrl-offset-slider::-webkit-slider-thumb {
+        -webkit-appearance: none; width: 14px; height: 14px;
+        border-radius: 50%; background: #fb923c;
+        border: 2px solid var(--bg2); cursor: pointer;
+      }
+      .ctrl-offset-val {
+        font-size: 12px; font-weight: 600; font-family: 'DM Mono', monospace;
+        color: #fb923c; width: 48px; text-align: right; flex-shrink: 0;
       }
       .pause-bar {
         margin: 0 16px 14px;
@@ -1157,6 +1245,13 @@ class HeatManagerPanel extends HTMLElement {
         font-size: 9px; font-weight: 700;
         padding: 2px 6px; border-radius: 5px;
         background: rgba(168,85,247,0.15); color: #c084fc;
+        text-transform: uppercase; letter-spacing: 0.4px;
+      }
+      .room-blocking-badge {
+        display: inline-flex; align-items: center; gap: 3px;
+        font-size: 9px; font-weight: 700;
+        padding: 2px 6px; border-radius: 5px; margin-top: 5px;
+        background: rgba(239,68,68,0.12); color: #fca5a5;
         text-transform: uppercase; letter-spacing: 0.4px;
       }
 
@@ -1553,6 +1648,12 @@ class HeatManagerPanel extends HTMLElement {
     const dashOffset = circ - fill;
     const ringColor  = ctrl === "on" ? "#f97316" : ctrl === "pause" ? "#eab308" : "#475569";
 
+    // v0.9.0: group offset + blocking-sources indicator
+    const groupOffset  = this._data?.group_offset ?? 0;
+    const offsetPct    = Math.max(0, Math.min(100, (groupOffset + 5) / 10 * 100));
+    const offsetStr    = (groupOffset >= 0 ? "+" : "") + groupOffset.toFixed(1) + "°C";
+    const blockingSrc  = this._data?.blocking_sources ?? [];
+
     return `
       <div class="section-box">
         <div class="section-box-header">
@@ -1578,6 +1679,7 @@ class HeatManagerPanel extends HTMLElement {
           <div class="ctrl-info">
             <div class="ctrl-title" style="color:${ringColor}">${this._ctrlTitle(ctrl)}</div>
             <div class="ctrl-sub">${(this._data?.rooms ?? []).length} rum konfigureret</div>
+            <div class="ctrl-blocking-row" id="ctrl-blocking-row" style="display:${blockingSrc.length ? "flex" : "none"}">⛔ ${this._esc(blockingSrc.map(s => this._blockingLabel(s)).join(", "))}</div>
             <div class="ctrl-meta-row">
               <div class="ctrl-meta-chip">
                 🌡️ <span>Ude</span>
@@ -1613,6 +1715,12 @@ class HeatManagerPanel extends HTMLElement {
               <option value="480">Til i morgen</option>
             </select>
           </div>
+          <div class="ctrl-offset-row">
+            <span class="ctrl-offset-label">Gruppe-offset</span>
+            <input type="range" class="ctrl-offset-slider" id="ctrl-offset-slider"
+              min="-5" max="5" step="0.5" value="${groupOffset}" style="--pct:${offsetPct}%">
+            <span class="ctrl-offset-val" id="ctrl-offset-val">${offsetStr}</span>
+          </div>
         </div>
 
         <div id="pause-bar" class="pause-bar" style="display:${showPause?"flex":"none"}">
@@ -1642,6 +1750,12 @@ class HeatManagerPanel extends HTMLElement {
     const boostBadge = room.boost_active
       ? `<div class="room-boost-badge">⚡ Boost</div>`
       : "";
+    // v0.9.0: blocking-sources badge (controller_off/controller_pause only —
+    // window/presence are already shown via the state pill)
+    const extraBlocking = this._roomExtraBlocking(room);
+    const blockingBadge = extraBlocking.length
+      ? `<div class="room-blocking-badge" title="${this._esc(extraBlocking.map(s => this._blockingLabel(s)).join(", "))}">⛔ ${this._esc(this._blockingLabel(extraBlocking[0]))}${extraBlocking.length > 1 ? ` +${extraBlocking.length - 1}` : ""}</div>`
+      : "";
     return `
       <div class="room-card state-${state}" data-room-id="${this._esc(room.name)}"
            style="background:${grad};border-left-color:${color}">
@@ -1666,6 +1780,7 @@ class HeatManagerPanel extends HTMLElement {
           <div class="room-state-fill" style="width:${fillPct}%;background:${color}"></div>
         </div>
         ${valveBadge}
+        ${blockingBadge}
       </div>`;
   }
 
@@ -2144,12 +2259,22 @@ class HeatManagerPanel extends HTMLElement {
         <div class="section-box-header">
           <div class="section-box-title">Rum &amp; klimaentiteter</div>
         </div>
-        ${(this._data?.rooms ?? []).map(r =>
-          `<div class="cfg-row">
+        ${(this._data?.rooms ?? []).map(r => {
+          // v0.9.0: read-only summary of the optional per-room engines —
+          // configure these via the config-flow wizard (reconfigure flow),
+          // not from this panel.
+          const extras = [];
+          if (r.calibration_entity) extras.push("🎚 Kalibrering");
+          if (r.sync_mode && r.sync_mode !== "disabled") extras.push(`🔄 Sync: ${this._syncModeLabel(r.sync_mode)}`);
+          if (r.schedule_entity) extras.push("🗓 Schedule");
+          return `<div class="cfg-row">
             <span class="cfg-k">${this._esc(r.name)}</span>
             <span class="cfg-v" style="color:${this._stateColor(r.state ?? "normal")}">${this._esc(r.climate_entity ?? "–")}</span>
-          </div>`
-        ).join("") || `<div class="empty">Ingen rum</div>`}
+          </div>` + (extras.length ? `<div class="cfg-row" style="padding-top:0">
+            <span class="cfg-k"></span>
+            <span class="cfg-v" style="font-size:11px;font-weight:400;color:var(--sub)">${this._esc(extras.join(" · "))}</span>
+          </div>` : "");
+        }).join("") || `<div class="empty">Ingen rum</div>`}
       </div>`;
   }
 
@@ -2209,6 +2334,37 @@ class HeatManagerPanel extends HTMLElement {
       const min = parseInt(root.querySelector("#pause-dur")?.value ?? "120", 10);
       this._pause(min);
     });
+
+    // v0.9.0: Group offset slider — live label while dragging,
+    // number.set_value on release (mirrors climate_group_helper's slider UX).
+    const offsetSlider = root.querySelector("#ctrl-offset-slider");
+    if (offsetSlider) {
+      const updateOffsetLabel = () => {
+        const val = parseFloat(offsetSlider.value);
+        offsetSlider.style.setProperty("--pct", Math.max(0, Math.min(100, (val + 5) / 10 * 100)) + "%");
+        const valEl = root.querySelector("#ctrl-offset-val");
+        if (valEl) valEl.textContent = (val >= 0 ? "+" : "") + val.toFixed(1) + "°C";
+      };
+      offsetSlider.addEventListener("input", updateOffsetLabel);
+      offsetSlider.addEventListener("change", async () => {
+        this._resolveEntityIds();
+        if (!this._offsetEntityId) {
+          this._showToast("Kunne ikke finde gruppe-offset entity", "error");
+          return;
+        }
+        const val = parseFloat(offsetSlider.value);
+        try {
+          await this._hass.callService("number", "set_value", {
+            entity_id: this._offsetEntityId, value: val,
+          });
+          if (this._data) this._data.group_offset = val;
+        } catch (e) {
+          this._showToast("Kunne ikke sætte gruppe-offset", "error");
+          console.error("[HeatManager] set group_offset failed:", e);
+        }
+      });
+    }
+
     // Boost button active-state + countdown syncing now lives in
     // _patchControllerHero(), called on every refresh via _patchAll() —
     // see that method for why the old one-time sync here was insufficient.

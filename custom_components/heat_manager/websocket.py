@@ -31,12 +31,15 @@ from .const import (
     CONF_AUTO_OFF_TEMP_THRESHOLD,
     CONF_AWAY_TEMP_COLD,
     CONF_AWAY_TEMP_MILD,
+    CONF_CALIBRATION_ENTITY,
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
     CONF_HOUSE_VOICE_ENABLED,
     CONF_NOTIFY_SERVICE,
     CONF_PERSON_ENTITY,
     CONF_PERSON_TRACKING,
+    CONF_SCHEDULE_ENTITY,
+    CONF_SYNC_MODE,
     CONF_WEATHER_ENTITY,
     CONF_WINDOW_SENSORS,
     DOMAIN,
@@ -289,6 +292,15 @@ async def ws_get_state(
                 "boost_active": boost_active,  # B2
                 "windows_open": windows_open,
                 "why": _why_label(room_state),
+                # v0.9.0: self-reporting diagnostics — why this room's
+                # heating commands are currently held back, if at all.
+                "blocking_sources": coordinator.get_room_blocking_sources(name),
+                # v0.9.0: optional per-room engines — raw config values only,
+                # the panel/card own the display labels (config-flow wizard
+                # remains the way to configure these).
+                "calibration_entity": room.get(CONF_CALIBRATION_ENTITY) or None,
+                "sync_mode": room.get(CONF_SYNC_MODE) or None,
+                "schedule_entity": room.get(CONF_SCHEDULE_ENTITY) or None,
             }
         )
 
@@ -354,6 +366,9 @@ async def ws_get_state(
         "auto_off_days_required": cfg.get(CONF_AUTO_OFF_TEMP_DAYS, 5),
         "auto_off_threshold": cfg.get(CONF_AUTO_OFF_TEMP_THRESHOLD, 18.0),
         "config": config_snap,
+        # v0.9.0
+        "group_offset": coordinator.group_offset,
+        "blocking_sources": coordinator.global_blocking_sources(),
     }
 
     connection.send_result(msg["id"], payload)
