@@ -117,17 +117,13 @@ class PresenceEngine:
         if not self.coordinator.persons:
             return
         if self.coordinator.someone_home():
-            _LOGGER.debug(
-                "PresenceEngine: someone home at startup — syncing schedule"
-            )
+            _LOGGER.debug("PresenceEngine: someone home at startup — syncing schedule")
             self.coordinator.hass.async_create_task(
                 self._restore_all_schedule(force=True),
                 name="heat_manager_initial_presence_restore",
             )
         else:
-            _LOGGER.debug(
-                "PresenceEngine: nobody home at startup — syncing away mode"
-            )
+            _LOGGER.debug("PresenceEngine: nobody home at startup — syncing away mode")
             self.coordinator.hass.async_create_task(
                 self._set_all_away(),
                 name="heat_manager_initial_presence_away",
