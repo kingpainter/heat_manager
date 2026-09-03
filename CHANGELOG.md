@@ -11,6 +11,33 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [0.9.4] — 2026-09-03
+
+Closes out the entity-platform test-coverage backlog item from the v0.9.2
+deep-dive review — no runtime behaviour changed.
+
+### Added
+- `tests/components/heat_manager/test_number.py` — 6 tests for
+  `GroupOffsetNumber`, including its restore-on-restart behaviour
+  (`async_added_to_hass` restoring a previous value, falling back to the
+  default when there's no previous state or its `native_value` is itself
+  `None`). `number.py` coverage: 95%.
+- `tests/components/heat_manager/test_select.py` — 8 tests for
+  `ControllerStateSelect` and `SeasonModeSelect`, including invalid-option
+  handling and `SeasonModeSelect`'s config-entry-options persistence.
+  `select.py` coverage: 97%.
+- `tests/components/heat_manager/test_switch.py` — 8 tests for
+  `RoomOverrideSwitch`, including the netatmo-vs-zigbee write-target
+  asymmetry (netatmo writes `_climate_id` directly; zigbee prefers the
+  write entity) and service-call-failure handling. `switch.py` coverage:
+  96%.
+- Total test count: 281 → 303. Total project coverage: 58.53% → 63.00%.
+
+### Changed
+- `STATUS.md` backlog — the "entity-platform test coverage" item is now
+  marked done; `number.py`, `select.py`, `sensor.py`, `switch.py` and
+  `websocket.py` all have dedicated tests.
+
 ## [0.9.3] — 2026-09-03
 
 Test coverage for the entity-glue code identified as a gap in the v0.9.2

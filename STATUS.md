@@ -237,7 +237,7 @@ v0.9.0 — five opt-in per-room/global layers, from a comparison against `climat
 | Item | Priority |
 |------|----------|
 | `brands/icon.png` | Medium — required for HACS/official listing |
-| Entity-platform test coverage: `number.py`, `select.py`, `switch.py` (0%) | Medium — coordinator/engine logic is well tested (281 tests), and `websocket.py` (86%) / `sensor.py` (95%) now have dedicated tests (`test_websocket.py`, `test_sensor.py`, 2026-09-03). `number.py`/`select.py`/`switch.py` still have none — `GroupOffsetNumber`'s restore-on-restart in particular is untested. Found during the 2026-09-03 deep-dive review. |
+| Entity-platform test coverage (all of `number.py`, `select.py`, `sensor.py`, `switch.py`, `websocket.py` were 0-16% after the 2026-09-03 deep-dive review) | ✅ Done — `test_number.py`, `test_select.py`, `test_sensor.py`, `test_switch.py`, `test_websocket.py` added (2026-09-03). Coverage: number.py 95%, select.py 97%, sensor.py 95%, switch.py 96%, websocket.py 86%. Suite: 228 → 303 tests, total project coverage 48% → 63%. |
 | CI `ruff check`/`ruff format` only targets `custom_components/heat_manager`, never `tests/` | Low — `tests/` has ~40 pre-existing lint findings (unused imports, unsorted imports) invisible to CI. Found during the 2026-09-03 deep-dive review; not fixed (out of scope, unrelated files). |
 | `strict-typing` | Low — full mypy pass |
 | Deploy 0.8.0 → HA server (currently 0.6.2) | High — pending manual deploy |
