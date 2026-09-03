@@ -11,6 +11,33 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [0.9.3] — 2026-09-03
+
+Test coverage for the entity-glue code identified as a gap in the v0.9.2
+deep-dive review — no runtime behaviour changed.
+
+### Added
+- `tests/components/heat_manager/test_websocket.py` — 30 tests covering
+  every WS command handler (`ws_get_state`, `ws_boost_start/stop`,
+  `ws_set_room_temp`, `ws_update_config`, `ws_get_history`, `_get_entry`),
+  including the v0.9.0 payload fields the frontend panel/card depend on
+  (`blocking_sources`, `group_offset`, `calibration_entity`/`sync_mode`/
+  `schedule_entity`). Tests call each handler's `__wrapped__` coroutine
+  directly, bypassing the `@websocket_api.async_response` background-task
+  scheduler so results and exceptions can be asserted synchronously.
+  `websocket.py` coverage: 16% → 86%.
+- `tests/components/heat_manager/test_sensor.py` — 23 tests covering all
+  sensor platform entities, with particular attention to
+  `RoomStateSensor`'s `available`/unavailable-recovery logging (once each
+  way, never spammed) and its `blocking_sources` attribute exposure.
+  `sensor.py` coverage: 95%.
+- Total test count: 228 → 281. Total project coverage: 48% → 58.53%.
+
+### Changed
+- `STATUS.md` backlog — the "entity-platform test coverage" item now
+  reflects `websocket.py`/`sensor.py` being covered; `number.py`,
+  `select.py`, `switch.py` remain at 0% and are still open.
+
 ## [0.9.2] — 2026-09-03
 
 Deep-dive review of the full v0.9.0/v0.9.1 feature set, fixing one real

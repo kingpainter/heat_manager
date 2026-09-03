@@ -237,7 +237,7 @@ v0.9.0 — five opt-in per-room/global layers, from a comparison against `climat
 | Item | Priority |
 |------|----------|
 | `brands/icon.png` | Medium — required for HACS/official listing |
-| Entity-platform test coverage: `number.py`, `select.py`, `sensor.py`, `switch.py` (0%), `websocket.py` (16%) | Medium — coordinator/engine logic is well tested (225→228 tests), but the HA entity glue code around it — including `GroupOffsetNumber`'s restore-on-restart, `RoomStateSensor`'s `blocking_sources` attribute, and `ws_get_state`'s room-building loop — has no dedicated tests. Found during the 2026-09-03 deep-dive review. |
+| Entity-platform test coverage: `number.py`, `select.py`, `switch.py` (0%) | Medium — coordinator/engine logic is well tested (281 tests), and `websocket.py` (86%) / `sensor.py` (95%) now have dedicated tests (`test_websocket.py`, `test_sensor.py`, 2026-09-03). `number.py`/`select.py`/`switch.py` still have none — `GroupOffsetNumber`'s restore-on-restart in particular is untested. Found during the 2026-09-03 deep-dive review. |
 | CI `ruff check`/`ruff format` only targets `custom_components/heat_manager`, never `tests/` | Low — `tests/` has ~40 pre-existing lint findings (unused imports, unsorted imports) invisible to CI. Found during the 2026-09-03 deep-dive review; not fixed (out of scope, unrelated files). |
 | `strict-typing` | Low — full mypy pass |
 | Deploy 0.8.0 → HA server (currently 0.6.2) | High — pending manual deploy |
