@@ -61,6 +61,23 @@ def _states_get(truth: float, raw: float):
     return _get
 
 
+def _states_get_with_calibration(truth: float, raw: float, calibration: float):
+    """Like _states_get, but also simulates the calibration_entity's own
+    live state — i.e. the device having echoed back a value Heat Manager
+    (or something else) previously wrote to it."""
+
+    def _get(entity_id: str):
+        if "sensor.bathroom_temp" in entity_id:
+            return _state(str(truth))
+        if entity_id == "climate.bathroom":
+            return _state("heat", {"current_temperature": raw})
+        if entity_id == "number.bathroom_trv_local_temperature_calibration":
+            return _state(str(calibration))
+        return None
+
+    return _get
+
+
 # ── opt-in gating ───────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -164,6 +181,55 @@ async def test_climate_entity_missing_current_temperature_skips_write():
     engine = CalibrationEngine(coord)
     await engine.async_tick()
     coord.hass.services.async_call.assert_not_called()
+
+
+# ── feedback-loop correctness (regression) ──────────────────────────────────
+# The TRV's own current_temperature already reflects whatever calibration is
+# currently applied by the device firmware — this is what
+# _read_trv_raw_temperature's docstring calls out. These tests simulate that
+# real device behaviour (unlike the fixed-`raw` tests above) to prove the
+# engine doesn't oscillate the written value every tick.
+
+@pytest.mark.asyncio
+async def test_device_echo_of_previous_write_does_not_undo_it():
+    """v0.9.1 bug: computing the write as an absolute (truth - raw) each
+    tick, once the device's current_temperature already includes the
+    correction, would compute a ~0 residual and write 0.0 — undoing the
+    correction it just made. The fix reads the calibration entity's own
+    current value and adds the residual on top, so a settled room makes no
+    further writes."""
+    coord = _make_coordinator(rooms=[_room()])
+    # Tick 1: uncorrected raw=20.0, truth=21.0 → writes offset=+1.0.
+    coord.hass.states.get = MagicMock(side_effect=_states_get(truth=21.0, raw=20.0))
+    engine = CalibrationEngine(coord)
+    await engine.async_tick()
+    assert engine._last_written["bathroom"] == pytest.approx(1.0)
+    coord.hass.services.async_call.reset_mock()
+
+    # Tick 2: the device has now applied +1.0°C internally, so its own
+    # current_temperature reads 21.0 (matches truth), and the calibration
+    # entity itself echoes back the 1.0 that was written.
+    coord.hass.states.get = MagicMock(
+        side_effect=_states_get_with_calibration(truth=21.0, raw=21.0, calibration=1.0)
+    )
+    await engine.async_tick()
+    coord.hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_residual_error_is_added_on_top_of_devices_own_current_value():
+    """Room drifts further after a correction was already applied — the new
+    write must be current(1.0) + residual(0.5) = 1.5, not just the raw
+    residual on its own."""
+    coord = _make_coordinator(rooms=[_room()])
+    coord.hass.states.get = MagicMock(
+        side_effect=_states_get_with_calibration(truth=21.5, raw=21.0, calibration=1.0)
+    )
+    engine = CalibrationEngine(coord)
+    await engine.async_tick()
+    coord.hass.services.async_call.assert_called_once()
+    call_args = coord.hass.services.async_call.call_args
+    assert call_args[0][2]["value"] == pytest.approx(1.5)
 
 
 # ── de-duplication / heartbeat behaviour ────────────────────────────────────

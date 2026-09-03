@@ -161,6 +161,11 @@ class SyncEngine:
             return
         if self.coordinator.get_room_state(room_name) != RoomState.NORMAL:
             return
+        # The room's active write entity (HomeKit vs cloud) can change
+        # during the confirm delay — re-check rather than acting on a
+        # now-stale entity_id, mirroring the guard in _handle_entity_change.
+        if self.coordinator.get_write_entity(room_name) != entity_id:
+            return
         state = self.coordinator.hass.states.get(entity_id)
         if state is None or state.state in ("unavailable", "unknown", "off"):
             return

@@ -86,7 +86,24 @@ class CalibrationEngine:
         if raw is None:
             return
 
-        offset = max(CALIBRATION_OFFSET_MIN, min(CALIBRATION_OFFSET_MAX, truth - raw))
+        # `raw` already reflects whatever calibration is currently applied
+        # (see _read_trv_raw_temperature's docstring), so (truth - raw) is
+        # only the *residual* error left after that offset — not the
+        # absolute offset to write. Writing the residual directly as an
+        # absolute value would oscillate: e.g. tick 1 computes +1.0°C and
+        # writes it: the device then reports a corrected temperature; tick 2
+        # sees a ~0 residual against that now-corrected reading and writes
+        # 0.0°C, undoing tick 1's correction; tick 3 is back to computing
+        # +1.0°C — forever. Reading the entity's own current value and
+        # adding the residual on top gives the correct absolute target and
+        # converges to a stable value instead.
+        current_offset = self._read_float(calibration_entity)
+        if current_offset is None:
+            current_offset = 0.0
+        offset = max(
+            CALIBRATION_OFFSET_MIN,
+            min(CALIBRATION_OFFSET_MAX, current_offset + (truth - raw)),
+        )
 
         last_value = self._last_written.get(room_name)
         last_time = self._last_write_time.get(room_name)
@@ -142,12 +159,19 @@ class CalibrationEngine:
             return None
 
     def _read_trv_raw_temperature(self, climate_entity: str) -> float | None:
-        """Return the TRV's own, uncorrected current_temperature reading.
+        """Return the TRV's own current_temperature reading.
 
         Deliberately reads the raw climate entity directly rather than via
         coordinator.get_room_current_temp() — that helper already *prefers*
         CONF_ROOM_TEMP_SENSOR, which would make truth and raw the same value
-        and always compute a zero offset.
+        and always compute a zero residual.
+
+        Note this is NOT an uncalibrated value: on real Zigbee2MQTT TRVs the
+        device firmware applies `local_temperature_calibration` internally
+        before reporting `local_temperature`/current_temperature at all — the
+        whole point of a calibration setting is to correct what the device
+        itself reports and regulates against. See _async_update_room() for
+        why this matters for how the offset is computed.
         """
         if not climate_entity:
             return None

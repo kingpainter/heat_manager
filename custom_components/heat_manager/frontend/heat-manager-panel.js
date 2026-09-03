@@ -567,7 +567,7 @@ class HeatManagerPanel extends HTMLElement {
     // actively dragging it (avoid fighting their in-progress input)
     const groupOffset = this._data?.group_offset ?? 0;
     const offsetSlider = root.querySelector("#ctrl-offset-slider");
-    if (offsetSlider && document.activeElement !== offsetSlider) {
+    if (offsetSlider && root.activeElement !== offsetSlider) {
       offsetSlider.value = groupOffset;
       offsetSlider.style.setProperty("--pct", Math.max(0, Math.min(100, (groupOffset + 5) / 10 * 100)) + "%");
     }

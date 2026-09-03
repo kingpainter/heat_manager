@@ -280,6 +280,28 @@ async def test_async_act_room_no_longer_normal_takes_no_action():
     coord.hass.services.async_call.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_async_act_stale_write_entity_takes_no_action():
+    """The room's active write entity changed (e.g. HomeKit <-> cloud
+    switch) during the SYNC_CONFIRM_DELAY_SEC wait — acting on the now-stale
+    entity_id the confirm callback captured would be wrong; the room's
+    *current* write entity is climate.living_room_homekit, not the
+    climate.living_room this callback was scheduled for."""
+    coord = _make_coordinator(rooms=[_room(sync_mode=SYNC_MODE_LOCK)])
+    coord.last_expected_setpoint = {"living_room": 20.0}
+    coord.get_write_entity = MagicMock(return_value="climate.living_room_homekit")
+    state = MagicMock()
+    state.state = "heat"
+    state.attributes = {"temperature": 22.0}
+    coord.hass.states.get = MagicMock(return_value=state)
+    engine = SyncEngine(coord)
+
+    await engine._async_act("living_room", "climate.living_room")
+
+    coord.set_room_state.assert_not_called()
+    coord.hass.services.async_call.assert_not_called()
+
+
 # ── shutdown ─────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

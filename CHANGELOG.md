@@ -11,6 +11,40 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [0.9.2] — 2026-09-03
+
+Deep-dive review of the full v0.9.0/v0.9.1 feature set, fixing one real
+correctness bug found along the way and hardening an edge case.
+
+### Fixed
+- `engine/calibration_engine.py` — the written calibration offset was
+  computed as an absolute `truth - raw` value every tick. On real
+  Zigbee2MQTT TRVs `current_temperature` already reflects whatever
+  `local_temperature_calibration` is currently applied (that's the whole
+  point of the setting), so this oscillated: tick N writes the correct
+  offset, tick N+1 reads the now-corrected temperature, computes a ~0
+  residual, and writes 0.0 — undoing tick N's correction — forever. The
+  fix reads the calibration entity's own current value and adds the
+  residual on top instead of overwriting, so it converges to a stable
+  value. Added two regression tests that simulate the device echoing back
+  a previously-written calibration value.
+- `engine/sync_engine.py` — `_async_act()` (the confirm-delay callback for
+  `sync_mode: lock`/`mirror`) now re-checks the room's current write
+  entity before acting, matching the guard `_handle_entity_change()`
+  already had. Closes a narrow window where a HomeKit↔cloud write-entity
+  switch during the `SYNC_CONFIRM_DELAY_SEC` wait could act on a stale
+  entity_id.
+- `frontend/heat-manager-panel.js` — the group-offset slider's "don't
+  fight the user's drag" guard compared against `document.activeElement`,
+  which never equals an element inside an open shadow root (it resolves to
+  the panel's own host element instead) — the guard was a no-op, so the
+  slider could snap back to the last-polled value mid-drag. Now compares
+  against `this.shadowRoot.activeElement`, matching the card's version.
+
+No functional or behavioural change outside the above three fixes.
+
+---
+
 ## [0.9.1] — 2026-09-03
 
 Surfaces v0.9.0's backend-only additions in both frontend files — the
