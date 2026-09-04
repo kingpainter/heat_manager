@@ -11,6 +11,29 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [0.13.2] — 2026-09-04
+
+### Changed
+- `config_flow.py` — the options flow's room-edit screen (the first screen
+  you see when editing a room — window sensors, away temp, etc.) now shows
+  which TRVs are already configured for that room, via a new `trv_summary`
+  description placeholder (e.g. "TRVs in this room: climate.kitchen,
+  climate.kitchen2", or "none yet" for a room with none). Previously the
+  TRV list only appeared on the next screen (`room_trvs_menu`), which read
+  as "my TRV disappeared" when re-editing a room, even though nothing was
+  actually lost — confirmed by `test_options_flow_room_edit_shows_trv_summary`
+  that TRVs round-trip correctly through save/reopen.
+- `strings.json` / `translations/en.json` / `translations/da.json` —
+  `options.step.room_edit.description` updated to include `{trv_summary}`.
+
+### Tests
+- `test_options_flow_room_edit_shows_trv_summary` — a room with 2 TRVs
+  shows both climate entity IDs, comma-separated.
+- `test_options_flow_room_edit_trv_summary_empty_room` — a room with no
+  TRVs yet shows `"none yet"` rather than a blank string.
+
+---
+
 ## [0.13.1] — 2026-09-04
 
 Bugfix found during a full Fase 1–4 consistency pass over B18 (nothing new

@@ -1004,11 +1004,26 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
                 self._trv_draft = list(current_room.get(CONF_TRVS, []))
                 return await self.async_step_room_trvs_menu()
 
+        # Read-only summary of this room's already-configured TRVs, shown on
+        # this first screen — the actual add/edit/delete UI for them is the
+        # next step (room_trvs_menu), but users kept expecting to see what's
+        # already there before getting that far.
+        trv_summary = (
+            ", ".join(
+                trv.get(CONF_CLIMATE_ENTITY, "?")
+                for trv in current_room.get(CONF_TRVS, [])
+            )
+            or "none yet"
+        )
+
         return self.async_show_form(
             step_id="room_edit",
             data_schema=_room_schema(current_room),
             errors=errors,
-            description_placeholders={"room_name": original_name},
+            description_placeholders={
+                "room_name": original_name,
+                "trv_summary": trv_summary,
+            },
         )
 
     async def async_step_room_add(

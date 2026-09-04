@@ -193,7 +193,7 @@
       },
       "room_edit": {
         "title": "Edit room",
-        "description": "Editing: {room_name}",
+        "description": "Editing: {room_name}. TRVs in this room: {trv_summary}.",
         "data": {
           "room_name": "Room name",
           "climate_entity": "Climate entity",

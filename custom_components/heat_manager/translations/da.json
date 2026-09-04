@@ -224,7 +224,7 @@
       },
       "room_edit": {
         "title": "Rediger rum",
-        "description": "Redigerer: {room_name}",
+        "description": "Redigerer: {room_name}. TRV'er i dette rum: {trv_summary}.",
         "data": {
           "room_name": "Rumnavn",
           "window_sensors": "Vindue- / dørsensorer",
