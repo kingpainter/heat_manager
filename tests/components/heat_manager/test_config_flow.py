@@ -693,6 +693,48 @@ async def test_options_flow_edit_room_updates_window_sensor():
 
 
 @pytest.mark.asyncio
+async def test_options_flow_room_edit_shows_trv_summary():
+    """The room_edit form's description_placeholders must list the room's
+    already-configured TRVs — users kept expecting to see them on this
+    first screen rather than only on the next (room_trvs_menu) step."""
+    hass = _make_hass({"climate.kitchen": MagicMock(), "climate.kitchen2": MagicMock()})
+    room = _minimal_room("Kitchen", "climate.kitchen")
+    room[CONF_TRVS].append({CONF_CLIMATE_ENTITY: "climate.kitchen2"})
+    entry = _make_entry(rooms=[room])
+
+    flow = HeatManagerOptionsFlow(entry)
+    flow.hass = hass
+
+    await flow.async_step_init(user_input={"section": "rooms"})
+    await flow.async_step_rooms_menu(user_input={"action": "edit:Kitchen"})
+    result = await flow.async_step_room_edit()
+
+    assert result["step_id"] == "room_edit"
+    assert (
+        result["description_placeholders"]["trv_summary"]
+        == "climate.kitchen, climate.kitchen2"
+    )
+
+
+@pytest.mark.asyncio
+async def test_options_flow_room_edit_trv_summary_empty_room():
+    """A room with no TRVs yet shows a placeholder string, not a blank."""
+    hass = _make_hass({"climate.kitchen": MagicMock()})
+    room = _minimal_room("Kitchen", "climate.kitchen")
+    room[CONF_TRVS] = []
+    entry = _make_entry(rooms=[room])
+
+    flow = HeatManagerOptionsFlow(entry)
+    flow.hass = hass
+
+    await flow.async_step_init(user_input={"section": "rooms"})
+    await flow.async_step_rooms_menu(user_input={"action": "edit:Kitchen"})
+    result = await flow.async_step_room_edit()
+
+    assert result["description_placeholders"]["trv_summary"] == "none yet"
+
+
+@pytest.mark.asyncio
 async def test_options_flow_edit_room_invalid_climate_entity():
     """Editing a room's TRV with an unknown climate entity →
     entity_not_found error (the climate entity now lives on the TRV, not
