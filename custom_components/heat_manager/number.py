@@ -83,7 +83,17 @@ class RoomOffsetNumber(RestoreNumber):
         self._room_name = room_name
         safe_name = room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_offset"
-        self._attr_name = f"{room_name} offset"
+        # has_entity_name=True + device.name == room_name means HA itself
+        # prefixes the device name onto whatever _attr_name is set to
+        # (name → f"{device_name} {name}", entity.py's
+        # _friendly_name_internal()/suggested_object_id) — a short local
+        # name here, NOT "{room_name} offset", is what produces the correct
+        # "Living room Offset" friendly_name and living_room_offset entity
+        # id. Setting the room name here too would double it up:
+        # "Living room Living room Offset". See also RoomGroupToggleSwitch
+        # in switch.py, which had exactly this bug before B18 Fase 3's
+        # verification pass caught it.
+        self._attr_name = "Offset"
         self._attr_device_info = coordinator.room_device_info(room_name)
         self._attr_native_value = DEFAULT_GROUP_OFFSET
 

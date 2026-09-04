@@ -238,12 +238,15 @@ class HeatManagerPanel extends HTMLElement {
 
   // B18 Fase 3: per-room offset/group-toggle entities — friendly_name
   // match (not entity_id suffix matching) since it's robust to slugify
-  // transliteration of accented room names (æ/ø/å) and directly mirrors
-  // the exact name RoomOffsetNumber/RoomGroupToggleSwitch set backend-side.
+  // transliteration of accented room names (æ/ø/å). Matches what HA
+  // itself computes: has_entity_name=True + device.name == roomName +
+  // entity's own _attr_name ("Offset"/"Group") combine to
+  // f"{device_name} {name}" = "<room> Offset" / "<room> Group" — see
+  // entity.py's _friendly_name_internal(). Capitalization matters here.
   _roomOffsetEntityId(roomName) {
     const states = this._hass?.states ?? {};
     for (const id of Object.keys(states)) {
-      if (id.startsWith("number.") && states[id]?.attributes?.friendly_name === `${roomName} offset`) return id;
+      if (id.startsWith("number.") && states[id]?.attributes?.friendly_name === `${roomName} Offset`) return id;
     }
     return null;
   }
@@ -251,7 +254,7 @@ class HeatManagerPanel extends HTMLElement {
   _roomGroupToggleEntityId(roomName) {
     const states = this._hass?.states ?? {};
     for (const id of Object.keys(states)) {
-      if (id.startsWith("switch.") && states[id]?.attributes?.friendly_name === `${roomName} group`) return id;
+      if (id.startsWith("switch.") && states[id]?.attributes?.friendly_name === `${roomName} Group`) return id;
     }
     return null;
   }

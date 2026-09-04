@@ -214,7 +214,13 @@ class RoomWindowSensor(CoordinatorEntity, BinarySensorEntity):
         self._sensors = room.get(CONF_WINDOW_SENSORS, [])
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_window"
-        self._attr_name = f"{self._room_name} window"
+        # has_entity_name=True + device.name == room_name means HA itself
+        # prefixes the device name onto _attr_name (→ f"{device_name}
+        # {name}", entity.py's _friendly_name_internal()) — a short local
+        # name, NOT "{room_name} window", is what produces the correct
+        # "Living room Window" friendly_name. Found doubled ("Living room
+        # Living room Window") during the B18 Fase 1-4 consistency pass.
+        self._attr_name = "Window"
         self._attr_device_info = coordinator.room_device_info(self._room_name)
 
     @property
@@ -270,7 +276,10 @@ class MoldRiskSensor(CoordinatorEntity, BinarySensorEntity):
         self._climate_id = room.get(CONF_CLIMATE_ENTITY, "")
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_mold_risk"
-        self._attr_name = f"{self._room_name} mold risk"
+        # Short local name — see the identical note on RoomWindowSensor
+        # above. Produces friendly_name "Living room Mold risk" (not the
+        # doubled "Living room Living room Mold risk").
+        self._attr_name = "Mold risk"
         self._attr_device_info = coordinator.room_device_info(self._room_name)
 
     @staticmethod

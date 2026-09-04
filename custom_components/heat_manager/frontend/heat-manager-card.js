@@ -221,10 +221,15 @@ class HeatManagerCard extends HTMLElement {
   // room, via the room's own switch.<room> group-toggle entity (same
   // friendly-name discovery pattern the panel uses) — no per-room slider
   // here, that stays panel-only.
+  //
+  // Matches what HA itself computes: has_entity_name=True + device.name ==
+  // roomName + the entity's own _attr_name ("Group") combine to
+  // f"{device_name} {name}" = "<room> Group" (entity.py's
+  // _friendly_name_internal()) — capitalization matters here.
   _roomGroupEnabled(roomName) {
     const states = this._hass?.states ?? {};
     for (const id of Object.keys(states)) {
-      if (id.startsWith("switch.") && states[id]?.attributes?.friendly_name === `${roomName} group`) {
+      if (id.startsWith("switch.") && states[id]?.attributes?.friendly_name === `${roomName} Group`) {
         return states[id].state !== "off";
       }
     }

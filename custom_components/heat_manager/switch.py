@@ -72,7 +72,15 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
         self._climate_id = room.get(CONF_CLIMATE_ENTITY, "")
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_override"
-        self._attr_name = f"{self._room_name} override"
+        # B18 Fase 3 verification: has_entity_name=True + device.name ==
+        # room_name means HA itself prefixes the device name onto
+        # _attr_name (→ f"{device_name} {name}", entity.py's
+        # _friendly_name_internal()/suggested_object_id) — a short local
+        # name, NOT "{room_name} override", is what produces the correct
+        # "Living room Override" friendly_name and living_room_override
+        # entity id. The room-name-prefixed form previously here doubled
+        # it up into "Living room Living room Override".
+        self._attr_name = "Override"
         self._attr_device_info = coordinator.room_device_info(self._room_name)
 
     @property
@@ -167,7 +175,11 @@ class RoomGroupToggleSwitch(CoordinatorEntity, SwitchEntity):
         self._room_name = room_name
         safe_name = room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_group_toggle"
-        self._attr_name = f"{room_name} group"
+        # Short local name — see the identical note on RoomOverrideSwitch
+        # above and RoomOffsetNumber in number.py. Produces friendly_name
+        # "Living room Group" and entity_id living_room_group (not the
+        # doubled "Living room Living room Group").
+        self._attr_name = "Group"
         self._attr_device_info = coordinator.room_device_info(room_name)
 
     @property

@@ -11,6 +11,74 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [0.13.1] — 2026-09-04
+
+Bugfix found during a full Fase 1–4 consistency pass over B18 (nothing new
+added — just verification), which turned up a pre-existing naming bug that
+turned out to affect nine room-scoped entities, not just the three new B18
+ones.
+
+### Fixed
+- **Doubled room name in every per-room entity's friendly name/entity_id.**
+  Nine room-scoped entities all set `_attr_name` to
+  `f"{room_name} <suffix>"` (e.g. `"Living room offset"`):
+  - B18's new `RoomOffsetNumber` (`number.py`) and `RoomGroupToggleSwitch`
+    (`switch.py`), plus the older, pre-existing `RoomOverrideSwitch`
+    (`switch.py`).
+  - Six entities that predate B18 entirely and have nothing to do with TRV
+    grouping: `RoomWindowSensor` and `MoldRiskSensor` (`binary_sensor.py`),
+    and `RoomStateSensor`, `RoomWindowDurationSensor`, `RoomPidPowerSensor`,
+    `RoomCalibrationOffsetSensor` (`sensor.py`).
+
+  With `has_entity_name = True` and the entity's device already named after
+  the room (`coordinator.room_device_info()`), Home Assistant core
+  unconditionally computes `friendly_name` (and the `entity_id` assigned at
+  first registration) as `f"{device_name} {name}"` — with **no
+  startswith/dedup check**. That doubled every one of the nine:
+  `"Living room Living room Offset"` / `number.living_room_living_room_offset`,
+  `"Living room Living room Window"`, `"Living room Living room State"`, and
+  so on. Verified by reading HA core's `entity.py`
+  (`_friendly_name_internal()`) and `entity_platform.py`
+  (`suggested_object_id` generation) directly — the bug is in the platform,
+  there's no dedup anywhere to opt into. Fixed by setting `_attr_name` on
+  all nine to a short local name ("Offset" / "Group" / "Override" /
+  "Window" / "Mold risk" / "State" / "Window duration" / "PID power" /
+  "Calibration offset") and letting HA's own device-name prefixing produce
+  the combined name, which is what it was already designed to do. None of
+  the nine set `_attr_translation_key`, so this is a pure `_attr_name` fix.
+  - This bug meant Fase 4's frontend `_roomOffsetEntityId()` /
+    `_roomGroupToggleEntityId()` (panel.js) and `_roomGroupEnabled()`
+    (card.js) — which look entities up by `friendly_name` — could never
+    find a match, so the new per-room offset slider and group toggle in the
+    panel would have silently failed ("kunne ikke finde offset-entity" /
+    "kunne ikke finde gruppe-entity"), and the mobile card's "🔓 Ikke
+    grupperet" badge would never have shown. Both files updated to match
+    the corrected (capitalized, non-doubled) friendly names. The six
+    pre-existing sensors were confirmed *not* looked up by friendly_name
+    anywhere in the frontend (they're read via `entity_id.endsWith(...)`
+    suffix matching or the websocket `ws_get_state()` payload, both
+    unaffected by the doubling), so no further frontend changes were
+    needed for those.
+  - **Registry note:** `RoomOverrideSwitch` and the six pre-existing
+    sensors have been running with the doubled name for a long time (well
+    before this session). After this fix, HA registers a new entity at the
+    corrected `entity_id` on next reload for each of those seven; the old
+    doubled-name entity becomes orphaned/unavailable in the entity registry
+    and should be removed manually (Settings → Devices & Services →
+    Entities) if it lingers. `RoomOffsetNumber` and `RoomGroupToggleSwitch`
+    only ever existed with the bug present (introduced this session in
+    0.12.0, still unreleased), so there's no orphaned entity for those two
+    — this is their first correct registration.
+
+### Tests
+- `test_sensor.py::test_room_state_sensor_unique_id_and_name_use_safe_room_name`
+  updated: `sensor.name` (the entity's own `_attr_name`, per HA core's
+  `_name_internal()` — distinct from the device-prefixed `friendly_name`
+  shown in the UI) now asserts `"State"` instead of the previously-doubled
+  `"Living Room state"`.
+
+---
+
 ## [0.13.0] — 2026-09-04
 
 Fase 4 of TRV grouping (B18, final phase): the frontend catches up with
