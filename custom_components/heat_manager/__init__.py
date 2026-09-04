@@ -34,6 +34,7 @@ from .const import (
     ControllerState,
 )
 from .coordinator import HeatManagerCoordinator
+from .migrations import migrate_rooms_to_trvs
 from .panel import (
     async_register_panel,
     async_register_static_paths,
@@ -42,6 +43,28 @@ from .panel import (
 from .websocket import async_register_websocket_commands
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate a config entry to the current version.
+
+    v1 -> v2 (B18): rooms gain a CONF_TRVS list (see migrations.py). Runs
+    once, automatically, before async_setup_entry — the flat mirror it
+    leaves behind means every other module keeps reading room data
+    exactly as before for single-TRV rooms.
+    """
+    if entry.version == 1:
+        migrated_rooms = migrate_rooms_to_trvs(entry.data.get(CONF_ROOMS, []))
+        hass.config_entries.async_update_entry(
+            entry,
+            data={**entry.data, CONF_ROOMS: migrated_rooms},
+            version=2,
+        )
+        _LOGGER.info(
+            "Heat Manager: migrated config entry to version 2 (per-TRV room data)"
+        )
+
+    return True
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:

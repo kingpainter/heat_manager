@@ -106,84 +106,103 @@ class ValveProtectionEngine:
     # ── Exercise sweep ────────────────────────────────────────────────────────
 
     async def _exercise_all_valves(self) -> None:
+        """B18: every physical TRV in a room is exercised individually,
+        each preferring its own HomeKit entity (configured-if-present, no
+        reachability check — matches this method's pre-existing single-TRV
+        policy exactly) and staggered per its own trv_type.
+        """
         hass = self.coordinator.hass
         rooms_done: list[str] = []
 
         for room in self.coordinator.rooms:
             room_name = room.get("room_name", "")
-            climate_id = room.get(CONF_CLIMATE_ENTITY, "")
-            if not room_name or not climate_id:
+            if not room_name:
                 continue
 
-            # Prefer HomeKit entity (local, <100 ms) over cloud entity
-            hk_id = room.get(CONF_HOMEKIT_CLIMATE_ENTITY) or None
-            write_entity = hk_id if hk_id else climate_id
+            for trv in self.coordinator.get_room_trvs(room_name):
+                climate_id = trv.get(CONF_CLIMATE_ENTITY, "")
+                if not climate_id:
+                    continue
 
-            # Read current setpoint before exercising so we can restore it
-            state = hass.states.get(write_entity)
-            if state is None or state.state in ("unavailable", "unknown"):
-                _LOGGER.debug(
-                    "ValveProtectionEngine: skipping %s — entity unavailable", room_name
-                )
-                continue
+                # Prefer HomeKit entity (local, <100 ms) over cloud entity
+                hk_id = trv.get(CONF_HOMEKIT_CLIMATE_ENTITY) or None
+                write_entity = hk_id if hk_id else climate_id
 
-            original_setpoint = state.attributes.get("temperature")
-            if original_setpoint is None:
-                _LOGGER.debug(
-                    "ValveProtectionEngine: skipping %s — no temperature attribute",
-                    room_name,
-                )
-                continue
+                # Read current setpoint before exercising so we can restore it
+                state = hass.states.get(write_entity)
+                if state is None or state.state in ("unavailable", "unknown"):
+                    _LOGGER.debug(
+                        "ValveProtectionEngine: skipping %s (%s) — entity unavailable",
+                        room_name,
+                        write_entity,
+                    )
+                    continue
 
-            try:
-                original_setpoint = float(original_setpoint)
-            except (TypeError, ValueError):
-                continue
+                original_setpoint = state.attributes.get("temperature")
+                if original_setpoint is None:
+                    _LOGGER.debug(
+                        "ValveProtectionEngine: skipping %s (%s) — no temperature attribute",
+                        room_name,
+                        write_entity,
+                    )
+                    continue
 
-            trv_type = room.get(CONF_TRV_TYPE, "netatmo")
+                try:
+                    original_setpoint = float(original_setpoint)
+                except (TypeError, ValueError):
+                    continue
 
-            try:
-                # Step 1: open valve to exercise setpoint
-                await hass.services.async_call(
-                    "climate",
-                    "set_temperature",
-                    {"entity_id": write_entity, "temperature": EXERCISE_SETPOINT_C},
-                    blocking=True,
-                )
-                _LOGGER.debug(
-                    "ValveProtectionEngine: %s → %.0f°C (exercise open)",
-                    room_name,
-                    EXERCISE_SETPOINT_C,
-                )
+                trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
 
-                # Hold for exercise duration
-                await asyncio.sleep(EXERCISE_DURATION_SEC)
+                try:
+                    # Step 1: open valve to exercise setpoint
+                    await hass.services.async_call(
+                        "climate",
+                        "set_temperature",
+                        {
+                            "entity_id": write_entity,
+                            "temperature": EXERCISE_SETPOINT_C,
+                        },
+                        blocking=True,
+                    )
+                    _LOGGER.debug(
+                        "ValveProtectionEngine: %s (%s) → %.0f°C (exercise open)",
+                        room_name,
+                        write_entity,
+                        EXERCISE_SETPOINT_C,
+                    )
 
-                # Step 2: restore original setpoint
-                await hass.services.async_call(
-                    "climate",
-                    "set_temperature",
-                    {"entity_id": write_entity, "temperature": original_setpoint},
-                    blocking=True,
-                )
-                _LOGGER.debug(
-                    "ValveProtectionEngine: %s → %.1f°C (restored)",
-                    room_name,
-                    original_setpoint,
-                )
+                    # Hold for exercise duration
+                    await asyncio.sleep(EXERCISE_DURATION_SEC)
 
-                rooms_done.append(room_name)
+                    # Step 2: restore original setpoint
+                    await hass.services.async_call(
+                        "climate",
+                        "set_temperature",
+                        {"entity_id": write_entity, "temperature": original_setpoint},
+                        blocking=True,
+                    )
+                    _LOGGER.debug(
+                        "ValveProtectionEngine: %s (%s) → %.1f°C (restored)",
+                        room_name,
+                        write_entity,
+                        original_setpoint,
+                    )
 
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning(
-                    "ValveProtectionEngine: exercise failed for %s: %s",
-                    room_name,
-                    err,
-                )
+                    if room_name not in rooms_done:
+                        rooms_done.append(room_name)
 
-            # Stagger calls for Netatmo rooms to avoid 429
-            if trv_type != TRV_TYPE_ZIGBEE:
-                await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "ValveProtectionEngine: exercise failed for %s (%s): %s",
+                        room_name,
+                        write_entity,
+                        err,
+                    )
+
+                # Stagger calls for Netatmo TRVs to avoid 429
+                if trv_type != TRV_TYPE_ZIGBEE:
+                    await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
         if rooms_done:
             rooms_str = ", ".join(rooms_done)

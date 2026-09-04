@@ -74,6 +74,7 @@ from .const import (
     CONF_SYNC_MODE,
     CONF_TRV_MAX_TEMP,
     CONF_TRV_TYPE,
+    CONF_TRVS,
     CONF_WAKE_SETBACK_TEMP,
     CONF_WEATHER_ENTITY,
     CONF_WIND_SPEED_SENSOR,
@@ -119,8 +120,12 @@ _LOGGER = logging.getLogger(__name__)
 def _step1_schema(defaults: dict = {}) -> vol.Schema:
     return vol.Schema(
         {
+            # default=vol.UNDEFINED (not "") — the entity selector rejects ""
+            # as an invalid entity ID, which blocked saving whenever this
+            # optional field was left empty. See B17.
             vol.Optional(
-                CONF_WEATHER_ENTITY, default=defaults.get(CONF_WEATHER_ENTITY, "")
+                CONF_WEATHER_ENTITY,
+                default=defaults.get(CONF_WEATHER_ENTITY) or vol.UNDEFINED,
             ): selector.selector({"entity": {"domain": "weather"}}),
             vol.Optional(
                 CONF_OUTDOOR_TEMP_SENSOR,
@@ -367,18 +372,84 @@ def _step1_schema(defaults: dict = {}) -> vol.Schema:
     )
 
 
-def _room_schema(defaults: dict = {}) -> vol.Schema:
+def _trv_schema(defaults: dict = {}) -> vol.Schema:
+    """Schema for a single physical TRV within a room — see CONF_TRVS."""
     return vol.Schema(
         {
-            vol.Required(
-                CONF_ROOM_NAME, default=defaults.get(CONF_ROOM_NAME, "")
-            ): selector.selector({"text": {}}),
             vol.Required(
                 CONF_CLIMATE_ENTITY, default=defaults.get(CONF_CLIMATE_ENTITY, "")
             ): selector.selector({"entity": {"domain": "climate"}}),
             vol.Optional(
                 CONF_HOMEKIT_CLIMATE_ENTITY,
                 default=defaults.get(CONF_HOMEKIT_CLIMATE_ENTITY, ""),
+            ): selector.selector({"text": {}}),
+            vol.Optional(
+                CONF_TRV_TYPE, default=defaults.get(CONF_TRV_TYPE, TRV_TYPE_NETATMO)
+            ): selector.selector(
+                {
+                    "select": {
+                        "options": [
+                            {
+                                "value": "netatmo",
+                                "label": "Netatmo NRV (preset_mode: away/schedule)",
+                            },
+                            {
+                                "value": "zigbee",
+                                "label": "Zigbee TRV via Z2M (hvac_mode: off/heat)",
+                            },
+                        ]
+                    }
+                }
+            ),
+            vol.Optional(
+                CONF_PI_DEMAND_ENTITY, default=defaults.get(CONF_PI_DEMAND_ENTITY, "")
+            ): selector.selector({"text": {}}),
+            # ── Calibration & Sync (v0.9.0) ─────────────────────────────────────
+            # number.* entity the TRV's own integration exposes to correct its
+            # internal reading (e.g. Zigbee2MQTT local_temperature_calibration).
+            # Only used when the room's CONF_ROOM_TEMP_SENSOR is also set —
+            # see engine/calibration_engine.py.
+            # default=vol.UNDEFINED (not "") — the entity selector rejects ""
+            # as an invalid entity ID, which blocked saving whenever this
+            # optional field was left empty. See B17.
+            vol.Optional(
+                CONF_CALIBRATION_ENTITY,
+                default=defaults.get(CONF_CALIBRATION_ENTITY) or vol.UNDEFINED,
+            ): selector.selector({"entity": {"domain": "number"}}),
+            vol.Optional(
+                CONF_SYNC_MODE,
+                default=defaults.get(CONF_SYNC_MODE, DEFAULT_SYNC_MODE),
+            ): selector.selector(
+                {
+                    "select": {
+                        "options": [
+                            {
+                                "value": SYNC_MODE_DISABLED,
+                                "label": "Disabled — ignore manual changes",
+                            },
+                            {
+                                "value": SYNC_MODE_MIRROR,
+                                "label": "Mirror — accept manual changes (switches room to override)",
+                            },
+                            {
+                                "value": SYNC_MODE_LOCK,
+                                "label": "Lock — revert manual changes back to the expected setpoint",
+                            },
+                        ]
+                    }
+                }
+            ),
+        }
+    )
+
+
+def _room_schema(defaults: dict = {}) -> vol.Schema:
+    """Schema for a room's own fields — its TRVs are managed separately
+    through the room-TRV sub-flow (see _trv_schema and CONF_TRVS)."""
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_ROOM_NAME, default=defaults.get(CONF_ROOM_NAME, "")
             ): selector.selector({"text": {}}),
             vol.Optional(
                 CONF_WINDOW_SENSORS, default=defaults.get(CONF_WINDOW_SENSORS, [])
@@ -424,27 +495,6 @@ def _room_schema(defaults: dict = {}) -> vol.Schema:
                     }
                 }
             ),
-            vol.Optional(
-                CONF_TRV_TYPE, default=defaults.get(CONF_TRV_TYPE, TRV_TYPE_NETATMO)
-            ): selector.selector(
-                {
-                    "select": {
-                        "options": [
-                            {
-                                "value": "netatmo",
-                                "label": "Netatmo NRV (preset_mode: away/schedule)",
-                            },
-                            {
-                                "value": "zigbee",
-                                "label": "Zigbee TRV via Z2M (hvac_mode: off/heat)",
-                            },
-                        ]
-                    }
-                }
-            ),
-            vol.Optional(
-                CONF_PI_DEMAND_ENTITY, default=defaults.get(CONF_PI_DEMAND_ENTITY, "")
-            ): selector.selector({"text": {}}),
             # PID target for rooms without a HomeKit entity (Zigbee today,
             # Matter/Thread later) — ignored for Netatmo rooms, which use the
             # cloud entity's own schedule setpoint as PID target instead.
@@ -486,45 +536,16 @@ def _room_schema(defaults: dict = {}) -> vol.Schema:
             vol.Optional(
                 CONF_HUMIDITY_SENSOR, default=defaults.get(CONF_HUMIDITY_SENSOR, "")
             ): selector.selector({"text": {}}),  # sensor.* — relative humidity in %
-            # ── Calibration & Sync (v0.9.0) ─────────────────────────────────────
-            # number.* entity the TRV's own integration exposes to correct its
-            # internal reading (e.g. Zigbee2MQTT local_temperature_calibration).
-            # Only used when CONF_ROOM_TEMP_SENSOR is also set — see
-            # engine/calibration_engine.py.
-            vol.Optional(
-                CONF_CALIBRATION_ENTITY,
-                default=defaults.get(CONF_CALIBRATION_ENTITY, ""),
-            ): selector.selector({"entity": {"domain": "number"}}),
-            vol.Optional(
-                CONF_SYNC_MODE,
-                default=defaults.get(CONF_SYNC_MODE, DEFAULT_SYNC_MODE),
-            ): selector.selector(
-                {
-                    "select": {
-                        "options": [
-                            {
-                                "value": SYNC_MODE_DISABLED,
-                                "label": "Disabled — ignore manual changes",
-                            },
-                            {
-                                "value": SYNC_MODE_MIRROR,
-                                "label": "Mirror — accept manual changes (switches room to override)",
-                            },
-                            {
-                                "value": SYNC_MODE_LOCK,
-                                "label": "Lock — revert manual changes back to the expected setpoint",
-                            },
-                        ]
-                    }
-                }
-            ),
             # ── Schedule / calendar override (v0.9.0, Fase D) ───────────────────
             # schedule.* or calendar.* entity — see engine/schedule_engine.py.
             # While a block/event is active, its temperature overrides this
             # room's normal target. Optional; leave empty to disable.
+            # default=vol.UNDEFINED (not "") — the entity selector rejects ""
+            # as an invalid entity ID, which blocked saving whenever this
+            # optional field was left empty. See B17.
             vol.Optional(
                 CONF_SCHEDULE_ENTITY,
-                default=defaults.get(CONF_SCHEDULE_ENTITY, ""),
+                default=defaults.get(CONF_SCHEDULE_ENTITY) or vol.UNDEFINED,
             ): selector.selector({"entity": {"domain": ["schedule", "calendar"]}}),
         }
     )
@@ -587,12 +608,15 @@ def _notifications_schema(defaults: dict = {}) -> vol.Schema:
 class HeatManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle the initial setup wizard."""
 
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
         self._rooms: list[dict] = []
         self._persons: list[dict] = []
+        self._room_draft: dict[str, Any] | None = None
+        self._trv_draft: list[dict] = []
+        self._editing_trv_index: int | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -621,51 +645,125 @@ class HeatManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            action = user_input.pop("_action", "add_more")
             room_name = user_input.get(CONF_ROOM_NAME, "").strip()
-            climate = user_input.get(CONF_CLIMATE_ENTITY, "")
 
-            if room_name and climate:
+            if room_name:
                 existing_names = [r[CONF_ROOM_NAME].lower() for r in self._rooms]
                 if room_name.lower() in existing_names:
                     errors[CONF_ROOM_NAME] = "duplicate_room"
-                elif self.hass.states.get(climate) is None:
-                    errors[CONF_CLIMATE_ENTITY] = "entity_not_found"
                 else:
                     user_input[CONF_ROOM_NAME] = room_name
-                    self._rooms.append(dict(user_input))
-
-            if not errors and action == "done":
-                if not self._rooms:
-                    errors["base"] = "no_rooms"
-                else:
-                    self._data[CONF_ROOMS] = self._rooms
-                    return await self.async_step_person()
-
-        schema = vol.Schema(
-            {
-                **_room_schema(user_input or {}).schema,
-                vol.Optional("_action", default="add_more"): selector.selector(
-                    {
-                        "select": {
-                            "options": [
-                                {
-                                    "value": "add_more",
-                                    "label": "Save and add another room",
-                                },
-                                {"value": "done", "label": "Save and continue"},
-                            ]
-                        }
-                    }
-                ),
-            }
-        )
+                    self._room_draft = user_input
+                    self._trv_draft = []
+                    return await self.async_step_room_trvs_menu()
 
         return self.async_show_form(
             step_id="room",
-            data_schema=schema,
+            data_schema=_room_schema(user_input or {}),
             errors=errors,
             description_placeholders={"room_count": str(len(self._rooms))},
+        )
+
+    async def async_step_room_trvs_menu(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Add/edit/delete this room's TRVs before it's saved — at least
+        one is required, mirroring CONF_CLIMATE_ENTITY's old Required
+        status at the room level."""
+        assert self._room_draft is not None
+
+        if user_input is not None:
+            action = user_input.get("action")
+            if action == "add":
+                return await self.async_step_room_trv_add()
+            if action and action.startswith("edit:"):
+                self._editing_trv_index = int(action[len("edit:") :])
+                return await self.async_step_room_trv_edit()
+            if action and action.startswith("delete:"):
+                del self._trv_draft[int(action[len("delete:") :])]
+                return await self.async_step_room_trvs_menu()
+            if action in ("done_add_room", "done"):
+                self._room_draft[CONF_TRVS] = self._trv_draft
+                self._rooms.append(self._room_draft)
+                self._room_draft = None
+                self._trv_draft = []
+                if action == "done_add_room":
+                    return await self.async_step_room()
+                self._data[CONF_ROOMS] = self._rooms
+                return await self.async_step_person()
+
+        options = [
+            {
+                "value": f"edit:{i}",
+                "label": f"Edit: {trv[CONF_CLIMATE_ENTITY]}",
+            }
+            for i, trv in enumerate(self._trv_draft)
+        ]
+        options += [
+            {
+                "value": f"delete:{i}",
+                "label": f"Delete: {trv[CONF_CLIMATE_ENTITY]}",
+            }
+            for i, trv in enumerate(self._trv_draft)
+        ]
+        options.append({"value": "add", "label": "Add a TRV"})
+        if self._trv_draft:
+            options.append(
+                {"value": "done_add_room", "label": "Save room and add another room"}
+            )
+            options.append({"value": "done", "label": "Save room and continue"})
+
+        return self.async_show_form(
+            step_id="room_trvs_menu",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("action"): selector.selector(
+                        {"select": {"options": options}}
+                    )
+                }
+            ),
+            description_placeholders={
+                "room_name": self._room_draft[CONF_ROOM_NAME],
+                "trv_count": str(len(self._trv_draft)),
+            },
+        )
+
+    async def async_step_room_trv_add(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            climate = user_input.get(CONF_CLIMATE_ENTITY, "")
+            if self.hass.states.get(climate) is None:
+                errors[CONF_CLIMATE_ENTITY] = "entity_not_found"
+            else:
+                self._trv_draft.append(user_input)
+                return await self.async_step_room_trvs_menu()
+
+        return self.async_show_form(
+            step_id="room_trv_add", data_schema=_trv_schema(), errors=errors
+        )
+
+    async def async_step_room_trv_edit(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        errors: dict[str, str] = {}
+        idx = self._editing_trv_index
+        assert idx is not None
+
+        if user_input is not None:
+            climate = user_input.get(CONF_CLIMATE_ENTITY, "")
+            if self.hass.states.get(climate) is None:
+                errors[CONF_CLIMATE_ENTITY] = "entity_not_found"
+            else:
+                self._trv_draft[idx] = user_input
+                return await self.async_step_room_trvs_menu()
+
+        return self.async_show_form(
+            step_id="room_trv_edit",
+            data_schema=_trv_schema(self._trv_draft[idx]),
+            errors=errors,
         )
 
     async def async_step_person(
@@ -727,9 +825,13 @@ class HeatManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="presence_global",
             data_schema=vol.Schema(
                 {
-                    vol.Optional(CONF_ALARM_PANEL, default=""): selector.selector(
-                        {"entity": {"domain": "alarm_control_panel"}}
-                    ),
+                    # default=vol.UNDEFINED (not "") — the entity selector
+                    # rejects "" as an invalid entity ID, which blocked
+                    # saving whenever this optional field was left empty.
+                    # See B17.
+                    vol.Optional(
+                        CONF_ALARM_PANEL, default=vol.UNDEFINED
+                    ): selector.selector({"entity": {"domain": "alarm_control_panel"}}),
                 }
             ),
         )
@@ -766,6 +868,9 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
         self._persons: list[dict] = []
         self._editing_room_name: str | None = None
         self._editing_person_entity: str | None = None
+        self._room_draft: dict[str, Any] | None = None
+        self._trv_draft: list[dict] = []
+        self._editing_trv_index: int | None = None
 
     def _current(self) -> dict:
         return {**self._config_entry.data, **self._config_entry.options}
@@ -885,7 +990,6 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             room_name = user_input.get(CONF_ROOM_NAME, "").strip()
-            climate = user_input.get(CONF_CLIMATE_ENTITY, "")
             other_names = [
                 r[CONF_ROOM_NAME].lower()
                 for r in self._rooms
@@ -894,17 +998,11 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
 
             if room_name.lower() in other_names:
                 errors[CONF_ROOM_NAME] = "duplicate_room"
-            elif climate and self.hass.states.get(climate) is None:
-                errors[CONF_CLIMATE_ENTITY] = "entity_not_found"
             else:
                 user_input[CONF_ROOM_NAME] = room_name
-                updated_rooms = [
-                    dict(user_input) if r.get(CONF_ROOM_NAME) == original_name else r
-                    for r in self._rooms
-                ]
-                return self.async_create_entry(
-                    data={**self._current(), CONF_ROOMS: updated_rooms}
-                )
+                self._room_draft = user_input
+                self._trv_draft = list(current_room.get(CONF_TRVS, []))
+                return await self.async_step_room_trvs_menu()
 
         return self.async_show_form(
             step_id="room_edit",
@@ -920,23 +1018,124 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             room_name = user_input.get(CONF_ROOM_NAME, "").strip()
-            climate = user_input.get(CONF_CLIMATE_ENTITY, "")
             existing_names = [r[CONF_ROOM_NAME].lower() for r in self._rooms]
 
             if room_name.lower() in existing_names:
                 errors[CONF_ROOM_NAME] = "duplicate_room"
-            elif climate and self.hass.states.get(climate) is None:
-                errors[CONF_CLIMATE_ENTITY] = "entity_not_found"
             else:
                 user_input[CONF_ROOM_NAME] = room_name
-                self._rooms.append(dict(user_input))
-                return self.async_create_entry(
-                    data={**self._current(), CONF_ROOMS: self._rooms}
-                )
+                self._room_draft = user_input
+                self._trv_draft = []
+                return await self.async_step_room_trvs_menu()
 
         return self.async_show_form(
             step_id="room_add",
             data_schema=_room_schema(),
+            errors=errors,
+        )
+
+    async def async_step_room_trvs_menu(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Add/edit/delete this room's TRVs before it's saved — at least
+        one is required, mirroring CONF_CLIMATE_ENTITY's old Required
+        status at the room level."""
+        assert self._room_draft is not None
+
+        if user_input is not None:
+            action = user_input.get("action")
+            if action == "add":
+                return await self.async_step_room_trv_add()
+            if action and action.startswith("edit:"):
+                self._editing_trv_index = int(action[len("edit:") :])
+                return await self.async_step_room_trv_edit()
+            if action and action.startswith("delete:"):
+                del self._trv_draft[int(action[len("delete:") :])]
+                return await self.async_step_room_trvs_menu()
+            if action == "done":
+                self._room_draft[CONF_TRVS] = self._trv_draft
+                original_name = self._editing_room_name
+                if original_name is not None:
+                    updated_rooms = [
+                        self._room_draft
+                        if r.get(CONF_ROOM_NAME) == original_name
+                        else r
+                        for r in self._rooms
+                    ]
+                else:
+                    updated_rooms = [*self._rooms, self._room_draft]
+                return self.async_create_entry(
+                    data={**self._current(), CONF_ROOMS: updated_rooms}
+                )
+
+        options = [
+            {
+                "value": f"edit:{i}",
+                "label": f"Edit: {trv[CONF_CLIMATE_ENTITY]}",
+            }
+            for i, trv in enumerate(self._trv_draft)
+        ]
+        options += [
+            {
+                "value": f"delete:{i}",
+                "label": f"Delete: {trv[CONF_CLIMATE_ENTITY]}",
+            }
+            for i, trv in enumerate(self._trv_draft)
+        ]
+        options.append({"value": "add", "label": "Add a TRV"})
+        if self._trv_draft:
+            options.append({"value": "done", "label": "Save room"})
+
+        return self.async_show_form(
+            step_id="room_trvs_menu",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("action"): selector.selector(
+                        {"select": {"options": options}}
+                    )
+                }
+            ),
+            description_placeholders={
+                "room_name": self._room_draft[CONF_ROOM_NAME],
+                "trv_count": str(len(self._trv_draft)),
+            },
+        )
+
+    async def async_step_room_trv_add(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            climate = user_input.get(CONF_CLIMATE_ENTITY, "")
+            if self.hass.states.get(climate) is None:
+                errors[CONF_CLIMATE_ENTITY] = "entity_not_found"
+            else:
+                self._trv_draft.append(user_input)
+                return await self.async_step_room_trvs_menu()
+
+        return self.async_show_form(
+            step_id="room_trv_add", data_schema=_trv_schema(), errors=errors
+        )
+
+    async def async_step_room_trv_edit(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        errors: dict[str, str] = {}
+        idx = self._editing_trv_index
+        assert idx is not None
+
+        if user_input is not None:
+            climate = user_input.get(CONF_CLIMATE_ENTITY, "")
+            if self.hass.states.get(climate) is None:
+                errors[CONF_CLIMATE_ENTITY] = "entity_not_found"
+            else:
+                self._trv_draft[idx] = user_input
+                return await self.async_step_room_trvs_menu()
+
+        return self.async_show_form(
+            step_id="room_trv_edit",
+            data_schema=_trv_schema(self._trv_draft[idx]),
             errors=errors,
         )
 

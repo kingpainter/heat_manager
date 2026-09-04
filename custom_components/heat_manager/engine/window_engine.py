@@ -25,6 +25,7 @@ from homeassistant.util.dt import utcnow
 
 from ..const import (
     CONF_AWAY_TEMP_OVERRIDE,
+    CONF_CLIMATE_ENTITY,
     CONF_NOTIFY_WINDOWS,
     CONF_TRV_TYPE,
     CONF_WINDOW_DELAY_MIN,
@@ -144,17 +145,22 @@ class WindowEngine:
             _LOGGER.warning("No climate entity for room '%s'", room_name)
             return
 
-        # H-1: write setpoint via preferred local entity (HomeKit if available)
-        write_id = self.coordinator.get_write_entity(room_name) or climate_id
+        # H-1: write setpoint via preferred local entity (HomeKit if
+        # available) — B18: fan the same setpoint out to every physical TRV
+        # configured for this room, not just the primary.
+        write_entities = self.coordinator.get_room_write_entities(room_name) or [
+            self.coordinator.get_write_entity(room_name) or climate_id
+        ]
 
         try:
             target_temp = self._window_open_setpoint(room_name, climate_id, away_temp)
-            await self.coordinator.hass.services.async_call(
-                "climate",
-                "set_temperature",
-                {"entity_id": write_id, "temperature": target_temp},
-                blocking=True,
-            )
+            for write_id in write_entities:
+                await self.coordinator.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {"entity_id": write_id, "temperature": target_temp},
+                    blocking=True,
+                )
             pid = self.coordinator.get_pid(room_name)
             if pid:
                 pid.reset()
@@ -165,7 +171,11 @@ class WindowEngine:
             # ── CO₂-aware open notification ───────────────────────────────
             co2_ppm = self.coordinator.get_room_co2(room_name)
             co2_label = self._co2_context_label(co2_ppm, room_name)
-            log_msg = f"Window open in {room_name} — heating to {target_temp:.0f}°C (via {'HomeKit' if write_id != climate_id else 'cloud'})"
+            via = "HomeKit" if any(w != climate_id for w in write_entities) else "cloud"
+            log_msg = (
+                f"Window open in {room_name} — heating to {target_temp:.0f}°C"
+                f" (via {via})"
+            )
             notif_msg = (
                 f"Window open — {room_name} set to {target_temp:.0f}°C{co2_label}"
             )
@@ -228,31 +238,43 @@ class WindowEngine:
             self.coordinator.set_room_state(room_name, RoomState.AWAY)
             return
 
-        climate_id = self.coordinator.get_climate_entity(room_name)
-        if not climate_id:
+        # S-3 FIX: route restore by TRV type — Zigbee uses hvac_mode, Netatmo
+        # uses preset. B18: every physical TRV in the room is restored, each
+        # routed by its own trv_type, using its own raw climate_entity (no
+        # HomeKit preference here — matches the pre-existing single-TRV
+        # policy of this method exactly).
+        trvs = self.coordinator.get_room_trvs(room_name)
+        if not trvs:
             return
 
-        # S-3 FIX: route restore by TRV type — Zigbee uses hvac_mode, Netatmo uses preset
-        room_cfg = next(
-            (r for r in self.coordinator.rooms if r.get("room_name") == room_name), {}
-        )
-        trv_type = room_cfg.get(CONF_TRV_TYPE, "netatmo")
+        room_restored = False
+        for trv in trvs:
+            entity_id = trv.get(CONF_CLIMATE_ENTITY, "")
+            if not entity_id:
+                continue
+            trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
+            try:
+                if trv_type == TRV_TYPE_ZIGBEE:
+                    await self.coordinator.hass.services.async_call(
+                        "climate",
+                        "set_hvac_mode",
+                        {"entity_id": entity_id, "hvac_mode": "heat"},
+                        blocking=True,
+                    )
+                else:
+                    await self.coordinator.hass.services.async_call(
+                        "climate",
+                        "set_preset_mode",
+                        {"entity_id": entity_id, "preset_mode": PRESET_SCHEDULE},
+                        blocking=True,
+                    )
+                room_restored = True
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Failed to restore schedule in '%s': %s", room_name, err
+                )
 
-        try:
-            if trv_type == TRV_TYPE_ZIGBEE:
-                await self.coordinator.hass.services.async_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": climate_id, "hvac_mode": "heat"},
-                    blocking=True,
-                )
-            else:
-                await self.coordinator.hass.services.async_call(
-                    "climate",
-                    "set_preset_mode",
-                    {"entity_id": climate_id, "preset_mode": PRESET_SCHEDULE},
-                    blocking=True,
-                )
+        if room_restored:
             self.coordinator.set_room_state(room_name, RoomState.NORMAL)
 
             # ── CO₂-aware close notification ──────────────────────────────
@@ -266,8 +288,6 @@ class WindowEngine:
             )
             if self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
                 await self._notify(notif_msg)
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Failed to restore schedule in '%s': %s", room_name, err)
 
     async def async_tick(self) -> None:
         """B2 FIX: Send 30-min escalation warning with CO₂ context."""

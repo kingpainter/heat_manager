@@ -1,18 +1,18 @@
 """Tests for engine/window_engine.py — B1, B2, B3 regression + core behaviour."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import timedelta
-import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from custom_components.heat_manager.const import (
+    CONF_TRVS,
     ControllerState,
     RoomState,
 )
 from custom_components.heat_manager.engine.window_engine import WindowEngine
-
+from custom_components.heat_manager.migrations import migrate_room_to_trvs
 
 # ── Coordinator factory ───────────────────────────────────────────────────────
 
@@ -42,6 +42,30 @@ def _make_coordinator(rooms=None, someone_home=True, config=None):
 
     coordinator.controller = MagicMock()
     coordinator.controller.state = ControllerState.ON
+
+    # B18: window_engine now fans commands out over get_room_trvs() /
+    # get_room_write_entities() instead of reading room-level flat fields
+    # directly. Default to the same flat-mirror migration the real
+    # coordinator uses at read time, so every existing single-TRV test
+    # (built with _make_room()'s flat fields) keeps sending to exactly the
+    # same entity as before.
+    def _room_trvs(room_name):
+        room = next(
+            (r for r in coordinator.rooms if r.get("room_name") == room_name), None
+        )
+        if room is None:
+            return []
+        return migrate_room_to_trvs(room).get(CONF_TRVS, [])
+
+    def _room_write_entities(room_name):
+        entities = [
+            trv.get("homekit_climate_entity") or trv.get("climate_entity")
+            for trv in _room_trvs(room_name)
+        ]
+        return [e for e in entities if e]
+
+    coordinator.get_room_trvs = MagicMock(side_effect=_room_trvs)
+    coordinator.get_room_write_entities = MagicMock(side_effect=_room_write_entities)
 
     return coordinator
 
@@ -135,8 +159,6 @@ async def test_bug_b2_warning_sent_after_30_minutes():
     engine = WindowEngine(coordinator)
 
     # Simulate window has been open for 35 minutes
-    from datetime import timezone
-    import datetime as dt
     engine._window_opened_at["Kitchen"] = utcnow() - timedelta(minutes=35)
     engine._warning_sent["Kitchen"] = False
 
@@ -445,3 +467,85 @@ def test_bug_b16_all_room_sensors_closed_helper():
     # Now both closed
     coordinator.hass.states.get = MagicMock(return_value=_sensor_state(is_open=False))
     assert engine._all_room_sensors_closed("Lukas") is True
+
+
+# ── B18: multi-TRV grouping — same command fanned out to every TRV ───────────
+
+def _make_room_with_trvs(name, trvs, sensors=None):
+    return {
+        "room_name": name,
+        "trvs": trvs,
+        "window_sensors": sensors or ["binary_sensor.kitchen_window"],
+        "away_temp_override": 10.0,
+        "window_delay_min": 5,
+    }
+
+
+@pytest.mark.asyncio
+async def test_open_after_delay_sends_to_every_trv_in_multi_trv_room():
+    rooms = [
+        _make_room_with_trvs(
+            "Living room",
+            [
+                {"climate_entity": "climate.living_room"},
+                {"climate_entity": "climate.living_room_trv2"},
+            ],
+        )
+    ]
+    coordinator = _make_coordinator(rooms=rooms)
+    coordinator.get_climate_entity = MagicMock(return_value="climate.living_room")
+
+    sensor_state = MagicMock()
+    sensor_state.state = "on"
+    coordinator.hass.states.get = MagicMock(return_value=sensor_state)
+
+    engine = WindowEngine(coordinator)
+    await engine._open_after_delay(
+        "binary_sensor.kitchen_window", "Living room", 0
+    )
+
+    calls = coordinator.hass.services.async_call.await_args_list
+    assert len(calls) == 2
+    sent = {c.args[2]["entity_id"]: c.args[2]["temperature"] for c in calls}
+    assert set(sent) == {"climate.living_room", "climate.living_room_trv2"}
+    assert sent["climate.living_room"] == sent["climate.living_room_trv2"]
+    coordinator.set_room_state.assert_called_once_with(
+        "Living room", RoomState.WINDOW_OPEN
+    )
+
+
+@pytest.mark.asyncio
+async def test_close_after_delay_sends_to_every_trv_in_multi_trv_room():
+    rooms = [
+        _make_room_with_trvs(
+            "Living room",
+            [
+                {"climate_entity": "climate.living_room", "trv_type": "netatmo"},
+                {
+                    "climate_entity": "climate.living_room_trv2",
+                    "trv_type": "zigbee",
+                },
+            ],
+        )
+    ]
+    coordinator = _make_coordinator(rooms=rooms, someone_home=True)
+    coordinator.hass.states.get = MagicMock(
+        return_value=_sensor_state(is_open=False)
+    )
+
+    engine = WindowEngine(coordinator)
+    engine._window_opened_at["Living room"] = MagicMock()
+    engine._warning_sent["Living room"] = False
+
+    await engine._close_after_delay(
+        "binary_sensor.kitchen_window", "Living room", 0
+    )
+
+    calls = coordinator.hass.services.async_call.await_args_list
+    assert len(calls) == 2
+    by_entity = {c.args[2]["entity_id"]: c for c in calls}
+    assert by_entity["climate.living_room"].args[1] == "set_preset_mode"
+    assert by_entity["climate.living_room_trv2"].args[1] == "set_hvac_mode"
+    coordinator.set_room_state.assert_called_once_with(
+        "Living room", RoomState.NORMAL
+    )

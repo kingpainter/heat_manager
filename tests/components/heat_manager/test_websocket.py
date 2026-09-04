@@ -21,12 +21,14 @@ import pytest
 
 from custom_components.heat_manager import websocket
 from custom_components.heat_manager.const import (
+    CONF_TRVS,
     AutoOffReason,
     ControllerState,
     EffectiveSeason,
     RoomState,
     SeasonMode,
 )
+from custom_components.heat_manager.migrations import migrate_room_to_trvs
 
 # websocket_api.async_response wraps each handler in a sync scheduler that
 # fires-and-forgets a background task; __wrapped__ is the real coroutine.
@@ -63,7 +65,8 @@ def _make_coordinator(rooms=None, persons=None) -> MagicMock:
     coord.last_waste_time = None
     coord.last_saved_time = None
     coord.days_above_threshold = 0
-    coord.group_offset = 0.0
+    coord.room_offsets = {}
+    coord.room_group_enabled = {}
     coord.get_room_state = MagicMock(return_value=RoomState.NORMAL)
     coord.get_room_current_temp = MagicMock(return_value=21.0)
     coord.get_room_blocking_sources = MagicMock(return_value=[])
@@ -75,6 +78,37 @@ def _make_coordinator(rooms=None, persons=None) -> MagicMock:
     hass.states.get = MagicMock(return_value=None)
     hass.services.async_call = AsyncMock()
     coord.hass = hass
+
+    # B18: ws_set_room_temp() now fans out over get_room_trvs() /
+    # get_room_write_entities() instead of the room-level get_write_entity()
+    # / get_climate_entity(). Default to the flat-mirror migration the real
+    # coordinator uses at read time, with no HomeKit entity configured (so
+    # get_trv_write_entity falls back to the TRV's own climate_entity) —
+    # matching the pre-existing single-TRV tests' fixed "climate.bathroom"
+    # expectations exactly.
+    def _room_trvs(room_name):
+        room = next(
+            (r for r in coord.rooms if r.get("room_name") == room_name), None
+        )
+        if room is None:
+            return []
+        return migrate_room_to_trvs(room).get(CONF_TRVS, [])
+
+    def _trv_write_entity(trv):
+        return trv.get("homekit_climate_entity") or trv.get("climate_entity")
+
+    def _room_write_entities(room_name):
+        entities = [_trv_write_entity(trv) for trv in _room_trvs(room_name)]
+        return [e for e in entities if e]
+
+    coord.get_room_trvs = MagicMock(side_effect=_room_trvs)
+    # B18 Fase 3: ws_get_state()'s per-room payload calls get_all_room_trvs()
+    # (structural — ignores the group toggle) for "trv_count". Same
+    # underlying data as get_room_trvs() for these fixtures (no test here
+    # exercises the toggle narrowing the two apart).
+    coord.get_all_room_trvs = MagicMock(side_effect=_room_trvs)
+    coord.get_trv_write_entity = MagicMock(side_effect=_trv_write_entity)
+    coord.get_room_write_entities = MagicMock(side_effect=_room_write_entities)
 
     return coord
 
@@ -177,17 +211,20 @@ async def test_get_state_top_level_keys_present():
         "efficiency_score",
         "boost_remaining_minutes",
         "config",
-        "group_offset",
         "blocking_sources",
     ):
         assert key in payload, f"missing key: {key}"
     assert payload["controller_state"] == "on"
+    room_payload = payload["rooms"][0]
+    for key in ("trv_count", "offset", "group_enabled"):
+        assert key in room_payload, f"missing per-room key: {key}"
 
 
 @pytest.mark.asyncio
-async def test_get_state_group_offset_and_global_blocking_sources_passed_through():
+async def test_get_state_room_offset_group_enabled_and_global_blocking_sources():
     coord = _make_coordinator(rooms=[_room()])
-    coord.group_offset = 1.5
+    coord.room_offsets = {"Bathroom": 1.5}
+    coord.room_group_enabled = {"Bathroom": False}
     coord.global_blocking_sources = MagicMock(
         return_value=["controller_pause", "window"]
     )
@@ -197,7 +234,9 @@ async def test_get_state_group_offset_and_global_blocking_sources_passed_through
     await ws_get_state(hass, conn, _msg())
 
     payload = conn.send_result.call_args[0][1]
-    assert payload["group_offset"] == 1.5
+    room_payload = payload["rooms"][0]
+    assert room_payload["offset"] == 1.5
+    assert room_payload["group_enabled"] is False
     assert payload["blocking_sources"] == ["controller_pause", "window"]
 
 
@@ -457,7 +496,7 @@ async def test_set_room_temp_unknown_room_sends_not_found():
 @pytest.mark.asyncio
 async def test_set_room_temp_no_write_entity_sends_not_found():
     coord = _make_coordinator(rooms=[_room(name="Bathroom")])
-    coord.get_write_entity = MagicMock(return_value=None)
+    coord.get_room_trvs = MagicMock(return_value=[])
     hass = _make_hass_with_entry(coord)
     conn = _connection()
 
@@ -470,7 +509,6 @@ async def test_set_room_temp_no_write_entity_sends_not_found():
 @pytest.mark.asyncio
 async def test_set_room_temp_sets_temperature_and_logs():
     coord = _make_coordinator(rooms=[_room(name="Bathroom")])
-    coord.get_write_entity = MagicMock(return_value="climate.bathroom")
     hass = _make_hass_with_entry(coord)
     conn = _connection()
 
@@ -493,7 +531,6 @@ async def test_set_room_temp_sets_temperature_and_logs():
 @pytest.mark.asyncio
 async def test_set_room_temp_none_restores_zigbee_hvac_mode():
     coord = _make_coordinator(rooms=[_room(name="Bathroom", trv_type="zigbee")])
-    coord.get_write_entity = MagicMock(return_value="climate.bathroom")
     hass = _make_hass_with_entry(coord)
     conn = _connection()
 
@@ -510,8 +547,6 @@ async def test_set_room_temp_none_restores_zigbee_hvac_mode():
 @pytest.mark.asyncio
 async def test_set_room_temp_none_restores_netatmo_schedule_preset():
     coord = _make_coordinator(rooms=[_room(name="Bathroom", trv_type="netatmo")])
-    coord.get_write_entity = MagicMock(return_value="climate.bathroom_homekit")
-    coord.get_climate_entity = MagicMock(return_value="climate.bathroom")
     hass = _make_hass_with_entry(coord)
     conn = _connection()
 
@@ -528,7 +563,6 @@ async def test_set_room_temp_none_restores_netatmo_schedule_preset():
 @pytest.mark.asyncio
 async def test_set_room_temp_service_failure_sends_service_error():
     coord = _make_coordinator(rooms=[_room(name="Bathroom")])
-    coord.get_write_entity = MagicMock(return_value="climate.bathroom")
     hass = _make_hass_with_entry(coord)
     hass.services.async_call = AsyncMock(side_effect=RuntimeError("boom"))
     conn = _connection()
@@ -538,6 +572,69 @@ async def test_set_room_temp_service_failure_sends_service_error():
     conn.send_error.assert_called_once()
     assert conn.send_error.call_args[0][1] == "service_error"
     conn.send_result.assert_not_called()
+
+
+# ── ws_set_room_temp: B18 multi-TRV grouping ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_set_room_temp_multi_trv_room_sends_to_every_trv():
+    coord = _make_coordinator(
+        rooms=[
+            {
+                "room_name": "Living room",
+                "trvs": [
+                    {"climate_entity": "climate.living_room"},
+                    {"climate_entity": "climate.living_room_trv2"},
+                ],
+            }
+        ]
+    )
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_set_room_temp(
+        hass, conn, _msg(room_name="Living room", temperature=22.0, duration_min=60)
+    )
+
+    calls = hass.services.async_call.await_args_list
+    assert len(calls) == 2
+    sent = {c.args[2]["entity_id"]: c.args[2]["temperature"] for c in calls}
+    assert set(sent) == {"climate.living_room", "climate.living_room_trv2"}
+    assert sent["climate.living_room"] == sent["climate.living_room_trv2"] == 22.0
+    result = conn.send_result.call_args[0][1]
+    assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_set_room_temp_none_multi_trv_room_restores_each_by_own_trv_type():
+    coord = _make_coordinator(
+        rooms=[
+            {
+                "room_name": "Living room",
+                "trvs": [
+                    {
+                        "climate_entity": "climate.living_room",
+                        "trv_type": "netatmo",
+                    },
+                    {
+                        "climate_entity": "climate.living_room_trv2",
+                        "trv_type": "zigbee",
+                    },
+                ],
+            }
+        ]
+    )
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_set_room_temp(hass, conn, _msg(room_name="Living room", temperature=None))
+
+    calls = hass.services.async_call.await_args_list
+    assert len(calls) == 2
+    by_entity = {c.args[2]["entity_id"]: c for c in calls}
+    assert by_entity["climate.living_room"].args[1] == "set_preset_mode"
+    assert by_entity["climate.living_room_trv2"].args[1] == "set_hvac_mode"
 
 
 # ── ws_update_config ─────────────────────────────────────────────────────────

@@ -48,7 +48,6 @@
         "description": "Rooms added so far: {room_count}",
         "data": {
           "room_name": "Room name",
-          "climate_entity": "Climate entity",
           "window_sensors": "Window / door sensors",
           "window_delay_min": "Window open delay (minutes)",
           "away_temp_override": "Away temperature for this room",
@@ -56,19 +55,57 @@
           "co2_threshold": "CO\u2082 ventilation threshold (ppm)",
           "room_temp_sensor": "Room temperature sensor (optional)",
           "comfort_temp": "Comfort temperature (Zigbee/local TRVs)",
-          "calibration_entity": "TRV calibration entity (optional)",
-          "sync_mode": "Sync mode",
-          "schedule_entity": "Schedule / calendar entity (optional)",
-          "_action": "What next?"
+          "schedule_entity": "Schedule / calendar entity (optional)"
         },
         "data_description": {
           "comfort_temp": "PID target temperature for rooms with no HomeKit entity (Zigbee today, Matter/Thread later) \u2014 these have no separate cloud schedule to read a target from. Ignored for Netatmo rooms, which use the cloud entity's own schedule setpoint instead. Default 20\u00b0C.",
           "co2_sensor": "Used for context-aware window notifications and energy waste classification. When CO\u2082 is high, an open window is marked as ventilation rather than heat loss.",
           "co2_threshold": "CO\u2082 level above which an open window is classified as intentional ventilation. Default is 900 ppm. Increase for bedrooms (higher tolerance) or decrease for seldom-occupied rooms.",
           "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1\u20133\u00b0C too high).",
-          "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor above.",
-          "sync_mode": "What happens when this room's TRV is changed manually or by another automation. Disabled: ignore. Mirror: accept the change and switch the room to override. Lock: revert it back to Heat Manager's own setpoint.",
           "schedule_entity": "A schedule.* helper or calendar.* entity. While a time block or event is active, its temperature overrides this room's normal target."
+        }
+      },
+      "room_trvs_menu": {
+        "title": "Manage this room's TRVs",
+        "description": "Room: {room_name}. TRVs added so far: {trv_count}. At least one TRV is required \u2014 add it, then edit or delete any TRV, or continue once you're done.",
+        "data": {
+          "action": "Action"
+        }
+      },
+      "room_trv_add": {
+        "title": "Add a TRV",
+        "data": {
+          "climate_entity": "Climate entity",
+          "homekit_climate_entity": "HomeKit climate entity (optional)",
+          "trv_type": "TRV type",
+          "pi_demand_entity": "PI demand entity (optional)",
+          "calibration_entity": "TRV calibration entity (optional)",
+          "sync_mode": "Sync mode"
+        },
+        "data_description": {
+          "homekit_climate_entity": "The HomeKit-bridged climate entity for this TRV, if it differs from the entity above (relevant for some Netatmo/Homebridge setups). Leave blank if not applicable.",
+          "trv_type": "Netatmo NRVs use preset_mode (away/schedule) to enable or disable heating. Zigbee TRVs (via Zigbee2MQTT) use hvac_mode (off/heat) instead.",
+          "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand, used for waste and efficiency calculations.",
+          "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor.",
+          "sync_mode": "What happens when this TRV is changed manually or by another automation. Disabled: ignore. Mirror: accept the change and switch the room to override. Lock: revert it back to Heat Manager's own setpoint."
+        }
+      },
+      "room_trv_edit": {
+        "title": "Edit TRV",
+        "data": {
+          "climate_entity": "Climate entity",
+          "homekit_climate_entity": "HomeKit climate entity (optional)",
+          "trv_type": "TRV type",
+          "pi_demand_entity": "PI demand entity (optional)",
+          "calibration_entity": "TRV calibration entity (optional)",
+          "sync_mode": "Sync mode"
+        },
+        "data_description": {
+          "homekit_climate_entity": "The HomeKit-bridged climate entity for this TRV, if it differs from the entity above (relevant for some Netatmo/Homebridge setups). Leave blank if not applicable.",
+          "trv_type": "Netatmo NRVs use preset_mode (away/schedule) to enable or disable heating. Zigbee TRVs (via Zigbee2MQTT) use hvac_mode (off/heat) instead.",
+          "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand, used for waste and efficiency calculations.",
+          "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor.",
+          "sync_mode": "What happens when this TRV is changed manually or by another automation. Disabled: ignore. Mirror: accept the change and switch the room to override. Lock: revert it back to Heat Manager's own setpoint."
         }
       },
       "person": {
@@ -100,7 +137,6 @@
     },
     "error": {
       "entity_not_found": "Entity not found \u2014 check the entity ID.",
-      "no_rooms": "At least one room must be added.",
       "duplicate_room": "A room with this name already exists.",
       "duplicate_person": "This person is already added."
     },
@@ -169,7 +205,6 @@
         "title": "Add a room",
         "data": {
           "room_name": "Room name",
-          "climate_entity": "Climate entity",
           "window_sensors": "Window / door sensors",
           "window_delay_min": "Window open delay (minutes)",
           "away_temp_override": "Away temperature for this room",
@@ -177,8 +212,6 @@
           "co2_threshold": "CO\u2082 ventilation threshold (ppm)",
           "room_temp_sensor": "Room temperature sensor (optional)",
           "comfort_temp": "Comfort temperature (Zigbee/local TRVs)",
-          "calibration_entity": "TRV calibration entity (optional)",
-          "sync_mode": "Sync mode",
           "schedule_entity": "Schedule / calendar entity (optional)"
         },
         "data_description": {
@@ -186,8 +219,6 @@
           "co2_sensor": "Used for context-aware window notifications and energy waste classification.",
           "co2_threshold": "CO\u2082 level above which an open window is classified as ventilation. Default 900 ppm.",
           "room_temp_sensor": "Independent room probe for PID temperature feedback.",
-          "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor above.",
-          "sync_mode": "What happens when this room's TRV is changed manually or by another automation. Disabled: ignore. Mirror: accept the change and switch the room to override. Lock: revert it back to Heat Manager's own setpoint.",
           "schedule_entity": "A schedule.* helper or calendar.* entity. While a time block or event is active, its temperature overrides this room's normal target."
         }
       },
@@ -196,7 +227,6 @@
         "description": "Editing: {room_name}",
         "data": {
           "room_name": "Room name",
-          "climate_entity": "Climate entity",
           "window_sensors": "Window / door sensors",
           "window_delay_min": "Window open delay (minutes)",
           "away_temp_override": "Away temperature for this room",
@@ -204,8 +234,6 @@
           "co2_threshold": "CO\u2082 ventilation threshold (ppm)",
           "room_temp_sensor": "Room temperature sensor (optional)",
           "comfort_temp": "Comfort temperature (Zigbee/local TRVs)",
-          "calibration_entity": "TRV calibration entity (optional)",
-          "sync_mode": "Sync mode",
           "schedule_entity": "Schedule / calendar entity (optional)"
         },
         "data_description": {
@@ -213,9 +241,50 @@
           "co2_sensor": "Used for context-aware window notifications and energy waste classification.",
           "co2_threshold": "CO\u2082 level above which an open window is classified as ventilation. Default 900 ppm.",
           "room_temp_sensor": "Independent room probe for PID temperature feedback.",
-          "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor above.",
-          "sync_mode": "What happens when this room's TRV is changed manually or by another automation. Disabled: ignore. Mirror: accept the change and switch the room to override. Lock: revert it back to Heat Manager's own setpoint.",
           "schedule_entity": "A schedule.* helper or calendar.* entity. While a time block or event is active, its temperature overrides this room's normal target."
+        }
+      },
+      "room_trvs_menu": {
+        "title": "Manage this room's TRVs",
+        "description": "Room: {room_name}. TRVs added so far: {trv_count}. At least one TRV is required \u2014 add it, then edit or delete any TRV, or save the room once you're done.",
+        "data": {
+          "action": "Action"
+        }
+      },
+      "room_trv_add": {
+        "title": "Add a TRV",
+        "data": {
+          "climate_entity": "Climate entity",
+          "homekit_climate_entity": "HomeKit climate entity (optional)",
+          "trv_type": "TRV type",
+          "pi_demand_entity": "PI demand entity (optional)",
+          "calibration_entity": "TRV calibration entity (optional)",
+          "sync_mode": "Sync mode"
+        },
+        "data_description": {
+          "homekit_climate_entity": "The HomeKit-bridged climate entity for this TRV, if it differs from the entity above (relevant for some Netatmo/Homebridge setups). Leave blank if not applicable.",
+          "trv_type": "Netatmo NRVs use preset_mode (away/schedule) to enable or disable heating. Zigbee TRVs (via Zigbee2MQTT) use hvac_mode (off/heat) instead.",
+          "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand, used for waste and efficiency calculations.",
+          "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor.",
+          "sync_mode": "What happens when this TRV is changed manually or by another automation. Disabled: ignore. Mirror: accept the change and switch the room to override. Lock: revert it back to Heat Manager's own setpoint."
+        }
+      },
+      "room_trv_edit": {
+        "title": "Edit TRV",
+        "data": {
+          "climate_entity": "Climate entity",
+          "homekit_climate_entity": "HomeKit climate entity (optional)",
+          "trv_type": "TRV type",
+          "pi_demand_entity": "PI demand entity (optional)",
+          "calibration_entity": "TRV calibration entity (optional)",
+          "sync_mode": "Sync mode"
+        },
+        "data_description": {
+          "homekit_climate_entity": "The HomeKit-bridged climate entity for this TRV, if it differs from the entity above (relevant for some Netatmo/Homebridge setups). Leave blank if not applicable.",
+          "trv_type": "Netatmo NRVs use preset_mode (away/schedule) to enable or disable heating. Zigbee TRVs (via Zigbee2MQTT) use hvac_mode (off/heat) instead.",
+          "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand, used for waste and efficiency calculations.",
+          "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor.",
+          "sync_mode": "What happens when this TRV is changed manually or by another automation. Disabled: ignore. Mirror: accept the change and switch the room to override. Lock: revert it back to Heat Manager's own setpoint."
         }
       },
       "persons_menu": {
@@ -313,11 +382,14 @@
     "switch": {
       "room_override": {
         "name": "Override"
+      },
+      "room_group_toggle": {
+        "name": "Group"
       }
     },
     "number": {
-      "group_offset": {
-        "name": "Group offset"
+      "room_offset": {
+        "name": "Offset"
       }
     }
   },

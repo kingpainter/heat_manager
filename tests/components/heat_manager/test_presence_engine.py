@@ -1,18 +1,17 @@
 """Tests for engine/presence_engine.py — B4 regression + core behaviour."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, call, patch
-import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from custom_components.heat_manager.const import (
+    CONF_TRVS,
     ControllerState,
     RoomState,
-    SeasonMode,
 )
 from custom_components.heat_manager.engine.presence_engine import PresenceEngine
-
+from custom_components.heat_manager.migrations import migrate_room_to_trvs
 
 # ── Coordinator factory ───────────────────────────────────────────────────────
 
@@ -52,6 +51,21 @@ def _make_coordinator(
 
     coordinator.controller = MagicMock()
     coordinator.controller.state = ControllerState.ON
+
+    # B18: presence_engine now fans commands out over get_room_trvs()
+    # instead of reading room-level flat fields directly. Default to the
+    # same flat-mirror migration the real coordinator uses at read time,
+    # so every existing single-TRV test (built with _make_room()'s flat
+    # fields) keeps sending to exactly the same entity as before.
+    def _default_get_room_trvs(room_name):
+        room = next(
+            (r for r in coordinator.rooms if r.get("room_name") == room_name), None
+        )
+        if room is None:
+            return []
+        return migrate_room_to_trvs(room).get(CONF_TRVS, [])
+
+    coordinator.get_room_trvs = MagicMock(side_effect=_default_get_room_trvs)
 
     return coordinator
 
@@ -346,3 +360,99 @@ async def test_set_all_away_blocked_when_controller_off():
     await engine._set_all_away()
 
     coordinator.hass.services.async_call.assert_not_awaited()
+
+
+# ── B18: multi-TRV grouping — same command fanned out to every TRV ───────────
+
+def _make_room_with_trvs(name, trvs):
+    """A room shaped by the config/options flow's per-TRV UI (CONF_TRVS
+    present) — no flat mirror fields needed, matching what
+    migrate_room_to_trvs() produces after a room is edited that way."""
+    return {"room_name": name, "trvs": trvs, "window_sensors": []}
+
+
+@pytest.mark.asyncio
+async def test_set_all_away_sends_to_every_trv_in_multi_trv_room():
+    rooms = [
+        _make_room_with_trvs(
+            "Living room",
+            [
+                {"climate_entity": "climate.living_room", "trv_type": "netatmo"},
+                {
+                    "climate_entity": "climate.living_room_trv2",
+                    "trv_type": "zigbee",
+                },
+            ],
+        )
+    ]
+    coordinator = _make_coordinator(rooms=rooms)
+    coordinator.hass.states.get = MagicMock(return_value=None)
+    engine = PresenceEngine(coordinator)
+
+    await engine._set_all_away()
+
+    calls = coordinator.hass.services.async_call.await_args_list
+    assert len(calls) == 2
+    by_entity = {c.args[2]["entity_id"]: c for c in calls}
+    assert by_entity["climate.living_room"].args[1] == "set_preset_mode"
+    assert by_entity["climate.living_room"].args[2]["preset_mode"] == "away"
+    assert by_entity["climate.living_room_trv2"].args[1] == "set_hvac_mode"
+    assert by_entity["climate.living_room_trv2"].args[2]["hvac_mode"] == "off"
+    coordinator.set_room_state.assert_called_with("Living room", RoomState.AWAY)
+
+
+@pytest.mark.asyncio
+async def test_restore_all_schedule_sends_to_every_trv_in_multi_trv_room():
+    rooms = [
+        _make_room_with_trvs(
+            "Living room",
+            [
+                {"climate_entity": "climate.living_room", "trv_type": "netatmo"},
+                {
+                    "climate_entity": "climate.living_room_trv2",
+                    "trv_type": "zigbee",
+                },
+            ],
+        )
+    ]
+    coordinator = _make_coordinator(rooms=rooms)
+    engine = PresenceEngine(coordinator)
+
+    await engine._restore_all_schedule()
+
+    calls = coordinator.hass.services.async_call.await_args_list
+    assert len(calls) == 2
+    entity_ids = {c.args[2]["entity_id"] for c in calls}
+    assert entity_ids == {"climate.living_room", "climate.living_room_trv2"}
+    coordinator.set_room_state.assert_called_once_with(
+        "Living room", RoomState.NORMAL
+    )
+
+
+@pytest.mark.asyncio
+async def test_force_room_on_multi_trv_sends_to_every_trv():
+    rooms = [
+        _make_room_with_trvs(
+            "Living room",
+            [
+                {"climate_entity": "climate.living_room", "trv_type": "netatmo"},
+                {
+                    "climate_entity": "climate.living_room_trv2",
+                    "trv_type": "zigbee",
+                },
+            ],
+        )
+    ]
+    coordinator = _make_coordinator(rooms=rooms)
+    coordinator.any_window_open = MagicMock(return_value=False)
+    engine = PresenceEngine(coordinator)
+
+    await engine.force_room_on("Living room")
+
+    calls = coordinator.hass.services.async_call.await_args_list
+    assert len(calls) == 2
+    entity_ids = {c.args[2]["entity_id"] for c in calls}
+    assert entity_ids == {"climate.living_room", "climate.living_room_trv2"}
+    coordinator.set_room_state.assert_called_once_with(
+        "Living room", RoomState.NORMAL
+    )

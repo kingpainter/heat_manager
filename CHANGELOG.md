@@ -11,6 +11,261 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ---
 
+## [0.13.0] — 2026-09-04
+
+Fase 4 of TRV grouping (B18, final phase): the frontend catches up with
+Fase 3's backend. The old global "Gruppe-offset" slider (`number.
+heat_manager_group_offset`) is gone from both `heat-manager-card.js` and
+`heat-manager-panel.js` — replaced with per-room controls where each
+belongs. `panel.js`'s Rum-fanen (room detail rows) gains a grouping box for
+every room with 2+ physical TRVs: a "Grupperet"/"Frigivet" toggle button
+(`switch.<room>_group`) and an offset slider (`number.<room>_offset`), same
+drag-to-set UX the old global slider had. `card.js` (the compact mobile
+card, which has never had per-room interactive controls) instead gets a
+small read-only "🔓 Ikke grupperet" badge next to a room's temperature when
+its group toggle is off — full editing stays panel-only, matching the
+project's mobile-card-is-compact / panel-is-full-detail split.
+
+### Changed
+- `frontend/heat-manager-panel.js`:
+  - `_resolveEntityIds()` no longer discovers a `_offsetEntityId` — replaced
+    by new `_roomOffsetEntityId(roomName)` / `_roomGroupToggleEntityId(roomName)`,
+    matched by `attributes.friendly_name` (robust to slugify transliteration
+    of accented room names, e.g. "Køkken") rather than entity_id suffix.
+  - `_controllerSectionHTML()` / `_patchController()` — the global offset
+    slider markup and its "synced unless actively dragging" patch logic are
+    removed.
+  - `_roomDetailRowHTML()` — new grouping box (only for `room.trv_count >
+    1`, using the per-room `offset`/`group_enabled` fields Fase 3 added to
+    `ws_get_state()`'s room payload): a `toggle-btn`-styled group toggle and
+    an offset slider styled like the removed global one.
+  - New `_attachRoomDetailEvents()` — extracted from `_attachEvents()` so it
+    can also be called from `_patchRoomsTab()`, which rebuilds
+    `.rooms-detail-container`'s innerHTML on every ~30s poll and was
+    silently dropping the manual-control slider/send/reset listeners after
+    the first refresh; now those and the new grouping controls are
+    re-wired on every rebuild. Toggling group state calls
+    `switch.turn_on`/`turn_off` and locally patches `room.group_enabled`
+    before re-rendering the row; dragging the offset slider calls
+    `number.set_value` and locally patches `room.offset`.
+- `frontend/heat-manager-card.js`:
+  - Removed `_offsetEntityId()`/`_groupOffset()`, the "Gruppe-offset" row in
+    the Controller section, its periodic sync in `_updateInPlace()`, and
+    its event wiring in `_attachEvents()`.
+  - New `_roomGroupEnabled(roomName)` (same friendly_name matching as the
+    panel) backs a small "🔓 Ikke grupperet" badge shown next to a room's
+    temperature, alongside the existing blocking-sources badge, when that
+    room's group toggle is off.
+
+---
+
+## [0.12.0] — 2026-09-04
+
+Fase 3 of TRV grouping (B18): rooms with 2+ physical TRVs now get two new
+per-room entities — an offset `number` and a group-toggle `switch` —
+replacing the single global `number.heat_manager_group_offset` (v0.9.0).
+Turning a room's group toggle OFF releases every TRV in that room except
+the primary one for independent/manual control: Heat Manager stops sending
+commands to them across every engine (PID tick, boost, away, window,
+preheat, valve protection, sync, controller off-fallback, the override
+switch, WS manual commands), while the primary TRV and the room's offset
+keep applying normally. Frontend updates (panel.js/card.js surfacing the
+new per-room controls, removing the old global offset slider) are Fase 4,
+not yet done — the existing UI degrades gracefully in the meantime (its
+`group_offset` reads default to 0/no-op).
+
+### Added
+- `number.py` — `RoomOffsetNumber`, one per room with 2+ physical TRVs,
+  writing to the new `coordinator.room_offsets[room_name]` (replaces the
+  global `GroupOffsetNumber`/`coordinator.group_offset`). Same bounds/step
+  as the entity it replaces (`GROUP_OFFSET_MIN/MAX/STEP`, kept as-is).
+- `switch.py` — `RoomGroupToggleSwitch`, one per room with 2+ physical
+  TRVs, default ON, backed by `coordinator.room_group_enabled[room_name]`.
+
+### Changed
+- `coordinator.py` — `get_room_trvs()` is now toggle-aware: for a 2+ TRV
+  room whose group toggle is off, it returns only the primary TRV, so
+  every command call site from Fase 2 (PID tick, boost, presence/window/
+  preheat, valve protection, sync engine, controller off-fallback, the
+  override switch, WS manual commands) automatically stops touching that
+  room's secondary TRVs with no further per-engine changes. A new
+  `get_all_room_trvs()` is the structural/ignoring-the-toggle accessor,
+  used by entity setup and diagnostics. New `set_room_group_enabled()`
+  updates the toggle state, rebuilds SyncEngine's entity map, and
+  refreshes listeners in one call. `_async_pid_tick()`'s target-temperature
+  computation now adds `room_offsets.get(room_name, 0.0)` instead of the
+  old global `group_offset`. `async_boost_start()` resets every room's
+  offset (`room_offsets = {}`) instead of the single global value.
+- `engine/sync_engine.py` — new public `rebuild_entity_map()`: unsubscribes
+  the current listener, rebuilds `_entity_to_room`/`_entity_to_trv` from
+  `get_room_trvs()`, and re-subscribes. Needed because the toggle can
+  change at runtime, which would otherwise leave the map — built once in
+  `__init__` — stale (still watching a just-ungrouped secondary TRV, or
+  not yet watching one just regrouped).
+- `websocket.py` — `ws_get_state()`'s per-room payload gains `trv_count`,
+  `offset` and `group_enabled`; the old top-level `group_offset` key is
+  removed (the existing frontend already reads it as `?? 0`, so this
+  degrades to an inert 0/no-op slider until Fase 4).
+- `strings.json` / `translations/da.json` / `translations/en.json` /
+  `icons.json` — `number.group_offset` → `number.room_offset`; new
+  `switch.room_group_toggle` translation/icon entries.
+
+### Tests
+- `test_number.py` rewritten for `RoomOffsetNumber` (was `GroupOffsetNumber`),
+  plus `async_setup_entry()` coverage for the 2+ TRV room filter.
+- `test_switch.py` — new `RoomGroupToggleSwitch` tests (is_on, unique_id,
+  turn_on/off) and `async_setup_entry()` coverage for the 2+ TRV filter.
+- `test_sync_engine.py` — new `rebuild_entity_map()` tests: drops a
+  just-ungrouped TRV, re-adds a just-regrouped one, unsubscribes the old
+  listener, and confirms a stale pending-confirm callback after a rebuild
+  is a safe no-op.
+- `test_room_grouping.py` — new file: `get_all_room_trvs()` vs. the
+  toggle-aware `get_room_trvs()`, `set_room_group_enabled()`, and
+  `async_boost_start()`'s per-room offset reset, all against the real
+  (unmocked) coordinator methods.
+- `test_pid_tick.py` / `test_websocket.py` — updated fixtures
+  (`room_offsets`, `room_group_enabled`, `get_all_room_trvs`) plus new
+  tests for per-room offset application (and non-leakage across rooms)
+  and the new per-room WS payload fields.
+- 379 passed.
+
+---
+
+## [0.11.0] — 2026-09-04
+
+Fase 2 of TRV grouping (B18): the coordinator and every engine that writes
+a `climate.*` service call now fan the same command out to every physical
+TRV configured for a room (via Fase 1's `CONF_TRVS`), instead of only the
+room's primary TRV. One PID loop still computes a single target
+temperature per room; only the final write step loops. Single-TRV rooms
+are unaffected — every existing test passes unchanged. Fase 3 (new
+per-room offset/group-toggle entities, removal of the global group-offset
+number) and Fase 4 (panel.js/card.js) follow in later releases.
+
+### Changed
+- `coordinator.py` — new multi-TRV helpers (`get_room_trvs`,
+  `get_trv_write_entity`, `get_room_write_entities`, `trv_needs_cloud_delay`)
+  built on Fase 1's flat-mirror migration. `_async_pid_tick()`'s write step
+  and `async_boost_start()` now loop every TRV in a room; the PID
+  reset-on-unavailable decision and the 0.5 °C suppress threshold stay
+  gated on the room's primary TRV only, individual secondary TRVs are
+  best-effort.
+- `engine/presence_engine.py` — `_set_all_away()`, `_restore_all_schedule()`
+  and `force_room_on()` now command every TRV in a room, each still routed
+  by its own `trv_type` (netatmo preset_mode vs. Zigbee hvac_mode).
+- `engine/window_engine.py` — `_open_after_delay()` sends the same
+  window-open setpoint to every TRV's write entity; `_close_after_delay()`
+  restores every TRV, each by its own `trv_type`.
+- `engine/controller.py` — `_apply_off_fallback()`'s DORMANT and
+  ACTIVE/WAKING branches both now loop every TRV in a room, keeping each
+  branch's own pre-existing entity-selection policy (the DORMANT branch
+  still has no `trv_type` routing — that asymmetry is pre-existing, not
+  new).
+- `engine/preheat_engine.py` — `_start_preheat()` preheats every TRV in an
+  AWAY room, each by its own `trv_type`.
+- `engine/valve_protection_engine.py` — `_exercise_all_valves()` exercises
+  every physical TRV in a room individually (open → hold → restore per
+  TRV), each still preferring its own configured HomeKit entity with no
+  reachability check (unchanged single-TRV policy), staggered per TRV by
+  its own `trv_type`.
+- `engine/sync_engine.py` — `CONF_SYNC_MODE` is read per TRV (it moved to
+  the TRV dict in Fase 1). `_build_entity_map()` now maps every enabled
+  TRV's entities to its own TRV dict; the "is this the active write
+  entity" check and the mirror/lock decision are both scoped to the
+  specific TRV that changed, not the room's primary.
+- `switch.py` — `RoomOverrideSwitch.async_turn_on()` now switches every
+  TRV in the room to OVERRIDE, preserving its own pre-existing (and
+  previously room-level) inconsistency between branches: the Zigbee
+  branch prefers the write entity, the Netatmo branch always writes to
+  the raw `climate_entity` — each now scoped per TRV.
+- `websocket.py` — `ws_set_room_temp()` fans a manual temperature or a
+  schedule-restore out to every TRV in the room.
+
+### Added
+- New test coverage: `test_controller_engine.py` (new — `_apply_off_fallback`
+  had no prior test file) and `test_valve_protection_engine.py` (new — no
+  prior test file), plus multi-TRV cases added to
+  `test_pid_tick.py`, `test_presence_engine.py`, `test_window_engine.py`,
+  `test_preheat_engine.py`, `test_sync_engine.py`, `test_switch.py` and
+  `test_websocket.py`. All pre-existing single-TRV tests pass unchanged —
+  fixtures were extended with a default `get_room_trvs()` (built from
+  Fase 1's `migrate_room_to_trvs()`) rather than rewritten. Full suite:
+  353 passed.
+
+---
+
+## [0.10.0] — 2026-09-04
+
+Fase 1 of TRV grouping groundwork (B18). Data model and config/options flow
+UI only — the coordinator and engines are unchanged, so a multi-TRV room
+is not yet actively controlled beyond its primary TRV. Fase 2 (multi-TRV
+command loop), Fase 3 (per-room offset/group entities, removal of the
+global group-offset number), and Fase 4 (panel.js/card.js) follow in
+later releases.
+
+### Added
+- `CONF_TRVS` — a room can now hold more than one physical TRV. Each room's
+  own config/options flow step (`room` / `room_add` / `room_edit`) is
+  followed by a new TRV sub-menu (`room_trvs_menu`) where TRVs are added,
+  edited or deleted one at a time (`room_trv_add` / `room_trv_edit`), the
+  same repeatable-list pattern already used for rooms and persons. At
+  least one TRV is required before a room can be saved — the sub-menu's
+  "done" action isn't offered until one exists.
+- Per-TRV field granularity: `climate_entity`, `homekit_climate_entity`,
+  `trv_type`, `pi_demand_entity`, `calibration_entity` and `sync_mode` all
+  now live on each TRV dict inside `CONF_TRVS`, instead of once per room.
+  `schedule_entity` and every other room-level field (window sensors,
+  away override, CO₂, room/humidity sensors, comfort temp) are unchanged
+  and stay on the room.
+- `migrations.py` — pure, HA-import-free `migrate_room_to_trvs()` /
+  `migrate_rooms_to_trvs()`, run once per config entry via the new
+  `async_migrate_entry()` hook in `__init__.py` (config entry version
+  1 → 2). A pre-existing single-TRV room's flat fields are copied into a
+  one-element `CONF_TRVS` list; the flat fields themselves are *also* left
+  in place, mirrored from `trvs[0]` — every other module that still reads
+  `room.get(CONF_CLIMATE_ENTITY)` etc. directly (coordinator, sensors,
+  switches, all six engines) keeps working unchanged for single-TRV
+  rooms, entirely unaware CONF_TRVS exists. The migration is idempotent,
+  so editing a room through the new per-TRV UI (which only writes
+  CONF_TRVS) correctly re-syncs the flat mirror the next time the entry
+  loads.
+- 48 new/rewritten tests: `_trv_schema` validation (including the B17
+  empty-optional-entity fix, now also verified at the TRV level), the new
+  room → room_trvs_menu → room_trv_add/edit flow for both the config and
+  options flow, and `tests/components/heat_manager/test_migrations.py`
+  (13 tests) covering fresh migration, idempotent re-migration, flat-mirror
+  resync after an edit, and `async_migrate_entry`'s version bump. Total
+  test count: 303 → 328 (+ existing suites unaffected — zero files outside
+  config_flow.py / __init__.py / migrations.py were touched).
+
+---
+
+## [0.9.5] — 2026-09-04
+
+### Fixed
+- **B17** — Four optional entity-picker fields (`calibration_entity`,
+  `schedule_entity`, `weather_entity`, `alarm_panel`) used
+  `vol.Optional(..., default=defaults.get(CONF_X, ""))` together with an
+  `"entity"` selector. HA's entity selector rejects `""` as an invalid
+  entity ID, so the *schema itself* raised `vol.Invalid` on submit —
+  before the step handler's own (correct) `if x and hass.states.get(x)
+  is None` guards ever ran. In practice this meant a room could never be
+  saved while its TRV calibration entity or schedule/calendar entity was
+  left empty, even though strings.json labels both "(optional)". Fixed by
+  defaulting to `vol.UNDEFINED` (via `defaults.get(CONF_X) or
+  vol.UNDEFINED`) instead of `""`, so an empty selection is omitted from
+  the validated data instead of being coerced into an invalid entity ID.
+  This also self-heals rooms/entries that already had `""` stored for
+  these fields from before the fix. Reported after being unable to clear
+  a Zigbee TRV's calibration entity while switching a room to Netatmo.
+- Regression tests added in `test_config_flow.py` that apply the actual
+  `data_schema` returned by the config/options flow steps (mirroring
+  what HA's `FlowManager.async_configure` does), rather than only calling
+  the step function directly with a plain dict — the previous tests
+  could not have caught this class of bug.
+
+---
+
 ## [0.9.4] — 2026-09-03
 
 Closes out the entity-platform test-coverage backlog item from the v0.9.2

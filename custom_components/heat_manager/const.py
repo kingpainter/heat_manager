@@ -12,6 +12,18 @@ VERSION = "0.9.0"
 CONF_ROOMS = "rooms"
 CONF_ROOM_NAME = "room_name"
 CONF_CLIMATE_ENTITY = "climate_entity"
+
+# A room's physical TRVs. list[dict], each dict holding one TRV's own
+# CONF_CLIMATE_ENTITY / CONF_HOMEKIT_CLIMATE_ENTITY / CONF_TRV_TYPE /
+# CONF_PI_DEMAND_ENTITY / CONF_CALIBRATION_ENTITY / CONF_SYNC_MODE — see
+# config_flow._trv_schema(). Rooms saved before this existed are migrated
+# by async_migrate_entry() in __init__.py: the migrated room keeps its old
+# flat fields too, mirrored from trvs[0], so every module that still reads
+# room.get(CONF_CLIMATE_ENTITY) directly keeps working for the room's
+# first/primary TRV. Multi-TRV control (grouping, mirroring the same
+# target to every TRV) is not implemented yet — that's a follow-up change
+# to coordinator.py and the engines.
+CONF_TRVS = "trvs"
 CONF_WINDOW_SENSORS = "window_sensors"
 CONF_WINDOW_DELAY_MIN = "window_delay_min"
 CONF_AWAY_TEMP_OVERRIDE = "away_temp_override"
@@ -214,10 +226,13 @@ DEFAULT_BOOST_TEMP: float = 24.0
 # boosted room, when no "duration_minutes" is given.
 DEFAULT_BOOST_MINUTES: float = 30.0
 
-# ── Group offset (v0.9.0) ────────────────────────────────────────────────────
-# Global, non-destructive temperature shift applied on top of every room's
-# PID target every tick — see number.py GroupOffsetNumber. Mirrors
-# climate_group_helper's "Group Offset" number entity.
+# ── Room offset (v0.9.0 global → B18 Fase 3 per-room) ────────────────────────
+# Non-destructive temperature shift applied on top of a room's PID target
+# every tick — see number.py RoomOffsetNumber (created per-room for rooms
+# with 2+ TRVs). Mirrors climate_group_helper's "Group Offset" number
+# entity. Bounds/step/default kept as-is from the v0.9.0 global entity they
+# replace — only the coordinator attribute they're read into is now
+# per-room (coordinator.room_offsets) rather than a single float.
 
 DEFAULT_GROUP_OFFSET: float = 0.0
 GROUP_OFFSET_MIN: float = -5.0

@@ -32,6 +32,7 @@ from .const import (
     CONF_AWAY_TEMP_COLD,
     CONF_AWAY_TEMP_MILD,
     CONF_CALIBRATION_ENTITY,
+    CONF_CLIMATE_ENTITY,
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
     CONF_HOUSE_VOICE_ENABLED,
@@ -40,6 +41,7 @@ from .const import (
     CONF_PERSON_TRACKING,
     CONF_SCHEDULE_ENTITY,
     CONF_SYNC_MODE,
+    CONF_TRV_TYPE,
     CONF_WEATHER_ENTITY,
     CONF_WINDOW_SENSORS,
     DOMAIN,
@@ -149,33 +151,47 @@ async def ws_set_room_temp(
         )
         return
 
-    write_entity = coordinator.get_write_entity(room_name)
-    if write_entity is None:
+    # B18: every physical TRV configured for the room receives the same
+    # command, each routed by its own trv_type/write-entity policy \u2014
+    # unchanged from the pre-existing single-TRV policy per branch.
+    trvs = coordinator.get_room_trvs(room_name)
+    if not trvs:
         connection.send_error(
             msg["id"], "not_found", f"No write entity for room '{room_name}'"
         )
         return
 
-    trv_type = room_cfg.get("trv_type", "netatmo")
+    write_entity: str | None = None
 
     try:
         if temperature is None:
             # Restore to schedule
-            if trv_type == "zigbee":
-                await hass.services.async_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": write_entity, "hvac_mode": "heat"},
-                    blocking=True,
-                )
-            else:
-                cloud_entity = coordinator.get_climate_entity(room_name)
-                await hass.services.async_call(
-                    "climate",
-                    "set_preset_mode",
-                    {"entity_id": cloud_entity, "preset_mode": "schedule"},
-                    blocking=True,
-                )
+            for trv in trvs:
+                trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
+                if trv_type == "zigbee":
+                    entity_id = coordinator.get_trv_write_entity(trv) or trv.get(
+                        CONF_CLIMATE_ENTITY
+                    )
+                    if not entity_id:
+                        continue
+                    await hass.services.async_call(
+                        "climate",
+                        "set_hvac_mode",
+                        {"entity_id": entity_id, "hvac_mode": "heat"},
+                        blocking=True,
+                    )
+                else:
+                    entity_id = trv.get(CONF_CLIMATE_ENTITY)
+                    if not entity_id:
+                        continue
+                    await hass.services.async_call(
+                        "climate",
+                        "set_preset_mode",
+                        {"entity_id": entity_id, "preset_mode": "schedule"},
+                        blocking=True,
+                    )
+                if write_entity is None:
+                    write_entity = entity_id
             coordinator.log_event(
                 f"{room_name}: schedule gendannet",
                 reason="manuel panel",
@@ -183,14 +199,19 @@ async def ws_set_room_temp(
             )
             _LOGGER.info("Room '%s' restored to schedule", room_name)
         else:
-            # Set temperature
+            # Set temperature \u2014 same setpoint fanned out to every TRV's
+            # write entity (HomeKit-preferred, matching the pre-existing
+            # single-TRV policy).
             temp = float(temperature)
-            await hass.services.async_call(
-                "climate",
-                "set_temperature",
-                {"entity_id": write_entity, "temperature": temp},
-                blocking=True,
-            )
+            write_entities = coordinator.get_room_write_entities(room_name)
+            for entity_id in write_entities:
+                await hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {"entity_id": entity_id, "temperature": temp},
+                    blocking=True,
+                )
+            write_entity = write_entities[0] if write_entities else None
             dur_label = f"{duration} min" if duration > 0 else "permanent"
             coordinator.log_event(
                 f"{room_name}: {temp}\u00b0C ({dur_label})",
@@ -320,6 +341,12 @@ async def ws_get_state(
                 "calibration_entity": room.get(CONF_CALIBRATION_ENTITY) or None,
                 "sync_mode": room.get(CONF_SYNC_MODE) or None,
                 "schedule_entity": room.get(CONF_SCHEDULE_ENTITY) or None,
+                # B18 Fase 3: per-room replacement for the old single global
+                # "group_offset" below — not yet consumed by panel.js/
+                # card.js (Fase 4), forward-compatible additions only.
+                "trv_count": len(coordinator.get_all_room_trvs(name)),
+                "offset": coordinator.room_offsets.get(name, 0.0),
+                "group_enabled": coordinator.room_group_enabled.get(name, True),
             }
         )
 
@@ -385,8 +412,10 @@ async def ws_get_state(
         "auto_off_days_required": cfg.get(CONF_AUTO_OFF_TEMP_DAYS, 5),
         "auto_off_threshold": cfg.get(CONF_AUTO_OFF_TEMP_THRESHOLD, 18.0),
         "config": config_snap,
-        # v0.9.0
-        "group_offset": coordinator.group_offset,
+        # B18 Fase 3: the old global "group_offset" (v0.9.0) is gone —
+        # replaced by each room's own "offset"/"group_enabled" above. The
+        # existing panel.js/card.js read this via `?? 0` and degrade to an
+        # inert 0/no-op slider until Fase 4 wires up the per-room controls.
         "blocking_sources": coordinator.global_blocking_sources(),
     }
 

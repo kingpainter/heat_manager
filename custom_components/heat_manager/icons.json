@@ -15,10 +15,11 @@
       "heating_wasted":  {"default": "mdi:fire-alert"}
     },
     "switch": {
-      "room_override": {"default": "mdi:thermostat-auto"}
+      "room_override": {"default": "mdi:thermostat-auto"},
+      "room_group_toggle": {"default": "mdi:radiator"}
     },
     "number": {
-      "group_offset": {"default": "mdi:plus-minus-variant"}
+      "room_offset": {"default": "mdi:plus-minus-variant"}
     }
   }
 }

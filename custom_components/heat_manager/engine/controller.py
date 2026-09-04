@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 from homeassistant.util.dt import utcnow
 
 from ..const import (
+    CONF_CLIMATE_ENTITY,
     CONF_PAUSE_DURATION_MIN,
     DEFAULT_PAUSE_DURATION_MIN,
     HV_EVENT_CONTROLLER_OFF,
@@ -234,38 +235,49 @@ class ControllerEngine:
 
         H-5: HomeKit entity preferred for hvac_mode writes (local, no rate limit).
         H-6: Delay only applied when writing to Netatmo cloud entity.
+
+        B18: every physical TRV configured for a room receives the same
+        fallback command — the DORMANT branch deliberately has no trv_type
+        routing (unlike e.g. PresenceEngine), matching this method's
+        pre-existing single-TRV behaviour exactly.
         """
         season = self.coordinator.effective_season
         hass = self.coordinator.hass
 
         for room in self.coordinator.rooms:
             room_name = room.get("room_name", "")
-            cloud_id = room.get("climate_entity", "")
-            if not cloud_id:
-                continue
-            try:
-                if season == EffectiveSeason.DORMANT:
-                    # H-5: prefer HomeKit for local hvac_mode: off
-                    write_id = self.coordinator.get_write_entity(room_name) or cloud_id
-                    await hass.services.async_call(
-                        "climate",
-                        "set_hvac_mode",
-                        {"entity_id": write_id, "hvac_mode": HVAC_OFF},
-                        blocking=True,
+            for trv in self.coordinator.get_room_trvs(room_name):
+                cloud_id = trv.get(CONF_CLIMATE_ENTITY, "")
+                if not cloud_id:
+                    continue
+                try:
+                    if season == EffectiveSeason.DORMANT:
+                        # H-5: prefer HomeKit for local hvac_mode: off (per TRV)
+                        write_id = (
+                            self.coordinator.get_trv_write_entity(trv) or cloud_id
+                        )
+                        await hass.services.async_call(
+                            "climate",
+                            "set_hvac_mode",
+                            {"entity_id": write_id, "hvac_mode": HVAC_OFF},
+                            blocking=True,
+                        )
+                    else:
+                        # preset_mode: schedule must go to cloud — not
+                        # supported via HomeKit
+                        await hass.services.async_call(
+                            "climate",
+                            "set_preset_mode",
+                            {"entity_id": cloud_id, "preset_mode": PRESET_SCHEDULE},
+                            blocking=True,
+                        )
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "Failed to set OFF fallback on %s: %s", cloud_id, err
                     )
-                else:
-                    # preset_mode: schedule must go to cloud — not supported via HomeKit
-                    await hass.services.async_call(
-                        "climate",
-                        "set_preset_mode",
-                        {"entity_id": cloud_id, "preset_mode": PRESET_SCHEDULE},
-                        blocking=True,
-                    )
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning("Failed to set OFF fallback on %s: %s", cloud_id, err)
-            # H-6: only delay when writing to Netatmo cloud
-            if self.coordinator.needs_cloud_delay(room_name):
-                await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
+                # H-6: only delay when writing to Netatmo cloud
+                if self.coordinator.needs_cloud_delay(room_name):
+                    await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
     # ── Room state reset ──────────────────────────────────────────────────────
 

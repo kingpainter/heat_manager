@@ -215,20 +215,20 @@ class HeatManagerCard extends HTMLElement {
     return Array.from(set).sort();
   }
 
-  // v0.9.0: Group offset — number.heat_manager_group_offset (singleton, same
-  // discovery pattern as _ctrl()/_season()/_pauseLeft() above).
-  _offsetEntityId() {
+  // B18 Fase 3: the old global group_offset number is gone — offset/group
+  // controls are per-room now and live in the panel (bigger-screen UI). The
+  // compact mobile card just surfaces a read-only "ungrouped" badge per
+  // room, via the room's own switch.<room> group-toggle entity (same
+  // friendly-name discovery pattern the panel uses) — no per-room slider
+  // here, that stays panel-only.
+  _roomGroupEnabled(roomName) {
     const states = this._hass?.states ?? {};
     for (const id of Object.keys(states)) {
-      if (id.startsWith("number.") && id.endsWith("_group_offset")) return id;
+      if (id.startsWith("switch.") && states[id]?.attributes?.friendly_name === `${roomName} group`) {
+        return states[id].state !== "off";
+      }
     }
-    return null;
-  }
-
-  _groupOffset() {
-    const id = this._offsetEntityId();
-    const v = id ? parseFloat(this._hass?.states?.[id]?.state) : NaN;
-    return isNaN(v) ? 0 : v;
+    return true; // no toggle entity for this room (single-TRV room) — always "grouped"
   }
 
   _outdoorTemp() {
@@ -479,25 +479,6 @@ class HeatManagerCard extends HTMLElement {
         font-family: 'DM Sans', sans-serif;
       }
 
-      /* v0.9.0: Group offset slider */
-      .ctrl-offset-row { display: flex; align-items: center; gap: 10px; margin-top: calc(8px * var(--hm-scale-h)); }
-      .ctrl-offset-label { font-size: calc(11px * var(--hm-scale-h)); color: var(--sub); white-space: nowrap; }
-      .ctrl-offset-slider {
-        flex: 1; -webkit-appearance: none; appearance: none;
-        height: 4px; border-radius: 2px;
-        background: linear-gradient(to right, var(--amber) var(--pct,50%), var(--bg2) var(--pct,50%));
-        outline: none; cursor: pointer;
-      }
-      .ctrl-offset-slider::-webkit-slider-thumb {
-        -webkit-appearance: none; width: 14px; height: 14px;
-        border-radius: 50%; background: #fb923c;
-        border: 2px solid var(--bg); cursor: pointer;
-      }
-      .ctrl-offset-val {
-        font-size: calc(11px * var(--hm-scale-h)); font-weight: 600; font-family: 'DM Mono', monospace;
-        color: #fb923c; width: 44px; text-align: right; flex-shrink: 0;
-      }
-
       /* v0.9.0: blocking-sources indicators */
       .blocking-row {
         display: flex; align-items: center; gap: 5px;
@@ -509,6 +490,15 @@ class HeatManagerCard extends HTMLElement {
         font-size: 9px; font-weight: 700;
         padding: 1px 5px; border-radius: 5px; margin-top: 2px;
         background: rgba(239,68,68,0.12); color: #fca5a5;
+        text-transform: uppercase; letter-spacing: 0.4px;
+        align-self: flex-end;
+      }
+      /* B18 Fase 3: read-only "group toggle is off" indicator */
+      .room-ungrouped-badge {
+        display: inline-flex; align-items: center; gap: 3px;
+        font-size: 9px; font-weight: 700;
+        padding: 1px 5px; border-radius: 5px; margin-top: 2px;
+        background: rgba(168,85,247,0.12); color: #c084fc;
         text-transform: uppercase; letter-spacing: 0.4px;
         align-self: flex-end;
       }
@@ -641,6 +631,11 @@ class HeatManagerCard extends HTMLElement {
           const blockingBadge = extraBlocking.length
             ? `<div class="room-blocking-badge" title="${_hmEsc(extraBlocking.map(s => _hmBlockingLabel(s)).join(", "))}">⛔ ${_hmEsc(_hmBlockingLabel(extraBlocking[0]))}${extraBlocking.length > 1 ? ` +${extraBlocking.length - 1}` : ""}</div>`
             : "";
+          // B18 Fase 3: read-only indicator when a multi-TRV room's group
+          // toggle is off — full offset/toggle controls live in the panel.
+          const ungroupedBadge = !this._roomGroupEnabled(room.room_name ?? "")
+            ? `<div class="room-ungrouped-badge" title="Ekstra TRV'er frigivet til manuel styring">🔓 Ikke grupperet</div>`
+            : "";
           return `
             <div class="room-card state-${state}"
               style="border-left-color:${color};background-image:linear-gradient(90deg,${color}0e 0%,transparent 40%);">
@@ -650,14 +645,12 @@ class HeatManagerCard extends HTMLElement {
                 <div class="room-temp-current">${temp}</div>
                 ${setpt ? `<div class="room-temp-setpoint">→ ${setpt}</div>` : ""}
                 ${blockingBadge}
+                ${ungroupedBadge}
               </div>
             </div>`;
         }).join("")
       : `<div style="color:var(--sub);font-size:12px;padding:4px 0;">Ingen rum konfigureret i kortet</div>`;
 
-    const groupOffset   = this._groupOffset();
-    const offsetPct     = Math.max(0, Math.min(100, (groupOffset + 5) / 10 * 100));
-    const offsetStr     = (groupOffset >= 0 ? "+" : "") + groupOffset.toFixed(1) + "°C";
     const globalBlocked = this._globalBlockingSources();
 
     return `
@@ -701,12 +694,6 @@ class HeatManagerCard extends HTMLElement {
           <div id="pause-bar" class="pause-bar" style="display:${showPause ? "flex" : "none"}">
             <span id="pause-bar-text" class="pause-bar-text">⏸ Pause — ${pauseLeft} min tilbage</span>
             <button class="resume-btn" id="resume-btn">Genoptag nu</button>
-          </div>
-          <div class="ctrl-offset-row">
-            <span class="ctrl-offset-label">Gruppe-offset</span>
-            <input type="range" class="ctrl-offset-slider" id="ctrl-offset-slider"
-              min="-5" max="5" step="0.5" value="${groupOffset}" style="--pct:${offsetPct}%">
-            <span class="ctrl-offset-val" id="ctrl-offset-val">${offsetStr}</span>
           </div>
         </div>
       </div>
@@ -788,16 +775,6 @@ class HeatManagerCard extends HTMLElement {
       if (btxt && showPause) btxt.textContent = "⏸ Pause — " + pauseLeft + " min tilbage";
     }
 
-    // v0.9.0: group offset slider — synced unless the user is actively dragging it
-    const groupOffset  = this._groupOffset();
-    const offsetSlider = root.querySelector("#ctrl-offset-slider");
-    if (offsetSlider && this.shadowRoot.activeElement !== offsetSlider) {
-      offsetSlider.value = groupOffset;
-      offsetSlider.style.setProperty("--pct", Math.max(0, Math.min(100, (groupOffset + 5) / 10 * 100)) + "%");
-    }
-    const offsetVal = root.querySelector("#ctrl-offset-val");
-    if (offsetVal) offsetVal.textContent = (groupOffset >= 0 ? "+" : "") + groupOffset.toFixed(1) + "°C";
-
     // v0.9.0: global blocking-sources indicator
     const globalBlocked = this._globalBlockingSources();
     const blockingRow   = root.querySelector("#blocking-row");
@@ -844,6 +821,18 @@ class HeatManagerCard extends HTMLElement {
         blk.title = title;
         blk.textContent = txt;
       } else if (blk) { blk.remove(); }
+
+      // B18 Fase 3: ungrouped indicator
+      let ug = cards[i].querySelector(".room-ungrouped-badge");
+      if (!this._roomGroupEnabled(room.room_name ?? "")) {
+        if (!ug) {
+          ug = document.createElement("div");
+          ug.className = "room-ungrouped-badge";
+          ug.title = "Ekstra TRV'er frigivet til manuel styring";
+          ug.textContent = "🔓 Ikke grupperet";
+          tempsBox?.appendChild(ug);
+        }
+      } else if (ug) { ug.remove(); }
     });
 
   }
@@ -860,29 +849,6 @@ class HeatManagerCard extends HTMLElement {
     });
     root.querySelector("#btn-pause")?.addEventListener("click",  () => this._pause());
     root.querySelector("#boost-btn")?.addEventListener("click",  () => this._boost());
-
-    // v0.9.0: Group offset slider — live label while dragging,
-    // number.set_value on release.
-    const offsetSlider = root.querySelector("#ctrl-offset-slider");
-    if (offsetSlider) {
-      const updateOffsetLabel = () => {
-        const val = parseFloat(offsetSlider.value);
-        offsetSlider.style.setProperty("--pct", Math.max(0, Math.min(100, (val + 5) / 10 * 100)) + "%");
-        const valEl = root.querySelector("#ctrl-offset-val");
-        if (valEl) valEl.textContent = (val >= 0 ? "+" : "") + val.toFixed(1) + "°C";
-      };
-      offsetSlider.addEventListener("input", updateOffsetLabel);
-      offsetSlider.addEventListener("change", async () => {
-        const entityId = this._offsetEntityId();
-        if (!entityId) { console.warn("Heat Manager: group_offset entity not found"); return; }
-        const val = parseFloat(offsetSlider.value);
-        try {
-          await this._hass.callService("number", "set_value", { entity_id: entityId, value: val });
-        } catch (e) {
-          console.warn("Heat Manager: set group_offset failed:", e);
-        }
-      });
-    }
   }
 
   static getConfigElement() {

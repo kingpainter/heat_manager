@@ -313,11 +313,14 @@
     "switch": {
       "room_override": {
         "name": "Override"
+      },
+      "room_group_toggle": {
+        "name": "Group"
       }
     },
     "number": {
-      "group_offset": {
-        "name": "Group offset"
+      "room_offset": {
+        "name": "Offset"
       }
     }
   },

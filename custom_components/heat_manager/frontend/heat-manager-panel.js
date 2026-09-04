@@ -233,8 +233,27 @@ class HeatManagerPanel extends HTMLElement {
       if (id.startsWith("select.") && id.endsWith("_controller_state")) this._ctrlEntityId   = id;
       if (id.startsWith("select.") && id.endsWith("_season_mode"))      this._seasonEntityId = id;
       if (id.startsWith("sensor.") && id.endsWith("_pause_remaining"))  this._pauseEntityId  = id;
-      if (id.startsWith("number.") && id.endsWith("_group_offset"))     this._offsetEntityId = id; // v0.9.0
     }
+  }
+
+  // B18 Fase 3: per-room offset/group-toggle entities — friendly_name
+  // match (not entity_id suffix matching) since it's robust to slugify
+  // transliteration of accented room names (æ/ø/å) and directly mirrors
+  // the exact name RoomOffsetNumber/RoomGroupToggleSwitch set backend-side.
+  _roomOffsetEntityId(roomName) {
+    const states = this._hass?.states ?? {};
+    for (const id of Object.keys(states)) {
+      if (id.startsWith("number.") && states[id]?.attributes?.friendly_name === `${roomName} offset`) return id;
+    }
+    return null;
+  }
+
+  _roomGroupToggleEntityId(roomName) {
+    const states = this._hass?.states ?? {};
+    for (const id of Object.keys(states)) {
+      if (id.startsWith("switch.") && states[id]?.attributes?.friendly_name === `${roomName} group`) return id;
+    }
+    return null;
   }
 
   _entitiesSnapshot() {
@@ -563,17 +582,6 @@ class HeatManagerPanel extends HTMLElement {
       badge.style.color = ringColor;
     }
 
-    // v0.9.0: group offset slider — synced on every poll unless the user is
-    // actively dragging it (avoid fighting their in-progress input)
-    const groupOffset = this._data?.group_offset ?? 0;
-    const offsetSlider = root.querySelector("#ctrl-offset-slider");
-    if (offsetSlider && root.activeElement !== offsetSlider) {
-      offsetSlider.value = groupOffset;
-      offsetSlider.style.setProperty("--pct", Math.max(0, Math.min(100, (groupOffset + 5) / 10 * 100)) + "%");
-    }
-    const offsetVal = root.querySelector("#ctrl-offset-val");
-    if (offsetVal) offsetVal.textContent = (groupOffset >= 0 ? "+" : "") + groupOffset.toFixed(1) + "°C";
-
     // v0.9.0: global blocking-sources indicator
     const blockingSrc = this._data?.blocking_sources ?? [];
     const blockingRow = root.querySelector("#ctrl-blocking-row");
@@ -678,6 +686,146 @@ class HeatManagerPanel extends HTMLElement {
     container.innerHTML = rooms.length
       ? rooms.map(r => this._roomDetailRowHTML(r)).join("")
       : `<div class="empty">Ingen rum konfigureret</div>`;
+    // The innerHTML rebuild above drops any listeners the previous rows
+    // had — re-wire the manual-control and B18 Fase 3 grouping controls.
+    this._attachRoomDetailEvents();
+  }
+
+  // Manual-control slider/send/reset (existing) + B18 Fase 3 per-room
+  // offset slider / group-toggle button. Extracted from _attachEvents() so
+  // _patchRoomsTab() can call it again after every poll-driven rebuild of
+  // .rooms-detail-container (a full innerHTML replace, which drops
+  // whatever listeners were attached to the previous row elements).
+  _attachRoomDetailEvents() {
+    const root = this.shadowRoot;
+
+    // Manual-control: slider live update + gradient fill
+    root.querySelectorAll(".room-manual-slider").forEach(slider => {
+      const updateSlider = () => {
+        const min = parseFloat(slider.min), max = parseFloat(slider.max);
+        const val = parseFloat(slider.value);
+        const pct = ((val - min) / (max - min) * 100).toFixed(1) + "%";
+        slider.style.setProperty("--pct", pct);
+        const row  = slider.closest(".room-manual-row");
+        const valEl = row?.querySelector(".room-manual-val");
+        if (valEl) valEl.textContent = val + "°C";
+      };
+      updateSlider();
+      slider.addEventListener("input", updateSlider);
+    });
+
+    // Manual-control: send button — set_room_temp WS
+    root.querySelectorAll(".room-manual-send").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const roomName = btn.dataset.room;
+        const row      = btn.closest(".room-manual");
+        const slider   = row?.querySelector(".room-manual-slider");
+        const durSel   = row?.querySelector(".room-manual-dur");
+        if (!slider || !roomName) return;
+        const temp     = parseFloat(slider.value);
+        const duration = parseInt(durSel?.value ?? "60", 10);
+        btn.classList.add("sending");
+        try {
+          await this._hass.callWS({
+            type: "heat_manager/set_room_temp",
+            room_name: roomName,
+            temperature: temp,
+            duration_min: duration,
+          });
+          btn.textContent = "✓ Sendt";
+          setTimeout(() => { btn.textContent = "Send ↗"; btn.classList.remove("sending"); }, 2000);
+        } catch (e) {
+          btn.textContent = "Fejl ✗";
+          setTimeout(() => { btn.textContent = "Send ↗"; btn.classList.remove("sending"); }, 2000);
+          this._showToast(`${roomName}: kunne ikke sætte temperatur`, "error"); // v0.3.9
+          console.error("[HeatManager] set_room_temp failed:", e);
+        }
+      });
+    });
+
+    // Manual-control: reset button — restore to schedule
+    root.querySelectorAll(".room-manual-reset").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const roomName = btn.dataset.room;
+        if (!roomName) return;
+        btn.textContent = "↺ ...";
+        try {
+          await this._hass.callWS({
+            type: "heat_manager/set_room_temp",
+            room_name: roomName,
+            temperature: null,   // null = restore schedule
+            duration_min: 0,
+          });
+          btn.textContent = "↺ OK";
+        } catch (e) {
+          btn.textContent = "↺ Fejl";
+          this._showToast(`${roomName}: kunne ikke gendanne schedule`, "error"); // v0.3.9
+          console.error("[HeatManager] reset_room_temp failed:", e);
+        }
+        setTimeout(() => { btn.textContent = "↺ Schedule"; }, 1500);
+      });
+    });
+
+    // B18 Fase 3: per-room offset slider — live label while dragging,
+    // number.set_value on release (same UX as the old global slider).
+    root.querySelectorAll(".room-offset-slider").forEach(slider => {
+      const updateLabel = () => {
+        const val = parseFloat(slider.value);
+        slider.style.setProperty("--pct", Math.max(0, Math.min(100, (val + 5) / 10 * 100)) + "%");
+        const row   = slider.closest(".room-offset-row");
+        const valEl = row?.querySelector(".room-offset-val");
+        if (valEl) valEl.textContent = (val >= 0 ? "+" : "") + val.toFixed(1) + "°C";
+      };
+      updateLabel();
+      slider.addEventListener("input", updateLabel);
+      slider.addEventListener("change", async () => {
+        const roomName = slider.dataset.room;
+        if (!roomName) return;
+        const entityId = this._roomOffsetEntityId(roomName);
+        if (!entityId) {
+          this._showToast(`${roomName}: kunne ikke finde offset-entity`, "error");
+          return;
+        }
+        const val = parseFloat(slider.value);
+        try {
+          await this._hass.callService("number", "set_value", { entity_id: entityId, value: val });
+          const room = (this._data?.rooms ?? []).find(r => r.name === roomName);
+          if (room) room.offset = val;
+        } catch (e) {
+          this._showToast(`${roomName}: kunne ikke sætte offset`, "error");
+          console.error("[HeatManager] set room offset failed:", e);
+        }
+      });
+    });
+
+    // B18 Fase 3: per-room group toggle — switch.turn_on/turn_off on the
+    // room's RoomGroupToggleSwitch.
+    root.querySelectorAll("[data-action='toggle-room-group']").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const roomName = btn.dataset.room;
+        if (!roomName) return;
+        const entityId = this._roomGroupToggleEntityId(roomName);
+        if (!entityId) {
+          this._showToast(`${roomName}: kunne ikke finde gruppe-entity`, "error");
+          return;
+        }
+        const turningOn = !btn.classList.contains("active");
+        btn.disabled = true;
+        try {
+          await this._hass.callService("switch", turningOn ? "turn_on" : "turn_off", {
+            entity_id: entityId,
+          });
+          const room = (this._data?.rooms ?? []).find(r => r.name === roomName);
+          if (room) room.group_enabled = turningOn;
+          this._patchRoomsTab();
+        } catch (e) {
+          this._showToast(`${roomName}: kunne ikke ændre gruppering`, "error");
+          console.error("[HeatManager] toggle room group failed:", e);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
   }
 
   // G) History tab: patch timestamp label + re-render rows after fresh fetch
@@ -1074,6 +1222,13 @@ class HeatManagerPanel extends HTMLElement {
       .room-manual-row {
         display: flex; align-items: center; gap: 8px;
       }
+      /* B18 Fase 3: per-room grouping box — orange tint, matches the
+         offset slider's colour (was the global Controller-section slider). */
+      .room-grouping {
+        padding: 10px 16px 12px;
+        background: rgba(249,115,22,0.05);
+        border-top: 1px solid rgba(249,115,22,0.15);
+      }
       .room-manual-lbl {
         font-size: 11px; color: var(--sub); width: 52px; flex-shrink: 0;
       }
@@ -1187,24 +1342,30 @@ class HeatManagerPanel extends HTMLElement {
         background: var(--bg3); color: var(--text);
         font-family: 'DM Sans', sans-serif;
       }
-      /* v0.9.0: Group offset slider */
-      .ctrl-offset-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-      .ctrl-offset-label { font-size: 12px; color: var(--sub); white-space: nowrap; }
-      .ctrl-offset-slider {
+      /* B18 Fase 3: per-room offset slider (Rum-fanen — was the global
+         Controller-section slider pre-Fase-3, same look, now scoped to
+         one room's row instead of a singleton). */
+      .room-offset-row { display: flex; align-items: center; gap: 8px; }
+      .room-offset-label { font-size: 11px; color: var(--sub); width: 52px; flex-shrink: 0; }
+      .room-offset-slider {
         flex: 1; -webkit-appearance: none; appearance: none;
         height: 4px; border-radius: 2px;
         background: linear-gradient(to right, #f97316 var(--pct,50%), var(--bg3) var(--pct,50%));
         outline: none; cursor: pointer;
       }
-      .ctrl-offset-slider::-webkit-slider-thumb {
+      .room-offset-slider::-webkit-slider-thumb {
         -webkit-appearance: none; width: 14px; height: 14px;
         border-radius: 50%; background: #fb923c;
         border: 2px solid var(--bg2); cursor: pointer;
       }
-      .ctrl-offset-val {
+      .room-offset-val {
         font-size: 12px; font-weight: 600; font-family: 'DM Mono', monospace;
-        color: #fb923c; width: 48px; text-align: right; flex-shrink: 0;
+        color: #fb923c; width: 44px; text-align: right; flex-shrink: 0;
       }
+      .room-group-row {
+        display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      }
+      .room-group-lbl { font-size: 11px; color: var(--sub); }
       .pause-bar {
         margin: 0 16px 14px;
         display: flex; align-items: center; justify-content: space-between;
@@ -1648,10 +1809,9 @@ class HeatManagerPanel extends HTMLElement {
     const dashOffset = circ - fill;
     const ringColor  = ctrl === "on" ? "#f97316" : ctrl === "pause" ? "#eab308" : "#475569";
 
-    // v0.9.0: group offset + blocking-sources indicator
-    const groupOffset  = this._data?.group_offset ?? 0;
-    const offsetPct    = Math.max(0, Math.min(100, (groupOffset + 5) / 10 * 100));
-    const offsetStr    = (groupOffset >= 0 ? "+" : "") + groupOffset.toFixed(1) + "°C";
+    // v0.9.0: blocking-sources indicator. B18 Fase 3 removed the old
+    // global group_offset here — offset/group controls are per-room now,
+    // see _roomDetailRowHTML().
     const blockingSrc  = this._data?.blocking_sources ?? [];
 
     return `
@@ -1714,12 +1874,6 @@ class HeatManagerPanel extends HTMLElement {
               <option value="240">4 timer</option>
               <option value="480">Til i morgen</option>
             </select>
-          </div>
-          <div class="ctrl-offset-row">
-            <span class="ctrl-offset-label">Gruppe-offset</span>
-            <input type="range" class="ctrl-offset-slider" id="ctrl-offset-slider"
-              min="-5" max="5" step="0.5" value="${groupOffset}" style="--pct:${offsetPct}%">
-            <span class="ctrl-offset-val" id="ctrl-offset-val">${offsetStr}</span>
           </div>
         </div>
 
@@ -2056,6 +2210,33 @@ class HeatManagerPanel extends HTMLElement {
         </div>
       </div>` : "";
 
+    // B18 Fase 3: grouping controls — only rendered for rooms with 2+
+    // physical TRVs (RoomOffsetNumber/RoomGroupToggleSwitch only exist for
+    // those). group_enabled defaults true (matches coordinator.py's
+    // room_group_enabled.get(name, True)) so a payload from before Fase 4
+    // widened the backend (unlikely, but the field is new) still reads as
+    // grouped rather than falsely "released".
+    const trvCount     = room.trv_count ?? 1;
+    const groupEnabled = room.group_enabled !== false;
+    const roomOffset   = room.offset ?? 0;
+    const groupingHTML = trvCount > 1 ? `
+      <div class="room-grouping" data-room="${this._esc(room.name)}">
+        <div class="room-group-row">
+          <span class="room-group-lbl">🔗 Gruppe (${trvCount} TRV'er)</span>
+          <button class="toggle-btn room-group-toggle${groupEnabled ? " active" : ""}"
+            data-action="toggle-room-group" data-room="${this._esc(room.name)}">
+            ${groupEnabled ? "Grupperet" : "Frigivet"}
+          </button>
+        </div>
+        <div class="room-offset-row" style="margin-top:8px">
+          <span class="room-offset-label">Offset</span>
+          <input class="room-offset-slider" type="range" min="-5" max="5" step="0.5"
+            value="${roomOffset}" data-room="${this._esc(room.name)}">
+          <span class="room-offset-val" data-room="${this._esc(room.name)}">${(roomOffset >= 0 ? "+" : "") + roomOffset.toFixed(1)}°C</span>
+        </div>
+        ${!groupEnabled ? `<div style="font-size:10px;color:var(--sub);margin-top:6px;line-height:1.5">Ekstra TRV'er styres ikke af Heat Manager lige nu — kun den primære TRV følger skemaet.</div>` : ""}
+      </div>` : "";
+
     return `
       <div class="room-detail-row" style="border-bottom:1px solid var(--div)">
         <div style="padding:12px 16px">
@@ -2074,6 +2255,7 @@ class HeatManagerPanel extends HTMLElement {
           ${valveBar}
         </div>
         ${manualHTML}
+        ${groupingHTML}
       </div>`;
   }
 
@@ -2335,35 +2517,10 @@ class HeatManagerPanel extends HTMLElement {
       this._pause(min);
     });
 
-    // v0.9.0: Group offset slider — live label while dragging,
-    // number.set_value on release (mirrors climate_group_helper's slider UX).
-    const offsetSlider = root.querySelector("#ctrl-offset-slider");
-    if (offsetSlider) {
-      const updateOffsetLabel = () => {
-        const val = parseFloat(offsetSlider.value);
-        offsetSlider.style.setProperty("--pct", Math.max(0, Math.min(100, (val + 5) / 10 * 100)) + "%");
-        const valEl = root.querySelector("#ctrl-offset-val");
-        if (valEl) valEl.textContent = (val >= 0 ? "+" : "") + val.toFixed(1) + "°C";
-      };
-      offsetSlider.addEventListener("input", updateOffsetLabel);
-      offsetSlider.addEventListener("change", async () => {
-        this._resolveEntityIds();
-        if (!this._offsetEntityId) {
-          this._showToast("Kunne ikke finde gruppe-offset entity", "error");
-          return;
-        }
-        const val = parseFloat(offsetSlider.value);
-        try {
-          await this._hass.callService("number", "set_value", {
-            entity_id: this._offsetEntityId, value: val,
-          });
-          if (this._data) this._data.group_offset = val;
-        } catch (e) {
-          this._showToast("Kunne ikke sætte gruppe-offset", "error");
-          console.error("[HeatManager] set group_offset failed:", e);
-        }
-      });
-    }
+    // B18 Fase 3: the old global group_offset slider is gone — per-room
+    // offset sliders + group toggles are wired in _attachRoomDetailEvents(),
+    // called both here and from _patchRoomsTab() since that rebuilds the
+    // rows' innerHTML on every poll.
 
     // Boost button active-state + countdown syncing now lives in
     // _patchControllerHero(), called on every refresh via _patchAll() —
@@ -2405,72 +2562,12 @@ class HeatManagerPanel extends HTMLElement {
       this._scheduleRender();
     });
 
-    // Slider live update + gradient fill
-    root.querySelectorAll(".room-manual-slider").forEach(slider => {
-      const updateSlider = () => {
-        const min = parseFloat(slider.min), max = parseFloat(slider.max);
-        const val = parseFloat(slider.value);
-        const pct = ((val - min) / (max - min) * 100).toFixed(1) + "%";
-        slider.style.setProperty("--pct", pct);
-        const row  = slider.closest(".room-manual-row");
-        const valEl = row?.querySelector(".room-manual-val");
-        if (valEl) valEl.textContent = val + "°C";
-      };
-      updateSlider();
-      slider.addEventListener("input", updateSlider);
-    });
+    // Manual-control slider/send/reset + B18 Fase 3 grouping controls — see
+    // _attachRoomDetailEvents(): extracted so _patchRoomsTab() can re-wire
+    // them too, since it rebuilds .rooms-detail-container's innerHTML on
+    // every poll (losing whatever listeners were attached here otherwise).
+    this._attachRoomDetailEvents();
 
-    // Send button — set_room_temp WS
-    root.querySelectorAll(".room-manual-send").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        const roomName = btn.dataset.room;
-        const row      = btn.closest(".room-manual");
-        const slider   = row?.querySelector(".room-manual-slider");
-        const durSel   = row?.querySelector(".room-manual-dur");
-        if (!slider || !roomName) return;
-        const temp     = parseFloat(slider.value);
-        const duration = parseInt(durSel?.value ?? "60", 10);
-        btn.classList.add("sending");
-        try {
-          await this._hass.callWS({
-            type: "heat_manager/set_room_temp",
-            room_name: roomName,
-            temperature: temp,
-            duration_min: duration,
-          });
-          btn.textContent = "✓ Sendt";
-          setTimeout(() => { btn.textContent = "Send ↗"; btn.classList.remove("sending"); }, 2000);
-        } catch (e) {
-          btn.textContent = "Fejl ✗";
-          setTimeout(() => { btn.textContent = "Send ↗"; btn.classList.remove("sending"); }, 2000);
-          this._showToast(`${roomName}: kunne ikke sætte temperatur`, "error"); // v0.3.9
-          console.error("[HeatManager] set_room_temp failed:", e);
-        }
-      });
-    });
-
-    // Reset button — restore to schedule
-    root.querySelectorAll(".room-manual-reset").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        const roomName = btn.dataset.room;
-        if (!roomName) return;
-        btn.textContent = "↺ ...";
-        try {
-          await this._hass.callWS({
-            type: "heat_manager/set_room_temp",
-            room_name: roomName,
-            temperature: null,   // null = restore schedule
-            duration_min: 0,
-          });
-          btn.textContent = "↺ OK";
-        } catch (e) {
-          btn.textContent = "↺ Fejl";
-          this._showToast(`${roomName}: kunne ikke gendanne schedule`, "error"); // v0.3.9
-          console.error("[HeatManager] reset_room_temp failed:", e);
-        }
-        setTimeout(() => { btn.textContent = "↺ Schedule"; }, 1500);
-      });
-    });
     // G) History manual refresh
     root.querySelector("[data-action='refresh-history']")?.addEventListener("click", async () => {
       this._history = null;

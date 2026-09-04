@@ -9,13 +9,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.heat_manager.const import (
-    ControllerState,
-    RoomState,
+    CONF_TRVS,
     SYNC_MODE_DISABLED,
     SYNC_MODE_LOCK,
     SYNC_MODE_MIRROR,
+    ControllerState,
+    RoomState,
 )
 from custom_components.heat_manager.engine.sync_engine import SyncEngine
+from custom_components.heat_manager.migrations import migrate_room_to_trvs
 
 
 def _make_coordinator(rooms=None, controller_state=ControllerState.ON) -> MagicMock:
@@ -23,13 +25,31 @@ def _make_coordinator(rooms=None, controller_state=ControllerState.ON) -> MagicM
     coord.rooms = rooms or []
     coord.controller_state = controller_state
     coord.get_room_state = MagicMock(return_value=RoomState.NORMAL)
-    coord.get_write_entity = MagicMock(return_value="climate.living_room")
+    # B18: sync_engine now resolves the *active TRV's* write entity via
+    # get_trv_write_entity(trv) instead of the room-level get_write_entity().
+    # Default to a fixed value (as the old get_write_entity mock did) — every
+    # existing single-TRV test in this file drives exactly one room/TRV.
+    coord.get_trv_write_entity = MagicMock(return_value="climate.living_room")
     coord.last_expected_setpoint = {}
     coord.log_event = MagicMock()
     hass = MagicMock()
     hass.services.async_call = AsyncMock()
     hass.async_create_task = MagicMock(side_effect=lambda coro: coro)
     coord.hass = hass
+
+    # B18: _build_entity_map() now reads get_room_trvs() instead of the
+    # room dict directly. Default to the flat-mirror migration the real
+    # coordinator uses at read time, so every existing single-TRV test
+    # (built with _room()'s flat fields, including its "sync_mode" field)
+    # keeps mapping to exactly the same entity/TRV as before.
+    def _room_trvs(room_name):
+        room = next((r for r in coord.rooms if r.get("room_name") == room_name), None)
+        if room is None:
+            return []
+        return migrate_room_to_trvs(room).get(CONF_TRVS, [])
+
+    coord.get_room_trvs = MagicMock(side_effect=_room_trvs)
+
     return coord
 
 
@@ -104,7 +124,7 @@ def test_unavailable_state_is_ignored():
 def test_inactive_write_entity_is_ignored():
     """Room's active write entity is the HomeKit one — the cloud entity firing is stale."""
     coord = _make_coordinator(rooms=[_room()])
-    coord.get_write_entity = MagicMock(return_value="climate.living_room_homekit")
+    coord.get_trv_write_entity = MagicMock(return_value="climate.living_room_homekit")
     coord.last_expected_setpoint = {"living_room": 20.0}
     engine = SyncEngine(coord)
     with patch(
@@ -289,7 +309,7 @@ async def test_async_act_stale_write_entity_takes_no_action():
     climate.living_room this callback was scheduled for."""
     coord = _make_coordinator(rooms=[_room(sync_mode=SYNC_MODE_LOCK)])
     coord.last_expected_setpoint = {"living_room": 20.0}
-    coord.get_write_entity = MagicMock(return_value="climate.living_room_homekit")
+    coord.get_trv_write_entity = MagicMock(return_value="climate.living_room_homekit")
     state = MagicMock()
     state.state = "heat"
     state.attributes = {"temperature": 22.0}
@@ -319,3 +339,192 @@ async def test_shutdown_unsubscribes_and_cancels_pending():
     cancel.assert_called_once()
     assert engine._unsubs == []
     assert engine._pending_confirm == {}
+
+
+# ── B18: multi-TRV grouping — sync_mode is a per-TRV field ───────────────────
+
+def _multi_trv_room(name="living_room", trvs=None):
+    return {"room_name": name, "trvs": trvs or []}
+
+
+def test_multi_trv_room_maps_each_trv_independently():
+    """Two TRVs in one room, different sync_mode each — only the enabled
+    one is mapped, and each maps to its own TRV dict."""
+    room = _multi_trv_room(
+        trvs=[
+            {"climate_entity": "climate.living_room", "sync_mode": SYNC_MODE_MIRROR},
+            {
+                "climate_entity": "climate.living_room_trv2",
+                "sync_mode": SYNC_MODE_DISABLED,
+            },
+        ]
+    )
+    coord = _make_coordinator(rooms=[room])
+    engine = SyncEngine(coord)
+
+    assert "climate.living_room" in engine._entity_to_room
+    assert "climate.living_room_trv2" not in engine._entity_to_room
+    assert (
+        engine._entity_to_trv["climate.living_room"]["sync_mode"] == SYNC_MODE_MIRROR
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_act_uses_the_changed_trvs_own_sync_mode():
+    """The secondary TRV is in lock mode while the primary is mirror —
+    a mismatch on the secondary must revert (lock), not switch the whole
+    room to OVERRIDE (which would be the primary's mirror behaviour)."""
+    room = _multi_trv_room(
+        trvs=[
+            {"climate_entity": "climate.living_room", "sync_mode": SYNC_MODE_MIRROR},
+            {
+                "climate_entity": "climate.living_room_trv2",
+                "sync_mode": SYNC_MODE_LOCK,
+            },
+        ]
+    )
+    coord = _make_coordinator(rooms=[room])
+    coord.get_trv_write_entity = MagicMock(
+        side_effect=lambda trv: trv.get("climate_entity")
+    )
+    coord.last_expected_setpoint = {"living_room": 20.0}
+    state = MagicMock()
+    state.state = "heat"
+    state.attributes = {"temperature": 22.0}
+    coord.hass.states.get = MagicMock(return_value=state)
+    engine = SyncEngine(coord)
+
+    await engine._async_act("living_room", "climate.living_room_trv2")
+
+    coord.hass.services.async_call.assert_called_once_with(
+        "climate",
+        "set_temperature",
+        {"entity_id": "climate.living_room_trv2", "temperature": 20.0},
+        blocking=True,
+    )
+    coord.set_room_state.assert_not_called()
+
+
+# ── B18 Fase 3: rebuild_entity_map() — group toggle changes at runtime ───────
+
+
+def test_rebuild_entity_map_drops_a_now_ungrouped_trv():
+    """coordinator.set_room_group_enabled() calls this after get_room_trvs()
+    starts narrowing to just the primary TRV — the secondary's entities
+    must disappear from the map (and stop being listened to) without a
+    reload."""
+    room = _multi_trv_room(
+        trvs=[
+            {"climate_entity": "climate.living_room", "sync_mode": SYNC_MODE_MIRROR},
+            {
+                "climate_entity": "climate.living_room_trv2",
+                "sync_mode": SYNC_MODE_MIRROR,
+            },
+        ]
+    )
+    coord = _make_coordinator(rooms=[room])
+    engine = SyncEngine(coord)
+    assert "climate.living_room_trv2" in engine._entity_to_room
+
+    # Simulate the toggle switching off: get_room_trvs() now narrows to
+    # just the primary TRV, same as coordinator.get_room_trvs() would.
+    coord.get_room_trvs = MagicMock(
+        side_effect=lambda room_name: (
+            migrate_room_to_trvs(room).get(CONF_TRVS, [])[:1]
+            if room_name == "living_room"
+            else []
+        )
+    )
+
+    with patch(
+        "custom_components.heat_manager.engine.sync_engine.async_track_state_change_event"
+    ) as mock_track:
+        engine.rebuild_entity_map()
+        mock_track.assert_called_once()
+
+    assert "climate.living_room" in engine._entity_to_room
+    assert "climate.living_room_trv2" not in engine._entity_to_room
+
+
+def test_rebuild_entity_map_unsubscribes_old_listener():
+    coord = _make_coordinator(rooms=[_room()])
+    engine = SyncEngine(coord)
+    old_unsub = MagicMock()
+    engine._unsubs = [old_unsub]
+
+    with patch(
+        "custom_components.heat_manager.engine.sync_engine.async_track_state_change_event"
+    ):
+        engine.rebuild_entity_map()
+
+    old_unsub.assert_called_once()
+
+
+def test_rebuild_entity_map_regrouped_trv_becomes_watched_again():
+    """The reverse of the drop case — toggling back on must pick the
+    secondary TRV's entities back up."""
+    room = _multi_trv_room(
+        trvs=[
+            {"climate_entity": "climate.living_room", "sync_mode": SYNC_MODE_MIRROR},
+            {
+                "climate_entity": "climate.living_room_trv2",
+                "sync_mode": SYNC_MODE_MIRROR,
+            },
+        ]
+    )
+    coord = _make_coordinator(rooms=[room])
+    # Start "ungrouped" — only the primary TRV in the map.
+    coord.get_room_trvs = MagicMock(
+        side_effect=lambda room_name: (
+            migrate_room_to_trvs(room).get(CONF_TRVS, [])[:1]
+            if room_name == "living_room"
+            else []
+        )
+    )
+    engine = SyncEngine(coord)
+    assert "climate.living_room_trv2" not in engine._entity_to_room
+
+    # Toggle back on: get_room_trvs() returns every TRV again.
+    coord.get_room_trvs = MagicMock(
+        side_effect=lambda room_name: (
+            migrate_room_to_trvs(room).get(CONF_TRVS, [])
+            if room_name == "living_room"
+            else []
+        )
+    )
+    engine.rebuild_entity_map()
+
+    assert "climate.living_room_trv2" in engine._entity_to_room
+
+
+@pytest.mark.asyncio
+async def test_stale_pending_confirm_after_rebuild_is_a_noop():
+    """A confirm callback scheduled for a TRV that a rebuild just dropped
+    from the map must not raise or act — _async_act() re-looks-up the TRV
+    and finds nothing."""
+    room = _multi_trv_room(
+        trvs=[
+            {"climate_entity": "climate.living_room", "sync_mode": SYNC_MODE_MIRROR},
+            {
+                "climate_entity": "climate.living_room_trv2",
+                "sync_mode": SYNC_MODE_MIRROR,
+            },
+        ]
+    )
+    coord = _make_coordinator(rooms=[room])
+    coord.last_expected_setpoint = {"living_room": 20.0}
+    engine = SyncEngine(coord)
+
+    coord.get_room_trvs = MagicMock(
+        side_effect=lambda room_name: (
+            migrate_room_to_trvs(room).get(CONF_TRVS, [])[:1]
+            if room_name == "living_room"
+            else []
+        )
+    )
+    engine.rebuild_entity_map()
+
+    await engine._async_act("living_room", "climate.living_room_trv2")  # must not raise
+
+    coord.hass.services.async_call.assert_not_called()
+    coord.set_room_state.assert_not_called()

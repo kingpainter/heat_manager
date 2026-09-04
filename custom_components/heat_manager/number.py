@@ -1,19 +1,25 @@
 """
-Heat Manager — Number platform (v0.9.0)
+Heat Manager — Number platform
 
 Entities
 --------
-number.heat_manager_group_offset   Global, non-destructive temperature shift
-                                    applied on top of every room's PID
-                                    target every tick (coordinator.group_offset,
-                                    read in coordinator._async_pid_tick()).
-                                    Persists across HA restarts. Auto-resets
-                                    to 0 when a boost starts.
+number.<room>_offset   Per-room, non-destructive temperature shift applied
+                        on top of that room's PID target every tick
+                        (coordinator.room_offsets[room_name], read in
+                        coordinator._async_pid_tick()). Persists across HA
+                        restarts. Auto-resets to 0 when a boost starts.
+                        Only created for rooms with 2+ physical TRVs (B18
+                        Fase 3) — a single-TRV room has no group to offset
+                        independently of its own target.
 
 Mirrors climate_group_helper's "Group Offset" number entity: a +1.5°C
 offset shifts a 20°C morning setpoint to 21.5°C and automatically follows a
 schedule/season transition to a different base setpoint later, since it is
 applied at read time rather than baked into a stored target.
+
+B18 Fase 3 replaces the single global number.heat_manager_group_offset
+(v0.9.0) with one of these per qualifying room, alongside the room's new
+RoomGroupToggleSwitch (switch.py) — see coordinator.get_room_trvs().
 """
 
 from __future__ import annotations
@@ -44,15 +50,22 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: HeatManagerCoordinator = entry.runtime_data
-    async_add_entities([GroupOffsetNumber(coordinator, entry)])
+    entities: list[RoomOffsetNumber] = []
+    for room in coordinator.rooms:
+        room_name = room.get("room_name", "")
+        if not room_name:
+            continue
+        if len(coordinator.get_all_room_trvs(room_name)) > 1:
+            entities.append(RoomOffsetNumber(coordinator, entry, room_name))
+    async_add_entities(entities)
 
 
-class GroupOffsetNumber(RestoreNumber):
-    """Global comfort-level shift, layered non-destructively on top of every
-    room's current target — see coordinator._async_pid_tick()."""
+class RoomOffsetNumber(RestoreNumber):
+    """Per-room comfort-level shift, layered non-destructively on top of
+    that room's current target — see coordinator._async_pid_tick()."""
 
     _attr_has_entity_name = True
-    _attr_translation_key = "group_offset"
+    _attr_translation_key = "room_offset"
     _attr_native_min_value = GROUP_OFFSET_MIN
     _attr_native_max_value = GROUP_OFFSET_MAX
     _attr_native_step = GROUP_OFFSET_STEP
@@ -60,10 +73,18 @@ class GroupOffsetNumber(RestoreNumber):
     _attr_mode = NumberMode.SLIDER
     _attr_entity_registry_enabled_default = True
 
-    def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
+    def __init__(
+        self,
+        coordinator: HeatManagerCoordinator,
+        entry: ConfigEntry,
+        room_name: str,
+    ) -> None:
         self.coordinator = coordinator
-        self._attr_unique_id = f"{entry.entry_id}_group_offset"
-        self._attr_device_info = coordinator.global_device_info()
+        self._room_name = room_name
+        safe_name = room_name.lower().replace(" ", "_")
+        self._attr_unique_id = f"{entry.entry_id}_{safe_name}_offset"
+        self._attr_name = f"{room_name} offset"
+        self._attr_device_info = coordinator.room_device_info(room_name)
         self._attr_native_value = DEFAULT_GROUP_OFFSET
 
     async def async_added_to_hass(self) -> None:
@@ -71,13 +92,13 @@ class GroupOffsetNumber(RestoreNumber):
         last_data = await self.async_get_last_number_data()
         if last_data is not None and last_data.native_value is not None:
             self._attr_native_value = last_data.native_value
-        self.coordinator.group_offset = float(self._attr_native_value)
+        self.coordinator.room_offsets[self._room_name] = float(self._attr_native_value)
 
     async def async_set_native_value(self, value: float) -> None:
         self._attr_native_value = value
-        self.coordinator.group_offset = float(value)
+        self.coordinator.room_offsets[self._room_name] = float(value)
         self.async_write_ha_state()
         self.coordinator.log_event(
-            f"Group offset sat til {value:+.1f}°C", "manuel", "offset"
+            f"Offset ({self._room_name}) sat til {value:+.1f}°C", "manuel", "offset"
         )
-        _LOGGER.info("Group offset set to %.1f°C", value)
+        _LOGGER.info("Room offset [%s] set to %.1f°C", self._room_name, value)

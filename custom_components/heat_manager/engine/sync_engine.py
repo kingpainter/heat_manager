@@ -64,11 +64,22 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class SyncEngine:
-    """Per-room reaction to manual/external changes on the write entity."""
+    """Per-TRV reaction to manual/external changes on a write entity.
+
+    B18: CONF_SYNC_MODE is a per-TRV field. A multi-TRV room can have each
+    physical TRV independently monitored (or not) — self._entity_to_room
+    maps every enabled TRV's own entities to its room (for room-level
+    lookups like last_expected_setpoint / get_room_state, which stay
+    per-room — one PID target), while self._entity_to_trv resolves back
+    to that *specific* TRV's own dict, so the "is this the currently
+    active write entity" check and the sync_mode decision are both scoped
+    to the TRV that actually changed, not the room's primary TRV.
+    """
 
     def __init__(self, coordinator: HeatManagerCoordinator) -> None:
         self.coordinator = coordinator
         self._entity_to_room: dict[str, str] = {}
+        self._entity_to_trv: dict[str, dict[str, Any]] = {}
         self._unsubs: list[Any] = []
         self._pending_confirm: dict[str, Any] = {}  # room_name -> cancel callback
         self._build_entity_map()
@@ -79,12 +90,36 @@ class SyncEngine:
             room_name = room.get("room_name", "")
             if not room_name:
                 continue
-            if room.get(CONF_SYNC_MODE, DEFAULT_SYNC_MODE) == SYNC_MODE_DISABLED:
-                continue
-            for key in (CONF_CLIMATE_ENTITY, CONF_HOMEKIT_CLIMATE_ENTITY):
-                entity_id = room.get(key) or None
-                if entity_id:
-                    self._entity_to_room[entity_id] = room_name
+            for trv in self.coordinator.get_room_trvs(room_name):
+                if trv.get(CONF_SYNC_MODE, DEFAULT_SYNC_MODE) == SYNC_MODE_DISABLED:
+                    continue
+                for key in (CONF_CLIMATE_ENTITY, CONF_HOMEKIT_CLIMATE_ENTITY):
+                    entity_id = trv.get(key) or None
+                    if entity_id:
+                        self._entity_to_room[entity_id] = room_name
+                        self._entity_to_trv[entity_id] = trv
+
+    def rebuild_entity_map(self) -> None:
+        """Rebuild the entity→room/entity→TRV maps and re-subscribe
+        listeners from scratch.
+
+        B18 Fase 3: get_room_trvs() (the source _build_entity_map() reads)
+        is now toggle-aware — a room's RoomGroupToggleSwitch can change
+        which TRVs it returns at any time, which would otherwise leave this
+        engine's maps (built once in __init__) stale: still watching a
+        just-ungrouped secondary TRV, or not yet watching one just
+        regrouped. Called by coordinator.set_room_group_enabled() right
+        after the toggle changes. A stale pending-confirm callback for a
+        TRV no longer in the rebuilt map is harmless — _async_act() looks
+        the TRV up again and no-ops when it's gone.
+        """
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs.clear()
+        self._entity_to_room.clear()
+        self._entity_to_trv.clear()
+        self._build_entity_map()
+        self._register_listeners()
 
     def _register_listeners(self) -> None:
         entities = list(self._entity_to_room.keys())
@@ -102,15 +137,16 @@ class SyncEngine:
         entity_id = event.data.get("entity_id")
         new_state = event.data.get("new_state")
         room_name = self._entity_to_room.get(entity_id)
-        if room_name is None or new_state is None:
+        trv = self._entity_to_trv.get(entity_id)
+        if room_name is None or trv is None or new_state is None:
             return
         if new_state.state in ("unavailable", "unknown", "off"):
             return
 
-        # Only the room's *currently active* write entity is authoritative —
+        # Only *this TRV's* currently active write entity is authoritative —
         # ignore the inactive one (e.g. the cloud entity while HomeKit is
         # the live write target) to avoid reacting to stale/duplicate state.
-        if self.coordinator.get_write_entity(room_name) != entity_id:
+        if self.coordinator.get_trv_write_entity(trv) != entity_id:
             return
 
         if self.coordinator.controller_state != ControllerState.ON:
@@ -161,10 +197,13 @@ class SyncEngine:
             return
         if self.coordinator.get_room_state(room_name) != RoomState.NORMAL:
             return
-        # The room's active write entity (HomeKit vs cloud) can change
+        trv = self._entity_to_trv.get(entity_id)
+        if trv is None:
+            return
+        # This TRV's active write entity (HomeKit vs cloud) can change
         # during the confirm delay — re-check rather than acting on a
         # now-stale entity_id, mirroring the guard in _handle_entity_change.
-        if self.coordinator.get_write_entity(room_name) != entity_id:
+        if self.coordinator.get_trv_write_entity(trv) != entity_id:
             return
         state = self.coordinator.hass.states.get(entity_id)
         if state is None or state.state in ("unavailable", "unknown", "off"):
@@ -179,10 +218,7 @@ class SyncEngine:
         if abs(observed - expected) < SYNC_CHANGE_THRESHOLD:
             return  # resolved itself (e.g. Heat Manager's own write finally landed)
 
-        room = next(
-            (r for r in self.coordinator.rooms if r.get("room_name") == room_name), {}
-        )
-        sync_mode = room.get(CONF_SYNC_MODE, DEFAULT_SYNC_MODE)
+        sync_mode = trv.get(CONF_SYNC_MODE, DEFAULT_SYNC_MODE)
 
         if sync_mode == SYNC_MODE_MIRROR:
             self.coordinator.set_room_state(room_name, RoomState.OVERRIDE)

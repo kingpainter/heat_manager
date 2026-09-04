@@ -182,34 +182,43 @@ class PreheatEngine:
 
         for room in self.coordinator.rooms:
             room_name = room.get("room_name", "")
-            climate_id = room.get(CONF_CLIMATE_ENTITY, "")
-            if not room_name or not climate_id:
+            if not room_name:
                 continue
             if self.coordinator.get_room_state(room_name) != RoomState.AWAY:
                 continue  # Only preheat rooms currently in AWAY
 
-            try:
-                # S-4 FIX: route by TRV type — Zigbee uses hvac_mode, Netatmo uses preset
-                trv_type = room.get(CONF_TRV_TYPE, "netatmo")
-                if trv_type == TRV_TYPE_ZIGBEE:
-                    await hass.services.async_call(
-                        "climate",
-                        "set_hvac_mode",
-                        {"entity_id": climate_id, "hvac_mode": "heat"},
-                        blocking=True,
-                    )
-                else:
-                    await hass.services.async_call(
-                        "climate",
-                        "set_preset_mode",
-                        {"entity_id": climate_id, "preset_mode": PRESET_SCHEDULE},
-                        blocking=True,
-                    )
+            # B18: every physical TRV in the room is preheated, each routed
+            # by its own trv_type (S-4 FIX generalized to multi-TRV).
+            trvs = self.coordinator.get_room_trvs(room_name)
+            room_ok = False
+            for trv in trvs:
+                climate_id = trv.get(CONF_CLIMATE_ENTITY, "")
+                if not climate_id:
+                    continue
+                trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
+                try:
+                    if trv_type == TRV_TYPE_ZIGBEE:
+                        await hass.services.async_call(
+                            "climate",
+                            "set_hvac_mode",
+                            {"entity_id": climate_id, "hvac_mode": "heat"},
+                            blocking=True,
+                        )
+                    else:
+                        await hass.services.async_call(
+                            "climate",
+                            "set_preset_mode",
+                            {"entity_id": climate_id, "preset_mode": PRESET_SCHEDULE},
+                            blocking=True,
+                        )
+                    room_ok = True
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning("Preheat failed for %s: %s", room_name, err)
+
+            if room_ok:
                 self.coordinator.set_room_state(room_name, RoomState.PRE_HEAT)
                 rooms_preheated.append(room_name)
-                _LOGGER.info("Preheat: %s → %s (PRE_HEAT)", room_name, trv_type)
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning("Preheat failed for %s: %s", room_name, err)
+                _LOGGER.info("Preheat: %s → PRE_HEAT", room_name)
 
         # Disarm so we don't fire again this cycle
         self._preheat_armed = False

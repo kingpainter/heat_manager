@@ -1,16 +1,19 @@
 """Tests for PreheatEngine — Phase 3."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
-from custom_components.heat_manager.engine.preheat_engine import PreheatEngine
 from custom_components.heat_manager.const import (
-    RoomState,
     CONF_PERSON_ENTITY,
     CONF_PERSON_TRACKING,
     CONF_PREHEAT_LEAD_TIME_MIN,
+    CONF_TRVS,
+    RoomState,
 )
+from custom_components.heat_manager.engine.preheat_engine import PreheatEngine
+from custom_components.heat_manager.migrations import migrate_room_to_trvs
 
 
 def _make_coordinator(
@@ -34,6 +37,20 @@ def _make_coordinator(
 
     coord.get_climate_entity = MagicMock(return_value="climate.room")
     coord.any_window_open = MagicMock(return_value=False)
+
+    # B18: _start_preheat now fans out over get_room_trvs() instead of
+    # reading room-level flat fields directly. Default to the flat-mirror
+    # migration the real coordinator uses at read time, so every existing
+    # single-TRV test keeps sending to exactly the same entity as before.
+    def _room_trvs(room_name):
+        room = next(
+            (r for r in coord.rooms if r.get("room_name") == room_name), None
+        )
+        if room is None:
+            return []
+        return migrate_room_to_trvs(room).get(CONF_TRVS, [])
+
+    coord.get_room_trvs = MagicMock(side_effect=_room_trvs)
 
     hass = MagicMock()
     hass.async_create_task = MagicMock(return_value=MagicMock())
@@ -250,6 +267,43 @@ async def test_start_preheat_disarms_after_fire():
     engine._preheat_armed = True
     await engine._start_preheat("person.flemming")
     assert engine._preheat_armed is False
+
+
+@pytest.mark.asyncio
+async def test_start_preheat_multi_trv_room_sends_to_every_trv():
+    """B18: a room with 2+ TRVs gets the preheat command fanned out to
+    every physical TRV, each routed by its own trv_type."""
+    coord = _make_coordinator(
+        persons=[_person("person.flemming")],
+        rooms=[
+            {
+                "room_name": "Living room",
+                "trvs": [
+                    {"climate_entity": "climate.living_room", "trv_type": "netatmo"},
+                    {
+                        "climate_entity": "climate.living_room_trv2",
+                        "trv_type": "zigbee",
+                    },
+                ],
+            }
+        ],
+    )
+    coord.room_states = {"Living room": RoomState.AWAY}
+    coord.get_room_state.side_effect = lambda n: coord.room_states.get(
+        n, RoomState.NORMAL
+    )
+
+    engine = PreheatEngine(coord)
+    engine._preheat_armed = True
+
+    await engine._start_preheat("person.flemming")
+
+    calls = coord.hass.services.async_call.await_args_list
+    assert len(calls) == 2
+    by_entity = {c.args[2]["entity_id"]: c for c in calls}
+    assert by_entity["climate.living_room"].args[1] == "set_preset_mode"
+    assert by_entity["climate.living_room_trv2"].args[1] == "set_hvac_mode"
+    coord.set_room_state.assert_called_once_with("Living room", RoomState.PRE_HEAT)
 
 
 @pytest.mark.asyncio

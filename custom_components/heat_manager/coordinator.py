@@ -60,6 +60,7 @@ from .const import (
     CONF_ROOM_TEMP_SENSOR,
     CONF_ROOMS,
     CONF_TRV_MAX_TEMP,
+    CONF_TRVS,
     CONF_WEATHER_ENTITY,
     CONF_WIND_SPEED_SENSOR,
     CONF_WINDOW_SENSORS,
@@ -68,7 +69,6 @@ from .const import (
     DEFAULT_BOOST_MINUTES,
     DEFAULT_BOOST_TEMP,
     DEFAULT_COMFORT_TEMP,
-    DEFAULT_GROUP_OFFSET,
     DEFAULT_MILD_THRESHOLD,
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
@@ -98,6 +98,7 @@ from .engine.sync_engine import SyncEngine
 from .engine.valve_protection_engine import ValveProtectionEngine
 from .engine.waste_calculator import WasteCalculator
 from .engine.window_engine import WindowEngine
+from .migrations import migrate_room_to_trvs
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -136,6 +137,11 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # B3/B7: Persistent energy history — keyed by ISO date string.
         self._energy_history: dict[str, dict] = self._load_energy_history()
         self._energy_history_date: str = ""  # tracks last persist date
+        # B18 Fase 3: per-room group toggle (RoomGroupToggleSwitch) — only
+        # meaningful for a room with 2+ physical TRVs; default True (grouped).
+        # Read by get_room_trvs() below, so it must exist before SyncEngine
+        # (and any other engine) is constructed just below.
+        self.room_group_enabled: dict[str, bool] = {}
 
         # ── Engines ───────────────────────────────────────────────────────────
         self.controller = ControllerEngine(self)
@@ -155,10 +161,12 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.boost_active_rooms: dict[str, bool] = {}
         # Boost auto-expiry (Phase B) — None when no boost is active
         self.boost_expires_at: datetime | None = None
-        # Global, non-destructive temperature shift applied on top of every
-        # room's PID target — see number.py GroupOffsetNumber. Restored from
-        # the RestoreNumber entity on startup, not persisted here directly.
-        self.group_offset: float = DEFAULT_GROUP_OFFSET
+        # B18 Fase 3: per-room, non-destructive temperature shift applied on
+        # top of that room's PID target — see number.py RoomOffsetNumber
+        # (only created for rooms with 2+ physical TRVs). Restored from each
+        # RestoreNumber entity on startup, not persisted here directly.
+        # Replaces the old single global coordinator.group_offset (v0.9.0).
+        self.room_offsets: dict[str, float] = {}
         # Last setpoint the PID tick actually computed/wrote for a room —
         # read-only cache used by SyncEngine to tell an external/manual TRV
         # change apart from Heat Manager's own last write, without having
@@ -271,6 +279,120 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if room.get("room_name") == room_name:
                 return room.get(CONF_CLIMATE_ENTITY)
         return None
+
+    # ── Multi-TRV helpers (B18 Fase 2 — TRV grouping) ───────────────────────
+    #
+    # A room can now hold more than one physical TRV (CONF_TRVS — see Fase 1
+    # / migrations.py). "Grouping" means: one PID loop per room computes a
+    # single target/setpoint, which is then sent identically to every TRV
+    # configured for that room. These helpers are the read side of that —
+    # get_room_trvs() always returns at least a synthesized single-TRV list
+    # for a room using only the old flat fields (climate_entity, trv_type,
+    # ...), via the same pure migrate_room_to_trvs() used by the one-time
+    # config-entry migration. That keeps every caller — and every existing
+    # test that builds a plain flat room dict — working unchanged for
+    # single-TRV rooms, without needing async_migrate_entry() to have run
+    # first.
+    #
+    # get_climate_entity()/get_homekit_climate_entity()/get_write_entity()/
+    # needs_cloud_delay() above are UNCHANGED — they still resolve only the
+    # room's primary (first) TRV, via the flat mirror. They remain correct
+    # for every read-only use (sensors, the panel/card, other engines not
+    # yet converted) that only needs "the" room entity. Only the *command*
+    # call sites — the ones that actually write a climate service call —
+    # loop the multi-TRV helpers below instead.
+
+    def get_all_room_trvs(self, room_name: str) -> list[dict[str, Any]]:
+        """Return every physical TRV *configured* for a room, structurally —
+        ignoring the per-room group toggle (B18 Fase 3).
+
+        Always at least a single-element list (synthesized from the room's
+        flat fields) for a room with a usable climate entity; empty for a
+        room with none configured at all. Use this for entity setup
+        (deciding whether a room qualifies for the per-room offset/
+        group-toggle entities, which only exist for 2+ TRV rooms) and any
+        other structural/configuration read. Command call sites — anything
+        that actually writes a climate service call — should use
+        get_room_trvs() instead.
+        """
+        for room in self.rooms:
+            if room.get("room_name") == room_name:
+                return migrate_room_to_trvs(room).get(CONF_TRVS, [])
+        return []
+
+    def get_room_trvs(self, room_name: str) -> list[dict[str, Any]]:
+        """Return every physical TRV Heat Manager should currently *command*
+        for a room. Every command call site (PID tick, boost, away/window/
+        preheat, valve protection, sync engine, controller off-fallback,
+        the override switch, WS manual-temperature commands) loops this —
+        never get_all_room_trvs() — to fan a climate service call out.
+
+        Normally identical to get_all_room_trvs(). B18 Fase 3: when a 2+ TRV
+        room's group toggle (RoomGroupToggleSwitch) is OFF, this narrows to
+        just the primary (first) TRV — every secondary TRV is released for
+        independent/manual control until the toggle is switched back on. A
+        single-TRV room has no toggle entity and is never affected.
+        """
+        trvs = self.get_all_room_trvs(room_name)
+        if len(trvs) > 1 and not self.room_group_enabled.get(room_name, True):
+            return trvs[:1]
+        return trvs
+
+    def set_room_group_enabled(self, room_name: str, enabled: bool) -> None:
+        """Set a room's group-toggle state (called by RoomGroupToggleSwitch)
+        and immediately rebuild SyncEngine's entity→TRV map so a
+        just-ungrouped secondary TRV stops being monitored (and a
+        just-regrouped one starts being monitored again) without requiring
+        an integration reload."""
+        self.room_group_enabled[room_name] = enabled
+        self.sync_engine.rebuild_entity_map()
+        self.async_update_listeners()
+
+    @staticmethod
+    def get_trv_climate_entity(trv: dict[str, Any]) -> str | None:
+        return trv.get(CONF_CLIMATE_ENTITY) or None
+
+    @staticmethod
+    def get_trv_homekit_entity(trv: dict[str, Any]) -> str | None:
+        return trv.get(CONF_HOMEKIT_CLIMATE_ENTITY) or None
+
+    def get_trv_write_entity(self, trv: dict[str, Any]) -> str | None:
+        """Preferred write entity for one physical TRV — same
+        HomeKit-first-if-reachable, else-cloud priority as
+        get_write_entity(), just scoped to a single TRV dict instead of a
+        room's flat fields. Used by command sites that already followed
+        this reachability-fallback policy for the room's primary TRV
+        (boost, window-open, valve exercise, the WS manual-temperature
+        command) and now fan the same policy out per TRV.
+        """
+        hk_id = self.get_trv_homekit_entity(trv)
+        if hk_id:
+            state = self.hass.states.get(hk_id)
+            if state and state.state not in ("unavailable", "unknown", "off"):
+                return hk_id
+        return self.get_trv_climate_entity(trv)
+
+    def get_room_write_entities(self, room_name: str) -> list[str]:
+        """Write entity for every TRV configured in this room (order
+        preserved, duplicates dropped) — see get_trv_write_entity()."""
+        seen: set[str] = set()
+        out: list[str] = []
+        for trv in self.get_room_trvs(room_name):
+            entity = self.get_trv_write_entity(trv)
+            if entity and entity not in seen:
+                seen.add(entity)
+                out.append(entity)
+        return out
+
+    def trv_needs_cloud_delay(self, trv: dict[str, Any]) -> bool:
+        """Per-TRV equivalent of needs_cloud_delay() — True unless this
+        TRV's own HomeKit entity is configured and currently reachable."""
+        hk_id = self.get_trv_homekit_entity(trv)
+        if hk_id:
+            state = self.hass.states.get(hk_id)
+            if state and state.state not in ("unavailable", "unknown", "off"):
+                return False
+        return True
 
     def _init_pid_controllers(self) -> None:
         kp = float(self.config.get(CONF_PID_KP, DEFAULT_PID_KP))
@@ -591,14 +713,15 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         had a client-side countdown that stopped working the moment the
         dashboard was closed; this gives boost a real backend expiry.
 
-        Also resets group_offset to 0 (v0.9.0) — same "setting a temperature
-        directly clears the offset" rule climate_group_helper's Group Offset
-        follows, since boost sets an absolute temperature that would
-        otherwise silently stack with a leftover offset.
+        Also resets every room's offset to 0 (v0.9.0, per-room since B18
+        Fase 3) — same "setting a temperature directly clears the offset"
+        rule climate_group_helper's Group Offset follows, since boost sets
+        an absolute temperature that would otherwise silently stack with a
+        leftover offset.
         """
         temp = float(temperature) if temperature is not None else DEFAULT_BOOST_TEMP
-        self.group_offset = DEFAULT_GROUP_OFFSET
-        self.async_update_listeners()  # refresh number.heat_manager_group_offset immediately
+        self.room_offsets = {}
+        self.async_update_listeners()  # refresh every number.<room>_offset immediately
 
         boosted: list[str] = []
         for room in self.rooms:
@@ -610,20 +733,28 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 RoomState.OVERRIDE,
             ):
                 continue
-            write_entity = self.get_write_entity(room_name)
-            if not write_entity:
+            # B18: same boost temperature to every TRV configured for this
+            # room, not just the primary one.
+            write_entities = self.get_room_write_entities(room_name)
+            if not write_entities:
                 continue
-            try:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_temperature",
-                    {"entity_id": write_entity, "temperature": temp},
-                    blocking=True,
-                )
+            room_ok = False
+            for write_entity in write_entities:
+                try:
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_temperature",
+                        {"entity_id": write_entity, "temperature": temp},
+                        blocking=True,
+                    )
+                    room_ok = True
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "Boost failed for '%s' (%s): %s", room_name, write_entity, err
+                    )
+            if room_ok:
                 self.boost_active_rooms[room_name] = True
                 boosted.append(room_name)
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning("Boost failed for '%s': %s", room_name, err)
 
         if boosted:
             minutes = (
@@ -1088,15 +1219,16 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if schedule_temp is not None:
                 target_temp = schedule_temp
 
-            # ── Group offset (v0.9.0) — non-destructive global shift ────────
+            # ── Room offset (B18 Fase 3) — non-destructive per-room shift ──
             # Applied fresh every tick, on top of whichever base target the
             # branch above resolved (cloud schedule setpoint or
             # CONF_COMFORT_TEMP) — mirrors climate_group_helper's "Group
             # Offset": it automatically follows the next schedule/season
             # transition since it is never baked into a stored target, only
-            # ever added at read time. See number.py GroupOffsetNumber.
-            if self.group_offset:
-                target_temp += self.group_offset
+            # ever added at read time. See number.py RoomOffsetNumber.
+            room_offset = self.room_offsets.get(room_name, 0.0)
+            if room_offset:
+                target_temp += room_offset
 
             # ── Setbacks: night + wake — applied cumulatively, both paths ──
             setback = self.night_setback_delta() + self.wake_setback_delta()
@@ -1147,7 +1279,10 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # computation (which would double-advance the PID integrator).
             self.last_expected_setpoint[room_name] = trv_setpoint
 
-            # Suppress command if change < 0.5 °C
+            # Reset the PID (not just skip) when the room's primary TRV
+            # write entity is unavailable — same policy as before B18. A
+            # secondary TRV in a multi-TRV room being briefly unavailable
+            # does not reset the room's PID; it's just skipped below.
             write_state = self.hass.states.get(write_id)
             if write_state is None or write_state.state in (
                 "unavailable",
@@ -1156,35 +1291,65 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ):
                 pid.reset()
                 continue
-            write_current_setpoint = write_state.attributes.get("temperature", 0.0)
-            if abs(trv_setpoint - float(write_current_setpoint)) < 0.5:
-                continue
 
-            try:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_temperature",
-                    {"entity_id": write_id, "temperature": trv_setpoint},
-                    blocking=True,
+            # ── Send the same computed setpoint to every TRV in the room ──
+            # B18 "grouping": one PID loop per room, N identical outputs.
+            # Each TRV resolves its own write entity the same way the
+            # primary one above did (its own homekit_climate_entity if
+            # configured, else its own climate_entity — no live-reachability
+            # fallback, matching pre-B18 behaviour exactly for the primary
+            # TRV: an unreachable configured HomeKit entity is skipped and
+            # logged, not silently redirected to the cloud entity), and is
+            # suppressed independently — a newly-added or differently-typed
+            # TRV can sit at a different current setpoint than the room's
+            # primary one.
+            for trv in self.get_room_trvs(room_name):
+                trv_write_id = trv.get(CONF_HOMEKIT_CLIMATE_ENTITY) or trv.get(
+                    CONF_CLIMATE_ENTITY
                 )
-                _LOGGER.debug(
-                    "PID tick [%s] (%s): target=%.1f cur=%.1f pwr=%.2f → %.1f°C"
-                    "  (heating_power_request=%s%%)",
-                    room_name,
-                    "HomeKit" if hk_id else "local",
-                    target_temp,
-                    current_temp,
-                    power,
-                    trv_setpoint,
-                    demand_pct,
-                )
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning(
-                    "PID setpoint failed for '%s' via %s: %s",
-                    room_name,
-                    "HomeKit" if hk_id else write_id,
-                    err,
-                )
+                if not trv_write_id:
+                    continue
+
+                if trv_write_id == write_id:
+                    trv_state = write_state  # already fetched above
+                else:
+                    trv_state = self.hass.states.get(trv_write_id)
+                    if trv_state is None or trv_state.state in (
+                        "unavailable",
+                        "unknown",
+                        "off",
+                    ):
+                        continue
+
+                trv_current_setpoint = trv_state.attributes.get("temperature", 0.0)
+                if abs(trv_setpoint - float(trv_current_setpoint)) < 0.5:
+                    continue
+
+                try:
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_temperature",
+                        {"entity_id": trv_write_id, "temperature": trv_setpoint},
+                        blocking=True,
+                    )
+                    _LOGGER.debug(
+                        "PID tick [%s] (%s): target=%.1f cur=%.1f pwr=%.2f → %.1f°C"
+                        "  (heating_power_request=%s%%)",
+                        room_name,
+                        "HomeKit" if hk_id else "local",
+                        target_temp,
+                        current_temp,
+                        power,
+                        trv_setpoint,
+                        demand_pct,
+                    )
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "PID setpoint failed for '%s' via %s: %s",
+                        room_name,
+                        trv_write_id,
+                        err,
+                    )
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 

@@ -48,7 +48,6 @@
         "description": "Rum tilføjet: {room_count}",
         "data": {
           "room_name": "Rumnavn",
-          "climate_entity": "Klimaenhed",
           "window_sensors": "Vindue- / dørsensorer",
           "window_delay_min": "Forsinkelse ved åbent vindue (minutter)",
           "away_temp_override": "Fraværstemperatur for dette rum",
@@ -56,19 +55,57 @@
           "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
           "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
           "comfort_temp": "Komfort-temperatur (Zigbee/lokale TRV'er)",
-          "calibration_entity": "TRV-kalibreringsentitet (valgfrit)",
-          "sync_mode": "Synkroniseringstilstand",
-          "schedule_entity": "Skema-/kalenderentitet (valgfrit)",
-          "_action": "Hvad nu?"
+          "schedule_entity": "Skema-/kalenderentitet (valgfrit)"
         },
         "data_description": {
           "comfort_temp": "PID-måltemperatur for rum uden en HomeKit-entity (Zigbee i dag, Matter/Thread senere) — disse har intet separat cloud-skema at hente et mål fra. Ignoreres for Netatmo-rum, som i stedet bruger cloud-entityens eget skema-setpunkt. Standard 20°C.",
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO₂ er høj, registreres et åbent vindue som ventilation frem for varmespild.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som bevidst ventilation. Standard er 900 ppm. Hæv for soveværelser eller sænk for sjældent benyttede rum.",
           "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering. Anbefales til Zigbee TRV'er, hvis indbyggede sensor sidder på radiatorlegemet (typisk 1–3°C for høj).",
-          "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren ovenfor.",
-          "sync_mode": "Hvad der sker, når dette rums TRV ændres manuelt eller af en anden automatisering. Deaktiveret: ignorer. Spejl: acceptér ændringen og skift rummet til tilsidesættelse. Lås: gendan til Heat Managers eget setpunkt.",
           "schedule_entity": "En schedule.*-hjælper eller calendar.*-entitet. Mens en tidsblok eller begivenhed er aktiv, overstyrer dens temperatur rummets normale mål."
+        }
+      },
+      "room_trvs_menu": {
+        "title": "Administrér rummets TRV'er",
+        "description": "Rum: {room_name}. TRV'er tilføjet: {trv_count}. Mindst én TRV kræves — tilføj den, rediger eller slet en TRV, eller fortsæt når du er færdig.",
+        "data": {
+          "action": "Handling"
+        }
+      },
+      "room_trv_add": {
+        "title": "Tilføj en TRV",
+        "data": {
+          "climate_entity": "Klimaenhed",
+          "homekit_climate_entity": "HomeKit-klimaenhed (valgfrit)",
+          "trv_type": "TRV-type",
+          "pi_demand_entity": "PI-behovsentitet (valgfrit)",
+          "calibration_entity": "TRV-kalibreringsentitet (valgfrit)",
+          "sync_mode": "Synkroniseringstilstand"
+        },
+        "data_description": {
+          "homekit_climate_entity": "Den HomeKit-broede klimaenhed for denne TRV, hvis den afviger fra enheden ovenfor (relevant for visse Netatmo-/Homebridge-opsætninger). Lad stå tomt, hvis ikke relevant.",
+          "trv_type": "Netatmo NRV'er bruger preset_mode (away/schedule) til at aktivere/deaktivere opvarmning. Zigbee-TRV'er (via Zigbee2MQTT) bruger i stedet hvac_mode (off/heat).",
+          "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov, brugt til spild- og effektivitetsberegninger.",
+          "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren.",
+          "sync_mode": "Hvad der sker, når denne TRV ændres manuelt eller af en anden automatisering. Deaktiveret: ignorer. Spejl: acceptér ændringen og skift rummet til tilsidesættelse. Lås: gendan til Heat Managers eget setpunkt."
+        }
+      },
+      "room_trv_edit": {
+        "title": "Rediger TRV",
+        "data": {
+          "climate_entity": "Klimaenhed",
+          "homekit_climate_entity": "HomeKit-klimaenhed (valgfrit)",
+          "trv_type": "TRV-type",
+          "pi_demand_entity": "PI-behovsentitet (valgfrit)",
+          "calibration_entity": "TRV-kalibreringsentitet (valgfrit)",
+          "sync_mode": "Synkroniseringstilstand"
+        },
+        "data_description": {
+          "homekit_climate_entity": "Den HomeKit-broede klimaenhed for denne TRV, hvis den afviger fra enheden ovenfor (relevant for visse Netatmo-/Homebridge-opsætninger). Lad stå tomt, hvis ikke relevant.",
+          "trv_type": "Netatmo NRV'er bruger preset_mode (away/schedule) til at aktivere/deaktivere opvarmning. Zigbee-TRV'er (via Zigbee2MQTT) bruger i stedet hvac_mode (off/heat).",
+          "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov, brugt til spild- og effektivitetsberegninger.",
+          "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren.",
+          "sync_mode": "Hvad der sker, når denne TRV ændres manuelt eller af en anden automatisering. Deaktiveret: ignorer. Spejl: acceptér ændringen og skift rummet til tilsidesættelse. Lås: gendan til Heat Managers eget setpunkt."
         }
       },
       "person": {
@@ -100,7 +137,6 @@
     },
     "error": {
       "entity_not_found": "Entitet ikke fundet — kontrollér ID.",
-      "no_rooms": "Mindst ét rum skal tilføjes.",
       "duplicate_room": "Et rum med dette navn eksisterer allerede.",
       "duplicate_person": "Denne person er allerede tilføjet."
     },
@@ -169,7 +205,6 @@
         "title": "Tilføj et rum",
         "data": {
           "room_name": "Rumnavn",
-          "climate_entity": "Klimaenhed",
           "window_sensors": "Vindue- / dørsensorer",
           "window_delay_min": "Forsinkelse ved åbent vindue (minutter)",
           "away_temp_override": "Fraværstemperatur for dette rum",
@@ -177,8 +212,6 @@
           "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
           "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
           "comfort_temp": "Komfort-temperatur (Zigbee/lokale TRV'er)",
-          "calibration_entity": "TRV-kalibreringsentitet (valgfrit)",
-          "sync_mode": "Synkroniseringstilstand",
           "schedule_entity": "Skema-/kalenderentitet (valgfrit)"
         },
         "data_description": {
@@ -186,8 +219,6 @@
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som ventilation. Standard 900 ppm.",
           "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering.",
-          "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren ovenfor.",
-          "sync_mode": "Hvad der sker, når dette rums TRV ændres manuelt eller af en anden automatisering. Deaktiveret: ignorer. Spejl: acceptér ændringen og skift rummet til tilsidesættelse. Lås: gendan til Heat Managers eget setpunkt.",
           "schedule_entity": "En schedule.*-hjælper eller calendar.*-entitet. Mens en tidsblok eller begivenhed er aktiv, overstyrer dens temperatur rummets normale mål."
         }
       },
@@ -196,7 +227,6 @@
         "description": "Redigerer: {room_name}",
         "data": {
           "room_name": "Rumnavn",
-          "climate_entity": "Klimaenhed",
           "window_sensors": "Vindue- / dørsensorer",
           "window_delay_min": "Forsinkelse ved åbent vindue (minutter)",
           "away_temp_override": "Fraværstemperatur for dette rum",
@@ -204,8 +234,6 @@
           "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
           "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
           "comfort_temp": "Komfort-temperatur (Zigbee/lokale TRV'er)",
-          "calibration_entity": "TRV-kalibreringsentitet (valgfrit)",
-          "sync_mode": "Synkroniseringstilstand",
           "schedule_entity": "Skema-/kalenderentitet (valgfrit)"
         },
         "data_description": {
@@ -213,9 +241,50 @@
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som ventilation. Standard 900 ppm.",
           "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering.",
-          "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren ovenfor.",
-          "sync_mode": "Hvad der sker, når dette rums TRV ændres manuelt eller af en anden automatisering. Deaktiveret: ignorer. Spejl: acceptér ændringen og skift rummet til tilsidesættelse. Lås: gendan til Heat Managers eget setpunkt.",
           "schedule_entity": "En schedule.*-hjælper eller calendar.*-entitet. Mens en tidsblok eller begivenhed er aktiv, overstyrer dens temperatur rummets normale mål."
+        }
+      },
+      "room_trvs_menu": {
+        "title": "Administrér rummets TRV'er",
+        "description": "Rum: {room_name}. TRV'er tilføjet: {trv_count}. Mindst én TRV kræves — tilføj den, rediger eller slet en TRV, eller gem rummet når du er færdig.",
+        "data": {
+          "action": "Handling"
+        }
+      },
+      "room_trv_add": {
+        "title": "Tilføj en TRV",
+        "data": {
+          "climate_entity": "Klimaenhed",
+          "homekit_climate_entity": "HomeKit-klimaenhed (valgfrit)",
+          "trv_type": "TRV-type",
+          "pi_demand_entity": "PI-behovsentitet (valgfrit)",
+          "calibration_entity": "TRV-kalibreringsentitet (valgfrit)",
+          "sync_mode": "Synkroniseringstilstand"
+        },
+        "data_description": {
+          "homekit_climate_entity": "Den HomeKit-broede klimaenhed for denne TRV, hvis den afviger fra enheden ovenfor (relevant for visse Netatmo-/Homebridge-opsætninger). Lad stå tomt, hvis ikke relevant.",
+          "trv_type": "Netatmo NRV'er bruger preset_mode (away/schedule) til at aktivere/deaktivere opvarmning. Zigbee-TRV'er (via Zigbee2MQTT) bruger i stedet hvac_mode (off/heat).",
+          "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov, brugt til spild- og effektivitetsberegninger.",
+          "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren.",
+          "sync_mode": "Hvad der sker, når denne TRV ændres manuelt eller af en anden automatisering. Deaktiveret: ignorer. Spejl: acceptér ændringen og skift rummet til tilsidesættelse. Lås: gendan til Heat Managers eget setpunkt."
+        }
+      },
+      "room_trv_edit": {
+        "title": "Rediger TRV",
+        "data": {
+          "climate_entity": "Klimaenhed",
+          "homekit_climate_entity": "HomeKit-klimaenhed (valgfrit)",
+          "trv_type": "TRV-type",
+          "pi_demand_entity": "PI-behovsentitet (valgfrit)",
+          "calibration_entity": "TRV-kalibreringsentitet (valgfrit)",
+          "sync_mode": "Synkroniseringstilstand"
+        },
+        "data_description": {
+          "homekit_climate_entity": "Den HomeKit-broede klimaenhed for denne TRV, hvis den afviger fra enheden ovenfor (relevant for visse Netatmo-/Homebridge-opsætninger). Lad stå tomt, hvis ikke relevant.",
+          "trv_type": "Netatmo NRV'er bruger preset_mode (away/schedule) til at aktivere/deaktivere opvarmning. Zigbee-TRV'er (via Zigbee2MQTT) bruger i stedet hvac_mode (off/heat).",
+          "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov, brugt til spild- og effektivitetsberegninger.",
+          "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren.",
+          "sync_mode": "Hvad der sker, når denne TRV ændres manuelt eller af en anden automatisering. Deaktiveret: ignorer. Spejl: acceptér ændringen og skift rummet til tilsidesættelse. Lås: gendan til Heat Managers eget setpunkt."
         }
       },
       "persons_menu": {
@@ -313,11 +382,14 @@
     "switch": {
       "room_override": {
         "name": "Tilsidesæt"
+      },
+      "room_group_toggle": {
+        "name": "Gruppe"
       }
     },
     "number": {
-      "group_offset": {
-        "name": "Gruppeoffset"
+      "room_offset": {
+        "name": "Offset"
       }
     }
   },

@@ -63,6 +63,14 @@ def make_coordinator(
     }]
     coord.get_room_state = MagicMock(return_value=room_state)
     coord.get_homekit_climate_entity = MagicMock(return_value=homekit_entity)
+    # B18: the PID tick's write step now fans out over get_room_trvs()
+    # instead of writing a single room-level entity. Default to a single
+    # TRV built from this room's own flat fields, so every existing
+    # single-TRV test keeps writing to exactly the same entity as before.
+    _trv = {"climate_entity": climate_id}
+    if homekit_entity:
+        _trv["homekit_climate_entity"] = homekit_entity
+    coord.get_room_trvs = MagicMock(return_value=[_trv])
     pid = PidController(kp=0.5, ki=0.02, kd=0.0, room_name=room_name)
     coord.pid_controllers = {room_name: pid}
     if climate_unavailable:
@@ -78,11 +86,12 @@ def make_coordinator(
     coord.night_setback_delta = MagicMock(return_value=0.0)
     coord.wake_setback_delta = MagicMock(return_value=0.0)
     coord.get_room_current_temp = MagicMock(return_value=current_temp)
-    # v0.9.0: real values, not auto-vivified MagicMocks — group_offset is
-    # added to target_temp, last_expected_setpoint is written to as a real
-    # dict, and schedule_override is read with .get() by _async_pid_tick(),
-    # so all three need concrete types here.
-    coord.group_offset = 0.0
+    # v0.9.0 / B18 Fase 3: real values, not auto-vivified MagicMocks —
+    # room_offsets is read with .get() and its value added to target_temp,
+    # last_expected_setpoint is written to as a real dict, and
+    # schedule_override is read with .get() by _async_pid_tick(), so all
+    # three need concrete types here.
+    coord.room_offsets = {}
     coord.last_expected_setpoint = {}
     coord.schedule_override = {}
     return coord
@@ -224,6 +233,41 @@ async def test_pid_no_call_when_setpoint_already_at_trv_min():
     coord.hass.services.async_call.assert_not_called()
 
 
+# ── B18 Fase 3: per-room offset (replaces the old global group_offset) ───────
+
+@pytest.mark.asyncio
+async def test_room_offset_shifts_this_rooms_target():
+    """
+    current=12.0, schedule target=10.0 (both read from the same climate
+    state, as make_coordinator wires it) → error = 10 - 12 = -2 → power
+    clamps to 0 → trv_setpoint floors to trv_min (10.0), which already
+    matches the reported setpoint (10.0) → no call, same shape as
+    test_pid_no_call_when_setpoint_already_at_trv_min above.
+
+    A +5.0 room offset (GROUP_OFFSET_MAX) shifts the target to 15.0:
+    error = 15 - 12 = 3 → power = Kp * 3 = 1.5, clamped to 1.0 →
+    trv_setpoint = 12 + 1.0 * (28 - 12) = 28.0 — far from the still-10.0
+    reported setpoint → a call must go out.
+    """
+    coord = make_coordinator(current_temp=12.0, target_temp=10.0)
+    coord.room_offsets = {"living_room": 5.0}
+    await _pid_tick(coord)
+    coord.hass.services.async_call.assert_called_once()
+    call_args = coord.hass.services.async_call.call_args
+    assert call_args[0][2]["temperature"] == 28.0
+
+
+@pytest.mark.asyncio
+async def test_room_offset_does_not_leak_to_other_rooms():
+    """An offset keyed to a different room must not affect this room's
+    target — regression coverage for the old global group_offset behaviour
+    B18 Fase 3 deliberately removes."""
+    coord = make_coordinator(current_temp=12.0, target_temp=10.0)
+    coord.room_offsets = {"some_other_room": 5.0}
+    await _pid_tick(coord)
+    coord.hass.services.async_call.assert_not_called()
+
+
 # ── Regression: B-PID-2 ───────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -248,6 +292,14 @@ async def test_bug_b_pid_2_no_call_when_delta_below_threshold():
                     "away_temp_override": 10.0}]
     coord.get_room_state = MagicMock(return_value=RoomState.NORMAL)
     coord.get_homekit_climate_entity = MagicMock(return_value="climate.kitchen_homekit")
+    coord.get_room_trvs = MagicMock(
+        return_value=[
+            {
+                "climate_entity": "climate.kitchen",
+                "homekit_climate_entity": "climate.kitchen_homekit",
+            }
+        ]
+    )
     pid = PidController(kp=0.5, ki=0.0, kd=0.0, room_name="kitchen")
     coord.pid_controllers = {"kitchen": pid}
     cs = MagicMock(); cs.state = "heat"
@@ -258,7 +310,7 @@ async def test_bug_b_pid_2_no_call_when_delta_below_threshold():
     coord.night_setback_delta = MagicMock(return_value=0.0)
     coord.wake_setback_delta = MagicMock(return_value=0.0)
     coord.get_room_current_temp = MagicMock(return_value=21.8)
-    coord.group_offset = 0.0
+    coord.room_offsets = {}
     coord.last_expected_setpoint = {}
     coord.schedule_override = {}
     await _pid_tick(coord)
@@ -395,6 +447,200 @@ async def test_schedule_override_replaces_cloud_schedule_target():
     coord.hass.services.async_call.assert_called_once()
     call_args = coord.hass.services.async_call.call_args
     assert call_args[0][2]["temperature"] > 20.0
+
+
+# ── B18: multi-TRV grouping — one PID loop, N identical outputs ───────────────
+
+
+@pytest.mark.asyncio
+async def test_multi_trv_room_sends_same_setpoint_to_every_trv():
+    """A room with two TRVs (mixed Netatmo HomeKit + local Zigbee) both
+    below the computed setpoint receives the identical trv_setpoint on
+    both write entities — B18 grouping."""
+    coord = make_coordinator(current_temp=20.0, target_temp=22.0)
+    primary_state = MagicMock()
+    primary_state.state = "heat"
+    primary_state.attributes = {"temperature": 10.0}
+    second_state = MagicMock()
+    second_state.state = "heat"
+    second_state.attributes = {"temperature": 10.0}
+    # get_homekit_climate_entity()/primary "temperature" read still comes
+    # from the universal cs mock inside make_coordinator (current_temp=20,
+    # target_temp=22); only the *write* entities are distinguished here.
+    coord.get_room_trvs = MagicMock(
+        return_value=[
+            {
+                "climate_entity": "climate.living_room",
+                "homekit_climate_entity": "climate.living_room_homekit",
+            },
+            {"climate_entity": "climate.living_room_zigbee_trv2"},
+        ]
+    )
+    base_get = coord.hass.states.get
+    entity_states = {
+        "climate.living_room_homekit": primary_state,
+        "climate.living_room_zigbee_trv2": second_state,
+    }
+
+    def _get(entity_id):
+        return entity_states.get(entity_id, base_get.return_value)
+
+    coord.hass.states.get = MagicMock(side_effect=_get)
+
+    await _pid_tick(coord)
+
+    assert coord.hass.services.async_call.await_count == 2
+    sent = {
+        call.args[2]["entity_id"]: call.args[2]["temperature"]
+        for call in coord.hass.services.async_call.await_args_list
+    }
+    assert set(sent) == {
+        "climate.living_room_homekit",
+        "climate.living_room_zigbee_trv2",
+    }
+    # Same computed setpoint sent to both — "N identical outputs".
+    assert sent["climate.living_room_homekit"] == sent[
+        "climate.living_room_zigbee_trv2"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_multi_trv_room_skips_trv_already_at_setpoint():
+    """A second TRV already within 0.5°C of the computed setpoint is left
+    alone even on a tick where the primary TRV still needs the command —
+    each TRV is suppressed independently. Uses ki=0 so the (stateless)
+    proportional-only computed setpoint is identical across both ticks."""
+    from custom_components.heat_manager.engine.pid_controller import PidController
+
+    coord = make_coordinator(current_temp=20.0, target_temp=22.0)
+    coord.pid_controllers["living_room"] = PidController(
+        kp=0.5, ki=0.0, kd=0.0, room_name="living_room"
+    )
+    coord.get_room_trvs = MagicMock(
+        return_value=[
+            {
+                "climate_entity": "climate.living_room",
+                "homekit_climate_entity": "climate.living_room_homekit",
+            },
+            {"climate_entity": "climate.living_room_zigbee_trv2"},
+        ]
+    )
+    primary_state = MagicMock()
+    primary_state.state = "heat"
+    primary_state.attributes = {"temperature": 10.0}  # far off — will be sent
+    second_state = MagicMock()
+    second_state.state = "heat"
+    second_state.attributes = {"temperature": 10.0}  # far off — will be sent
+
+    # Capture the original (valid) cloud-state mock BEFORE reassigning
+    # coord.hass.states.get below — otherwise the fallback branch would
+    # resolve against the *new* mock's own (unconfigured) return_value.
+    original_cs_state = coord.hass.states.get.return_value
+
+    def _get(entity_id):
+        if entity_id == "climate.living_room_homekit":
+            return primary_state
+        if entity_id == "climate.living_room_zigbee_trv2":
+            return second_state
+        return original_cs_state
+
+    coord.hass.states.get = MagicMock(side_effect=_get)
+
+    # First tick: both far from target → both receive the command.
+    await _pid_tick(coord)
+    assert coord.hass.services.async_call.await_count == 2
+    computed_setpoint = coord.hass.services.async_call.await_args_list[0].args[2][
+        "temperature"
+    ]
+
+    # Both TRVs now report that exact setpoint — next tick (ki=0, so the
+    # computed setpoint is unchanged) must send nothing to either.
+    primary_state.attributes = {"temperature": computed_setpoint}
+    second_state.attributes = {"temperature": computed_setpoint}
+    coord.hass.services.async_call.reset_mock()
+    await _pid_tick(coord)
+    coord.hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_multi_trv_room_secondary_unavailable_does_not_reset_pid():
+    """If only the *secondary* TRV is unavailable, the room's PID is not
+    reset and the primary TRV still receives its command — only the
+    primary TRV's unavailability resets the PID (B18). If pid.reset() were
+    (incorrectly) called here, the per-TRV loop would still run since
+    reset() doesn't itself skip the room — the real risk this guards is a
+    stray `continue` treating any unavailable TRV as room-wide, which
+    would suppress the primary TRV's otherwise-due command entirely."""
+    coord = make_coordinator(current_temp=20.0, target_temp=22.0)
+    coord.get_room_trvs = MagicMock(
+        return_value=[
+            {
+                "climate_entity": "climate.living_room",
+                "homekit_climate_entity": "climate.living_room_homekit",
+            },
+            {"climate_entity": "climate.living_room_zigbee_trv2"},
+        ]
+    )
+    primary_state = MagicMock()
+    primary_state.state = "heat"
+    primary_state.attributes = {"temperature": 10.0}
+
+    # Capture the original (valid) cloud-state mock BEFORE reassigning
+    # coord.hass.states.get below — otherwise the fallback branch would
+    # resolve against the *new* mock's own (unconfigured) return_value.
+    original_cs_state = coord.hass.states.get.return_value
+
+    def _get(entity_id):
+        if entity_id == "climate.living_room_homekit":
+            return primary_state
+        if entity_id == "climate.living_room_zigbee_trv2":
+            return None  # unavailable
+        return original_cs_state
+
+    coord.hass.states.get = MagicMock(side_effect=_get)
+    await _pid_tick(coord)
+
+    coord.hass.services.async_call.assert_called_once()
+    assert (
+        coord.hass.services.async_call.call_args[0][2]["entity_id"]
+        == "climate.living_room_homekit"
+    )
+
+
+@pytest.mark.asyncio
+async def test_multi_trv_room_primary_unavailable_resets_pid_skips_all():
+    """If the *primary* TRV's write entity is unavailable, the room's PID
+    resets and nothing is sent to any TRV this tick — even a perfectly
+    healthy secondary TRV is skipped, matching the pre-B18 single-TRV
+    policy of resetting on the room's authoritative write target."""
+    coord = make_coordinator(current_temp=20.0, target_temp=22.0)
+    pid = coord.pid_controllers["living_room"]
+    pid.update(22.0, 20.0)
+    coord.get_room_trvs = MagicMock(
+        return_value=[
+            {
+                "climate_entity": "climate.living_room",
+                "homekit_climate_entity": "climate.living_room_homekit",
+            },
+            {"climate_entity": "climate.living_room_zigbee_trv2"},
+        ]
+    )
+    second_state = MagicMock()
+    second_state.state = "heat"
+    second_state.attributes = {"temperature": 10.0}
+
+    def _get(entity_id):
+        if entity_id == "climate.living_room_homekit":
+            return None  # primary unavailable
+        if entity_id == "climate.living_room_zigbee_trv2":
+            return second_state
+        return coord.hass.states.get.return_value
+
+    coord.hass.states.get = MagicMock(side_effect=_get)
+    await _pid_tick(coord)
+
+    assert pid.integral == pytest.approx(0.0)
+    coord.hass.services.async_call.assert_not_called()
 
 
 @pytest.mark.asyncio

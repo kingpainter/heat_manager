@@ -247,60 +247,66 @@ class PresenceEngine:
         """
         Set all rooms to away / heating-off.
 
-        TRV type routing:
+        TRV type routing (per physical TRV — B18 grouping):
         - netatmo (default): climate.set_preset_mode preset_mode=away
         - zigbee (Z2M):      climate.set_hvac_mode   hvac_mode=off
           Zigbee TRVs via Z2M expose hvac_modes=[auto, heat, off] but have
           no preset_mode concept.  Sending hvac_mode=off fully closes the
           valve, which is the correct away behaviour.
+
+        A room with 2+ TRVs gets the same away command sent to every
+        physical TRV it owns, each routed by its own trv_type.
         """
         hass = self.coordinator.hass
         for room in self.coordinator.rooms:
-            entity_id = room.get(CONF_CLIMATE_ENTITY, "")
-            room_name = room.get("room_name", entity_id)
-            if not entity_id:
-                continue
-            trv_type = room.get(CONF_TRV_TYPE, "netatmo")
-            state = hass.states.get(entity_id)
-            if trv_type == TRV_TYPE_ZIGBEE:
-                # Skip if already off
-                if state and state.state == HVAC_OFF:
+            room_name = room.get("room_name", room.get(CONF_CLIMATE_ENTITY, ""))
+            for trv in self.coordinator.get_room_trvs(room_name):
+                entity_id = trv.get(CONF_CLIMATE_ENTITY, "")
+                if not entity_id:
                     continue
-                try:
-                    await hass.services.async_call(
-                        "climate",
-                        "set_hvac_mode",
-                        {"entity_id": entity_id, "hvac_mode": HVAC_OFF},
-                        blocking=True,
-                    )
-                    self.coordinator.set_room_state(room_name, RoomState.AWAY)
-                    self.coordinator.log_event(
-                        f"Away mode — {room_name} (hvac_mode: off)", "Presence", "away"
-                    )
-                except Exception as err:  # noqa: BLE001
-                    _LOGGER.warning(
-                        "Failed to set away (Z2M) on %s: %s", entity_id, err
-                    )
-            else:
-                # Netatmo: preset_mode: away — must go to cloud entity
-                if state and state.attributes.get("preset_mode") == PRESET_AWAY:
-                    continue
-                try:
-                    await hass.services.async_call(
-                        "climate",
-                        "set_preset_mode",
-                        {"entity_id": entity_id, "preset_mode": PRESET_AWAY},
-                        blocking=True,
-                    )
-                    self.coordinator.set_room_state(room_name, RoomState.AWAY)
-                    self.coordinator.log_event(
-                        f"Away mode — {room_name}", "Presence", "away"
-                    )
-                except Exception as err:  # noqa: BLE001
-                    _LOGGER.warning("Failed to set away on %s: %s", entity_id, err)
-            # H-6: preset_mode calls are always cloud — delay applies
-            # Zigbee hvac_mode calls may also be cloud-bridged so delay always here
-            await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
+                trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
+                state = hass.states.get(entity_id)
+                if trv_type == TRV_TYPE_ZIGBEE:
+                    # Skip if already off
+                    if state and state.state == HVAC_OFF:
+                        continue
+                    try:
+                        await hass.services.async_call(
+                            "climate",
+                            "set_hvac_mode",
+                            {"entity_id": entity_id, "hvac_mode": HVAC_OFF},
+                            blocking=True,
+                        )
+                        self.coordinator.set_room_state(room_name, RoomState.AWAY)
+                        self.coordinator.log_event(
+                            f"Away mode — {room_name} (hvac_mode: off)",
+                            "Presence",
+                            "away",
+                        )
+                    except Exception as err:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "Failed to set away (Z2M) on %s: %s", entity_id, err
+                        )
+                else:
+                    # Netatmo: preset_mode: away — must go to cloud entity
+                    if state and state.attributes.get("preset_mode") == PRESET_AWAY:
+                        continue
+                    try:
+                        await hass.services.async_call(
+                            "climate",
+                            "set_preset_mode",
+                            {"entity_id": entity_id, "preset_mode": PRESET_AWAY},
+                            blocking=True,
+                        )
+                        self.coordinator.set_room_state(room_name, RoomState.AWAY)
+                        self.coordinator.log_event(
+                            f"Away mode — {room_name}", "Presence", "away"
+                        )
+                    except Exception as err:  # noqa: BLE001
+                        _LOGGER.warning("Failed to set away on %s: %s", entity_id, err)
+                # H-6: preset_mode calls are always cloud — delay applies
+                # Zigbee hvac_mode calls may also be cloud-bridged so delay always here
+                await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
     @guarded
     async def _restore_all_schedule(self, force: bool = False) -> None:
@@ -341,10 +347,7 @@ class PresenceEngine:
             hass = self.coordinator.hass
             any_restored = False
             for room in self.coordinator.rooms:
-                entity_id = room.get(CONF_CLIMATE_ENTITY, "")
-                room_name = room.get("room_name", entity_id)
-                if not entity_id:
-                    continue
+                room_name = room.get("room_name", room.get(CONF_CLIMATE_ENTITY, ""))
                 if self.coordinator.get_room_state(room_name) == RoomState.WINDOW_OPEN:
                     continue
                 # Idempotency: skip rooms already in normal heating state,
@@ -357,33 +360,45 @@ class PresenceEngine:
                         "_restore_all_schedule: %s already NORMAL — skipping", room_name
                     )
                     continue
-                trv_type = room.get(CONF_TRV_TYPE, "netatmo")
-                try:
-                    if trv_type == TRV_TYPE_ZIGBEE:
-                        await hass.services.async_call(
-                            "climate",
-                            "set_hvac_mode",
-                            {"entity_id": entity_id, "hvac_mode": "heat"},
-                            blocking=True,
+                trvs = self.coordinator.get_room_trvs(room_name)
+                room_restored = False
+                for trv in trvs:
+                    entity_id = trv.get(CONF_CLIMATE_ENTITY, "")
+                    if not entity_id:
+                        continue
+                    trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
+                    try:
+                        if trv_type == TRV_TYPE_ZIGBEE:
+                            await hass.services.async_call(
+                                "climate",
+                                "set_hvac_mode",
+                                {"entity_id": entity_id, "hvac_mode": "heat"},
+                                blocking=True,
+                            )
+                        else:
+                            await hass.services.async_call(
+                                "climate",
+                                "set_preset_mode",
+                                {
+                                    "entity_id": entity_id,
+                                    "preset_mode": PRESET_SCHEDULE,
+                                },
+                                blocking=True,
+                            )
+                        room_restored = True
+                    except Exception as err:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "Failed to restore schedule on %s: %s", entity_id, err
                         )
-                    else:
-                        await hass.services.async_call(
-                            "climate",
-                            "set_preset_mode",
-                            {"entity_id": entity_id, "preset_mode": PRESET_SCHEDULE},
-                            blocking=True,
-                        )
+                    # H-6: preset_mode/hvac_mode to cloud needs stagger; HomeKit
+                    # doesn't. For restore we always write to the cloud entity
+                    # (preset_mode), so delay always applies for Netatmo rooms.
+                    if self.coordinator.needs_cloud_delay(room_name):
+                        await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
+
+                if room_restored:
                     self.coordinator.set_room_state(room_name, RoomState.NORMAL)
                     any_restored = True
-                except Exception as err:  # noqa: BLE001
-                    _LOGGER.warning(
-                        "Failed to restore schedule on %s: %s", entity_id, err
-                    )
-                # H-6: preset_mode/hvac_mode to cloud needs stagger; HomeKit doesn't
-                # For restore we always write to the cloud entity (preset_mode),
-                # so delay always applies for Netatmo rooms.
-                if self.coordinator.needs_cloud_delay(room_name):
-                    await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
             if any_restored:
                 self.coordinator.log_event(
@@ -398,34 +413,41 @@ class PresenceEngine:
     async def force_room_on(self, room_name: str) -> None:
         """
         Force a specific room back to heating, bypassing window/away state.
-        Routes service call based on trv_type.
+        Routes each of the room's TRVs by its own trv_type (B18 grouping —
+        every physical TRV in the room is forced on, not just the primary).
         """
-        entity_id = self.coordinator.get_climate_entity(room_name)
-        if not entity_id:
+        trvs = self.coordinator.get_room_trvs(room_name)
+        if not trvs:
             _LOGGER.warning("force_room_on: room '%s' not found", room_name)
             return
-        # Find room config for trv_type
-        room_cfg = next(
-            (r for r in self.coordinator.rooms if r.get("room_name") == room_name), {}
-        )
-        trv_type = room_cfg.get(CONF_TRV_TYPE, "netatmo")
-        try:
-            if trv_type == TRV_TYPE_ZIGBEE:
-                await self.coordinator.hass.services.async_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": entity_id, "hvac_mode": "heat"},
-                    blocking=True,
-                )
-            else:
-                await self.coordinator.hass.services.async_call(
-                    "climate",
-                    "set_preset_mode",
-                    {"entity_id": entity_id, "preset_mode": PRESET_SCHEDULE},
-                    blocking=True,
-                )
+        any_ok = False
+        for trv in trvs:
+            entity_id = trv.get(CONF_CLIMATE_ENTITY, "")
+            if not entity_id:
+                continue
+            trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
+            try:
+                if trv_type == TRV_TYPE_ZIGBEE:
+                    await self.coordinator.hass.services.async_call(
+                        "climate",
+                        "set_hvac_mode",
+                        {"entity_id": entity_id, "hvac_mode": "heat"},
+                        blocking=True,
+                    )
+                else:
+                    await self.coordinator.hass.services.async_call(
+                        "climate",
+                        "set_preset_mode",
+                        {"entity_id": entity_id, "preset_mode": PRESET_SCHEDULE},
+                        blocking=True,
+                    )
+                any_ok = True
+                _LOGGER.info("Force-on: %s → heating (%s)", entity_id, trv_type)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("force_room_on failed for %s: %s", entity_id, err)
+
+        if any_ok:
             self.coordinator.set_room_state(room_name, RoomState.NORMAL)
-            _LOGGER.info("Force-on: %s → heating (%s)", entity_id, trv_type)
             window_warn = (
                 " (windows still open — may be costly!)"
                 if self.coordinator.any_window_open()
@@ -440,8 +462,6 @@ class PresenceEngine:
                 title="Heat Manager",
                 message=f"Heating forced on for {room_name}{window_warn}",
             )
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("force_room_on failed for %s: %s", room_name, err)
 
     # ── Notifications ─────────────────────────────────────────────────────────
 
