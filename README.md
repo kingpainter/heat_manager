@@ -145,6 +145,7 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 | `co2_threshold` | ppm | 900 | **Optional.** Per-room CO₂ ventilation threshold. Overrides global 900 ppm default. Higher = more tolerant (e.g. bedrooms) |
 | `room_temp_sensor` | sensor | — | **Optional.** Wall probe for PID feedback — avoids radiator-body bias of TRV built-in sensor |
 | `humidity_sensor` | sensor | — | **Optional.** Indoor humidity (%) for mold risk detection |
+| `battery_sensor` | sensor | — | **Optional.** TRV battery level (%), shown in Rum-detaljer and the room overview cards. Falls back to the climate entity's own `battery_level` attribute when unset |
 
 ### Step 3 — Persons (repeatable)
 
@@ -270,6 +271,13 @@ today.
 1. room_temp_sensor       — wall probe, best accuracy
 2. homekit_climate_entity — Netatmo local HAP, <100 ms
 3. climate_entity         — cloud entity, last resort
+```
+
+### TRV battery (Rum-detaljer / room overview cards)
+```
+1. battery_sensor         — dedicated sensor.* entity (typical for Zigbee)
+2. climate_entity.battery_level attribute — some Netatmo setups expose it this way
+3. — (not shown)
 ```
 
 ### Write channel (for set_temperature)
