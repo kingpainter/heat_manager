@@ -546,6 +546,69 @@ async def test_get_state_humidity_and_co2_default_to_none_when_not_configured():
     assert room["co2"] is None
 
 
+# ── ws_get_state: climate entity resolved via CONF_TRVS (regression) ────────
+
+
+@pytest.mark.asyncio
+async def test_get_state_resolves_climate_entity_from_trvs_only_room():
+    """Regression: a room saved through the per-TRV edit UI has CONF_TRVS
+    but no flat climate_entity/trv_type/pi_demand_entity field — the old
+    code read those flat fields directly and got empty/default values for
+    every such room (Sætpunkt, TRV temp, valve % all blank in the panel)."""
+    coord = _make_coordinator(
+        rooms=[
+            {
+                "room_name": "Køkken",
+                CONF_TRVS: [{"climate_entity": "climate.kokken", "trv_type": "zigbee"}],
+            }
+        ]
+    )
+    climate_state = MagicMock()
+    climate_state.attributes = {"heating_power_request": 37}
+    coord.hass.states.get = MagicMock(
+        side_effect=lambda eid: climate_state if eid == "climate.kokken" else None
+    )
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["climate_entity"] == "climate.kokken"
+    assert room["trv_type"] == "zigbee"
+    assert room["valve_position"] == 37.0
+
+
+@pytest.mark.asyncio
+async def test_get_state_pi_demand_entity_resolved_from_trvs_only_room():
+    coord = _make_coordinator(
+        rooms=[
+            {
+                "room_name": "Køkken",
+                CONF_TRVS: [
+                    {
+                        "climate_entity": "climate.kokken",
+                        "trv_type": "zigbee",
+                        "pi_demand_entity": "sensor.kokken_pi_demand",
+                    }
+                ],
+            }
+        ]
+    )
+    pi_state = MagicMock()
+    pi_state.state = "55"
+    coord.hass.states.get = MagicMock(
+        side_effect=lambda eid: pi_state if eid == "sensor.kokken_pi_demand" else None
+    )
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["valve_position"] == 55.0
+
+
 # ── ws_get_state: persons ───────────────────────────────────────────────────
 
 

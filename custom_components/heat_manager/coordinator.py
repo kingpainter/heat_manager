@@ -275,10 +275,21 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_update_listeners()
 
     def get_climate_entity(self, room_name: str) -> str | None:
-        for room in self.rooms:
-            if room.get("room_name") == room_name:
-                return room.get(CONF_CLIMATE_ENTITY)
-        return None
+        """Return the room's primary TRV climate entity.
+
+        Resolves via get_all_room_trvs() (CONF_TRVS, migrated on the fly),
+        not the room's flat CONF_CLIMATE_ENTITY field directly — that flat
+        field is only ever mirrored from trvs[0] in memory by
+        migrate_room_to_trvs(); config_flow's per-TRV edit UI writes
+        CONF_TRVS only; nothing re-persists the flat mirror to storage
+        afterward. Reading the flat field directly here returned None for
+        any room saved through that UI even once. See B18 Fase 3 / #room-
+        detail-battery for the bug this fixed (Sætpunkt/Trv temp/valve %
+        silently blank in the panel, window-open heat reduction silently
+        skipped in window_engine.py).
+        """
+        trvs = self.get_all_room_trvs(room_name)
+        return trvs[0].get(CONF_CLIMATE_ENTITY) if trvs else None
 
     # ── Multi-TRV helpers (B18 Fase 2 — TRV grouping) ───────────────────────
     #
@@ -294,13 +305,17 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # single-TRV rooms, without needing async_migrate_entry() to have run
     # first.
     #
-    # get_climate_entity()/get_homekit_climate_entity()/get_write_entity()/
-    # needs_cloud_delay() above are UNCHANGED — they still resolve only the
-    # room's primary (first) TRV, via the flat mirror. They remain correct
-    # for every read-only use (sensors, the panel/card, other engines not
-    # yet converted) that only needs "the" room entity. Only the *command*
-    # call sites — the ones that actually write a climate service call —
-    # loop the multi-TRV helpers below instead.
+    # get_climate_entity()/get_homekit_climate_entity() above resolve the
+    # room's primary (first) TRV via get_all_room_trvs() (CONF_TRVS),
+    # not the room's flat mirror fields — those are only synthesized in
+    # memory by migrate_room_to_trvs() and are never re-persisted to the
+    # config entry after an edit through the per-TRV UI, which writes
+    # CONF_TRVS only. get_write_entity()/needs_cloud_delay() call those two
+    # helpers, so they're covered too. This is correct for every read-only
+    # use (sensors, the panel/card, other engines not yet converted) that
+    # only needs "the" room entity. Only the *command* call sites — the
+    # ones that actually write a climate service call — loop the multi-TRV
+    # helpers below instead.
 
     def get_all_room_trvs(self, room_name: str) -> list[dict[str, Any]]:
         """Return every physical TRV *configured* for a room, structurally —
@@ -417,11 +432,16 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self.pid_controllers.get(room_name)
 
     def get_homekit_climate_entity(self, room_name: str) -> str | None:
-        for room in self.rooms:
-            if room.get("room_name") == room_name:
-                val = room.get(CONF_HOMEKIT_CLIMATE_ENTITY)
-                return val if val else None
-        return None
+        """Return the room's primary TRV HomeKit climate entity, if set.
+
+        See get_climate_entity() — same fix, same reason: resolves via the
+        primary TRV's CONF_TRVS entry rather than the stale flat mirror.
+        """
+        trvs = self.get_all_room_trvs(room_name)
+        if not trvs:
+            return None
+        val = trvs[0].get(CONF_HOMEKIT_CLIMATE_ENTITY)
+        return val if val else None
 
     def get_write_entity(self, room_name: str) -> str | None:
         """H-4: Return the preferred write entity for a room.

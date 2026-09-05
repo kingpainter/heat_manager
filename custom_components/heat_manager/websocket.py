@@ -42,6 +42,7 @@ from .const import (
     CONF_NOTIFY_SERVICE,
     CONF_PERSON_ENTITY,
     CONF_PERSON_TRACKING,
+    CONF_PI_DEMAND_ENTITY,
     CONF_SCHEDULE_ENTITY,
     CONF_SYNC_MODE,
     CONF_TRV_TYPE,
@@ -285,7 +286,16 @@ async def ws_get_state(
     rooms = []
     for room in coordinator.rooms:
         name = room.get("room_name", "")
-        climate_id = room.get("climate_entity", "")
+        # B18/room-detail fix: resolve via the primary TRV (CONF_TRVS),
+        # not the room's flat climate_entity/trv_type/pi_demand_entity
+        # fields — those are only ever mirrored from trvs[0] in memory by
+        # migrate_room_to_trvs() and are never re-persisted to the config
+        # entry once a room has been saved through the per-TRV edit UI,
+        # which writes CONF_TRVS only. Reading the flat fields directly
+        # left climate_id empty for any such room, which cascaded into
+        # missing setpoint/TRV-temp/valve % in the panel.
+        primary_trv = next(iter(coordinator.get_all_room_trvs(name)), {})
+        climate_id = primary_trv.get(CONF_CLIMATE_ENTITY, "")
         sensors = room.get(CONF_WINDOW_SENSORS, [])
         room_state = coordinator.get_room_state(name)
 
@@ -306,9 +316,7 @@ async def ws_get_state(
                         )
 
         # B1: Zigbee pi_demand_entity overrides Netatmo valve when present
-        from .const import CONF_PI_DEMAND_ENTITY
-
-        pi_entity = room.get(CONF_PI_DEMAND_ENTITY) or None
+        pi_entity = primary_trv.get(CONF_PI_DEMAND_ENTITY) or None
         if pi_entity:
             pi_state = hass.states.get(pi_entity)
             if pi_state and pi_state.state not in ("unknown", "unavailable"):
@@ -363,7 +371,9 @@ async def ws_get_state(
             {
                 "name": name,
                 "climate_entity": climate_id,
-                "trv_type": room.get("trv_type", "netatmo"),  # B15: for UI badge
+                "trv_type": primary_trv.get(
+                    CONF_TRV_TYPE, "netatmo"
+                ),  # B15: for UI badge
                 "state": room_state.value,
                 "current_temp": current_temp,
                 "heating_power": heating_power,
