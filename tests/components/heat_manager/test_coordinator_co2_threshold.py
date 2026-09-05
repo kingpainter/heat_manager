@@ -7,15 +7,16 @@ Covers:
 - Returns default for unknown room name
 - WasteCalculator and WindowEngine use per-room threshold via coordinator helper
 """
+
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock
+
 import pytest
 
 from custom_components.heat_manager.const import (
     CONF_CO2_THRESHOLD,
     DEFAULT_CO2_VENTILATION_THRESHOLD,
-    RoomState,
 )
 
 
@@ -24,13 +25,15 @@ def _make_coordinator(rooms: list[dict]) -> MagicMock:
     coord = MagicMock()
     coord.rooms = rooms
     from custom_components.heat_manager.coordinator import HeatManagerCoordinator
-    coord.get_room_co2_threshold = HeatManagerCoordinator.get_room_co2_threshold.__get__(
-        coord, type(coord)
+
+    coord.get_room_co2_threshold = (
+        HeatManagerCoordinator.get_room_co2_threshold.__get__(coord, type(coord))
     )
     return coord
 
 
 # ── get_room_co2_threshold ────────────────────────────────────────────────────
+
 
 def test_returns_default_when_no_override():
     """Room with no co2_threshold → global default returned."""
@@ -40,51 +43,70 @@ def test_returns_default_when_no_override():
 
 def test_returns_per_room_override():
     """Room with co2_threshold = 1200 → 1200 returned."""
-    coord = _make_coordinator([{
-        "room_name": "Soveværelse",
-        "climate_entity": "climate.sove",
-        CONF_CO2_THRESHOLD: 1200,
-    }])
+    coord = _make_coordinator(
+        [
+            {
+                "room_name": "Soveværelse",
+                "climate_entity": "climate.sove",
+                CONF_CO2_THRESHOLD: 1200,
+            }
+        ]
+    )
     assert coord.get_room_co2_threshold("Soveværelse") == 1200
 
 
 def test_invalid_override_falls_back_to_default():
     """Non-numeric co2_threshold → ignored, default returned."""
-    coord = _make_coordinator([{
-        "room_name": "Kontor",
-        "climate_entity": "climate.kontor",
-        CONF_CO2_THRESHOLD: "not_a_number",
-    }])
+    coord = _make_coordinator(
+        [
+            {
+                "room_name": "Kontor",
+                "climate_entity": "climate.kontor",
+                CONF_CO2_THRESHOLD: "not_a_number",
+            }
+        ]
+    )
     assert coord.get_room_co2_threshold("Kontor") == DEFAULT_CO2_VENTILATION_THRESHOLD
 
 
 def test_unknown_room_returns_default():
     """Room not in list → default returned without raising."""
     coord = _make_coordinator([{"room_name": "Stue", "climate_entity": "climate.stue"}])
-    assert coord.get_room_co2_threshold("UnknownRoom") == DEFAULT_CO2_VENTILATION_THRESHOLD
+    assert (
+        coord.get_room_co2_threshold("UnknownRoom") == DEFAULT_CO2_VENTILATION_THRESHOLD
+    )
 
 
 def test_zero_threshold_accepted():
     """co2_threshold = 0 is a valid (if extreme) override."""
-    coord = _make_coordinator([{
-        "room_name": "Lager",
-        "climate_entity": "climate.lager",
-        CONF_CO2_THRESHOLD: 0,
-    }])
+    coord = _make_coordinator(
+        [
+            {
+                "room_name": "Lager",
+                "climate_entity": "climate.lager",
+                CONF_CO2_THRESHOLD: 0,
+            }
+        ]
+    )
     assert coord.get_room_co2_threshold("Lager") == 0
 
 
 def test_float_threshold_converted_to_int():
     """co2_threshold = 1100.5 → returned as int 1100."""
-    coord = _make_coordinator([{
-        "room_name": "Bad",
-        "climate_entity": "climate.bad",
-        CONF_CO2_THRESHOLD: 1100.5,
-    }])
+    coord = _make_coordinator(
+        [
+            {
+                "room_name": "Bad",
+                "climate_entity": "climate.bad",
+                CONF_CO2_THRESHOLD: 1100.5,
+            }
+        ]
+    )
     assert coord.get_room_co2_threshold("Bad") == 1100
 
 
 # ── WasteCalculator uses per-room threshold ───────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_waste_calculator_uses_per_room_threshold():
@@ -92,13 +114,15 @@ async def test_waste_calculator_uses_per_room_threshold():
     from custom_components.heat_manager.engine.waste_calculator import WasteCalculator
 
     coord = MagicMock()
-    coord.rooms = [{
-        "room_name": "Stue",
-        "climate_entity": "climate.stue",
-        CONF_CO2_THRESHOLD: 1500,  # high threshold — CO₂ at 1000 should NOT reduce waste
-    }]
+    coord.rooms = [
+        {
+            "room_name": "Stue",
+            "climate_entity": "climate.stue",
+            CONF_CO2_THRESHOLD: 1500,  # high threshold — CO₂ at 1000 should NOT reduce waste
+        }
+    ]
     coord.get_room_co2_threshold = MagicMock(return_value=1500)
-    coord.get_room_co2 = MagicMock(return_value=1000.0)   # below 1500
+    coord.get_room_co2 = MagicMock(return_value=1000.0)  # below 1500
     coord.is_raining = MagicMock(return_value=False)
 
     engine = WasteCalculator(coord)
@@ -115,9 +139,11 @@ async def test_waste_calculator_reduces_waste_above_per_room_threshold():
     from custom_components.heat_manager.engine.waste_calculator import WasteCalculator
 
     coord = MagicMock()
-    coord.rooms = [{"room_name": "Stue", "climate_entity": "climate.stue", CONF_CO2_THRESHOLD: 800}]
+    coord.rooms = [
+        {"room_name": "Stue", "climate_entity": "climate.stue", CONF_CO2_THRESHOLD: 800}
+    ]
     coord.get_room_co2_threshold = MagicMock(return_value=800)
-    coord.get_room_co2 = MagicMock(return_value=1000.0)   # above 800
+    coord.get_room_co2 = MagicMock(return_value=1000.0)  # above 800
     coord.is_raining = MagicMock(return_value=False)
 
     engine = WasteCalculator(coord)
@@ -127,6 +153,7 @@ async def test_waste_calculator_reduces_waste_above_per_room_threshold():
 
 
 # ── WindowEngine uses per-room threshold ─────────────────────────────────────
+
 
 def test_window_engine_co2_label_uses_per_room_threshold():
     """_co2_context_label() with room_name must call get_room_co2_threshold()."""

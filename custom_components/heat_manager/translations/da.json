@@ -54,6 +54,7 @@
           "co2_sensor": "CO₂-sensor (valgfrit)",
           "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
           "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
+          "battery_sensor": "Batterisensor (valgfrit)",
           "comfort_temp": "Komfort-temperatur (Zigbee/lokale TRV'er)",
           "schedule_entity": "Skema-/kalenderentitet (valgfrit)"
         },
@@ -62,6 +63,7 @@
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO₂ er høj, registreres et åbent vindue som ventilation frem for varmespild.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som bevidst ventilation. Standard er 900 ppm. Hæv for soveværelser eller sænk for sjældent benyttede rum.",
           "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering. Anbefales til Zigbee TRV'er, hvis indbyggede sensor sidder på radiatorlegemet (typisk 1–3°C for høj).",
+          "battery_sensor": "TRV-batteriniveau (sensor.* der rapporterer %). Anbefales til Zigbee-TRV'er, hvor batteriet normalt er sin egen entity frem for en attribut på climate-entiteten. Lad stå tomt for at falde tilbage på climate-entitetens egen battery_level-attribut, hvis den har en.",
           "schedule_entity": "En schedule.*-hjælper eller calendar.*-entitet. Mens en tidsblok eller begivenhed er aktiv, overstyrer dens temperatur rummets normale mål."
         }
       },
@@ -211,6 +213,7 @@
           "co2_sensor": "CO₂-sensor (valgfrit)",
           "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
           "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
+          "battery_sensor": "Batterisensor (valgfrit)",
           "comfort_temp": "Komfort-temperatur (Zigbee/lokale TRV'er)",
           "schedule_entity": "Skema-/kalenderentitet (valgfrit)"
         },
@@ -219,6 +222,7 @@
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som ventilation. Standard 900 ppm.",
           "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering.",
+          "battery_sensor": "TRV-batteriniveau (sensor.* der rapporterer %). Anbefales til Zigbee-TRV'er, hvor batteriet normalt er sin egen entity frem for en attribut på climate-entiteten. Lad stå tomt for at falde tilbage på climate-entitetens egen battery_level-attribut, hvis den har en.",
           "schedule_entity": "En schedule.*-hjælper eller calendar.*-entitet. Mens en tidsblok eller begivenhed er aktiv, overstyrer dens temperatur rummets normale mål."
         }
       },
@@ -233,6 +237,7 @@
           "co2_sensor": "CO₂-sensor (valgfrit)",
           "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
           "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
+          "battery_sensor": "Batterisensor (valgfrit)",
           "comfort_temp": "Komfort-temperatur (Zigbee/lokale TRV'er)",
           "schedule_entity": "Skema-/kalenderentitet (valgfrit)"
         },
@@ -241,6 +246,7 @@
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som ventilation. Standard 900 ppm.",
           "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering.",
+          "battery_sensor": "TRV-batteriniveau (sensor.* der rapporterer %). Anbefales til Zigbee-TRV'er, hvor batteriet normalt er sin egen entity frem for en attribut på climate-entiteten. Lad stå tomt for at falde tilbage på climate-entitetens egen battery_level-attribut, hvis den har en.",
           "schedule_entity": "En schedule.*-hjælper eller calendar.*-entitet. Mens en tidsblok eller begivenhed er aktiv, overstyrer dens temperatur rummets normale mål."
         }
       },

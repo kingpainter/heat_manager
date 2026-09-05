@@ -123,6 +123,7 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
                 _LOGGER.info(
                     "Override ON: %s → heating (%s)", self._room_name, trv_type
                 )
+            # broad-except-rationale: one entity failing must not abort the others in this loop
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning(
                     "Override turn_on failed for %s: %s", self._room_name, err

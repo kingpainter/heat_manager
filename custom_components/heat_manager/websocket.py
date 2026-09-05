@@ -31,11 +31,14 @@ from .const import (
     CONF_AUTO_OFF_TEMP_THRESHOLD,
     CONF_AWAY_TEMP_COLD,
     CONF_AWAY_TEMP_MILD,
+    CONF_BATTERY_SENSOR,
     CONF_CALIBRATION_ENTITY,
     CONF_CLIMATE_ENTITY,
+    CONF_CO2_SENSOR,
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
     CONF_HOUSE_VOICE_ENABLED,
+    CONF_HUMIDITY_SENSOR,
     CONF_NOTIFY_SERVICE,
     CONF_PERSON_ENTITY,
     CONF_PERSON_TRACKING,
@@ -225,6 +228,7 @@ async def ws_set_room_temp(
                 dur_label,
                 write_entity,
             )
+    # broad-except-rationale: must not crash the WS connection; error goes back to frontend
     except Exception as err:  # noqa: BLE001
         _LOGGER.error("set_room_temp failed for '%s': %s", room_name, err)
         connection.send_error(msg["id"], "service_error", str(err))
@@ -320,6 +324,41 @@ async def ws_get_state(
             for sid in sensors
         )
 
+        # Room detail cards: TRV battery (%), humidity (%) and CO2 (ppm) —
+        # only surfaced when the room has the relevant sensor configured, so
+        # the frontend can omit fields that don't apply to a given room.
+        battery_level: float | None = None
+        battery_entity = room.get(CONF_BATTERY_SENSOR) or None
+        if battery_entity:
+            bs = hass.states.get(battery_entity)
+            if bs and bs.state not in ("unknown", "unavailable"):
+                with contextlib.suppress(TypeError, ValueError):
+                    battery_level = float(bs.state)
+        elif climate_id:
+            # Fallback: some Netatmo setups expose battery as an attribute
+            # on the climate entity itself rather than a separate sensor.
+            cs = hass.states.get(climate_id)
+            raw_batt = cs.attributes.get("battery_level") if cs else None
+            if raw_batt is not None:
+                with contextlib.suppress(TypeError, ValueError):
+                    battery_level = float(raw_batt)
+
+        humidity: float | None = None
+        humidity_entity = room.get(CONF_HUMIDITY_SENSOR) or None
+        if humidity_entity:
+            hs = hass.states.get(humidity_entity)
+            if hs and hs.state not in ("unknown", "unavailable"):
+                with contextlib.suppress(TypeError, ValueError):
+                    humidity = float(hs.state)
+
+        co2: float | None = None
+        co2_entity = room.get(CONF_CO2_SENSOR) or None
+        if co2_entity:
+            c2s = hass.states.get(co2_entity)
+            if c2s and c2s.state not in ("unknown", "unavailable"):
+                with contextlib.suppress(TypeError, ValueError):
+                    co2 = float(c2s.state)
+
         rooms.append(
             {
                 "name": name,
@@ -331,6 +370,9 @@ async def ws_get_state(
                 "valve_position": valve_position,  # B1
                 "boost_active": boost_active,  # B2
                 "windows_open": windows_open,
+                "battery_level": battery_level,  # % — Rum-detaljer/oversigt
+                "humidity": humidity,  # % — only set when humidity_sensor is configured
+                "co2": co2,  # ppm — only set when co2_sensor is configured
                 "why": _why_label(room_state),
                 # v0.9.0: self-reporting diagnostics — why this room's
                 # heating commands are currently held back, if at all.

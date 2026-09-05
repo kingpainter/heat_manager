@@ -30,6 +30,7 @@ from .const import (
     CONF_AWAY_TEMP_COLD,
     CONF_AWAY_TEMP_MILD,
     CONF_AWAY_TEMP_OVERRIDE,
+    CONF_BATTERY_SENSOR,
     CONF_CALIBRATION_ENTITY,
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
@@ -533,6 +534,9 @@ def _room_schema(defaults: dict = {}) -> vol.Schema:
             vol.Optional(
                 CONF_ROOM_TEMP_SENSOR, default=defaults.get(CONF_ROOM_TEMP_SENSOR, "")
             ): selector.selector({"text": {}}),  # sensor.* — room temperature in °C
+            vol.Optional(
+                CONF_BATTERY_SENSOR, default=defaults.get(CONF_BATTERY_SENSOR, "")
+            ): selector.selector({"text": {}}),  # sensor.* — TRV battery level in %
             vol.Optional(
                 CONF_HUMIDITY_SENSOR, default=defaults.get(CONF_HUMIDITY_SENSOR, "")
             ): selector.selector({"text": {}}),  # sensor.* — relative humidity in %

@@ -1,17 +1,19 @@
 """Tests for SeasonEngine — B4/B9 update: uses EffectiveSeason, not SeasonMode."""
+
 from __future__ import annotations
 
 from datetime import date as date_type
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
-from custom_components.heat_manager.engine.season_engine import SeasonEngine
 from custom_components.heat_manager.const import (
-    SeasonMode,
-    EffectiveSeason,
     CONF_INDOOR_WAKE_SENSOR,
     CONF_INDOOR_WAKE_THRESHOLD,
+    EffectiveSeason,
+    SeasonMode,
 )
+from custom_components.heat_manager.engine.season_engine import SeasonEngine
 
 
 def _make_coordinator(
@@ -23,7 +25,9 @@ def _make_coordinator(
     coord = MagicMock()
     coord.season_mode = season_mode
     coord.outdoor_temperature = outdoor_temp
-    coord.effective_season = EffectiveSeason.ACTIVE  # B4: now EffectiveSeason, not SeasonMode
+    coord.effective_season = (
+        EffectiveSeason.ACTIVE
+    )  # B4: now EffectiveSeason, not SeasonMode
     coord.config = {
         "auto_off_temp_threshold": auto_off_threshold,
         "auto_off_temp_days": auto_off_days,
@@ -65,10 +69,14 @@ async def test_no_op_when_manual_summer():
 @pytest.mark.asyncio
 async def test_stays_winter_when_below_threshold():
     """Cold outdoor temp in spring — should remain ACTIVE (was WINTER)."""
-    coord = _make_coordinator(outdoor_temp=10.0, auto_off_threshold=18.0, auto_off_days=3)
+    coord = _make_coordinator(
+        outdoor_temp=10.0, auto_off_threshold=18.0, auto_off_days=3
+    )
     engine = SeasonEngine(coord)
     with patch(PATCH_PATH) as mock_now:
-        mock_now.return_value.date.return_value = date_type(2026, 4, 1)  # April = Spring
+        mock_now.return_value.date.return_value = date_type(
+            2026, 4, 1
+        )  # April = Spring
         await engine.async_tick()
     assert coord.effective_season == EffectiveSeason.ACTIVE
     assert engine.days_above_threshold == 0
@@ -77,7 +85,9 @@ async def test_stays_winter_when_below_threshold():
 @pytest.mark.asyncio
 async def test_increments_days_above_threshold():
     """Warm outdoor temp in spring — days_above counter increments once per day."""
-    coord = _make_coordinator(outdoor_temp=20.0, auto_off_threshold=18.0, auto_off_days=3)
+    coord = _make_coordinator(
+        outdoor_temp=20.0, auto_off_threshold=18.0, auto_off_days=3
+    )
     engine = SeasonEngine(coord)
     dates = [date_type(2026, 4, d) for d in range(1, 4)]
     for d in dates:
@@ -90,7 +100,9 @@ async def test_increments_days_above_threshold():
 @pytest.mark.asyncio
 async def test_switches_to_dormant_after_n_days():
     """After N consecutive warm days in spring, effective_season becomes DORMANT."""
-    coord = _make_coordinator(outdoor_temp=22.0, auto_off_threshold=18.0, auto_off_days=3)
+    coord = _make_coordinator(
+        outdoor_temp=22.0, auto_off_threshold=18.0, auto_off_days=3
+    )
     engine = SeasonEngine(coord)
     for i in range(3):
         with patch(PATCH_PATH) as mock_now:
@@ -102,7 +114,9 @@ async def test_switches_to_dormant_after_n_days():
 @pytest.mark.asyncio
 async def test_counter_resets_on_cold_day():
     """One cold day after warm days should reset the counter to 0."""
-    coord = _make_coordinator(outdoor_temp=22.0, auto_off_threshold=18.0, auto_off_days=5)
+    coord = _make_coordinator(
+        outdoor_temp=22.0, auto_off_threshold=18.0, auto_off_days=5
+    )
     engine = SeasonEngine(coord)
     # 2 warm days in spring
     for i in range(2):
@@ -131,7 +145,9 @@ async def test_no_op_without_outdoor_temperature():
 @pytest.mark.asyncio
 async def test_same_day_tick_does_not_double_count():
     """Multiple ticks on the same calendar day must not increment counter twice."""
-    coord = _make_coordinator(outdoor_temp=22.0, auto_off_threshold=18.0, auto_off_days=5)
+    coord = _make_coordinator(
+        outdoor_temp=22.0, auto_off_threshold=18.0, auto_off_days=5
+    )
     engine = SeasonEngine(coord)
     for _ in range(5):
         with patch(PATCH_PATH) as mock_now:
@@ -143,7 +159,9 @@ async def test_same_day_tick_does_not_double_count():
 @pytest.mark.asyncio
 async def test_waking_phase_when_indoor_warm():
     """B9: WAKING phase activates when indoor sensor exceeds wake threshold."""
-    coord = _make_coordinator(outdoor_temp=10.0, auto_off_threshold=18.0, auto_off_days=5)
+    coord = _make_coordinator(
+        outdoor_temp=10.0, auto_off_threshold=18.0, auto_off_days=5
+    )
     coord.config = {
         "auto_off_temp_threshold": 18.0,
         "auto_off_temp_days": 5,
@@ -163,7 +181,9 @@ async def test_waking_phase_when_indoor_warm():
 @pytest.mark.asyncio
 async def test_active_phase_when_indoor_cold():
     """B9: ACTIVE phase when indoor sensor is below wake threshold."""
-    coord = _make_coordinator(outdoor_temp=10.0, auto_off_threshold=18.0, auto_off_days=5)
+    coord = _make_coordinator(
+        outdoor_temp=10.0, auto_off_threshold=18.0, auto_off_days=5
+    )
     coord.config = {
         "auto_off_temp_threshold": 18.0,
         "auto_off_temp_days": 5,
@@ -183,7 +203,9 @@ async def test_active_phase_when_indoor_cold():
 @pytest.mark.asyncio
 async def test_waking_falls_back_to_active_without_sensor():
     """B9: Without indoor_wake_sensor configured, engine always returns ACTIVE."""
-    coord = _make_coordinator(outdoor_temp=10.0, auto_off_threshold=18.0, auto_off_days=5)
+    coord = _make_coordinator(
+        outdoor_temp=10.0, auto_off_threshold=18.0, auto_off_days=5
+    )
     # No CONF_INDOOR_WAKE_SENSOR in config
     coord.hass.states.get.return_value = None
     engine = SeasonEngine(coord)
@@ -196,7 +218,9 @@ async def test_waking_falls_back_to_active_without_sensor():
 @pytest.mark.asyncio
 async def test_dormant_not_overridden_by_waking_check():
     """B9: DORMANT (summer) is never downgraded to WAKING regardless of indoor temp."""
-    coord = _make_coordinator(outdoor_temp=10.0, auto_off_threshold=18.0, auto_off_days=3)
+    coord = _make_coordinator(
+        outdoor_temp=10.0, auto_off_threshold=18.0, auto_off_days=3
+    )
     coord.config = {
         "auto_off_temp_threshold": 18.0,
         "auto_off_temp_days": 3,

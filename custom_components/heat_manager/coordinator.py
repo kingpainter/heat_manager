@@ -748,6 +748,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         blocking=True,
                     )
                     room_ok = True
+                # broad-except-rationale: one entity failing must not abort the others in this loop
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning(
                         "Boost failed for '%s' (%s): %s", room_name, write_entity, err
@@ -791,6 +792,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for room_name in boosted_rooms:
             try:
                 await self.presence_engine.force_room_on(room_name)
+            # broad-except-rationale: one entity failing must not abort the others in this loop
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning(
                     "Boost-stop restore failed for '%s': %s", room_name, err
@@ -1035,56 +1037,67 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             await self.season_engine.async_tick()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("season_engine tick failed: %s", err)
 
         try:
             await self.controller.async_tick()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("controller tick failed: %s", err)
 
         try:
             await self.presence_engine.async_tick()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("presence_engine tick failed: %s", err)
 
         try:
             await self.window_engine.async_tick()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("window_engine tick failed: %s", err)
 
         try:
             await self.waste_calculator.async_tick()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("waste_calculator tick failed: %s", err)
 
         try:
             await self.preheat_engine.async_tick()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("preheat_engine tick failed: %s", err)
 
         try:
             await self.valve_protection.async_tick()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("valve_protection tick failed: %s", err)
 
         try:
             await self.calibration_engine.async_tick()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("calibration_engine tick failed: %s", err)
 
         try:
             await self.schedule_engine.async_tick()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("schedule_engine tick failed: %s", err)
 
         try:
             await self._async_pid_tick()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("pid_tick failed: %s", err)
 
         try:
             await self._async_check_boost_expiry()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("boost expiry check failed: %s", err)
 
@@ -1343,6 +1356,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         trv_setpoint,
                         demand_pct,
                     )
+                # broad-except-rationale: one entity failing must not abort the others in this loop
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning(
                         "PID setpoint failed for '%s' via %s: %s",
@@ -1378,6 +1392,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 blocking=False,
             )
             _LOGGER.debug("House Voice: triggered event '%s'", event_id)
+        # broad-except-rationale: House Voice is opt-in; must fail silently, not crash the coordinator
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("House Voice: failed to trigger '%s': %s", event_id, err)
 
@@ -1398,6 +1413,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "wasted": round(self.energy_wasted_today, 3),
                 }
             self._persist_energy_snapshot()
+        # broad-except-rationale: best-effort; must not block the engine shutdowns that follow
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Energy persist on shutdown failed: %s", err)
         await self.presence_engine.async_shutdown()

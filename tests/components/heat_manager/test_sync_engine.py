@@ -2,6 +2,7 @@
 
 All tests run completely offline — HA core is mocked with MagicMock/AsyncMock.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -53,7 +54,9 @@ def _make_coordinator(rooms=None, controller_state=ControllerState.ON) -> MagicM
     return coord
 
 
-def _room(name="living_room", climate="climate.living_room", sync_mode=SYNC_MODE_MIRROR) -> dict:
+def _room(
+    name="living_room", climate="climate.living_room", sync_mode=SYNC_MODE_MIRROR
+) -> dict:
     return {"room_name": name, "climate_entity": climate, "sync_mode": sync_mode}
 
 
@@ -67,6 +70,7 @@ def _event(entity_id: str, temperature, state: str = "heat") -> MagicMock:
 
 
 # ── entity map / registration ───────────────────────────────────────────────
+
 
 def test_disabled_room_not_in_entity_map():
     coord = _make_coordinator(rooms=[_room(sync_mode=SYNC_MODE_DISABLED)])
@@ -100,6 +104,7 @@ def test_entities_present_registers_listener():
 
 # ── _handle_entity_change guards ────────────────────────────────────────────
 
+
 def test_unmapped_entity_is_ignored():
     coord = _make_coordinator(rooms=[_room()])
     engine = SyncEngine(coord)
@@ -117,7 +122,9 @@ def test_unavailable_state_is_ignored():
     with patch(
         "custom_components.heat_manager.engine.sync_engine.async_call_later"
     ) as mock_later:
-        engine._handle_entity_change(_event("climate.living_room", 25.0, state="unavailable"))
+        engine._handle_entity_change(
+            _event("climate.living_room", 25.0, state="unavailable")
+        )
         mock_later.assert_not_called()
 
 
@@ -217,6 +224,7 @@ def test_resolved_mismatch_cancels_pending():
 
 # ── _async_act: mirror mode ─────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_async_act_mirror_switches_to_override():
     coord = _make_coordinator(rooms=[_room(sync_mode=SYNC_MODE_MIRROR)])
@@ -234,6 +242,7 @@ async def test_async_act_mirror_switches_to_override():
 
 
 # ── _async_act: lock mode ───────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_async_act_lock_reverts_setpoint():
@@ -324,6 +333,7 @@ async def test_async_act_stale_write_entity_takes_no_action():
 
 # ── shutdown ─────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_shutdown_unsubscribes_and_cancels_pending():
     coord = _make_coordinator(rooms=[_room()])
@@ -342,6 +352,7 @@ async def test_shutdown_unsubscribes_and_cancels_pending():
 
 
 # ── B18: multi-TRV grouping — sync_mode is a per-TRV field ───────────────────
+
 
 def _multi_trv_room(name="living_room", trvs=None):
     return {"room_name": name, "trvs": trvs or []}
@@ -364,9 +375,7 @@ def test_multi_trv_room_maps_each_trv_independently():
 
     assert "climate.living_room" in engine._entity_to_room
     assert "climate.living_room_trv2" not in engine._entity_to_room
-    assert (
-        engine._entity_to_trv["climate.living_room"]["sync_mode"] == SYNC_MODE_MIRROR
-    )
+    assert engine._entity_to_trv["climate.living_room"]["sync_mode"] == SYNC_MODE_MIRROR
 
 
 @pytest.mark.asyncio

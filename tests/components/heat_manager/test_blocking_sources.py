@@ -5,6 +5,7 @@ Covers:
   presence, and the "nothing blocking" empty-list case.
 - global_blocking_sources(): union across rooms, sorted, de-duplicated.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -21,18 +22,21 @@ def _make_coordinator(
     coord = MagicMock()
     coord.controller_state = controller_state
     states = room_states or {}
-    coord.get_room_state = MagicMock(side_effect=lambda name: states.get(name, RoomState.NORMAL))
-    coord.rooms = [{"room_name": name} for name in (room_names or [])]
-    coord.get_room_blocking_sources = HeatManagerCoordinator.get_room_blocking_sources.__get__(
-        coord, type(coord)
+    coord.get_room_state = MagicMock(
+        side_effect=lambda name: states.get(name, RoomState.NORMAL)
     )
-    coord.global_blocking_sources = HeatManagerCoordinator.global_blocking_sources.__get__(
-        coord, type(coord)
+    coord.rooms = [{"room_name": name} for name in (room_names or [])]
+    coord.get_room_blocking_sources = (
+        HeatManagerCoordinator.get_room_blocking_sources.__get__(coord, type(coord))
+    )
+    coord.global_blocking_sources = (
+        HeatManagerCoordinator.global_blocking_sources.__get__(coord, type(coord))
     )
     return coord
 
 
 # ── get_room_blocking_sources ───────────────────────────────────────────────
+
 
 def test_nothing_blocking_returns_empty_list():
     coord = _make_coordinator()
@@ -64,7 +68,10 @@ def test_controller_off_and_window_both_reported():
         controller_state=ControllerState.OFF,
         room_states={"living_room": RoomState.WINDOW_OPEN},
     )
-    assert coord.get_room_blocking_sources("living_room") == ["controller_off", "window"]
+    assert coord.get_room_blocking_sources("living_room") == [
+        "controller_off",
+        "window",
+    ]
 
 
 def test_override_and_preheat_report_nothing_extra():
@@ -77,6 +84,7 @@ def test_override_and_preheat_report_nothing_extra():
 
 
 # ── global_blocking_sources ─────────────────────────────────────────────────
+
 
 def test_global_empty_when_no_rooms_blocked():
     coord = _make_coordinator(room_names=["living_room", "kitchen"])
@@ -94,7 +102,10 @@ def test_global_unions_across_rooms():
 def test_global_dedupes_same_source_across_rooms():
     coord = _make_coordinator(
         room_names=["living_room", "kitchen"],
-        room_states={"living_room": RoomState.WINDOW_OPEN, "kitchen": RoomState.WINDOW_OPEN},
+        room_states={
+            "living_room": RoomState.WINDOW_OPEN,
+            "kitchen": RoomState.WINDOW_OPEN,
+        },
     )
     assert coord.global_blocking_sources() == ["window"]
 

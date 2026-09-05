@@ -1,11 +1,13 @@
 """Tests for WasteCalculator — Phase 3."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
+
 import pytest
 
-from custom_components.heat_manager.engine.waste_calculator import WasteCalculator
 from custom_components.heat_manager.const import RoomState
+from custom_components.heat_manager.engine.waste_calculator import WasteCalculator
 
 
 def _make_coordinator(rooms=None, outdoor_temp=5.0) -> MagicMock:
@@ -16,6 +18,7 @@ def _make_coordinator(rooms=None, outdoor_temp=5.0) -> MagicMock:
 
     def get_room_state(name):
         return coord.room_states.get(name, RoomState.NORMAL)
+
     coord.get_room_state.side_effect = get_room_state
 
     coord.is_raining = MagicMock(return_value=False)
@@ -37,12 +40,17 @@ def _climate_state(setpoint: float, current: float) -> MagicMock:
 @pytest.mark.asyncio
 async def test_zero_waste_when_no_windows_open():
     """No rooms in WINDOW_OPEN state → wasted stays 0."""
-    coord = _make_coordinator(rooms=[{"room_name": "Kitchen", "climate_entity": "climate.kitchen"}])
+    coord = _make_coordinator(
+        rooms=[{"room_name": "Kitchen", "climate_entity": "climate.kitchen"}]
+    )
     coord.room_states["Kitchen"] = RoomState.NORMAL
     engine = WasteCalculator(coord)
 
-    with patch("custom_components.heat_manager.engine.waste_calculator.ha_now") as mock_now:
+    with patch(
+        "custom_components.heat_manager.engine.waste_calculator.ha_now"
+    ) as mock_now:
         from datetime import date
+
         mock_now.return_value = MagicMock(date=lambda: date(2026, 3, 1), hour=12)
         await engine.async_tick()
 
@@ -52,14 +60,19 @@ async def test_zero_waste_when_no_windows_open():
 @pytest.mark.asyncio
 async def test_waste_accumulates_when_window_open():
     """Window open with positive Δtemp → waste increases each tick."""
-    coord = _make_coordinator(rooms=[{"room_name": "Kitchen", "climate_entity": "climate.kitchen"}])
+    coord = _make_coordinator(
+        rooms=[{"room_name": "Kitchen", "climate_entity": "climate.kitchen"}]
+    )
     coord.room_states["Kitchen"] = RoomState.WINDOW_OPEN
     coord.hass.states.get.return_value = _climate_state(setpoint=21.0, current=15.0)
 
     engine = WasteCalculator(coord)
 
-    with patch("custom_components.heat_manager.engine.waste_calculator.ha_now") as mock_now:
+    with patch(
+        "custom_components.heat_manager.engine.waste_calculator.ha_now"
+    ) as mock_now:
         from datetime import date
+
         mock_now.return_value = MagicMock(date=lambda: date(2026, 3, 1), hour=14)
         await engine.async_tick()
         await engine.async_tick()
@@ -72,13 +85,18 @@ async def test_waste_accumulates_when_window_open():
 @pytest.mark.asyncio
 async def test_no_waste_when_current_above_setpoint():
     """current_temp > setpoint → Δtemp is 0 → no waste."""
-    coord = _make_coordinator(rooms=[{"room_name": "Living", "climate_entity": "climate.living"}])
+    coord = _make_coordinator(
+        rooms=[{"room_name": "Living", "climate_entity": "climate.living"}]
+    )
     coord.room_states["Living"] = RoomState.WINDOW_OPEN
     coord.hass.states.get.return_value = _climate_state(setpoint=18.0, current=22.0)
 
     engine = WasteCalculator(coord)
-    with patch("custom_components.heat_manager.engine.waste_calculator.ha_now") as mock_now:
+    with patch(
+        "custom_components.heat_manager.engine.waste_calculator.ha_now"
+    ) as mock_now:
         from datetime import date
+
         mock_now.return_value = MagicMock(date=lambda: date(2026, 3, 1), hour=10)
         await engine.async_tick()
 
@@ -88,13 +106,21 @@ async def test_no_waste_when_current_above_setpoint():
 @pytest.mark.asyncio
 async def test_savings_accumulate_in_away_during_day():
     """Away rooms during daytime (6–23) should accumulate energy savings."""
-    coord = _make_coordinator(rooms=[{"room_name": "Bedroom", "climate_entity": "climate.bedroom"}], outdoor_temp=0.0)
+    coord = _make_coordinator(
+        rooms=[{"room_name": "Bedroom", "climate_entity": "climate.bedroom"}],
+        outdoor_temp=0.0,
+    )
     coord.room_states["Bedroom"] = RoomState.AWAY
 
     engine = WasteCalculator(coord)
-    with patch("custom_components.heat_manager.engine.waste_calculator.ha_now") as mock_now:
+    with patch(
+        "custom_components.heat_manager.engine.waste_calculator.ha_now"
+    ) as mock_now:
         from datetime import date
-        mock_now.return_value = MagicMock(date=lambda: date(2026, 3, 1), hour=10, isoformat=lambda: "2026-03-01T10:00")
+
+        mock_now.return_value = MagicMock(
+            date=lambda: date(2026, 3, 1), hour=10, isoformat=lambda: "2026-03-01T10:00"
+        )
         await engine.async_tick()
 
     # Phase 4 formula: last_power_pct (default 50%) x 1000W x tick_hours
@@ -106,12 +132,18 @@ async def test_savings_accumulate_in_away_during_day():
 @pytest.mark.asyncio
 async def test_no_savings_at_night():
     """Away rooms at night (hour < 6) should not accumulate savings."""
-    coord = _make_coordinator(rooms=[{"room_name": "Bedroom", "climate_entity": "climate.bedroom"}], outdoor_temp=5.0)
+    coord = _make_coordinator(
+        rooms=[{"room_name": "Bedroom", "climate_entity": "climate.bedroom"}],
+        outdoor_temp=5.0,
+    )
     coord.room_states["Bedroom"] = RoomState.AWAY
 
     engine = WasteCalculator(coord)
-    with patch("custom_components.heat_manager.engine.waste_calculator.ha_now") as mock_now:
+    with patch(
+        "custom_components.heat_manager.engine.waste_calculator.ha_now"
+    ) as mock_now:
         from datetime import date
+
         mock_now.return_value = MagicMock(date=lambda: date(2026, 3, 1), hour=3)
         await engine.async_tick()
 
@@ -121,22 +153,28 @@ async def test_no_savings_at_night():
 @pytest.mark.asyncio
 async def test_midnight_reset():
     """Accumulated waste/savings reset when date changes."""
-    coord = _make_coordinator(rooms=[{"room_name": "Kitchen", "climate_entity": "climate.kitchen"}])
+    coord = _make_coordinator(
+        rooms=[{"room_name": "Kitchen", "climate_entity": "climate.kitchen"}]
+    )
     coord.room_states["Kitchen"] = RoomState.WINDOW_OPEN
     coord.hass.states.get.return_value = _climate_state(setpoint=21.0, current=15.0)
 
     engine = WasteCalculator(coord)
 
     from datetime import date as date_cls
-    with patch("custom_components.heat_manager.engine.waste_calculator.ha_now") as mock_now:
+
+    with patch(
+        "custom_components.heat_manager.engine.waste_calculator.ha_now"
+    ) as mock_now:
         mock_now.return_value = MagicMock(date=lambda: date_cls(2026, 3, 1), hour=12)
         await engine.async_tick()
 
     assert engine.energy_wasted_today > 0.0
-    pre_reset = engine.energy_wasted_today
 
     # Advance to next day at midnight — reset fires, no new waste at hour 0
-    with patch("custom_components.heat_manager.engine.waste_calculator.ha_now") as mock_now:
+    with patch(
+        "custom_components.heat_manager.engine.waste_calculator.ha_now"
+    ) as mock_now:
         mock_now.return_value = MagicMock(date=lambda: date_cls(2026, 3, 2), hour=0)
         # Temporarily set room to NORMAL so no waste accumulates after reset
         coord.room_states["Kitchen"] = RoomState.NORMAL
@@ -156,7 +194,9 @@ async def test_efficiency_score_starts_at_100():
 @pytest.mark.asyncio
 async def test_efficiency_score_decreases_with_waste():
     """Waste > 0 → score decreases."""
-    coord = _make_coordinator(rooms=[{"room_name": "Kitchen", "climate_entity": "climate.kitchen"}])
+    coord = _make_coordinator(
+        rooms=[{"room_name": "Kitchen", "climate_entity": "climate.kitchen"}]
+    )
     coord.room_states["Kitchen"] = RoomState.WINDOW_OPEN
     coord.hass.states.get.return_value = _climate_state(setpoint=21.0, current=15.0)
 

@@ -141,6 +141,7 @@ class CalibrationEngine:
                 if needs_heartbeat and not needs_change_write
                 else "changed",
             )
+        # broad-except-rationale: one entity failing must not abort the others in this loop
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning(
                 "Calibration write failed for '%s' (%s): %s",

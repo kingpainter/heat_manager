@@ -117,6 +117,7 @@ async def async_register_static_paths(hass: HomeAssistant) -> None:
                     config={},
                 )
                 _LOGGER.info("Sidebar panel registered at /%s", DOMAIN)
+            # broad-except-rationale: panel registration is best-effort; setup must succeed without it
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Could not register sidebar panel: %s", err)
         hass.data[_PANEL_SESSION_KEY] = True
@@ -204,6 +205,7 @@ async def _register_lovelace_resource(
             canonical_url,
         )
 
+    # broad-except-rationale: panel registration is best-effort; setup must succeed without it
     except Exception as err:  # noqa: BLE001
         _LOGGER.error("Failed to register Lovelace resource: %s", err)
 

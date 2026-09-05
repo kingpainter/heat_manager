@@ -271,6 +271,7 @@ class ControllerEngine:
                             {"entity_id": cloud_id, "preset_mode": PRESET_SCHEDULE},
                             blocking=True,
                         )
+                # broad-except-rationale: one entity failing must not abort the others in this loop
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning(
                         "Failed to set OFF fallback on %s: %s", cloud_id, err

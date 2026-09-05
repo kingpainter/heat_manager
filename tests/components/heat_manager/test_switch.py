@@ -43,9 +43,7 @@ def _make_coordinator() -> MagicMock:
     # test (built with _room()'s flat fields) keeps sending to exactly the
     # same entity as before.
     def _room_trvs(room_name):
-        room = next(
-            (r for r in coord.rooms if r.get("room_name") == room_name), None
-        )
+        room = next((r for r in coord.rooms if r.get("room_name") == room_name), None)
         if room is None:
             return []
         return migrate_room_to_trvs(room).get(CONF_TRVS, [])
@@ -207,6 +205,7 @@ async def test_turn_off_resets_room_state_and_logs():
 
 # ── B18: multi-TRV grouping — each TRV keeps its own branch's policy ─────────
 
+
 @pytest.mark.asyncio
 async def test_turn_on_multi_trv_room_sends_to_every_trv_with_own_policy():
     """Two TRVs in one room, mixed types — each keeps its own branch's
@@ -240,9 +239,7 @@ async def test_turn_on_multi_trv_room_sends_to_every_trv_with_own_policy():
     by_entity = {c.args[2]["entity_id"]: c for c in calls}
     assert by_entity["climate.living_room"].args[1] == "set_preset_mode"
     assert by_entity["climate.living_room_trv2"].args[1] == "set_hvac_mode"
-    coord.set_room_state.assert_called_once_with(
-        "Living room", RoomState.OVERRIDE
-    )
+    coord.set_room_state.assert_called_once_with("Living room", RoomState.OVERRIDE)
 
 
 # ── RoomGroupToggleSwitch (B18 Fase 3) ────────────────────────────────────────

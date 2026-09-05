@@ -86,6 +86,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     try:
         await coordinator.async_config_entry_first_refresh()
+    # broad-except-rationale: translated to ConfigEntryNotReady below so HA retries setup
     except Exception as err:  # noqa: BLE001
         raise ConfigEntryNotReady(
             translation_domain=DOMAIN,

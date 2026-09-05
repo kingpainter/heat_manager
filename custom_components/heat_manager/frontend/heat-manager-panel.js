@@ -340,7 +340,6 @@ class HeatManagerPanel extends HTMLElement {
     this._patchTopbarBadge();
     this._patchTopbarVersion();
     this._patchQuickStats();
-    this._patchEnergyToday(); // v0.3.9
     this._patchRooms();
     this._patchPersons();
     this._patchAutoOff();
@@ -410,9 +409,10 @@ class HeatManagerPanel extends HTMLElement {
       const color   = this._stateColor(state);
       const grad    = this._stateGradient(state);
       const label   = this._stateLabel(state);
-      const temp    = room.climate_entity ? this._climateTemp(room.climate_entity) : null;
       const setpt   = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
-      const tempStr = temp ?? (room.current_temp != null ? Math.round(room.current_temp * 10) / 10 + "°C" : "–");
+      const tempStr = room.current_temp != null ? (Math.round(room.current_temp * 10) / 10) + "°C" : "–";
+      const battery = room.battery_level != null ? Math.round(room.battery_level) : null;
+      const battStr = battery != null ? `${battery}%` : "–";
       const fillPct = state === "normal" ? "100" : state === "away" ? "20" : state === "window_open" ? "50" : state === "pre_heat" ? "75" : "40";
 
       // Update card styles
@@ -428,6 +428,7 @@ class HeatManagerPanel extends HTMLElement {
       const vals = card.querySelectorAll(".room-temp-val");
       if (vals[0]) vals[0].textContent = tempStr;
       if (vals[1]) vals[1].textContent = setpt ?? "–";
+      if (vals[2]) vals[2].textContent = battStr;
 
       // Update state bar fill
       const fill = card.querySelector(".room-state-fill");
@@ -489,6 +490,10 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   // v0.3.9: refresh "Energi i dag" card in-place on auto-refresh.
+  // v0.14.0: no longer called from _patchAll() — the card was removed from
+  // Oversigt (it modelled estimated fjernvarme kWh from valve-open time, not
+  // a real measurement, and was judged not useful). Left in place (dormant)
+  // rather than deleted, in case it is repurposed later.
   _patchEnergyToday() {
     const root    = this.shadowRoot;
     const wrapper = root.querySelector("#energy-today-wrapper");
@@ -1535,7 +1540,7 @@ class HeatManagerPanel extends HTMLElement {
         text-transform: uppercase; letter-spacing: 0.5px;
       }
       .room-temps {
-        display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;
+        display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px;
       }
       .room-temp-box {
         background: var(--bg3); border-radius: 9px;
@@ -1893,9 +1898,10 @@ class HeatManagerPanel extends HTMLElement {
     const color    = this._stateColor(state);
     const grad     = this._stateGradient(state);
     const label    = this._stateLabel(state);
-    const temp     = room.climate_entity ? this._climateTemp(room.climate_entity) : null;
     const setpt    = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
-    const tempStr  = temp ?? (room.current_temp != null ? Math.round(room.current_temp * 10) / 10 + "°C" : "–");
+    const tempStr  = room.current_temp != null ? (Math.round(room.current_temp * 10) / 10) + "°C" : "–";
+    const battery  = room.battery_level != null ? Math.round(room.battery_level) : null;
+    const battStr  = battery != null ? `${battery}%` : "–";
     const fillPct  = state === "normal" ? "100" : state === "away" ? "20" : state === "window_open" ? "50" : state === "pre_heat" ? "75" : "40";
     // C) Valve badge
     const valve    = room.valve_position != null ? Math.round(room.valve_position) : null;
@@ -1926,11 +1932,15 @@ class HeatManagerPanel extends HTMLElement {
         <div class="room-temps">
           <div class="room-temp-box">
             <div class="room-temp-val">${tempStr}</div>
-            <div class="room-temp-lbl">Aktuelt</div>
+            <div class="room-temp-lbl">Rum temp</div>
           </div>
           <div class="room-temp-box">
             <div class="room-temp-val">${setpt ?? "–"}</div>
             <div class="room-temp-lbl">Sætpunkt</div>
+          </div>
+          <div class="room-temp-box">
+            <div class="room-temp-val">${battStr}</div>
+            <div class="room-temp-lbl">Trv batt</div>
           </div>
         </div>
         <div class="room-state-bar">
@@ -2123,8 +2133,6 @@ class HeatManagerPanel extends HTMLElement {
     return `
       ${this._controllerSectionHTML()}
 
-      ${this._energyTodaySectionHTML()}
-
       <div class="section-box">
         <div class="section-box-header">
           <div class="section-box-title">Rum</div>
@@ -2170,9 +2178,20 @@ class HeatManagerPanel extends HTMLElement {
   _roomDetailRowHTML(room) {
     const state    = room.state ?? "normal";
     const color    = this._stateColor(state);
-    const temp     = room.climate_entity ? this._climateTemp(room.climate_entity) : null;
+    // Rum temp = coordinator's best-available reading (external room_temp_sensor
+    // when configured, else the TRV's own temp) — this is the room's real
+    // temperature. Trv temp = the TRV's own current_temperature attribute,
+    // shown separately since it sits on the radiator body and commonly reads
+    // 1-3°C hot (see coordinator.get_room_current_temp docstring).
+    const trvTemp  = room.climate_entity ? this._climateTemp(room.climate_entity) : null;
     const setpt    = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
-    const tempStr  = temp ?? (room.current_temp != null ? Math.round(room.current_temp * 10) / 10 + "°C" : "–");
+    const roomTempStr = room.current_temp != null ? (Math.round(room.current_temp * 10) / 10) + "°C" : "–";
+    const trvTempStr  = trvTemp ?? "–";
+    const battery     = room.battery_level != null ? Math.round(room.battery_level) : null;
+    const batteryColor = battery == null ? "var(--sub)" : battery <= 15 ? "var(--red)" : battery <= 30 ? "var(--amber)" : "var(--sub)";
+    const batteryStr  = battery != null ? `${battery}%` : "–";
+    const humidityStr = room.humidity != null ? `${Math.round(room.humidity * 10) / 10}%` : null;
+    const co2Str      = room.co2 != null ? `${Math.round(room.co2)} ppm` : null;
     const valve    = room.valve_position != null ? Math.round(room.valve_position) : null;
     const isHeat   = valve != null && valve > 0;
     const trvBadge = this._trvBadgeHTML(room.trv_type); // v0.3.9 (B15)
@@ -2240,6 +2259,26 @@ class HeatManagerPanel extends HTMLElement {
         ${!groupEnabled ? `<div style="font-size:10px;color:var(--sub);margin-top:6px;line-height:1.5">Ekstra TRV'er styres ikke af Heat Manager lige nu — kun den primære TRV følger skemaet.</div>` : ""}
       </div>` : "";
 
+    // Rum detaljer: 4-stat row (Rum temp / Sætpunkt / Trv temp / Trv batt),
+    // plus humidity/CO2 chips when the room has those sensors configured.
+    const statBox = (label, value, color) => `
+           <div style="text-align:center">
+             <div style="font-size:13px;font-weight:600;font-family:'DM Mono',monospace;color:${color ?? "var(--text)"}">${value}</div>
+             <div style="font-size:9px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;margin-top:2px">${label}</div>
+           </div>`;
+    const statsRowHTML = `
+         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid var(--div)">
+           ${statBox("Rum temp", roomTempStr)}
+           ${statBox("Sætpunkt", setpt ?? "–")}
+           ${statBox("Trv temp", trvTempStr)}
+           ${statBox("Trv batt", batteryStr, batteryColor)}
+         </div>`;
+    const extraSensorsHTML = (humidityStr || co2Str) ? `
+         <div style="display:flex;gap:6px;margin-top:6px">
+           ${humidityStr ? `<span style="font-size:10px;color:var(--sub)">💧 ${humidityStr}</span>` : ""}
+           ${co2Str ? `<span style="font-size:10px;color:var(--sub)">🫧 CO₂ ${co2Str}</span>` : ""}
+         </div>` : "";
+
     return `
       <div class="room-detail-row" style="border-bottom:1px solid var(--div)">
         <div style="padding:12px 16px">
@@ -2249,12 +2288,10 @@ class HeatManagerPanel extends HTMLElement {
               ${trvBadge}
               ${boostBadge}
             </div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <span style="font-size:12px;font-family:'DM Mono',monospace">${tempStr}</span>
-              <span style="font-size:11px;color:var(--sub)">→ ${setpt ?? "–"}</span>
-              <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:${color}22;color:${color}">${this._stateLabel(state)}</span>
-            </div>
+            <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:${color}22;color:${color}">${this._stateLabel(state)}</span>
           </div>
+          ${statsRowHTML}
+          ${extraSensorsHTML}
           ${valveBar}
         </div>
         ${manualHTML}

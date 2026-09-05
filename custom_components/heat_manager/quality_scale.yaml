@@ -38,7 +38,7 @@ rules:
       Heat Manager does not connect to any external device or service.
       It only interacts with existing Home Assistant entities (climate,
       person, binary_sensor, weather). No authentication is required.
-  test-coverage: done  # 303 tests across 19 files — pyproject.toml with --cov-fail-under=40 (63.00% actual, v0.9.4)
+  test-coverage: done  # 381 tests across 24 files — pyproject.toml with --cov-fail-under=40 (66.80% actual, v0.13.2)
 
   # ── Gold ──────────────────────────────────────────────────────────────────
   devices: done  # coordinator.global_device_info() + room_device_info() — all entities assigned to devices

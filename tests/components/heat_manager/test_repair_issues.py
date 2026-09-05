@@ -9,20 +9,18 @@ Covers:
 - Valid room devices not touched
 - Global device never removed
 """
+
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch, call
-import pytest
+from unittest.mock import MagicMock, patch
 
-from custom_components.heat_manager.const import (
-    DOMAIN,
-    REPAIR_ISSUE_MISSING_CLIMATE,
-)
 from custom_components.heat_manager import (
     _async_check_repair_issues,
     _async_remove_stale_devices,
 )
-
+from custom_components.heat_manager.const import (
+    DOMAIN,
+)
 
 ENTRY_ID = "abcdef1234567890"
 ENTRY_ID_SHORT = ENTRY_ID[:8]  # "abcdef12"
@@ -50,16 +48,16 @@ def _make_hass(existing_entity_ids: list[str]) -> MagicMock:
 
 # ── _async_check_repair_issues ────────────────────────────────────────────────
 
+
 def test_issue_created_for_missing_climate_entity():
     """Climate entity absent → async_create_issue called."""
     entry = _make_entry([{"room_name": "Stue", "climate_entity": "climate.stue"}])
     hass = _make_hass([])  # entity missing
 
-    with patch(
-        "custom_components.heat_manager.async_create_issue"
-    ) as mock_create, patch(
-        "custom_components.heat_manager.async_delete_issue"
-    ) as mock_delete:
+    with (
+        patch("custom_components.heat_manager.async_create_issue") as mock_create,
+        patch("custom_components.heat_manager.async_delete_issue") as mock_delete,
+    ):
         _async_check_repair_issues(hass, entry)
 
     mock_create.assert_called_once()
@@ -76,11 +74,10 @@ def test_issue_deleted_when_entity_present():
     entry = _make_entry([{"room_name": "Stue", "climate_entity": "climate.stue"}])
     hass = _make_hass(["climate.stue"])
 
-    with patch(
-        "custom_components.heat_manager.async_create_issue"
-    ) as mock_create, patch(
-        "custom_components.heat_manager.async_delete_issue"
-    ) as mock_delete:
+    with (
+        patch("custom_components.heat_manager.async_create_issue") as mock_create,
+        patch("custom_components.heat_manager.async_delete_issue") as mock_delete,
+    ):
         _async_check_repair_issues(hass, entry)
 
     mock_create.assert_not_called()
@@ -95,11 +92,10 @@ def test_no_issue_for_room_without_climate_entity():
     entry = _make_entry([{"room_name": "Bad", "climate_entity": ""}])
     hass = _make_hass([])
 
-    with patch(
-        "custom_components.heat_manager.async_create_issue"
-    ) as mock_create, patch(
-        "custom_components.heat_manager.async_delete_issue"
-    ) as mock_delete:
+    with (
+        patch("custom_components.heat_manager.async_create_issue") as mock_create,
+        patch("custom_components.heat_manager.async_delete_issue") as mock_delete,
+    ):
         _async_check_repair_issues(hass, entry)
 
     mock_create.assert_not_called()
@@ -108,17 +104,18 @@ def test_no_issue_for_room_without_climate_entity():
 
 def test_multiple_rooms_independent_issues():
     """Two rooms — one missing, one present → one create, one delete."""
-    entry = _make_entry([
-        {"room_name": "Stue", "climate_entity": "climate.stue"},
-        {"room_name": "Sove", "climate_entity": "climate.sove"},
-    ])
+    entry = _make_entry(
+        [
+            {"room_name": "Stue", "climate_entity": "climate.stue"},
+            {"room_name": "Sove", "climate_entity": "climate.sove"},
+        ]
+    )
     hass = _make_hass(["climate.stue"])  # Stue present, Sove missing
 
-    with patch(
-        "custom_components.heat_manager.async_create_issue"
-    ) as mock_create, patch(
-        "custom_components.heat_manager.async_delete_issue"
-    ) as mock_delete:
+    with (
+        patch("custom_components.heat_manager.async_create_issue") as mock_create,
+        patch("custom_components.heat_manager.async_delete_issue") as mock_delete,
+    ):
         _async_check_repair_issues(hass, entry)
 
     assert mock_create.call_count == 1
@@ -132,11 +129,15 @@ def test_multiple_rooms_independent_issues():
 
 def test_issue_id_spaces_replaced_with_underscores():
     """Room name with spaces → issue ID uses underscores."""
-    entry = _make_entry([{"room_name": "Flemming Kontor", "climate_entity": "climate.kontor"}])
+    entry = _make_entry(
+        [{"room_name": "Flemming Kontor", "climate_entity": "climate.kontor"}]
+    )
     hass = _make_hass([])
 
-    with patch("custom_components.heat_manager.async_create_issue") as mock_create, \
-         patch("custom_components.heat_manager.async_delete_issue"):
+    with (
+        patch("custom_components.heat_manager.async_create_issue") as mock_create,
+        patch("custom_components.heat_manager.async_delete_issue"),
+    ):
         _async_check_repair_issues(hass, entry)
 
     issue_id = mock_create.call_args[0][2]
@@ -146,11 +147,15 @@ def test_issue_id_spaces_replaced_with_underscores():
 
 def test_translation_placeholders_include_room_and_entity():
     """Created issue must include room_name and climate_id placeholders."""
-    entry = _make_entry([{"room_name": "Stue", "climate_entity": "climate.stue_netatmo"}])
+    entry = _make_entry(
+        [{"room_name": "Stue", "climate_entity": "climate.stue_netatmo"}]
+    )
     hass = _make_hass([])
 
-    with patch("custom_components.heat_manager.async_create_issue") as mock_create, \
-         patch("custom_components.heat_manager.async_delete_issue"):
+    with (
+        patch("custom_components.heat_manager.async_create_issue") as mock_create,
+        patch("custom_components.heat_manager.async_delete_issue"),
+    ):
         _async_check_repair_issues(hass, entry)
 
     kwargs = mock_create.call_args[1]
@@ -160,6 +165,7 @@ def test_translation_placeholders_include_room_and_entity():
 
 
 # ── _async_remove_stale_devices ───────────────────────────────────────────────
+
 
 def _make_device(identifiers: set, name: str, device_id: str) -> MagicMock:
     dev = MagicMock()
@@ -175,26 +181,21 @@ def test_stale_room_device_removed():
     hass = MagicMock()
 
     # Registry contains: global + Stue (current) + Sove (stale — room deleted)
-    global_device = _make_device(
-        {(DOMAIN, ENTRY_ID)}, "Heat Manager", "dev_global"
-    )
-    stue_device = _make_device(
-        {(DOMAIN, f"{ENTRY_ID}_stue")}, "Stue", "dev_stue"
-    )
-    sove_device = _make_device(
-        {(DOMAIN, f"{ENTRY_ID}_sove")}, "Sove", "dev_sove"
-    )
+    global_device = _make_device({(DOMAIN, ENTRY_ID)}, "Heat Manager", "dev_global")
+    stue_device = _make_device({(DOMAIN, f"{ENTRY_ID}_stue")}, "Stue", "dev_stue")
+    sove_device = _make_device({(DOMAIN, f"{ENTRY_ID}_sove")}, "Sove", "dev_sove")
 
     dev_reg = MagicMock()
     dev_reg.async_entries_for_config_entry = MagicMock(
         return_value=[global_device, stue_device, sove_device]
     )
 
-    with patch(
-        "custom_components.heat_manager.dr.async_get", return_value=dev_reg
-    ), patch(
-        "custom_components.heat_manager.dr.async_entries_for_config_entry",
-        return_value=[global_device, stue_device, sove_device],
+    with (
+        patch("custom_components.heat_manager.dr.async_get", return_value=dev_reg),
+        patch(
+            "custom_components.heat_manager.dr.async_entries_for_config_entry",
+            return_value=[global_device, stue_device, sove_device],
+        ),
     ):
         _async_remove_stale_devices(hass, entry)
 
@@ -211,11 +212,12 @@ def test_current_room_device_not_removed():
 
     dev_reg = MagicMock()
 
-    with patch(
-        "custom_components.heat_manager.dr.async_get", return_value=dev_reg
-    ), patch(
-        "custom_components.heat_manager.dr.async_entries_for_config_entry",
-        return_value=[global_device, stue_device],
+    with (
+        patch("custom_components.heat_manager.dr.async_get", return_value=dev_reg),
+        patch(
+            "custom_components.heat_manager.dr.async_entries_for_config_entry",
+            return_value=[global_device, stue_device],
+        ),
     ):
         _async_remove_stale_devices(hass, entry)
 
@@ -230,11 +232,12 @@ def test_global_device_never_removed():
     global_device = _make_device({(DOMAIN, ENTRY_ID)}, "Heat Manager", "dev_global")
     dev_reg = MagicMock()
 
-    with patch(
-        "custom_components.heat_manager.dr.async_get", return_value=dev_reg
-    ), patch(
-        "custom_components.heat_manager.dr.async_entries_for_config_entry",
-        return_value=[global_device],
+    with (
+        patch("custom_components.heat_manager.dr.async_get", return_value=dev_reg),
+        patch(
+            "custom_components.heat_manager.dr.async_entries_for_config_entry",
+            return_value=[global_device],
+        ),
     ):
         _async_remove_stale_devices(hass, entry)
 
@@ -247,11 +250,12 @@ def test_no_devices_in_registry():
     hass = MagicMock()
     dev_reg = MagicMock()
 
-    with patch(
-        "custom_components.heat_manager.dr.async_get", return_value=dev_reg
-    ), patch(
-        "custom_components.heat_manager.dr.async_entries_for_config_entry",
-        return_value=[],
+    with (
+        patch("custom_components.heat_manager.dr.async_get", return_value=dev_reg),
+        patch(
+            "custom_components.heat_manager.dr.async_entries_for_config_entry",
+            return_value=[],
+        ),
     ):
         _async_remove_stale_devices(hass, entry)
 

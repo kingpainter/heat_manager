@@ -283,6 +283,7 @@ class PresenceEngine:
                             "Presence",
                             "away",
                         )
+                    # broad-except-rationale: one entity failing must not abort the others in this loop
                     except Exception as err:  # noqa: BLE001
                         _LOGGER.warning(
                             "Failed to set away (Z2M) on %s: %s", entity_id, err
@@ -302,6 +303,7 @@ class PresenceEngine:
                         self.coordinator.log_event(
                             f"Away mode — {room_name}", "Presence", "away"
                         )
+                    # broad-except-rationale: one entity failing must not abort the others in this loop
                     except Exception as err:  # noqa: BLE001
                         _LOGGER.warning("Failed to set away on %s: %s", entity_id, err)
                 # H-6: preset_mode calls are always cloud — delay applies
@@ -386,6 +388,7 @@ class PresenceEngine:
                                 blocking=True,
                             )
                         room_restored = True
+                    # broad-except-rationale: one entity failing must not abort the others in this loop
                     except Exception as err:  # noqa: BLE001
                         _LOGGER.warning(
                             "Failed to restore schedule on %s: %s", entity_id, err
@@ -443,6 +446,7 @@ class PresenceEngine:
                     )
                 any_ok = True
                 _LOGGER.info("Force-on: %s → heating (%s)", entity_id, trv_type)
+            # broad-except-rationale: one entity failing must not abort the others in this loop
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("force_room_on failed for %s: %s", entity_id, err)
 
@@ -495,6 +499,7 @@ class PresenceEngine:
             await self.coordinator.hass.services.async_call(
                 domain, service_name, data, blocking=True
             )
+        # broad-except-rationale: one entity failing must not abort the others in this loop
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Notification failed (%s): %s", service, err)
 

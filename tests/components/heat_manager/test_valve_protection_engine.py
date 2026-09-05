@@ -1,6 +1,7 @@
 """Tests for engine/valve_protection_engine.py — weekly valve exercise,
 including B18 multi-TRV grouping (every physical TRV in a room is
 exercised individually)."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock

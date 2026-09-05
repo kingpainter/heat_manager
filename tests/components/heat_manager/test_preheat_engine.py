@@ -1,4 +1,5 @@
 """Tests for PreheatEngine — Phase 3."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -24,8 +25,8 @@ def _make_coordinator(
 ) -> MagicMock:
     coord = MagicMock()
     coord.persons = persons or []
-    coord.rooms   = rooms   or []
-    coord.config  = {"notify_preheat": False, "notify_service": ""}
+    coord.rooms = rooms or []
+    coord.config = {"notify_preheat": False, "notify_service": ""}
     coord.room_states = {}
     coord.someone_home.return_value = someone_home
     coord.log_event = MagicMock()
@@ -33,6 +34,7 @@ def _make_coordinator(
 
     def get_room_state(name):
         return coord.room_states.get(name, RoomState.NORMAL)
+
     coord.get_room_state.side_effect = get_room_state
 
     coord.get_climate_entity = MagicMock(return_value="climate.room")
@@ -43,9 +45,7 @@ def _make_coordinator(
     # migration the real coordinator uses at read time, so every existing
     # single-TRV test keeps sending to exactly the same entity as before.
     def _room_trvs(room_name):
-        room = next(
-            (r for r in coord.rooms if r.get("room_name") == room_name), None
-        )
+        room = next((r for r in coord.rooms if r.get("room_name") == room_name), None)
         if room is None:
             return []
         return migrate_room_to_trvs(room).get(CONF_TRVS, [])
@@ -83,6 +83,7 @@ def _room(name: str, climate: str = "climate.room") -> dict:
 
 # ── sensor map tests ──────────────────────────────────────────────────────────
 
+
 def test_no_travel_sensor_engine_idle():
     """No travel_time sensor → _travel_sensors is empty, engine is idle."""
     coord = _make_coordinator(
@@ -101,7 +102,9 @@ def test_travel_sensor_found_and_mapped():
     )
     engine = PreheatEngine(coord)
     assert "person.flemming" in engine._travel_sensors
-    assert engine._travel_sensors["person.flemming"] == "sensor.flemming_travel_time_home"
+    assert (
+        engine._travel_sensors["person.flemming"] == "sensor.flemming_travel_time_home"
+    )
 
 
 def test_untracked_person_not_mapped():
@@ -115,6 +118,7 @@ def test_untracked_person_not_mapped():
 
 
 # ── arming logic tests ────────────────────────────────────────────────────────
+
 
 def test_arms_when_everyone_leaves():
     """person → not_home while house empty → _preheat_armed becomes True."""
@@ -155,6 +159,7 @@ def test_disarms_on_arrival():
 
 
 # ── preheat trigger tests ─────────────────────────────────────────────────────
+
 
 def test_preheat_fires_when_travel_time_within_lead():
     """Travel time ≤ lead_time_seconds → async_create_task called."""
@@ -216,6 +221,7 @@ def test_preheat_does_not_fire_when_travel_exceeds_lead():
 
 # ── _start_preheat tests ──────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_start_preheat_sets_rooms_to_schedule():
     """_start_preheat sets AWAY rooms to schedule and marks PRE_HEAT."""
@@ -224,7 +230,9 @@ async def test_start_preheat_sets_rooms_to_schedule():
         rooms=[_room("Kitchen"), _room("Living")],
     )
     coord.room_states = {"Kitchen": RoomState.AWAY, "Living": RoomState.AWAY}
-    coord.get_room_state.side_effect = lambda n: coord.room_states.get(n, RoomState.NORMAL)
+    coord.get_room_state.side_effect = lambda n: coord.room_states.get(
+        n, RoomState.NORMAL
+    )
 
     engine = PreheatEngine(coord)
     engine._preheat_armed = True
@@ -243,7 +251,9 @@ async def test_start_preheat_skips_normal_rooms():
         rooms=[_room("Kitchen"), _room("Living")],
     )
     coord.room_states = {"Kitchen": RoomState.NORMAL, "Living": RoomState.AWAY}
-    coord.get_room_state.side_effect = lambda n: coord.room_states.get(n, RoomState.NORMAL)
+    coord.get_room_state.side_effect = lambda n: coord.room_states.get(
+        n, RoomState.NORMAL
+    )
 
     engine = PreheatEngine(coord)
     engine._preheat_armed = True
@@ -261,7 +271,9 @@ async def test_start_preheat_disarms_after_fire():
         rooms=[_room("Kitchen")],
     )
     coord.room_states = {"Kitchen": RoomState.AWAY}
-    coord.get_room_state.side_effect = lambda n: coord.room_states.get(n, RoomState.NORMAL)
+    coord.get_room_state.side_effect = lambda n: coord.room_states.get(
+        n, RoomState.NORMAL
+    )
 
     engine = PreheatEngine(coord)
     engine._preheat_armed = True

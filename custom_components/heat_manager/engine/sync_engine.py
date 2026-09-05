@@ -253,6 +253,7 @@ class SyncEngine:
             _LOGGER.info(
                 "Sync [lock]: %s reverted to expected %.1f°C", room_name, expected
             )
+        # broad-except-rationale: one entity failing must not abort the others in this loop
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Sync [lock] revert failed for '%s': %s", room_name, err)
 

@@ -1,6 +1,7 @@
 """Tests for engine/controller.py — _apply_off_fallback() behaviour,
 including B18 multi-TRV grouping (same fallback command fanned out to
 every physical TRV in a room)."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -15,6 +16,7 @@ from custom_components.heat_manager.engine.controller import ControllerEngine
 from custom_components.heat_manager.migrations import migrate_room_to_trvs
 
 # ── Coordinator factory ───────────────────────────────────────────────────────
+
 
 def _make_coordinator(rooms=None, effective_season=EffectiveSeason.DORMANT):
     coordinator = MagicMock()
@@ -58,6 +60,7 @@ def _make_room_with_trvs(name, trvs):
 
 
 # ── DORMANT: hvac_mode off, HomeKit-preferred ─────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_dormant_sets_hvac_off_via_write_entity():
@@ -104,6 +107,7 @@ async def test_dormant_prefers_homekit_entity_when_available():
 
 # ── ACTIVE/WAKING: preset_mode schedule, always cloud entity ─────────────────
 
+
 @pytest.mark.asyncio
 async def test_active_restores_preset_schedule_on_cloud_entity():
     coordinator = _make_coordinator(
@@ -122,6 +126,7 @@ async def test_active_restores_preset_schedule_on_cloud_entity():
 
 
 # ── B18: multi-TRV rooms get the same fallback fanned out ────────────────────
+
 
 @pytest.mark.asyncio
 async def test_dormant_multi_trv_room_sends_hvac_off_to_every_trv():

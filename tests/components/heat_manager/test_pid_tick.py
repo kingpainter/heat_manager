@@ -3,17 +3,24 @@ Tests for coordinator._async_pid_tick()
 
 All tests run completely offline — HA core is mocked with MagicMock/AsyncMock.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from custom_components.heat_manager.const import ControllerState, EffectiveSeason, RoomState, SeasonMode
+from custom_components.heat_manager.const import (
+    ControllerState,
+    EffectiveSeason,
+    RoomState,
+    SeasonMode,
+)
+from custom_components.heat_manager.coordinator import HeatManagerCoordinator
 from custom_components.heat_manager.engine.pid_controller import PidController
 
-
 # ── Minimal coordinator stub ───────────────────────────────────────────────────
+
 
 def make_coordinator(
     *,
@@ -55,12 +62,14 @@ def make_coordinator(
     coord.effective_season = effective_season
     coord.trv_max_temp = trv_max
     coord.outdoor_temperature = outdoor_temperature
-    coord.rooms = [{
-        "room_name": room_name,
-        "climate_entity": climate_id,
-        "away_temp_override": away_temp_override,
-        "comfort_temp": comfort_temp,
-    }]
+    coord.rooms = [
+        {
+            "room_name": room_name,
+            "climate_entity": climate_id,
+            "away_temp_override": away_temp_override,
+            "comfort_temp": comfort_temp,
+        }
+    ]
     coord.get_room_state = MagicMock(return_value=room_state)
     coord.get_homekit_climate_entity = MagicMock(return_value=homekit_entity)
     # B18: the PID tick's write step now fans out over get_room_trvs()
@@ -74,12 +83,20 @@ def make_coordinator(
     pid = PidController(kp=0.5, ki=0.02, kd=0.0, room_name=room_name)
     coord.pid_controllers = {room_name: pid}
     if climate_unavailable:
-        cs = MagicMock(); cs.state = "unavailable"; cs.attributes = {}
+        cs = MagicMock()
+        cs.state = "unavailable"
+        cs.attributes = {}
     elif climate_missing_temps:
-        cs = MagicMock(); cs.state = "heat"; cs.attributes = {}
+        cs = MagicMock()
+        cs.state = "heat"
+        cs.attributes = {}
     else:
-        cs = MagicMock(); cs.state = "heat"
-        cs.attributes = {"current_temperature": current_temp, "temperature": target_temp}
+        cs = MagicMock()
+        cs.state = "heat"
+        cs.attributes = {
+            "current_temperature": current_temp,
+            "temperature": target_temp,
+        }
     coord.hass = MagicMock()
     coord.hass.states.get = MagicMock(return_value=cs)
     coord.hass.services.async_call = AsyncMock()
@@ -97,11 +114,11 @@ def make_coordinator(
     return coord
 
 
-from custom_components.heat_manager.coordinator import HeatManagerCoordinator
 _pid_tick = HeatManagerCoordinator._async_pid_tick
 
 
 # ── Guard: pid_enabled = False ─────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_pid_disabled_no_service_call():
@@ -111,6 +128,7 @@ async def test_pid_disabled_no_service_call():
 
 
 # ── Guard: controller not ON ───────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_controller_paused_resets_pid():
@@ -135,6 +153,7 @@ async def test_controller_off_resets_pid():
 
 # ── Guard: summer season ───────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_summer_season_resets_pid_no_call():
     coord = make_coordinator(effective_season=EffectiveSeason.DORMANT)
@@ -146,6 +165,7 @@ async def test_summer_season_resets_pid_no_call():
 
 
 # ── Guard: room not NORMAL ─────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_room_away_resets_pid():
@@ -179,6 +199,7 @@ async def test_room_preheat_resets_pid():
 
 # ── Guard: climate unavailable ─────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_climate_unavailable_resets_pid():
     coord = make_coordinator(climate_unavailable=True)
@@ -190,6 +211,7 @@ async def test_climate_unavailable_resets_pid():
 
 
 # ── Guard: missing temperature attributes ─────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_missing_temp_attrs_skips_tick_no_reset():
@@ -205,6 +227,7 @@ async def test_missing_temp_attrs_skips_tick_no_reset():
 
 # ── Happy path: setpoint sent when delta >= 0.5 ───────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_pid_sends_setpoint_when_delta_large_enough():
     """2 °C below target → PID produces power > 0 → TRV setpoint sent."""
@@ -219,6 +242,7 @@ async def test_pid_sends_setpoint_when_delta_large_enough():
 
 # ── No call when TRV is already at the PID floor ──────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_pid_no_call_when_setpoint_already_at_trv_min():
     """
@@ -226,7 +250,8 @@ async def test_pid_no_call_when_setpoint_already_at_trv_min():
     Climate already reports setpoint=10 → delta=0 < 0.5 → no call.
     """
     coord = make_coordinator(current_temp=22.0, target_temp=22.0)
-    cs = MagicMock(); cs.state = "heat"
+    cs = MagicMock()
+    cs.state = "heat"
     cs.attributes = {"current_temperature": 22.0, "temperature": 10.0}
     coord.hass.states.get = MagicMock(return_value=cs)
     await _pid_tick(coord)
@@ -234,6 +259,7 @@ async def test_pid_no_call_when_setpoint_already_at_trv_min():
 
 
 # ── B18 Fase 3: per-room offset (replaces the old global group_offset) ───────
+
 
 @pytest.mark.asyncio
 async def test_room_offset_shifts_this_rooms_target():
@@ -270,6 +296,7 @@ async def test_room_offset_does_not_leak_to_other_rooms():
 
 # ── Regression: B-PID-2 ───────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_bug_b_pid_2_no_call_when_delta_below_threshold():
     """
@@ -288,8 +315,13 @@ async def test_bug_b_pid_2_no_call_when_delta_below_threshold():
     coord.effective_season = SeasonMode.WINTER
     coord.trv_max_temp = 28.0
     coord.outdoor_temperature = None
-    coord.rooms = [{"room_name": "kitchen", "climate_entity": "climate.kitchen",
-                    "away_temp_override": 10.0}]
+    coord.rooms = [
+        {
+            "room_name": "kitchen",
+            "climate_entity": "climate.kitchen",
+            "away_temp_override": 10.0,
+        }
+    ]
     coord.get_room_state = MagicMock(return_value=RoomState.NORMAL)
     coord.get_homekit_climate_entity = MagicMock(return_value="climate.kitchen_homekit")
     coord.get_room_trvs = MagicMock(
@@ -302,7 +334,8 @@ async def test_bug_b_pid_2_no_call_when_delta_below_threshold():
     )
     pid = PidController(kp=0.5, ki=0.0, kd=0.0, room_name="kitchen")
     coord.pid_controllers = {"kitchen": pid}
-    cs = MagicMock(); cs.state = "heat"
+    cs = MagicMock()
+    cs.state = "heat"
     cs.attributes = {"current_temperature": 21.8, "temperature": 22.0}
     coord.hass = MagicMock()
     coord.hass.states.get = MagicMock(return_value=cs)
@@ -318,6 +351,7 @@ async def test_bug_b_pid_2_no_call_when_delta_below_threshold():
 
 
 # ── Hybrid engine: local/Zigbee path (no homekit_climate_entity) ──────────────
+
 
 @pytest.mark.asyncio
 async def test_local_path_uses_comfort_temp_as_target():
@@ -359,6 +393,7 @@ async def test_local_path_defaults_comfort_temp_when_unset():
 
 # ── Hybrid engine: outdoor feedforward ─────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_feedforward_adds_power_when_cold_outside():
     """With outdoor temperature well below FF_REFERENCE_OUTDOOR_TEMP, the
@@ -367,11 +402,17 @@ async def test_feedforward_adds_power_when_cold_outside():
     target/current delta (0.5°C) so baseline PID power is well under 1.0 and
     has headroom left for feedforward to actually move the result — a larger
     delta would already saturate power at the trv_max ceiling on its own."""
-    coord_baseline = make_coordinator(current_temp=20.0, target_temp=20.5, outdoor_temperature=None)
+    coord_baseline = make_coordinator(
+        current_temp=20.0, target_temp=20.5, outdoor_temperature=None
+    )
     await _pid_tick(coord_baseline)
-    baseline_setpoint = coord_baseline.hass.services.async_call.call_args[0][2]["temperature"]
+    baseline_setpoint = coord_baseline.hass.services.async_call.call_args[0][2][
+        "temperature"
+    ]
 
-    coord_cold = make_coordinator(current_temp=20.0, target_temp=20.5, outdoor_temperature=-5.0)
+    coord_cold = make_coordinator(
+        current_temp=20.0, target_temp=20.5, outdoor_temperature=-5.0
+    )
     await _pid_tick(coord_cold)
     cold_setpoint = coord_cold.hass.services.async_call.call_args[0][2]["temperature"]
 
@@ -384,12 +425,18 @@ async def test_feedforward_zero_when_mild_outside():
     feedforward — result should match the no-outdoor-data baseline exactly."""
     from custom_components.heat_manager.const import FF_REFERENCE_OUTDOOR_TEMP
 
-    coord_baseline = make_coordinator(current_temp=20.0, target_temp=22.0, outdoor_temperature=None)
+    coord_baseline = make_coordinator(
+        current_temp=20.0, target_temp=22.0, outdoor_temperature=None
+    )
     await _pid_tick(coord_baseline)
-    baseline_setpoint = coord_baseline.hass.services.async_call.call_args[0][2]["temperature"]
+    baseline_setpoint = coord_baseline.hass.services.async_call.call_args[0][2][
+        "temperature"
+    ]
 
     coord_mild = make_coordinator(
-        current_temp=20.0, target_temp=22.0, outdoor_temperature=FF_REFERENCE_OUTDOOR_TEMP
+        current_temp=20.0,
+        target_temp=22.0,
+        outdoor_temperature=FF_REFERENCE_OUTDOOR_TEMP,
     )
     await _pid_tick(coord_mild)
     mild_setpoint = coord_mild.hass.services.async_call.call_args[0][2]["temperature"]
@@ -402,11 +449,17 @@ async def test_feedforward_capped_at_max_contribution():
     """Extremely cold outdoor temperature must not push power beyond
     FF_MAX_CONTRIBUTION worth of extra setpoint versus a moderately cold day —
     the cap is a hard ceiling, not a linear runaway."""
-    coord_very_cold = make_coordinator(current_temp=20.0, target_temp=22.0, outdoor_temperature=-40.0)
+    coord_very_cold = make_coordinator(
+        current_temp=20.0, target_temp=22.0, outdoor_temperature=-40.0
+    )
     await _pid_tick(coord_very_cold)
-    very_cold_setpoint = coord_very_cold.hass.services.async_call.call_args[0][2]["temperature"]
+    very_cold_setpoint = coord_very_cold.hass.services.async_call.call_args[0][2][
+        "temperature"
+    ]
 
-    coord_cold = make_coordinator(current_temp=20.0, target_temp=22.0, outdoor_temperature=-10.0)
+    coord_cold = make_coordinator(
+        current_temp=20.0, target_temp=22.0, outdoor_temperature=-10.0
+    )
     await _pid_tick(coord_cold)
     cold_setpoint = coord_cold.hass.services.async_call.call_args[0][2]["temperature"]
 
@@ -417,6 +470,7 @@ async def test_feedforward_capped_at_max_contribution():
 
 
 # ── Schedule override (v0.9.0, Fase D) ─────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_schedule_override_replaces_local_comfort_temp():
@@ -499,9 +553,9 @@ async def test_multi_trv_room_sends_same_setpoint_to_every_trv():
         "climate.living_room_zigbee_trv2",
     }
     # Same computed setpoint sent to both — "N identical outputs".
-    assert sent["climate.living_room_homekit"] == sent[
-        "climate.living_room_zigbee_trv2"
-    ]
+    assert (
+        sent["climate.living_room_homekit"] == sent["climate.living_room_zigbee_trv2"]
+    )
 
 
 @pytest.mark.asyncio

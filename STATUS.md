@@ -1,11 +1,11 @@
 # Heat Manager — Project Status
 
-**Last updated:** 2026-09-03 · v0.9.2
-**Version (GitHub):** 0.9.2
-**Version (HA server):** 0.6.2 ⚠️ pending deploy (0.8.0 was already pending — now three releases behind)
+**Last updated:** 2026-09-04 · v0.13.2
+**Version (GitHub):** 0.13.2
+**Version (HA server):** 0.13.2 ✅ deployed and in sync with GitHub (confirmed 2026-09-04)
 **Target:** Home Assistant 2025.1+
 **Language:** English primary · Danish translations included
-**Status:** Stable — Gold IQS complete, HomeKit-first routing, PID proportional control, boost functional end-to-end, five opt-in per-room layers from v0.9.0 (calibration, sync modes, group offset, schedule/calendar, blocking-source diagnostics) now also surfaced in the frontend panel/card (v0.9.1) — NOT yet deployed to the HA server (see Backlog)
+**Status:** Stable — Gold IQS complete, HomeKit-first routing, PID proportional control, boost functional end-to-end, five opt-in per-room layers from v0.9.0 (calibration, sync modes, group offset, schedule/calendar, blocking-source diagnostics) now also surfaced in the frontend panel/card (v0.9.1)
 
 ---
 
@@ -77,7 +77,7 @@ heat_manager/
 | `frontend/heat-manager-card.js` | Tablet height-scaling (`--hm-scale-h`), 2-col room grid, boost delegates to `heat_manager/boost_start\|stop` WS (v0.4.3, unified with panel/service — no more separate client-side implementation); group-offset slider + global/per-room `blocking_sources` badges, read directly from entity state (no WS payload used) (v0.9.1) |
 | `frontend/heat_manager_logo1.png` | 44 KB. Served at `/api/heat_manager-logo`. (The stray `heat_manager_logo2.png` on the HA server has been deleted by dev — resolved 2026-09-02.) |
 
-### Tests (14 files, 225 tests, 48.00% coverage)
+### Tests (24 files, 381 tests, 66.80% coverage)
 
 | File | Coverage |
 |------|----------|
@@ -137,11 +137,10 @@ boost_start → every NORMAL/OVERRIDE room set to DEFAULT_BOOST_TEMP (24°C,
               or optional "temperature" param) via preferred write entity.
 boost_stop  → every room in coordinator.boost_active_rooms restored via
               presence_engine.force_room_on().
-Note: heat-manager-card.js still has its OWN separate client-side boost
-implementation with a local countdown timer — it does not call these WS
-commands, so panel-boost and card-boost remain two independent code paths
-that both now heat correctly but don't share live state. No auto-expiry
-exists on the panel side (Phase B backlog item).
+Both heat-manager-card.js and heat-manager-panel.js delegate to these same
+WS commands (unified in v0.4.3 — card no longer has its own client-side
+boost implementation). boost_expires_at is authoritative and coordinator
+auto-restores once duration elapses; the frontend timer is cosmetic only.
 ```
 
 ### CO₂ threshold
@@ -238,9 +237,9 @@ v0.9.0 — five opt-in per-room/global layers, from a comparison against `climat
 |------|----------|
 | `brands/icon.png` | Medium — required for HACS/official listing |
 | Entity-platform test coverage (all of `number.py`, `select.py`, `sensor.py`, `switch.py`, `websocket.py` were 0-16% after the 2026-09-03 deep-dive review) | ✅ Done — `test_number.py`, `test_select.py`, `test_sensor.py`, `test_switch.py`, `test_websocket.py` added (2026-09-03). Coverage: number.py 95%, select.py 97%, sensor.py 95%, switch.py 96%, websocket.py 86%. Suite: 228 → 303 tests, total project coverage 48% → 63%. |
-| CI `ruff check`/`ruff format` only targets `custom_components/heat_manager`, never `tests/` | Low — `tests/` has ~40 pre-existing lint findings (unused imports, unsorted imports) invisible to CI. Found during the 2026-09-03 deep-dive review; not fixed (out of scope, unrelated files). |
+| CI `ruff check`/`ruff format` only targets `custom_components/heat_manager`, never `tests/` | ✅ Done — CI workflow now also lints/formats `tests/`; the ~40 pre-existing findings there (unused imports, unsorted imports, one unused-variable, one dict-literal, one late import) were fixed (2026-09-04). |
 | `strict-typing` | Low — full mypy pass |
-| Deploy 0.8.0 → HA server (currently 0.6.2) | High — pending manual deploy |
+| Deploy to HA server | ✅ Done — 0.13.2 deployed, GitHub and server confirmed in sync (2026-09-04) |
 | Unify panel-boost and card-boost into one code path (card call the WS commands instead of duplicating logic) | ✅ Done — card now delegates to heat_manager/boost_start\|stop WS, same coordinator methods as panel and service |
 | Boost auto-expiry/countdown on the backend (currently only the card has a local, frontend-only timer) | ✅ Done — coordinator now auto-restores after `duration_minutes` |
 | Zigbee rooms unregulated by PID | ✅ Done — hybrid PID engine now regulates local/Zigbee rooms too via new `comfort_temp` field, plus outdoor feedforward ("heating curve") on both room types |

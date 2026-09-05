@@ -2,12 +2,14 @@
 
 All tests run completely offline — HA core is mocked with MagicMock/AsyncMock.
 """
+
 from __future__ import annotations
 
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from homeassistant.util.dt import utcnow
 
 from custom_components.heat_manager.const import (
     CALIBRATION_OFFSET_MAX,
@@ -15,7 +17,6 @@ from custom_components.heat_manager.const import (
     DEFAULT_CALIBRATION_HEARTBEAT_MIN,
 )
 from custom_components.heat_manager.engine.calibration_engine import CalibrationEngine
-from homeassistant.util.dt import utcnow
 
 
 def _make_coordinator(rooms=None) -> MagicMock:
@@ -80,6 +81,7 @@ def _states_get_with_calibration(truth: float, raw: float, calibration: float):
 
 # ── opt-in gating ───────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_room_without_calibration_entity_is_skipped():
     coord = _make_coordinator(rooms=[_room(calibration_entity=None)])
@@ -106,6 +108,7 @@ async def test_room_without_room_name_is_skipped():
 
 # ── happy path: first write ─────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_first_tick_writes_offset():
     """truth=21.0, raw=20.0 → offset=+1.0 written on first tick (no history)."""
@@ -117,7 +120,10 @@ async def test_first_tick_writes_offset():
     call_args = coord.hass.services.async_call.call_args
     assert call_args[0][0] == "number"
     assert call_args[0][1] == "set_value"
-    assert call_args[0][2]["entity_id"] == "number.bathroom_trv_local_temperature_calibration"
+    assert (
+        call_args[0][2]["entity_id"]
+        == "number.bathroom_trv_local_temperature_calibration"
+    )
     assert call_args[0][2]["value"] == pytest.approx(1.0)
     assert engine._last_written["bathroom"] == pytest.approx(1.0)
 
@@ -143,6 +149,7 @@ async def test_offset_is_clamped_to_min():
 
 
 # ── missing / unavailable data ──────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_missing_room_temp_sensor_state_skips_write():
@@ -190,6 +197,7 @@ async def test_climate_entity_missing_current_temperature_skips_write():
 # real device behaviour (unlike the fixed-`raw` tests above) to prove the
 # engine doesn't oscillate the written value every tick.
 
+
 @pytest.mark.asyncio
 async def test_device_echo_of_previous_write_does_not_undo_it():
     """v0.9.1 bug: computing the write as an absolute (truth - raw) each
@@ -233,6 +241,7 @@ async def test_residual_error_is_added_on_top_of_devices_own_current_value():
 
 
 # ── de-duplication / heartbeat behaviour ────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_second_tick_no_change_no_heartbeat_due_skips_write():
@@ -292,6 +301,7 @@ async def test_heartbeat_forces_rewrite_after_timeout_even_without_change():
 
 # ── error handling ──────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_service_call_failure_is_caught_and_logged():
     coord = _make_coordinator(rooms=[_room()])
@@ -303,6 +313,7 @@ async def test_service_call_failure_is_caught_and_logged():
 
 
 # ── shutdown ─────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_shutdown_is_noop():

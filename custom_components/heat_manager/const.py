@@ -126,6 +126,12 @@ CONF_HUMIDITY_SENSOR = "humidity_sensor"
 # built-in probe sits on the hot radiator body (typically 1–3 °C high).
 CONF_ROOM_TEMP_SENSOR = "room_temp_sensor"
 
+# TRV battery level (%). Optional — Zigbee TRVs typically expose battery
+# as a separate sensor.* entity (set this). When left empty, ws_get_state
+# falls back to the "battery_level" attribute on the room's climate entity,
+# which some Netatmo setups expose directly.
+CONF_BATTERY_SENSOR = "battery_sensor"
+
 # Outdoor temperature sensor — local weather station, Netatmo outdoor
 # module, Aqara, etc.  When set, overrides the temperature attribute read
 # from the weather entity for all outdoor-temperature decisions

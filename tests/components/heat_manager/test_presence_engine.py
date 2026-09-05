@@ -1,4 +1,5 @@
 """Tests for engine/presence_engine.py — B4 regression + core behaviour."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -14,6 +15,7 @@ from custom_components.heat_manager.engine.presence_engine import PresenceEngine
 from custom_components.heat_manager.migrations import migrate_room_to_trvs
 
 # ── Coordinator factory ───────────────────────────────────────────────────────
+
 
 def _make_coordinator(
     persons=None,
@@ -45,7 +47,9 @@ def _make_coordinator(
     coordinator.get_away_temperature = MagicMock(return_value=17.0)
     coordinator.get_climate_entity = MagicMock(return_value="climate.kitchen")
     coordinator.get_write_entity = MagicMock(return_value="climate.kitchen")
-    coordinator.get_room_state = MagicMock(return_value=RoomState.AWAY)  # must be AWAY to trigger restore
+    coordinator.get_room_state = MagicMock(
+        return_value=RoomState.AWAY
+    )  # must be AWAY to trigger restore
     coordinator.set_room_state = MagicMock()
     coordinator.async_update_listeners = MagicMock()
 
@@ -80,6 +84,7 @@ def _make_room(name="Kitchen", climate="climate.kitchen"):
 
 # ── Arrival: windows closed → schedule restored ───────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_arrival_with_windows_closed_restores_schedule():
     coordinator = _make_coordinator(
@@ -102,6 +107,7 @@ async def test_arrival_with_windows_closed_restores_schedule():
 
 
 # ── Arrival: windows open → notify, no schedule restore ──────────────────────
+
 
 @pytest.mark.asyncio
 async def test_arrival_with_windows_open_does_not_restore_schedule():
@@ -126,13 +132,15 @@ async def test_arrival_with_windows_open_does_not_restore_schedule():
     # Climate set_preset_mode must NOT have been called — windows are open
     # (a notification call to notify.test IS expected, but no climate control)
     climate_calls = [
-        c for c in coordinator.hass.services.async_call.await_args_list
+        c
+        for c in coordinator.hass.services.async_call.await_args_list
         if c.args[0] == "climate"
     ]
     assert len(climate_calls) == 0
 
 
 # ── Departure: everyone left → grace timer starts ────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_departure_starts_grace_timer_when_nobody_home():
@@ -152,6 +160,7 @@ async def test_departure_starts_grace_timer_when_nobody_home():
 
 # ── Departure: someone still home → no timer ─────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_departure_does_not_start_timer_if_someone_home():
     coordinator = _make_coordinator(
@@ -167,6 +176,7 @@ async def test_departure_does_not_start_timer_if_someone_home():
 
 
 # ── Away: correct preset called on all rooms ──────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_set_all_away_calls_preset_on_all_rooms():
@@ -187,6 +197,7 @@ async def test_set_all_away_calls_preset_on_all_rooms():
 
 
 # ── restore_all_schedule: skips WINDOW_OPEN rooms ────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_restore_all_schedule_skips_window_open_rooms():
@@ -214,6 +225,7 @@ async def test_restore_all_schedule_skips_window_open_rooms():
 
 
 # ── Bug B4: alarm disarmed → re-evaluates presence ───────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_bug_b4_alarm_disarmed_restores_heating_when_someone_home():
@@ -280,6 +292,7 @@ async def test_bug_b4_alarm_disarmed_does_nothing_when_nobody_home():
 
 # ── force_room_on service ─────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_force_room_on_sets_schedule():
     coordinator = _make_coordinator(rooms=[_make_room()])
@@ -311,14 +324,17 @@ async def test_force_room_on_unknown_room_logs_warning():
 
 # ── Grace period day/night selection ─────────────────────────────────────────
 
+
 def test_grace_period_returns_night_value_during_night_hours():
-    coordinator = _make_coordinator(config={
-        "grace_day_min": 30,
-        "grace_night_min": 15,
-        "night_start_hour": 23,
-        "night_end_hour": 7,
-        "notify_service": "",
-    })
+    coordinator = _make_coordinator(
+        config={
+            "grace_day_min": 30,
+            "grace_night_min": 15,
+            "night_start_hour": 23,
+            "night_end_hour": 7,
+            "notify_service": "",
+        }
+    )
     engine = PresenceEngine(coordinator)
 
     with patch(
@@ -331,13 +347,15 @@ def test_grace_period_returns_night_value_during_night_hours():
 
 
 def test_grace_period_returns_day_value_during_day_hours():
-    coordinator = _make_coordinator(config={
-        "grace_day_min": 30,
-        "grace_night_min": 15,
-        "night_start_hour": 23,
-        "night_end_hour": 7,
-        "notify_service": "",
-    })
+    coordinator = _make_coordinator(
+        config={
+            "grace_day_min": 30,
+            "grace_night_min": 15,
+            "night_start_hour": 23,
+            "night_end_hour": 7,
+            "notify_service": "",
+        }
+    )
     engine = PresenceEngine(coordinator)
 
     with patch(
@@ -351,6 +369,7 @@ def test_grace_period_returns_day_value_during_day_hours():
 
 # ── Guarded: blocked when OFF ─────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_set_all_away_blocked_when_controller_off():
     coordinator = _make_coordinator(rooms=[_make_room()])
@@ -363,6 +382,7 @@ async def test_set_all_away_blocked_when_controller_off():
 
 
 # ── B18: multi-TRV grouping — same command fanned out to every TRV ───────────
+
 
 def _make_room_with_trvs(name, trvs):
     """A room shaped by the config/options flow's per-TRV UI (CONF_TRVS
@@ -424,9 +444,7 @@ async def test_restore_all_schedule_sends_to_every_trv_in_multi_trv_room():
     assert len(calls) == 2
     entity_ids = {c.args[2]["entity_id"] for c in calls}
     assert entity_ids == {"climate.living_room", "climate.living_room_trv2"}
-    coordinator.set_room_state.assert_called_once_with(
-        "Living room", RoomState.NORMAL
-    )
+    coordinator.set_room_state.assert_called_once_with("Living room", RoomState.NORMAL)
 
 
 @pytest.mark.asyncio
@@ -453,6 +471,4 @@ async def test_force_room_on_multi_trv_sends_to_every_trv():
     assert len(calls) == 2
     entity_ids = {c.args[2]["entity_id"] for c in calls}
     assert entity_ids == {"climate.living_room", "climate.living_room_trv2"}
-    coordinator.set_room_state.assert_called_once_with(
-        "Living room", RoomState.NORMAL
-    )
+    coordinator.set_room_state.assert_called_once_with("Living room", RoomState.NORMAL)

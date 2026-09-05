@@ -192,6 +192,7 @@ class ValveProtectionEngine:
                     if room_name not in rooms_done:
                         rooms_done.append(room_name)
 
+                # broad-except-rationale: one entity failing must not abort the others in this loop
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning(
                         "ValveProtectionEngine: exercise failed for %s (%s): %s",
@@ -238,6 +239,7 @@ class ValveProtectionEngine:
                 {"message": message, "title": "Heat Manager"},
                 blocking=True,
             )
+        # broad-except-rationale: one entity failing must not abort the others in this loop
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("ValveProtectionEngine notification failed: %s", err)
 

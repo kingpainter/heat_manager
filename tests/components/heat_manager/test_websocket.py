@@ -87,9 +87,7 @@ def _make_coordinator(rooms=None, persons=None) -> MagicMock:
     # matching the pre-existing single-TRV tests' fixed "climate.bathroom"
     # expectations exactly.
     def _room_trvs(room_name):
-        room = next(
-            (r for r in coord.rooms if r.get("room_name") == room_name), None
-        )
+        room = next((r for r in coord.rooms if r.get("room_name") == room_name), None)
         if room is None:
             return []
         return migrate_room_to_trvs(room).get(CONF_TRVS, [])
@@ -152,6 +150,9 @@ def _room(
     schedule_entity=None,
     window_sensors=None,
     pi_demand_entity=None,
+    battery_sensor=None,
+    humidity_sensor=None,
+    co2_sensor=None,
 ) -> dict:
     room = {
         "room_name": name,
@@ -168,6 +169,12 @@ def _room(
         room["window_sensors"] = window_sensors
     if pi_demand_entity:
         room["pi_demand_entity"] = pi_demand_entity
+    if battery_sensor:
+        room["battery_sensor"] = battery_sensor
+    if humidity_sensor:
+        room["humidity_sensor"] = humidity_sensor
+    if co2_sensor:
+        room["co2_sensor"] = co2_sensor
     return room
 
 
@@ -397,6 +404,146 @@ async def test_get_state_windows_open_true_when_any_sensor_on():
 
     room = conn.send_result.call_args[0][1]["rooms"][0]
     assert room["windows_open"] is True
+
+
+# ── ws_get_state: battery / humidity / CO2 (Rum-detaljer) ───────────────────
+
+
+@pytest.mark.asyncio
+async def test_get_state_battery_from_dedicated_sensor():
+    coord = _make_coordinator(
+        rooms=[
+            _room(
+                climate="climate.bathroom", battery_sensor="sensor.bathroom_trv_battery"
+            )
+        ]
+    )
+    battery_state = MagicMock()
+    battery_state.state = "63"
+    coord.hass.states.get = MagicMock(
+        side_effect=lambda eid: (
+            battery_state if eid == "sensor.bathroom_trv_battery" else None
+        )
+    )
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["battery_level"] == 63.0
+
+
+@pytest.mark.asyncio
+async def test_get_state_battery_falls_back_to_climate_attribute():
+    coord = _make_coordinator(rooms=[_room(climate="climate.bathroom")])
+    climate_state = MagicMock()
+    climate_state.attributes = {"battery_level": 88}
+    coord.hass.states.get = MagicMock(
+        side_effect=lambda eid: climate_state if eid == "climate.bathroom" else None
+    )
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["battery_level"] == 88.0
+
+
+@pytest.mark.asyncio
+async def test_get_state_battery_none_when_no_source_configured():
+    coord = _make_coordinator(rooms=[_room(climate="climate.bathroom")])
+    climate_state = MagicMock()
+    climate_state.attributes = {}  # no battery_level attribute either
+    coord.hass.states.get = MagicMock(
+        side_effect=lambda eid: climate_state if eid == "climate.bathroom" else None
+    )
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["battery_level"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_state_dedicated_battery_sensor_takes_priority_over_attribute():
+    coord = _make_coordinator(
+        rooms=[
+            _room(
+                climate="climate.bathroom", battery_sensor="sensor.bathroom_trv_battery"
+            )
+        ]
+    )
+    climate_state = MagicMock()
+    climate_state.attributes = {"battery_level": 10}  # should be ignored
+    battery_state = MagicMock()
+    battery_state.state = "95"
+
+    def _get(eid):
+        if eid == "climate.bathroom":
+            return climate_state
+        if eid == "sensor.bathroom_trv_battery":
+            return battery_state
+        return None
+
+    coord.hass.states.get = MagicMock(side_effect=_get)
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["battery_level"] == 95.0
+
+
+@pytest.mark.asyncio
+async def test_get_state_humidity_and_co2_passed_through_when_configured():
+    coord = _make_coordinator(
+        rooms=[
+            _room(
+                climate="climate.bathroom",
+                humidity_sensor="sensor.bathroom_humidity",
+                co2_sensor="sensor.bathroom_co2",
+            )
+        ]
+    )
+    humidity_state = MagicMock()
+    humidity_state.state = "54.5"
+    co2_state = MagicMock()
+    co2_state.state = "612"
+
+    def _get(eid):
+        if eid == "sensor.bathroom_humidity":
+            return humidity_state
+        if eid == "sensor.bathroom_co2":
+            return co2_state
+        return None
+
+    coord.hass.states.get = MagicMock(side_effect=_get)
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["humidity"] == 54.5
+    assert room["co2"] == 612.0
+
+
+@pytest.mark.asyncio
+async def test_get_state_humidity_and_co2_default_to_none_when_not_configured():
+    coord = _make_coordinator(rooms=[_room(climate="climate.bathroom")])
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["humidity"] is None
+    assert room["co2"] is None
 
 
 # ── ws_get_state: persons ───────────────────────────────────────────────────

@@ -187,6 +187,7 @@ class WindowEngine:
 
             if self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
                 await self._notify(notif_msg)
+        # broad-except-rationale: one entity failing must not abort the others in this loop
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Failed to suppress heating in '%s': %s", room_name, err)
 
@@ -269,6 +270,7 @@ class WindowEngine:
                         blocking=True,
                     )
                 room_restored = True
+            # broad-except-rationale: one entity failing must not abort the others in this loop
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning(
                     "Failed to restore schedule in '%s': %s", room_name, err
@@ -394,6 +396,7 @@ class WindowEngine:
                 {"message": message, "title": "Heat Manager"},
                 blocking=True,
             )
+        # broad-except-rationale: one entity failing must not abort the others in this loop
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Window notification failed: %s", err)
 

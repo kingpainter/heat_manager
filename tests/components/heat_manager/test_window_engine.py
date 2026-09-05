@@ -1,4 +1,5 @@
 """Tests for engine/window_engine.py — B1, B2, B3 regression + core behaviour."""
+
 from __future__ import annotations
 
 from datetime import timedelta
@@ -15,6 +16,7 @@ from custom_components.heat_manager.engine.window_engine import WindowEngine
 from custom_components.heat_manager.migrations import migrate_room_to_trvs
 
 # ── Coordinator factory ───────────────────────────────────────────────────────
+
 
 def _make_coordinator(rooms=None, someone_home=True, config=None):
     coordinator = MagicMock()
@@ -94,6 +96,7 @@ def _sensor_state(is_open: bool) -> MagicMock:
 
 # ── Bug B1: entity ID typo prevention ────────────────────────────────────────
 
+
 def test_bug_b1_sensor_map_strips_no_leading_dots():
     """
     Regression test for B1.
@@ -139,6 +142,7 @@ def test_bug_b1_leading_dot_entity_id_is_not_found_in_sensor_map():
 
 # ── Bug B2: 30-min warning actually fires ────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_bug_b2_warning_sent_after_30_minutes():
     """
@@ -147,6 +151,7 @@ async def test_bug_b2_warning_sent_after_30_minutes():
     New behaviour: async_tick sends an escalation notification after threshold.
     """
     from homeassistant.util.dt import utcnow
+
     rooms = [_make_room()]
     coordinator = _make_coordinator(
         rooms=rooms,
@@ -168,7 +173,10 @@ async def test_bug_b2_warning_sent_after_30_minutes():
     coordinator.hass.services.async_call.assert_awaited_once()
     call_args = coordinator.hass.services.async_call.call_args
     assert "notify" in call_args.args[0]
-    assert "35" in call_args.args[2]["message"] or "Kitchen" in call_args.args[2]["message"]
+    assert (
+        "35" in call_args.args[2]["message"]
+        or "Kitchen" in call_args.args[2]["message"]
+    )
     assert engine._warning_sent["Kitchen"] is True
 
 
@@ -176,6 +184,7 @@ async def test_bug_b2_warning_sent_after_30_minutes():
 async def test_bug_b2_warning_not_sent_twice():
     """B2: Warning must only be sent once per window-open event."""
     from homeassistant.util.dt import utcnow
+
     rooms = [_make_room()]
     coordinator = _make_coordinator(
         rooms=rooms,
@@ -199,6 +208,7 @@ async def test_bug_b2_warning_not_sent_twice():
 async def test_bug_b2_no_warning_before_threshold():
     """B2: No warning should fire before the 30-min threshold."""
     from homeassistant.util.dt import utcnow
+
     rooms = [_make_room()]
     coordinator = _make_coordinator(
         rooms=rooms,
@@ -219,6 +229,7 @@ async def test_bug_b2_no_warning_before_threshold():
 
 # ── Bug B3: window close checks presence before restoring ────────────────────
 
+
 @pytest.mark.asyncio
 async def test_bug_b3_window_close_restores_schedule_when_someone_home():
     """
@@ -230,9 +241,7 @@ async def test_bug_b3_window_close_restores_schedule_when_someone_home():
     coordinator = _make_coordinator(rooms=rooms, someone_home=True)
 
     # Sensor is closed
-    coordinator.hass.states.get = MagicMock(
-        return_value=_sensor_state(is_open=False)
-    )
+    coordinator.hass.states.get = MagicMock(return_value=_sensor_state(is_open=False))
 
     engine = WindowEngine(coordinator)
     engine._window_opened_at["Kitchen"] = MagicMock()
@@ -258,9 +267,7 @@ async def test_bug_b3_window_close_leaves_away_when_nobody_home():
     rooms = [_make_room(sensors=["binary_sensor.kitchen_window"])]
     coordinator = _make_coordinator(rooms=rooms, someone_home=False)
 
-    coordinator.hass.states.get = MagicMock(
-        return_value=_sensor_state(is_open=False)
-    )
+    coordinator.hass.states.get = MagicMock(return_value=_sensor_state(is_open=False))
 
     engine = WindowEngine(coordinator)
     engine._window_opened_at["Kitchen"] = MagicMock()
@@ -275,6 +282,7 @@ async def test_bug_b3_window_close_leaves_away_when_nobody_home():
 
 # ── Window open: sets temperature ────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_open_after_delay_sets_away_temperature():
     rooms = [_make_room(away_temp=10.0)]
@@ -286,9 +294,7 @@ async def test_open_after_delay_sets_away_temperature():
 
     engine = WindowEngine(coordinator)
 
-    await engine._open_after_delay(
-        "binary_sensor.kitchen_window", "Kitchen", 0
-    )
+    await engine._open_after_delay("binary_sensor.kitchen_window", "Kitchen", 0)
 
     coordinator.hass.services.async_call.assert_awaited_once_with(
         "climate",
@@ -304,9 +310,7 @@ async def test_open_aborts_if_sensor_already_closed():
     """If the sensor closed during the delay, no action should be taken."""
     rooms = [_make_room()]
     coordinator = _make_coordinator(rooms=rooms)
-    coordinator.hass.states.get = MagicMock(
-        return_value=_sensor_state(is_open=False)
-    )
+    coordinator.hass.states.get = MagicMock(return_value=_sensor_state(is_open=False))
 
     engine = WindowEngine(coordinator)
     await engine._open_after_delay("binary_sensor.kitchen_window", "Kitchen", 0)
@@ -316,10 +320,13 @@ async def test_open_aborts_if_sensor_already_closed():
 
 # ── get_open_windows ──────────────────────────────────────────────────────────
 
+
 def test_get_open_windows_returns_only_open_rooms():
     rooms = [
         _make_room("Kitchen", sensors=["binary_sensor.kitchen_window"]),
-        _make_room("Lukas", climate="climate.lukas", sensors=["binary_sensor.lukas_window"]),
+        _make_room(
+            "Lukas", climate="climate.lukas", sensors=["binary_sensor.lukas_window"]
+        ),
     ]
     coordinator = _make_coordinator(rooms=rooms)
 
@@ -338,6 +345,7 @@ def test_get_open_windows_returns_only_open_rooms():
 
 
 # ── Guarded: blocked when OFF ─────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_open_after_delay_blocked_when_controller_off():
@@ -361,9 +369,7 @@ async def test_close_after_delay_blocked_when_controller_paused():
     coordinator = _make_coordinator(rooms=rooms)
     coordinator.controller.state = ControllerState.PAUSE
 
-    coordinator.hass.states.get = MagicMock(
-        return_value=_sensor_state(is_open=False)
-    )
+    coordinator.hass.states.get = MagicMock(return_value=_sensor_state(is_open=False))
 
     engine = WindowEngine(coordinator)
     await engine._close_after_delay("binary_sensor.kitchen_window", "Kitchen", 0)
@@ -372,6 +378,7 @@ async def test_close_after_delay_blocked_when_controller_paused():
 
 
 # ── Bug B16: multi-sensor rooms must not restore heating early ─────────────────
+
 
 @pytest.mark.asyncio
 async def test_bug_b16_close_does_not_restore_while_second_sensor_still_open():
@@ -471,6 +478,7 @@ def test_bug_b16_all_room_sensors_closed_helper():
 
 # ── B18: multi-TRV grouping — same command fanned out to every TRV ───────────
 
+
 def _make_room_with_trvs(name, trvs, sensors=None):
     return {
         "room_name": name,
@@ -500,9 +508,7 @@ async def test_open_after_delay_sends_to_every_trv_in_multi_trv_room():
     coordinator.hass.states.get = MagicMock(return_value=sensor_state)
 
     engine = WindowEngine(coordinator)
-    await engine._open_after_delay(
-        "binary_sensor.kitchen_window", "Living room", 0
-    )
+    await engine._open_after_delay("binary_sensor.kitchen_window", "Living room", 0)
 
     calls = coordinator.hass.services.async_call.await_args_list
     assert len(calls) == 2
@@ -529,23 +535,17 @@ async def test_close_after_delay_sends_to_every_trv_in_multi_trv_room():
         )
     ]
     coordinator = _make_coordinator(rooms=rooms, someone_home=True)
-    coordinator.hass.states.get = MagicMock(
-        return_value=_sensor_state(is_open=False)
-    )
+    coordinator.hass.states.get = MagicMock(return_value=_sensor_state(is_open=False))
 
     engine = WindowEngine(coordinator)
     engine._window_opened_at["Living room"] = MagicMock()
     engine._warning_sent["Living room"] = False
 
-    await engine._close_after_delay(
-        "binary_sensor.kitchen_window", "Living room", 0
-    )
+    await engine._close_after_delay("binary_sensor.kitchen_window", "Living room", 0)
 
     calls = coordinator.hass.services.async_call.await_args_list
     assert len(calls) == 2
     by_entity = {c.args[2]["entity_id"]: c for c in calls}
     assert by_entity["climate.living_room"].args[1] == "set_preset_mode"
     assert by_entity["climate.living_room_trv2"].args[1] == "set_hvac_mode"
-    coordinator.set_room_state.assert_called_once_with(
-        "Living room", RoomState.NORMAL
-    )
+    coordinator.set_room_state.assert_called_once_with("Living room", RoomState.NORMAL)

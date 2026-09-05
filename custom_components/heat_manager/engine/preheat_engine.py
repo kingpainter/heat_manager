@@ -212,6 +212,7 @@ class PreheatEngine:
                             blocking=True,
                         )
                     room_ok = True
+                # broad-except-rationale: one entity failing must not abort the others in this loop
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning("Preheat failed for %s: %s", room_name, err)
 
@@ -268,6 +269,7 @@ class PreheatEngine:
                 {"message": message, "title": "Heat Manager"},
                 blocking=True,
             )
+        # broad-except-rationale: one entity failing must not abort the others in this loop
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Preheat notification failed: %s", err)
 

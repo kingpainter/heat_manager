@@ -2,6 +2,7 @@
 
 All tests run completely offline — HA core is mocked with MagicMock.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -36,6 +37,7 @@ def _state(value: str, attrs: dict | None = None) -> MagicMock:
 
 # ── opt-in gating ────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_room_without_schedule_entity_untouched():
     coord = _make_coordinator(rooms=[_room(entity=None)])
@@ -54,12 +56,11 @@ async def test_room_without_room_name_is_skipped():
 
 # ── schedule.* entities: attributes already populated by HA ────────────────
 
+
 @pytest.mark.asyncio
 async def test_schedule_entity_active_block_sets_override():
     coord = _make_coordinator(rooms=[_room()])
-    coord.hass.states.get = MagicMock(
-        return_value=_state("on", {"temperature": 21.5})
-    )
+    coord.hass.states.get = MagicMock(return_value=_state("on", {"temperature": 21.5}))
     engine = ScheduleEngine(coord)
     await engine.async_tick()
     assert coord.schedule_override["living_room"] == pytest.approx(21.5)
@@ -95,6 +96,7 @@ async def test_schedule_entity_active_without_temperature_key_no_override():
 
 
 # ── calendar.* entities: YAML description parsing ───────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_calendar_entity_parses_description_yaml():
@@ -151,6 +153,7 @@ async def test_calendar_entity_plain_text_description_ignored():
 
 # ── clamping ─────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_temperature_above_max_is_clamped():
     coord = _make_coordinator(rooms=[_room()])
@@ -170,6 +173,7 @@ async def test_temperature_below_min_is_clamped():
 
 
 # ── multi-room ───────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_independent_rooms_do_not_interfere():
@@ -194,6 +198,7 @@ async def test_independent_rooms_do_not_interfere():
 
 
 # ── shutdown ─────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_shutdown_is_noop():

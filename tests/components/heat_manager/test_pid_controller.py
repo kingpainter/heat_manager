@@ -3,6 +3,7 @@ Tests for engine/pid_controller.py
 
 All tests run completely offline — no Home Assistant imports.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -13,16 +14,17 @@ from custom_components.heat_manager.engine.pid_controller import (
     PidController,
 )
 
-
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def make_pid(**kwargs) -> PidController:
-    defaults = dict(kp=0.5, ki=0.02, kd=0.0, room_name="test_room")
+    defaults = {"kp": 0.5, "ki": 0.02, "kd": 0.0, "room_name": "test_room"}
     defaults.update(kwargs)
     return PidController(**defaults)
 
 
 # ── Proportional term ──────────────────────────────────────────────────────────
+
 
 def test_p_only_positive_error():
     """Positive error → positive output."""
@@ -53,6 +55,7 @@ def test_p_partial_output():
 
 
 # ── Integral term ──────────────────────────────────────────────────────────────
+
 
 def test_integral_accumulates():
     """Persistent 1 °C error accumulates over ticks."""
@@ -93,6 +96,7 @@ def test_integral_resets_on_reset():
 
 # ── Derivative term ────────────────────────────────────────────────────────────
 
+
 def test_derivative_zero_on_first_tick():
     """D term is 0 on the first tick because there is no previous error."""
     pid = make_pid(kp=0.0, ki=0.0, kd=1.0)
@@ -118,6 +122,7 @@ def test_derivative_disabled_when_kd_zero():
 
 # ── Output clamping ────────────────────────────────────────────────────────────
 
+
 def test_output_never_exceeds_max():
     pid = make_pid(kp=10.0, ki=0.0)
     output = pid.update(30.0, 10.0)
@@ -137,6 +142,7 @@ def test_custom_output_bounds():
 
 
 # ── power_to_setpoint ──────────────────────────────────────────────────────────
+
 
 def test_power_zero_returns_trv_min():
     sp = PidController.power_to_setpoint(0.0, current_temp=20.0)
@@ -171,6 +177,7 @@ def test_power_to_setpoint_high_current_temp():
 
 # ── Reset behaviour ────────────────────────────────────────────────────────────
 
+
 def test_reset_clears_prev_error_so_d_is_zero_next_tick():
     """After reset(), the D term should be 0 on the next tick."""
     pid = make_pid(kp=0.0, ki=0.0, kd=1.0)
@@ -190,6 +197,7 @@ def test_last_output_updates_after_each_tick():
 
 # ── Regression: B-PID-1 ────────────────────────────────────────────────────────
 
+
 def test_bug_b_pid_1_integral_does_not_windup_during_away():
     """
     B-PID-1: Anti-windup clamp must prevent integral from growing
@@ -204,6 +212,7 @@ def test_bug_b_pid_1_integral_does_not_windup_during_away():
 
 
 # ── Repr ───────────────────────────────────────────────────────────────────────
+
 
 def test_repr_contains_room_name():
     pid = PidController(room_name="living_room")

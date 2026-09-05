@@ -9,6 +9,60 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added
+- Room detail rows (Rum-fanen) now show a 4-stat row per room: room
+  temperature, setpoint, TRV temperature and TRV battery level — room
+  temperature and TRV temperature were previously conflated into a single
+  "Aktuelt" value that always showed the TRV's own reading, even when a
+  `room_temp_sensor` was configured for that room.
+- Room overview cards (Oversigt tab) now show room temperature, setpoint
+  and TRV battery level (previously temperature and setpoint only, and the
+  temperature shown was the TRV's own reading rather than `room_temp_sensor`
+  when configured).
+- New optional per-room config field `battery_sensor` — a `sensor.*` entity
+  reporting TRV battery level (%). When unset, `ws_get_state` falls back to
+  a `battery_level` attribute on the room's `climate_entity`, if present.
+- Room detail rows show humidity and CO₂ readings when `humidity_sensor` /
+  `co2_sensor` are configured for the room (previously collected for mold
+  risk / waste weighting only, not surfaced in the UI).
+
+### Removed
+- "Energi i dag" card removed from the Oversigt tab. It modelled estimated
+  heat output from valve-open time × a configured room wattage — not a
+  measured value, and not electricity consumption (heat comes from
+  district heating; the TRVs themselves run on battery) — which made the
+  kWh figures look more precise than they were. The underlying
+  `waste_calculator` engine and the 7-day energy chart on the Historik tab
+  are unchanged.
+
+### Changed
+- `STATUS.md` — synced with reality: GitHub/HA-server version (both 0.13.2,
+  confirmed deployed and in sync), test suite (24 files, 381 tests, 66.80%
+  coverage — was stale at 14/225/48.00%), and the Boost architecture note
+  (removed a stale claim that `heat-manager-card.js` still had its own
+  separate client-side boost implementation — it was unified with the
+  panel/service WS commands back in v0.4.3).
+- `quality_scale.yaml` — `test-coverage` comment updated to the current
+  381 tests / 24 files / 66.80% (was 303/19/63.00%, v0.9.4).
+- `pyproject.toml` — `--cov-fail-under` raised 40 → 60, so CI actually
+  protects the coverage level already achieved instead of sitting far
+  below it.
+- `.github/workflows/ci.yml` — `ruff format`/`ruff check` now also run
+  against `tests/`, not just `custom_components/heat_manager`. The ~40
+  pre-existing findings this surfaced (unsorted/unformatted imports across
+  18 files, one late import, one unused variable, one `dict()` call
+  rewritten as a literal) were fixed in the same pass.
+- Added a `# broad-except-rationale:` comment above every one of the 36
+  `except Exception as err:  # noqa: BLE001` blocks (coordinator.py,
+  seven engine files, panel.py, switch.py, websocket.py, `__init__.py`),
+  explaining which of three patterns applies: coordinator-tick isolation,
+  a per-entity/per-room service-call boundary, or a best-effort
+  setup/shutdown/optional-integration step. `instructions_for_claude_heat_manager.md`
+  §10 updated to name this as the documented exception to "Catche
+  `Exception` bredt", and §4.2's coverage target rewritten to state the
+  enforced CI floor (60%) and actual level (66.80%) instead of an
+  unmet 95% figure.
+
 ---
 
 ## [0.13.2] — 2026-09-04
