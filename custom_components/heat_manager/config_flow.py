@@ -31,6 +31,9 @@ from .const import (
     CONF_AWAY_TEMP_MILD,
     CONF_AWAY_TEMP_OVERRIDE,
     CONF_BATTERY_SENSOR,
+    CONF_BUTTON_MODE_TOGGLE_ENTITY,
+    CONF_BUTTON_TEMP_DOWN_ENTITY,
+    CONF_BUTTON_TEMP_UP_ENTITY,
     CONF_CALIBRATION_ENTITY,
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
@@ -606,6 +609,30 @@ def _notifications_schema(defaults: dict = {}) -> vol.Schema:
     )
 
 
+def _remote_control_schema(defaults: dict = {}) -> vol.Schema:
+    """Global physical remote (e.g. Aqara Climate Sensor W100) — see
+    const.py's "Remote button control" section and engine/remote_button_engine.py.
+    All 3 fields are optional `event.*` entities, independently configurable
+    so any button/remote hardware can be assigned, not just one specific model.
+    """
+    return vol.Schema(
+        {
+            vol.Optional(
+                CONF_BUTTON_TEMP_UP_ENTITY,
+                default=defaults.get(CONF_BUTTON_TEMP_UP_ENTITY) or vol.UNDEFINED,
+            ): selector.selector({"entity": {"domain": "event"}}),
+            vol.Optional(
+                CONF_BUTTON_TEMP_DOWN_ENTITY,
+                default=defaults.get(CONF_BUTTON_TEMP_DOWN_ENTITY) or vol.UNDEFINED,
+            ): selector.selector({"entity": {"domain": "event"}}),
+            vol.Optional(
+                CONF_BUTTON_MODE_TOGGLE_ENTITY,
+                default=defaults.get(CONF_BUTTON_MODE_TOGGLE_ENTITY) or vol.UNDEFINED,
+            ): selector.selector({"entity": {"domain": "event"}}),
+        }
+    )
+
+
 # ── Config Flow ───────────────────────────────────────────────────────────────
 
 
@@ -892,6 +919,8 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_persons_menu()
             if section == "notifications":
                 return await self.async_step_notifications()
+            if section == "remote_control":
+                return await self.async_step_remote_control()
 
         return self.async_show_form(
             step_id="init",
@@ -910,6 +939,10 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
                                     {
                                         "value": "notifications",
                                         "label": "Notification preferences",
+                                    },
+                                    {
+                                        "value": "remote_control",
+                                        "label": "Remote control",
                                     },
                                 ]
                             }
@@ -1284,4 +1317,14 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="notifications",
             data_schema=_notifications_schema(self._current()),
+        )
+
+    async def async_step_remote_control(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data={**self._current(), **user_input})
+        return self.async_show_form(
+            step_id="remote_control",
+            data_schema=_remote_control_schema(self._current()),
         )

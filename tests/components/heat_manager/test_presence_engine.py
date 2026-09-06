@@ -472,3 +472,80 @@ async def test_force_room_on_multi_trv_sends_to_every_trv():
     entity_ids = {c.args[2]["entity_id"] for c in calls}
     assert entity_ids == {"climate.living_room", "climate.living_room_trv2"}
     coordinator.set_room_state.assert_called_once_with("Living room", RoomState.NORMAL)
+
+
+
+# ── Bug B20: HA/integration restart must not spam a "welcome home" push ─────
+
+
+@pytest.mark.asyncio
+async def test_bug_b20_initial_presence_restore_is_scheduled_with_notify_false():
+    """
+    Regression test for B20.
+    _check_initial_presence() (run once from __init__ on every HA restart
+    and every integration reload) must schedule _restore_all_schedule()
+    with notify=False. Before this fix it called _restore_all_schedule()
+    with only force=True, which meant every restart while someone was home
+    pushed "Heating resumed — welcome home" to the phone even though
+    nothing had actually happened — heating was simply being re-synced.
+    """
+    coordinator = _make_coordinator(rooms=[_make_room()], someone_home=True)
+
+    with patch.object(PresenceEngine, "_restore_all_schedule", MagicMock()) as mock_restore:
+        PresenceEngine(coordinator)
+
+    mock_restore.assert_called_once_with(force=True, notify=False)
+
+
+@pytest.mark.asyncio
+async def test_bug_b20_restore_all_schedule_notify_false_still_restores_but_does_not_notify():
+    """
+    B20: notify=False must still perform the real climate restore calls
+    (the startup re-sync itself is still needed — a TRV can genuinely be
+    stuck in away/off from before the restart) but must not call the
+    notify service.
+    """
+    rooms = [_make_room()]
+    coordinator = _make_coordinator(
+        rooms=rooms,
+        someone_home=True,
+        config={
+            "notify_service": "notify.mobile_app_flemming_mobil",
+            "notify_presence": True,
+        },
+    )
+    coordinator.get_room_state = MagicMock(return_value=RoomState.AWAY)
+
+    engine = PresenceEngine(coordinator)
+    await engine._restore_all_schedule(force=True, notify=False)
+
+    calls = coordinator.hass.services.async_call.await_args_list
+    # Heating was genuinely restored...
+    assert any(c.args[0] == "climate" for c in calls)
+    # ...but nothing was sent to the notify service.
+    assert not any(c.args[0] == "notify" for c in calls)
+
+
+@pytest.mark.asyncio
+async def test_bug_b20_restore_all_schedule_default_notify_true_unchanged():
+    """
+    B20: a genuine arrival or alarm disarm calls _restore_all_schedule()
+    with the default notify=True and must keep notifying exactly as
+    before this fix — only the startup re-sync path is silenced.
+    """
+    rooms = [_make_room()]
+    coordinator = _make_coordinator(
+        rooms=rooms,
+        someone_home=True,
+        config={
+            "notify_service": "notify.mobile_app_flemming_mobil",
+            "notify_presence": True,
+        },
+    )
+    coordinator.get_room_state = MagicMock(return_value=RoomState.AWAY)
+
+    engine = PresenceEngine(coordinator)
+    await engine._restore_all_schedule()
+
+    calls = coordinator.hass.services.async_call.await_args_list
+    assert any(c.args[0] == "notify" for c in calls)

@@ -42,7 +42,11 @@ function _hmStateColor(s) {
   return ({ normal:"#f97316", away:"#64748b", window_open:"#ef4444", pre_heat:"#0ea5e9", override:"#a855f7" })[s] ?? "#64748b";
 }
 
-function _hmStateLabel(s) {
+// v0.14.0: source param distinguishes who engaged OVERRIDE — "remote"
+// (RemoteButtonEngine) gets its own badge, "switch"/undefined keeps the
+// plain "Override" label as before.
+function _hmStateLabel(s, source) {
+  if (s === "override" && source === "remote") return "📡 Fjernbetjening";
   return ({ normal:"Normal", away:"Fraværende", window_open:"Vindue åbent", pre_heat:"Forvarmning", override:"Override" })[s] ?? (s || "–");
 }
 
@@ -194,6 +198,21 @@ class HeatManagerCard extends HTMLElement {
       }
     }
     return [];
+  }
+
+  // v0.14.0: which caller ("switch"/"remote") currently holds this room in
+  // OVERRIDE, if any — read off the same per-room state sensor entity as
+  // _roomBlockingSources() above (this card has no websocket connection of
+  // its own, unlike the panel, which gets it straight from ws_get_state).
+  _roomOverrideSource(name) {
+    const states = this._hass?.states ?? {};
+    const key = name.toLowerCase().replace(/\s+/g, "_");
+    for (const id of Object.keys(states)) {
+      if (id.startsWith("sensor.") && id.endsWith("_" + key + "_state")) {
+        return states[id].attributes?.override_source ?? null;
+      }
+    }
+    return null;
   }
 
   // Per-room blocking sources minus whatever the room's own state pill
@@ -627,7 +646,7 @@ class HeatManagerCard extends HTMLElement {
       ? rooms.map(room => {
           const state = this._roomState(room.room_name ?? "");
           const color = _hmStateColor(state);
-          const label = _hmStateLabel(state);
+          const label = _hmStateLabel(state, this._roomOverrideSource(room.room_name ?? ""));
           const temp  = this._climateTemp(room.climate_entity ?? "");
           const setpt = this._climateSetpoint(room.climate_entity ?? "");
           // v0.9.0: blocking-sources badge (controller_off/controller_pause
@@ -798,7 +817,7 @@ class HeatManagerCard extends HTMLElement {
       if (!cards[i]) return;
       const state = this._roomState(room.room_name ?? "");
       const color = _hmStateColor(state);
-      const label = _hmStateLabel(state);
+      const label = _hmStateLabel(state, this._roomOverrideSource(room.room_name ?? ""));
       const temp  = this._climateTemp(room.climate_entity ?? "");
       const setpt = this._climateSetpoint(room.climate_entity ?? "");
       cards[i].style.borderLeftColor = color;

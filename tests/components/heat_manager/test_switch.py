@@ -31,6 +31,21 @@ def _make_coordinator() -> MagicMock:
     coord.log_event = MagicMock()
     coord.rooms = []
 
+    # v0.14.0: the TRV-command routing itself moved out of switch.py into
+    # coordinator.async_set_room_override() (shared with RemoteButtonEngine).
+    # Bind the REAL method onto this mock (same pattern as
+    # test_coordinator_night_setback.py) so these tests still exercise the
+    # actual routing logic — not just a bare auto-mocked no-op.
+    from custom_components.heat_manager.coordinator import HeatManagerCoordinator
+
+    coord.async_set_room_override = HeatManagerCoordinator.async_set_room_override.__get__(
+        coord, type(coord)
+    )
+    # v0.14.0: real dict (not an auto-mocked attribute) — async_set_room_override()
+    # writes into it directly, and test_turn_on_records_switch_as_override_source
+    # below reads it back.
+    coord.room_override_source = {}
+
     hass = MagicMock()
     hass.services.async_call = AsyncMock()
     coord.hass = hass
@@ -129,6 +144,21 @@ async def test_turn_on_zigbee_sets_hvac_mode_via_write_entity():
     )
     coord.set_room_state.assert_called_once_with("Bathroom", RoomState.OVERRIDE)
     coord.log_event.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_turn_on_records_switch_as_override_source():
+    """v0.14.0: async_set_room_override() records who engaged OVERRIDE, so
+    the frontend can tell a switch-triggered override apart from the remote
+    (RemoteButtonEngine always passes source="remote") — see
+    coordinator.room_override_source / websocket.py's override_source field."""
+    coord = _make_coordinator()
+    coord.rooms = [_room(name="Bathroom")]
+    switch = RoomOverrideSwitch(coord, _entry(), _room(name="Bathroom"))
+
+    await switch.async_turn_on()
+
+    assert coord.room_override_source["Bathroom"] == "switch"
 
 
 @pytest.mark.asyncio

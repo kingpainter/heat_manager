@@ -18,9 +18,6 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     CONF_CLIMATE_ENTITY,
-    CONF_TRV_TYPE,
-    PRESET_SCHEDULE,
-    TRV_TYPE_ZIGBEE,
     RoomState,
 )
 from .coordinator import HeatManagerCoordinator
@@ -88,55 +85,22 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
         return self.coordinator.get_room_state(self._room_name) == RoomState.OVERRIDE
 
     async def async_turn_on(self, **kwargs) -> None:  # type: ignore[override]
-        """B18: every physical TRV configured for the room is switched to
-        OVERRIDE. Each branch keeps its own pre-existing (and slightly
-        inconsistent) entity-selection policy, now scoped per TRV instead
-        of the room's primary: zigbee prefers the write entity (HomeKit if
-        reachable), netatmo always writes to its own raw climate_entity.
+        """B18/v0.14.0: TRV-command routing lives in
+        coordinator.async_set_room_override() — shared with
+        RemoteButtonEngine so the per-TRV logic (zigbee prefers the write
+        entity, HomeKit if reachable; netatmo always writes to its own raw
+        climate_entity) exists exactly once.
         """
-        trvs = self.coordinator.get_room_trvs(self._room_name)
-        if not trvs:
-            return
-        any_ok = False
-        for trv in trvs:
-            climate_id = trv.get(CONF_CLIMATE_ENTITY, "")
-            if not climate_id:
-                continue
-            trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
-            try:
-                if trv_type == TRV_TYPE_ZIGBEE:
-                    write_id = self.coordinator.get_trv_write_entity(trv) or climate_id
-                    await self.coordinator.hass.services.async_call(
-                        "climate",
-                        "set_hvac_mode",
-                        {"entity_id": write_id, "hvac_mode": "heat"},
-                        blocking=True,
-                    )
-                else:
-                    await self.coordinator.hass.services.async_call(
-                        "climate",
-                        "set_preset_mode",
-                        {"entity_id": climate_id, "preset_mode": PRESET_SCHEDULE},
-                        blocking=True,
-                    )
-                any_ok = True
-                _LOGGER.info(
-                    "Override ON: %s → heating (%s)", self._room_name, trv_type
-                )
-            # broad-except-rationale: one entity failing must not abort the others in this loop
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning(
-                    "Override turn_on failed for %s: %s", self._room_name, err
-                )
-
-        if any_ok:
-            self.coordinator.set_room_state(self._room_name, RoomState.OVERRIDE)
+        ok = await self.coordinator.async_set_room_override(
+            self._room_name, True, source="switch"
+        )
+        if ok:
             self.coordinator.log_event(
                 f"Override ON — {self._room_name}", "Override", "override"
             )
 
     async def async_turn_off(self, **kwargs) -> None:  # type: ignore[override]
-        self.coordinator.set_room_state(self._room_name, RoomState.NORMAL)
+        await self.coordinator.async_set_room_override(self._room_name, False)
         self.coordinator.log_event(
             f"Override OFF — {self._room_name} returning to normal",
             "Override",

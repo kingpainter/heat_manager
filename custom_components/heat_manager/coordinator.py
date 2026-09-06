@@ -60,6 +60,7 @@ from .const import (
     CONF_ROOM_TEMP_SENSOR,
     CONF_ROOMS,
     CONF_TRV_MAX_TEMP,
+    CONF_TRV_TYPE,
     CONF_TRVS,
     CONF_WEATHER_ENTITY,
     CONF_WIND_SPEED_SENSOR,
@@ -80,7 +81,9 @@ from .const import (
     FF_WEIGHT,
     HOUSE_VOICE_DOMAIN,
     HOUSE_VOICE_SERVICE_SAY,
+    PRESET_SCHEDULE,
     SCAN_INTERVAL_SECONDS,
+    TRV_TYPE_ZIGBEE,
     AutoOffReason,
     ControllerState,
     EffectiveSeason,
@@ -92,6 +95,7 @@ from .engine.controller import ControllerEngine
 from .engine.pid_controller import PidController
 from .engine.preheat_engine import PreheatEngine
 from .engine.presence_engine import PresenceEngine
+from .engine.remote_button_engine import RemoteButtonEngine
 from .engine.schedule_engine import ScheduleEngine
 from .engine.season_engine import SeasonEngine
 from .engine.sync_engine import SyncEngine
@@ -142,6 +146,15 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Read by get_room_trvs() below, so it must exist before SyncEngine
         # (and any other engine) is constructed just below.
         self.room_group_enabled: dict[str, bool] = {}
+        # v0.14.0: which caller last engaged a room's OVERRIDE state —
+        # "switch" (RoomOverrideSwitch) or "remote" (RemoteButtonEngine).
+        # Cleared automatically by set_room_state() whenever a room leaves
+        # OVERRIDE, from ANY code path (presence/window restore, sync_engine
+        # forcing OVERRIDE directly, etc.) — see set_room_state() below.
+        # Purely informational: read by websocket.py/sensor.py so the
+        # frontend can show which caller is currently holding a room in
+        # manual mode. Never gates any control-flow decision.
+        self.room_override_source: dict[str, str] = {}
 
         # ── Engines ───────────────────────────────────────────────────────────
         self.controller = ControllerEngine(self)
@@ -154,6 +167,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.calibration_engine = CalibrationEngine(self)
         self.sync_engine = SyncEngine(self)
         self.schedule_engine = ScheduleEngine(self)
+        self.remote_button_engine = RemoteButtonEngine(self)
 
         self.pid_controllers: dict[str, PidController] = {}
         self._init_pid_controllers()
@@ -267,6 +281,14 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self.room_states.get(room_name, RoomState.NORMAL)
 
     def set_room_state(self, room_name: str, state: RoomState) -> None:
+        # v0.14.0: a room leaving OVERRIDE (for ANY reason — this switch,
+        # the remote, presence/window restoring the schedule, sync_engine
+        # forcing state directly, ...) always drops its recorded override
+        # source. Checked unconditionally, ahead of the old==state early
+        # return below, so a stale source can never survive.
+        if state != RoomState.OVERRIDE:
+            self.room_override_source.pop(room_name, None)
+
         old = self.room_states.get(room_name)
         if old == state:
             return
@@ -398,6 +420,73 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 seen.add(entity)
                 out.append(entity)
         return out
+
+    async def async_set_room_override(
+        self, room_name: str, enable: bool, source: str = "switch"
+    ) -> bool:
+        """Toggle a room's manual override (RoomState.OVERRIDE) on/off.
+
+        This is the shared implementation behind RoomOverrideSwitch
+        (switch.py) and RemoteButtonEngine (engine/remote_button_engine.py,
+        v0.14.0) — factored out so the TRV-command routing exists exactly
+        once instead of being duplicated per caller.
+
+        enable=True mirrors the switch's async_turn_on(): forces every
+        physical TRV configured for the room to heating — preset_mode=
+        schedule for netatmo, hvac_mode=heat for zigbee (zigbee prefers the
+        TRV's own write entity, HomeKit if reachable; netatmo always writes
+        to its raw climate_entity — same per-TRV routing as force_room_on())
+        — and marks the room OVERRIDE, bypassing presence and window logic.
+        `source` is purely informational ("switch" or "remote") — recorded
+        in room_override_source for the frontend badge, see set_room_state().
+
+        enable=False mirrors async_turn_off(): only marks the room NORMAL.
+        No TRV commands are sent — the coordinator's normal schedule/PID
+        sync resumes control on its next tick.
+
+        Returns True if the room's state actually changed the physical
+        TRVs (enable=True: at least one TRV command succeeded; enable=False:
+        always True), so a caller can decide whether to log/notify.
+        """
+        if not enable:
+            self.set_room_state(room_name, RoomState.NORMAL)
+            return True
+
+        trvs = self.get_room_trvs(room_name)
+        if not trvs:
+            return False
+        any_ok = False
+        for trv in trvs:
+            climate_id = trv.get(CONF_CLIMATE_ENTITY, "")
+            if not climate_id:
+                continue
+            trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
+            try:
+                if trv_type == TRV_TYPE_ZIGBEE:
+                    write_id = self.get_trv_write_entity(trv) or climate_id
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_hvac_mode",
+                        {"entity_id": write_id, "hvac_mode": "heat"},
+                        blocking=True,
+                    )
+                else:
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_preset_mode",
+                        {"entity_id": climate_id, "preset_mode": PRESET_SCHEDULE},
+                        blocking=True,
+                    )
+                any_ok = True
+                _LOGGER.info("Override ON: %s \u2192 heating (%s)", room_name, trv_type)
+            # broad-except-rationale: one entity failing must not abort the others in this loop
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Override turn_on failed for %s: %s", room_name, err)
+
+        if any_ok:
+            self.set_room_state(room_name, RoomState.OVERRIDE)
+            self.room_override_source[room_name] = source
+        return any_ok
 
     def trv_needs_cloud_delay(self, trv: dict[str, Any]) -> bool:
         """Per-TRV equivalent of needs_cloud_delay() — True unless this
@@ -1445,4 +1534,5 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.calibration_engine.async_shutdown()
         await self.sync_engine.async_shutdown()
         await self.schedule_engine.async_shutdown()
+        await self.remote_button_engine.async_shutdown()
         _LOGGER.debug("Coordinator shut down cleanly")

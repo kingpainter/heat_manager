@@ -326,6 +326,19 @@
           "notify_preheat": "Notifikation ved forvarmning",
           "energy_tracking": "Aktivér energispildsregistrering"
         }
+      },
+      "remote_control": {
+        "title": "Fjernbetjening",
+        "data": {
+          "button_temp_up_entity": "Knap: temperatur op (valgfri)",
+          "button_temp_down_entity": "Knap: temperatur ned (valgfri)",
+          "button_mode_toggle_entity": "Knap: skift auto/manuel (valgfri)"
+        },
+        "data_description": {
+          "button_temp_up_entity": "En event.*-entitet der affyres ved knaptryk — fx én knap på en Aqara Climate Sensor W100. Hæver sætpunktet i alle rum (undtagen rum med åbent vindue eller væk-tilstand) og sætter dem på manuel hvis nødvendigt.",
+          "button_temp_down_entity": "En event.*-entitet der affyres ved knaptryk. Sænker sætpunktet i alle rum (undtagen rum med åbent vindue eller væk-tilstand) og sætter dem på manuel hvis nødvendigt.",
+          "button_mode_toggle_entity": "En event.*-entitet der affyres ved knaptryk. Skifter alle kvalificerende rum mellem automatisk (schedule/PID) og manuel (override) styring."
+        }
       }
     },
     "error": {

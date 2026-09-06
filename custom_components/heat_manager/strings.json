@@ -326,6 +326,19 @@
           "notify_preheat": "Notify when pre-heat starts",
           "energy_tracking": "Enable energy waste tracking"
         }
+      },
+      "remote_control": {
+        "title": "Remote control",
+        "data": {
+          "button_temp_up_entity": "Temperature up button (optional)",
+          "button_temp_down_entity": "Temperature down button (optional)",
+          "button_mode_toggle_entity": "Auto/manual toggle button (optional)"
+        },
+        "data_description": {
+          "button_temp_up_entity": "An event.* entity that fires on button press \u2014 e.g. one button of an Aqara Climate Sensor W100. Raises every room's setpoint (except windows-open/away rooms) and switches them to manual if needed.",
+          "button_temp_down_entity": "An event.* entity that fires on button press. Lowers every room's setpoint (except windows-open/away rooms) and switches them to manual if needed.",
+          "button_mode_toggle_entity": "An event.* entity that fires on button press. Toggles every eligible room between automatic (schedule/PID) and manual (override) control."
+        }
       }
     },
     "error": {

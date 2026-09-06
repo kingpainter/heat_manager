@@ -225,6 +225,14 @@ class RoomStateSensor(CoordinatorEntity, SensorEntity):
             "blocking_sources": self.coordinator.get_room_blocking_sources(
                 self._room_name
             ),
+            # v0.14.0: which caller ("switch"/"remote") currently holds this
+            # room in OVERRIDE, if any — None otherwise. The mobile card
+            # reads this off the room's own state sensor entity since it has
+            # no websocket connection of its own (see heat-manager-card.js
+            # _roomOverrideSource()).
+            "override_source": self.coordinator.room_override_source.get(
+                self._room_name
+            ),
         }
 
     @callback

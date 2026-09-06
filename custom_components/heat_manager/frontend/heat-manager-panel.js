@@ -408,7 +408,7 @@ class HeatManagerPanel extends HTMLElement {
       const state   = room.state ?? "normal";
       const color   = this._stateColor(state);
       const grad    = this._stateGradient(state);
-      const label   = this._stateLabel(state);
+      const label   = this._stateLabel(state, room.override_source);
       const setpt   = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
       const tempStr = room.current_temp != null ? (Math.round(room.current_temp * 10) / 10) + "°C" : "–";
       const battery = room.battery_level != null ? Math.round(room.battery_level) : null;
@@ -904,7 +904,11 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   // State labels & colours — heat semantics
-  _stateLabel(s) {
+  // v0.14.0: source param distinguishes who engaged OVERRIDE — "remote"
+  // (RemoteButtonEngine) gets its own badge, "switch"/undefined keeps the
+  // plain "Override" label as before.
+  _stateLabel(s, source) {
+    if (s === "override" && source === "remote") return "📡 Fjernbetjening";
     return ({ normal:"Normal", away:"Fraværende", window_open:"Vindue åbent", pre_heat:"Forvarmning", override:"Override" })[s] ?? s ?? "–";
   }
   _stateColor(s) {
@@ -1897,7 +1901,7 @@ class HeatManagerPanel extends HTMLElement {
     const state    = room.state ?? "normal";
     const color    = this._stateColor(state);
     const grad     = this._stateGradient(state);
-    const label    = this._stateLabel(state);
+    const label    = this._stateLabel(state, room.override_source);
     const setpt    = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
     const tempStr  = room.current_temp != null ? (Math.round(room.current_temp * 10) / 10) + "°C" : "–";
     const battery  = room.battery_level != null ? Math.round(room.battery_level) : null;
@@ -2288,7 +2292,7 @@ class HeatManagerPanel extends HTMLElement {
               ${trvBadge}
               ${boostBadge}
             </div>
-            <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:${color}22;color:${color}">${this._stateLabel(state)}</span>
+            <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:${color}22;color:${color}">${this._stateLabel(state, room.override_source)}</span>
           </div>
           ${statsRowHTML}
           ${extraSensorsHTML}

@@ -10,6 +10,27 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## [Unreleased]
 
 ### Added
+- New global remote-control config step ("Remote control" in the options
+  flow) supporting a physical remote such as the Aqara Climate Sensor
+  W100, which exposes 3 separate `event.*` entities. All 3 entities are
+  configurable (not hardcoded to one device model): a temp-up and a
+  temp-down entity nudge every configured room's setpoint by ±0.5°C at
+  once (skipping rooms currently in a WINDOW_OPEN or AWAY state, and
+  automatically switching a room still in auto/NORMAL to manual/OVERRIDE
+  first), and a mode-toggle entity switches every eligible room between
+  auto and manual together. Only a single click triggers an action —
+  hold/double-click are ignored in this first version. New
+  `engine/remote_button_engine.py`. The TRV-command routing shared with
+  the existing per-room override switch was factored into
+  `coordinator.async_set_room_override()` so both callers use identical
+  logic. Every room now records who last engaged its override
+  (`coordinator.room_override_source`, exposed via the websocket API and
+  the room's state sensor entity) — the room cards on the Oversigt and Rum
+  tabs show a "📡 Fjernbetjening" badge instead of the plain "Override"
+  pill when the remote (not the manual switch) is holding a room in manual
+  mode. Actions taken via the remote are also logged to the existing
+  event log (Historik tab) with reason "Remote" and a description of
+  exactly what changed.
 - Room detail rows (Rum-fanen) now show a 4-stat row per room: room
   temperature, setpoint, TRV temperature and TRV battery level — room
   temperature and TRV temperature were previously conflated into a single
@@ -80,6 +101,20 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   `test_bug_b19_close_does_not_cancel_pending_open_task_while_second_sensor_still_open`,
   `test_bug_b19_close_proceeds_when_all_sensors_closed`. Relevant to Lukas'
   and Sebastian's rooms (both configured with two window sensors).
+- **B20** `engine/presence_engine.py` — every HA restart and every
+  integration reload re-instantiates `PresenceEngine`, whose
+  `_check_initial_presence()` (B11) re-syncs heating state by calling
+  `_restore_all_schedule(force=True)`. That method unconditionally pushed
+  "Heating resumed — welcome home" whenever any room was restored — so
+  every restart while someone was home spammed the phone, even though
+  nothing had actually changed. `_restore_all_schedule()` gained a
+  `notify: bool = True` parameter; the startup sync now calls it with
+  `notify=False`, so the physical re-sync still happens but stays silent.
+  A genuine arrival (`_handle_arrival`) and alarm disarm both still call
+  it with the default `notify=True` and keep notifying exactly as before.
+  Regression tests: `test_bug_b20_initial_presence_restore_is_scheduled_with_notify_false`,
+  `test_bug_b20_restore_all_schedule_notify_false_still_restores_but_does_not_notify`,
+  `test_bug_b20_restore_all_schedule_default_notify_true_unchanged`.
 
 ---
 

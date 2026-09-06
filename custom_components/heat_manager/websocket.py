@@ -384,6 +384,10 @@ async def ws_get_state(
                 "humidity": humidity,  # % — only set when humidity_sensor is configured
                 "co2": co2,  # ppm — only set when co2_sensor is configured
                 "why": _why_label(room_state),
+                # v0.14.0: which caller ("switch"/"remote") currently holds
+                # this room in OVERRIDE, if any — None otherwise. Purely for
+                # the frontend badge (see coordinator.room_override_source).
+                "override_source": coordinator.room_override_source.get(name),
                 # v0.9.0: self-reporting diagnostics — why this room's
                 # heating commands are currently held back, if at all.
                 "blocking_sources": coordinator.get_room_blocking_sources(name),

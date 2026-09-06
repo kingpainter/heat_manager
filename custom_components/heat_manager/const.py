@@ -245,6 +245,31 @@ GROUP_OFFSET_MIN: float = -5.0
 GROUP_OFFSET_MAX: float = 5.0
 GROUP_OFFSET_STEP: float = 0.5
 
+# ── Remote button control (v0.14.0) ──────────────────────────────────────────
+# Global (not per-room) physical remote — e.g. an Aqara Climate Sensor W100,
+# which exposes 3 separate `event.*` entities (one per physical button).
+# Configurable in the options flow's "Remote control" step so any `event.*`
+# entity can be assigned — not tied to one specific device model. See
+# engine/remote_button_engine.py.
+#
+# CONF_BUTTON_TEMP_UP_ENTITY / CONF_BUTTON_TEMP_DOWN_ENTITY: pressing these
+# nudges EVERY room's TRV setpoint by ±BUTTON_TEMP_STEP (clamped between
+# BUTTON_TEMP_MIN/MAX), skipping rooms currently WINDOW_OPEN or AWAY. A room
+# still in NORMAL (auto) is switched to OVERRIDE (manual) first so the next
+# PID tick doesn't immediately overwrite the button's adjustment.
+#
+# CONF_BUTTON_MODE_TOGGLE_ENTITY: pressing this toggles ALL eligible rooms
+# (same WINDOW_OPEN/AWAY exclusion) between OVERRIDE (manual) and NORMAL
+# (auto) together — if any eligible room is still NORMAL, all eligible
+# rooms are switched to OVERRIDE; otherwise all are switched back to NORMAL.
+CONF_BUTTON_TEMP_UP_ENTITY = "button_temp_up_entity"
+CONF_BUTTON_TEMP_DOWN_ENTITY = "button_temp_down_entity"
+CONF_BUTTON_MODE_TOGGLE_ENTITY = "button_mode_toggle_entity"
+
+BUTTON_TEMP_STEP: float = 0.5
+BUTTON_TEMP_MIN: float = 15.0
+BUTTON_TEMP_MAX: float = DEFAULT_TRV_MAX_TEMP
+
 # ── Device calibration (v0.9.0) ──────────────────────────────────────────────
 # See engine/calibration_engine.py and CONF_CALIBRATION_ENTITY above.
 

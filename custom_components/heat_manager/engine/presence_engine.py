@@ -119,7 +119,7 @@ class PresenceEngine:
         if self.coordinator.someone_home():
             _LOGGER.debug("PresenceEngine: someone home at startup — syncing schedule")
             self.coordinator.hass.async_create_task(
-                self._restore_all_schedule(force=True),
+                self._restore_all_schedule(force=True, notify=False),
                 name="heat_manager_initial_presence_restore",
             )
         else:
@@ -311,7 +311,7 @@ class PresenceEngine:
                 await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
     @guarded
-    async def _restore_all_schedule(self, force: bool = False) -> None:
+    async def _restore_all_schedule(self, force: bool = False, notify: bool = True) -> None:
         """
         Restore all rooms to schedule / heating-on.
 
@@ -339,6 +339,16 @@ class PresenceEngine:
         Used for the initial presence sync at startup, where in-memory
         room_states default to NORMAL even though the physical device may
         still be stuck in away/off from before the restart.
+
+        notify
+        ------
+        B20 FIX: When False, the "welcome home" push notification below is
+        suppressed even if rooms were actually restored. Used by
+        _check_initial_presence() so a HA/integration restart — which calls
+        this with force=True purely to re-sync already-correct heating
+        state — never pushes a notification to the phone. A genuine arrival
+        (_handle_arrival) or alarm disarm still calls this with the default
+        notify=True and keeps notifying as before.
         """
         if self._restore_lock.locked():
             _LOGGER.debug(
@@ -407,7 +417,7 @@ class PresenceEngine:
                 self.coordinator.log_event(
                     "Heating resumed — welcome home", "Presence", "normal"
                 )
-                if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
+                if notify and self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
                     await self._notify(
                         title="Heat Manager", message="Heating resumed — welcome home."
                     )
