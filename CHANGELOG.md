@@ -63,6 +63,24 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   enforced CI floor (60%) and actual level (66.80%) instead of an
   unmet 95% figure.
 
+### Fixed
+- **B19** `engine/window_engine.py` — `_schedule_close()` unconditionally
+  cancelled the room's pending open-suppression task whenever any window/door
+  sensor in the room reported closed, even if another sensor in the same
+  room was still open. In a multi-sensor room this could leave heating
+  suppressed only briefly or not at all: opening a second window re-arms the
+  delay on the newly-opened sensor (by design), and closing either window
+  before that delay elapsed cancelled the pending task without anything
+  taking its place — no pending open task, no active suppression, heating
+  never turned down even though a window remained open for the rest of the
+  airing. This is the mirror-image bug to B16 (which guards the restore
+  side); `_schedule_close()` now calls `_all_room_sensors_closed()` up
+  front and returns immediately, leaving any pending open task untouched,
+  whenever another sensor in the room is still open. Regression tests:
+  `test_bug_b19_close_does_not_cancel_pending_open_task_while_second_sensor_still_open`,
+  `test_bug_b19_close_proceeds_when_all_sensors_closed`. Relevant to Lukas'
+  and Sebastian's rooms (both configured with two window sensors).
+
 ---
 
 ## [0.13.2] — 2026-09-04

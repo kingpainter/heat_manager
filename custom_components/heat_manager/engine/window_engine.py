@@ -195,6 +195,21 @@ class WindowEngine:
         room_name = self._sensor_to_room.get(sensor_id)
         if not room_name:
             return
+        # B19 FIX: A room can have more than one window/door sensor. If
+        # another sensor in this room is still open, this sensor's close
+        # event must not touch the room's pending open-suppression task —
+        # cancelling it here left the room with neither a pending open task
+        # nor active suppression, so heating was never turned down even
+        # though a window remained open (mirror-image bug to B16, which
+        # protects the restore side but left this side unguarded).
+        if not self._all_room_sensors_closed(room_name):
+            _LOGGER.debug(
+                "Sensor '%s' closed in '%s' but another sensor is still"
+                " open — leaving window-open suppression untouched",
+                sensor_id,
+                room_name,
+            )
+            return
         self._cancel_task(self._open_tasks, room_name)
         self._cancel_task(self._close_tasks, room_name)
         self._close_tasks[room_name] = self.coordinator.hass.async_create_task(

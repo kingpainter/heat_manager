@@ -476,6 +476,81 @@ def test_bug_b16_all_room_sensors_closed_helper():
     assert engine._all_room_sensors_closed("Lukas") is True
 
 
+# ── Bug B19: closing one sensor must not disturb a still-needed suppression ─
+
+
+@pytest.mark.asyncio
+async def test_bug_b19_close_does_not_cancel_pending_open_task_while_second_sensor_still_open():
+    """
+    Regression test for B19.
+    Room has two window sensors. Sensor A closes (triggering _schedule_close)
+    while sensor B is still open. The room's pending open-suppression task
+    must be left untouched, and no close countdown should start — otherwise
+    heating is never turned down even though B remains open (this is what
+    happened in the field: a room aired out for 20 minutes never had its
+    TRV turned down because a sibling sensor's close event cancelled the
+    pending open-suppression task without anything replacing it).
+    """
+    rooms = [
+        _make_room(
+            sensors=["binary_sensor.kitchen_window_a", "binary_sensor.kitchen_window_b"]
+        )
+    ]
+    coordinator = _make_coordinator(rooms=rooms)
+
+    def state_for(entity_id):
+        if entity_id == "binary_sensor.kitchen_window_a":
+            return _sensor_state(is_open=False)  # just closed
+        if entity_id == "binary_sensor.kitchen_window_b":
+            return _sensor_state(is_open=True)  # still open
+        return None
+
+    coordinator.hass.states.get = MagicMock(side_effect=state_for)
+
+    engine = WindowEngine(coordinator)
+
+    pending_open_task = MagicMock()
+    pending_open_task.done.return_value = False
+    engine._open_tasks["Kitchen"] = pending_open_task
+
+    await engine._schedule_close("binary_sensor.kitchen_window_a")
+
+    # The pending open task must survive untouched.
+    pending_open_task.cancel.assert_not_called()
+    assert engine._open_tasks["Kitchen"] is pending_open_task
+    # No close countdown should have been started either.
+    assert "Kitchen" not in engine._close_tasks
+
+
+@pytest.mark.asyncio
+async def test_bug_b19_close_proceeds_when_all_sensors_closed():
+    """
+    B19: When the closing sensor is genuinely the last open one in the room,
+    _schedule_close() must still cancel the (now-stale) open task and start
+    the close countdown, exactly as before this fix.
+    """
+    rooms = [
+        _make_room(
+            sensors=["binary_sensor.kitchen_window_a", "binary_sensor.kitchen_window_b"]
+        )
+    ]
+    coordinator = _make_coordinator(rooms=rooms)
+    coordinator.hass.states.get = MagicMock(
+        return_value=_sensor_state(is_open=False)  # both sensors closed
+    )
+
+    engine = WindowEngine(coordinator)
+
+    pending_open_task = MagicMock()
+    pending_open_task.done.return_value = False
+    engine._open_tasks["Kitchen"] = pending_open_task
+
+    await engine._schedule_close("binary_sensor.kitchen_window_b")
+
+    pending_open_task.cancel.assert_called_once()
+    assert "Kitchen" in engine._close_tasks
+
+
 # ── B18: multi-TRV grouping — same command fanned out to every TRV ───────────
 
 
