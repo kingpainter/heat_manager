@@ -46,6 +46,22 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Room detail rows show humidity and CO₂ readings when `humidity_sensor` /
   `co2_sensor` are configured for the room (previously collected for mold
   risk / waste weighting only, not surfaced in the UI).
+- Heat Manager's own room and Hub devices on the HA Integrations page now
+  also carry lightweight diagnostic "mirror" entities for every raw sensor
+  the user has actually configured for that room or globally, so a
+  missing/failing one is visible at a glance without hunting through
+  whichever other integration actually created it. These are read-through
+  mirrors, not new duplicate entities Heat Manager owns the data for: per
+  room, `room_temp_sensor` / `humidity_sensor` / `co2_sensor` /
+  `battery_sensor` and every entry in `window_sensors`; under the Hub,
+  `outdoor_temp_sensor` / `outdoor_humidity_sensor` / `precipitation_sensor`
+  / `wind_speed_sensor` / `indoor_wake_sensor` / `weather_entity` /
+  `alarm_panel`. Each mirror greys out exactly when its source entity does.
+  Also new under the Hub: "Remote last action" — not a mirror but a small
+  new piece of coordinator state (`coordinator.remote_last_action`, written
+  by `engine/remote_button_engine.py`) recording the timestamp, description
+  and affected rooms of the global remote's most recent button press, so
+  its effect is visible without digging through the History tab.
 
 ### Removed
 - "Energi i dag" card removed from the Oversigt tab. It modelled estimated

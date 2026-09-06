@@ -10,6 +10,16 @@ sensor.heat_manager_efficiency_score         Daily score 0–100 (WasteCalculato
 sensor.heat_manager_<room>_state             Per-room state string
 sensor.heat_manager_<room>_window_duration   Minutes window open today (diagnostic)
 
+v0.15.0 — configured-sensor mirrors (diagnostic, under the room/Hub device
+they belong to, so a failing raw sensor is visible on the Integrations page
+without hunting for whichever integration actually owns it):
+- Per room: room temperature / humidity / CO2 / battery, when configured.
+- Hub: outdoor temperature / humidity, precipitation, wind speed, indoor
+  wake sensor, weather source, alarm panel, when configured.
+- Hub: "Remote last action" — NOT a mirror, an entity Heat Manager computes
+  itself from the global remote's button presses (see coordinator.
+  set_remote_last_action()); created only when a button entity is set.
+
 Gold IQS:
 - entity-disabled-by-default: diagnostic sensors off by default
 - log-when-unavailable: single WARNING when climate unavailable, INFO on recovery
@@ -29,14 +39,29 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.util.dt import utcnow
+from homeassistant.util.dt import parse_datetime, utcnow
 
 from .const import (
+    CONF_ALARM_PANEL,
+    CONF_BATTERY_SENSOR,
+    CONF_BUTTON_MODE_TOGGLE_ENTITY,
+    CONF_BUTTON_TEMP_DOWN_ENTITY,
+    CONF_BUTTON_TEMP_UP_ENTITY,
     CONF_CALIBRATION_ENTITY,
     CONF_CLIMATE_ENTITY,
+    CONF_CO2_SENSOR,
+    CONF_HUMIDITY_SENSOR,
+    CONF_INDOOR_WAKE_SENSOR,
+    CONF_OUTDOOR_HUMIDITY_SENSOR,
+    CONF_OUTDOOR_TEMP_SENSOR,
+    CONF_PRECIPITATION_SENSOR,
+    CONF_ROOM_TEMP_SENSOR,
+    CONF_WEATHER_ENTITY,
+    CONF_WIND_SPEED_SENSOR,
     CONF_WINDOW_SENSORS,
     RoomState,
 )
@@ -74,8 +99,219 @@ async def async_setup_entry(
         entities.append(RoomPidPowerSensor(coordinator, entry, room))
         if room.get(CONF_CALIBRATION_ENTITY):
             entities.append(RoomCalibrationOffsetSensor(coordinator, entry, room))
+        # v0.15.0 — mirror this room's own already-configured raw sensors
+        # (temperature/humidity/CO2/battery) under the room's device, so a
+        # failing/unavailable one is visible right on the Integrations page
+        # instead of hiding among whatever other integration created it.
+        entities.extend(_room_mirror_sensors(coordinator, entry, room))
+
+    # v0.15.0 — same idea as above, for Heat Manager's shared/global
+    # already-configured sensors, mirrored under the Hub device.
+    entities.extend(_hub_mirror_sensors(coordinator, entry))
+
+    if any(
+        coordinator.config.get(key)
+        for key in (
+            CONF_BUTTON_TEMP_UP_ENTITY,
+            CONF_BUTTON_TEMP_DOWN_ENTITY,
+            CONF_BUTTON_MODE_TOGGLE_ENTITY,
+        )
+    ):
+        entities.append(RemoteLastActionSensor(coordinator, entry))
 
     async_add_entities(entities)
+
+
+# ── Configured-sensor mirrors (v0.15.0) ──────────────────────────────────────
+#
+# Heat Manager doesn't own these entities — they belong to whatever
+# integration created them (a Zigbee2MQTT temperature sensor, a weather
+# integration, the alarm panel integration, etc.). Mirroring the ones the
+# user has actually configured makes them show up under Heat Manager's own
+# room/Hub device on the Integrations page too, so a missing/failing sensor
+# is visible at a glance without hunting for which device it's really
+# registered under. Heat Manager's OWN computed entities (state, PID power,
+# calibration offset, ...) are untouched — these mirrors only fill genuine
+# gaps for raw configured sensors that otherwise have no presence here.
+
+
+def _room_mirror_sensors(
+    coordinator: HeatManagerCoordinator, entry: ConfigEntry, room: dict
+) -> list[SensorEntity]:
+    """Diagnostic mirrors of one room's configured raw sensors — only
+    created for fields the user actually filled in."""
+    room_name = room["room_name"]
+    safe = room_name.lower().replace(" ", "_")
+    device_info = coordinator.room_device_info(room_name)
+    mirrors: list[SensorEntity] = []
+
+    for conf_key, name, device_class, suffix in (
+        (
+            CONF_ROOM_TEMP_SENSOR,
+            "Room temperature",
+            SensorDeviceClass.TEMPERATURE,
+            "room_temp_mirror",
+        ),
+        (CONF_HUMIDITY_SENSOR, "Humidity", SensorDeviceClass.HUMIDITY, "humidity_mirror"),
+        (CONF_CO2_SENSOR, "CO2", SensorDeviceClass.CO2, "co2_mirror"),
+        (CONF_BATTERY_SENSOR, "Battery", SensorDeviceClass.BATTERY, "battery_mirror"),
+    ):
+        source_id = room.get(conf_key)
+        if not source_id:
+            continue
+        mirrors.append(
+            _NumericMirrorSensor(
+                coordinator,
+                unique_id=f"{entry.entry_id}_{safe}_{suffix}",
+                name=name,
+                source_entity_id=source_id,
+                device_info=device_info,
+                device_class=device_class,
+            )
+        )
+    return mirrors
+
+
+def _hub_mirror_sensors(
+    coordinator: HeatManagerCoordinator, entry: ConfigEntry
+) -> list[SensorEntity]:
+    """Diagnostic mirrors of Heat Manager's shared/global configured raw
+    sensors — only created for fields the user actually filled in."""
+    device_info = coordinator.global_device_info()
+    config = coordinator.config
+    mirrors: list[SensorEntity] = []
+
+    numeric_fields = (
+        (
+            CONF_OUTDOOR_TEMP_SENSOR,
+            "Outdoor temperature",
+            SensorDeviceClass.TEMPERATURE,
+            "outdoor_temp_mirror",
+        ),
+        (
+            CONF_OUTDOOR_HUMIDITY_SENSOR,
+            "Outdoor humidity",
+            SensorDeviceClass.HUMIDITY,
+            "outdoor_humidity_mirror",
+        ),
+        (CONF_PRECIPITATION_SENSOR, "Precipitation", None, "precipitation_mirror"),
+        (CONF_WIND_SPEED_SENSOR, "Wind speed", None, "wind_speed_mirror"),
+        (
+            CONF_INDOOR_WAKE_SENSOR,
+            "Indoor wake sensor",
+            SensorDeviceClass.TEMPERATURE,
+            "indoor_wake_mirror",
+        ),
+    )
+    for conf_key, name, device_class, suffix in numeric_fields:
+        source_id = config.get(conf_key)
+        if not source_id:
+            continue
+        mirrors.append(
+            _NumericMirrorSensor(
+                coordinator,
+                unique_id=f"{entry.entry_id}_{suffix}",
+                name=name,
+                source_entity_id=source_id,
+                device_info=device_info,
+                device_class=device_class,
+            )
+        )
+
+    text_fields = (
+        (CONF_WEATHER_ENTITY, "Weather source", "weather_mirror"),
+        (CONF_ALARM_PANEL, "Alarm panel", "alarm_panel_mirror"),
+    )
+    for conf_key, name, suffix in text_fields:
+        source_id = config.get(conf_key)
+        if not source_id:
+            continue
+        mirrors.append(
+            _TextMirrorSensor(
+                coordinator,
+                unique_id=f"{entry.entry_id}_{suffix}",
+                name=name,
+                source_entity_id=source_id,
+                device_info=device_info,
+            )
+        )
+
+    return mirrors
+
+
+class _MirrorSensorBase(CoordinatorEntity, SensorEntity):
+    """Generic read-through mirror of one already-configured source entity.
+
+    Gold IQS — entity-unavailable: mirrors the source entity's own
+    availability, so this entity greys out exactly when the real sensor
+    does (a missing/removed entity_id counts as unavailable too).
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(
+        self,
+        coordinator: HeatManagerCoordinator,
+        unique_id: str,
+        name: str,
+        source_entity_id: str,
+        device_info: DeviceInfo,
+        device_class: SensorDeviceClass | None = None,
+    ) -> None:
+        super().__init__(coordinator)
+        self._source_id = source_entity_id
+        self._attr_unique_id = unique_id
+        self._attr_name = name
+        self._attr_device_info = device_info
+        if device_class is not None:
+            self._attr_device_class = device_class
+
+    @property
+    def available(self) -> bool:
+        s = self.coordinator.hass.states.get(self._source_id)
+        return s is not None and s.state not in ("unavailable", "unknown")
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        s = self.coordinator.hass.states.get(self._source_id)
+        if s is None:
+            return None
+        return s.attributes.get("unit_of_measurement")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"source_entity_id": self._source_id}
+
+
+class _NumericMirrorSensor(_MirrorSensorBase):
+    """Mirror of a numeric source (temperature, humidity, CO2, battery,
+    precipitation, wind speed, ...)."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def native_value(self) -> float | None:
+        s = self.coordinator.hass.states.get(self._source_id)
+        if s is None or s.state in ("unavailable", "unknown"):
+            return None
+        try:
+            return float(s.state)
+        except (TypeError, ValueError):
+            return None
+
+
+class _TextMirrorSensor(_MirrorSensorBase):
+    """Mirror of a non-numeric source (weather condition, alarm state,
+    ...) — forwards its raw state string as-is."""
+
+    @property
+    def native_value(self) -> str | None:
+        s = self.coordinator.hass.states.get(self._source_id)
+        if s is None or s.state in ("unavailable", "unknown"):
+            return None
+        return s.state
 
 
 # ── Global sensors ────────────────────────────────────────────────────────────
@@ -401,3 +637,45 @@ class RoomCalibrationOffsetSensor(CoordinatorEntity, SensorEntity):
     def native_value(self) -> float | None:
         value = self.coordinator.calibration_engine._last_written.get(self._room_name)
         return round(value, 1) if value is not None else None
+
+
+class RemoteLastActionSensor(CoordinatorEntity, SensorEntity):
+    """Timestamp of the last action taken by the global physical remote
+    (v0.14.0's temp up/down/mode toggle buttons) — only created when at
+    least one of the 3 button entities is configured.
+
+    This is NOT a mirror of a configured sensor — it's an entity Heat
+    Manager computes itself (see coordinator.set_remote_last_action(),
+    called from engine/remote_button_engine.py), created because nothing
+    else already shows "what did the remote last do, and when" at a glance.
+    Complements room_override_source (which shows *where* the remote is
+    currently holding a room in manual mode) with the Hub-level *when/what*.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Remote last action"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_remote_last_action"
+        self._attr_device_info = coordinator.global_device_info()
+
+    @property
+    def native_value(self) -> datetime | None:
+        action = self.coordinator.remote_last_action
+        if not action:
+            return None
+        return parse_datetime(action["timestamp"])
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        action = self.coordinator.remote_last_action
+        if not action:
+            return {}
+        return {
+            "description": action["description"],
+            "rooms": action["rooms"],
+        }

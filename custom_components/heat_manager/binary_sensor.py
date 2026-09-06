@@ -15,6 +15,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -47,6 +48,15 @@ async def async_setup_entry(
     for room in coordinator.rooms:
         if room.get(CONF_WINDOW_SENSORS):
             entities.append(RoomWindowSensor(coordinator, entry, room))
+            # v0.15.0 — mirror each individual raw window/door contact
+            # under the room's device too (RoomWindowSensor above only
+            # exposes the aggregated "any open" state) — see sensor.py's
+            # analogous numeric mirrors for the same visibility rationale.
+            entities.extend(
+                RawWindowContactMirror(coordinator, entry, room, index, source_id)
+                for index, source_id in enumerate(room[CONF_WINDOW_SENSORS])
+                if source_id
+            )
         if room.get(CONF_HUMIDITY_SENSOR):
             entities.append(MoldRiskSensor(coordinator, entry, room))
 
@@ -357,3 +367,55 @@ class MoldRiskSensor(CoordinatorEntity, BinarySensorEntity):
             if outdoor_rh is not None
             else None,
         }
+
+
+class RawWindowContactMirror(CoordinatorEntity, BinarySensorEntity):
+    """Diagnostic mirror of ONE raw configured window/door contact sensor,
+    shown under the room's own device (v0.15.0).
+
+    Heat Manager doesn't own this entity — it belongs to whatever
+    integration created it (Zigbee2MQTT, deCONZ, etc.). Mirroring it here
+    makes it show up on Heat Manager's own room device on the Integrations
+    page too, so a failing/unavailable contact sensor is visible at a
+    glance instead of hiding among another integration's entities.
+    RoomWindowSensor (above) still owns the aggregated "any open" state
+    used by the rest of the codebase — this is purely an additional,
+    per-sensor visibility layer.
+    """
+
+    _attr_has_entity_name = True
+    _attr_device_class = BinarySensorDeviceClass.WINDOW
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(
+        self,
+        coordinator: HeatManagerCoordinator,
+        entry: ConfigEntry,
+        room: dict,
+        index: int,
+        source_entity_id: str,
+    ) -> None:
+        super().__init__(coordinator)
+        room_name = room["room_name"]
+        safe_name = room_name.lower().replace(" ", "_")
+        self._source_id = source_entity_id
+        self._attr_unique_id = f"{entry.entry_id}_{safe_name}_window_mirror_{index}"
+        self._attr_name = f"Window/door sensor {index + 1}"
+        self._attr_device_info = coordinator.room_device_info(room_name)
+
+    @property
+    def available(self) -> bool:
+        s = self.coordinator.hass.states.get(self._source_id)
+        return s is not None and s.state not in ("unavailable", "unknown")
+
+    @property
+    def is_on(self) -> bool | None:
+        s = self.coordinator.hass.states.get(self._source_id)
+        if s is None or s.state in ("unavailable", "unknown"):
+            return None
+        return s.state == "on"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"source_entity_id": self._source_id}

@@ -170,10 +170,11 @@ class RemoteButtonEngine:
         if rooms_adjusted:
             sign = "+" if delta > 0 else ""
             rooms_str = ", ".join(rooms_adjusted)
-            self.coordinator.log_event(
-                f"Remote: {sign}{delta:.1f}°C — {rooms_str}",
-                "Remote",
-                "override",
+            description = f"Remote: {sign}{delta:.1f}°C — {rooms_str}"
+            self.coordinator.log_event(description, "Remote", "override")
+            self.coordinator.set_remote_last_action(
+                description,
+                [room.split(" → ")[0] for room in rooms_adjusted],
             )
             _LOGGER.info("RemoteButtonEngine: temp %+.1f°C — %s", delta, rooms_str)
 
@@ -242,11 +243,11 @@ class RemoteButtonEngine:
         if rooms_changed:
             label = "manual" if enable else "auto"
             rooms_str = ", ".join(rooms_changed)
+            description = f"Remote: switched to {label} — {rooms_str}"
             self.coordinator.log_event(
-                f"Remote: switched to {label} — {rooms_str}",
-                "Remote",
-                "override" if enable else "normal",
+                description, "Remote", "override" if enable else "normal"
             )
+            self.coordinator.set_remote_last_action(description, rooms_changed)
             _LOGGER.info(
                 "RemoteButtonEngine: mode → %s for %s", label, rooms_str
             )

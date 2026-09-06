@@ -156,6 +156,16 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # manual mode. Never gates any control-flow decision.
         self.room_override_source: dict[str, str] = {}
 
+        # v0.15.0: last action taken by the global physical remote (any of
+        # the 3 configurable button entities — see
+        # engine/remote_button_engine.py and CONF_BUTTON_*). Purely
+        # informational, written via set_remote_last_action() below and
+        # read by sensor.py's RemoteLastActionSensor (Hub device) so a
+        # button press's effect is visible at a glance without digging
+        # through the History tab. None until the remote has acted at least
+        # once since HA started.
+        self.remote_last_action: dict[str, Any] | None = None
+
         # ── Engines ───────────────────────────────────────────────────────────
         self.controller = ControllerEngine(self)
         self.presence_engine = PresenceEngine(self)
@@ -487,6 +497,21 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.set_room_state(room_name, RoomState.OVERRIDE)
             self.room_override_source[room_name] = source
         return any_ok
+
+    def set_remote_last_action(self, description: str, rooms: list[str]) -> None:
+        """Record the most recent action taken by the global physical
+        remote (v0.14.0's temp up/down/mode toggle buttons) — called from
+        engine/remote_button_engine.py after a successful action.
+
+        Purely informational: read by sensor.py's RemoteLastActionSensor
+        (Hub device). Never gates any control-flow decision.
+        """
+        self.remote_last_action = {
+            "description": description,
+            "rooms": rooms,
+            "timestamp": utcnow().isoformat(),
+        }
+        self.async_update_listeners()
 
     def trv_needs_cloud_delay(self, trv: dict[str, Any]) -> bool:
         """Per-TRV equivalent of needs_cloud_delay() — True unless this
