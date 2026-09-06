@@ -84,7 +84,9 @@ class RemoteButtonEngine:
             )
         if mode_id:
             self._unsubs.append(
-                async_track_state_change_event(hass, [mode_id], self._handle_mode_toggle)
+                async_track_state_change_event(
+                    hass, [mode_id], self._handle_mode_toggle
+                )
             )
 
         if not (up_id or down_id or mode_id):
@@ -248,9 +250,7 @@ class RemoteButtonEngine:
                 description, "Remote", "override" if enable else "normal"
             )
             self.coordinator.set_remote_last_action(description, rooms_changed)
-            _LOGGER.info(
-                "RemoteButtonEngine: mode → %s for %s", label, rooms_str
-            )
+            _LOGGER.info("RemoteButtonEngine: mode → %s for %s", label, rooms_str)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
