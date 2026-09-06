@@ -38,8 +38,8 @@ def _make_coordinator() -> MagicMock:
     # actual routing logic — not just a bare auto-mocked no-op.
     from custom_components.heat_manager.coordinator import HeatManagerCoordinator
 
-    coord.async_set_room_override = HeatManagerCoordinator.async_set_room_override.__get__(
-        coord, type(coord)
+    coord.async_set_room_override = (
+        HeatManagerCoordinator.async_set_room_override.__get__(coord, type(coord))
     )
     # v0.14.0: real dict (not an auto-mocked attribute) — async_set_room_override()
     # writes into it directly, and test_turn_on_records_switch_as_override_source

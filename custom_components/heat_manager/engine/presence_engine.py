@@ -311,7 +311,9 @@ class PresenceEngine:
                 await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
     @guarded
-    async def _restore_all_schedule(self, force: bool = False, notify: bool = True) -> None:
+    async def _restore_all_schedule(
+        self, force: bool = False, notify: bool = True
+    ) -> None:
         """
         Restore all rooms to schedule / heating-on.
 

@@ -474,7 +474,6 @@ async def test_force_room_on_multi_trv_sends_to_every_trv():
     coordinator.set_room_state.assert_called_once_with("Living room", RoomState.NORMAL)
 
 
-
 # ── Bug B20: HA/integration restart must not spam a "welcome home" push ─────
 
 
@@ -491,7 +490,9 @@ async def test_bug_b20_initial_presence_restore_is_scheduled_with_notify_false()
     """
     coordinator = _make_coordinator(rooms=[_make_room()], someone_home=True)
 
-    with patch.object(PresenceEngine, "_restore_all_schedule", MagicMock()) as mock_restore:
+    with patch.object(
+        PresenceEngine, "_restore_all_schedule", MagicMock()
+    ) as mock_restore:
         PresenceEngine(coordinator)
 
     mock_restore.assert_called_once_with(force=True, notify=False)
