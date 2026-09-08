@@ -9,6 +9,46 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.17.1] — 2026-09-08
+
+Fixes 429 "Too Many Requests" and follow-on 503 "Service Unavailable"
+errors from Netatmo's `setthermmode` API, seen in the log as
+`window_engine`/`presence_engine` warnings ("Failed to restore schedule
+in/on ...") when several rooms' heating was restored around the same
+moment.
+
+### Fixed
+- **Netatmo rate-limit race across engines/rooms.** Every engine that
+  writes to a Netatmo TRV paced *its own* sequential calls with
+  `asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)`, but nothing serialised calls
+  *across* engines, rooms, or concurrent asyncio tasks. `window_engine.py`
+  additionally had no pacing at all in its window-close restore path, and
+  runs each room's restore as an independent `async_create_task()` — so
+  several windows closing within the same debounce window fired
+  simultaneous, unpaced Netatmo calls and tripped the API's rate limit;
+  the resulting 503s ~15-20 min later look like fallout from the same
+  throttling window. Added `coordinator.async_call_climate_service()`,
+  backed by a single coordinator-wide `asyncio.Lock`, as the one place any
+  engine now sends a `climate.*` service call — every Netatmo-bound call,
+  regardless of triggering engine/room/task, is serialised and paced
+  through it; HomeKit-bound calls skip the lock entirely (local, no rate
+  limit). Migrated `presence_engine.py` (`_set_all_away`,
+  `_restore_all_schedule`, `force_room_on` — the last of which had no
+  pacing at all before this fix either), `window_engine.py`
+  (`_schedule_close`), `controller.py` (`_apply_off_fallback`), and
+  `valve_protection_engine.py` (weekly valve exercise) to use it.
+- **`controller.py` `_apply_off_fallback()`:** the cloud-preset_mode branch
+  (`preset_mode: schedule`, which always targets the cloud entity) decided
+  whether to pace/lock using the room's *primary*-TRV HomeKit reachability
+  instead of "this call always goes to cloud" — a reachable HomeKit entity
+  on the primary TRV could wrongly skip pacing for a call that never
+  reaches HomeKit. Now always paced.
+- **`valve_protection_engine.py` exercise loop:** paced/locked based on the
+  configured `trv_type` (`!= zigbee`) rather than whether the resolved
+  `write_entity` actually was the cloud entity — a Netatmo TRV with a
+  currently-reachable HomeKit entity took the Netatmo lock unnecessarily.
+  Now decided by `write_entity == climate_id`.
+
 ## [0.17.0] — 2026-09-07
 
 More of the data the backend already computed is now actually shown on the

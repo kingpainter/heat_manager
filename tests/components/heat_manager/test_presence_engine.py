@@ -28,6 +28,25 @@ def _make_coordinator(
     coordinator = MagicMock()
     coordinator.hass = MagicMock()
     coordinator.hass.services.async_call = AsyncMock()
+
+    # 2026-09: production code now routes every climate service call through
+    # coordinator.async_call_climate_service() (shared Netatmo lock/pacing —
+    # see coordinator.py) instead of calling hass.services.async_call
+    # directly. Forward it exactly like the real method does, so every
+    # existing assertion on coordinator.hass.services.async_call below
+    # keeps working unchanged; needs_delay is ignored here since these
+    # tests don't assert on pacing/timing.
+    async def _async_call_climate_service(
+        service, entity_id, data=None, *, needs_delay=True
+    ):
+        call_data = {"entity_id": entity_id, **(data or {})}
+        return await coordinator.hass.services.async_call(
+            "climate", service, call_data, blocking=True
+        )
+
+    coordinator.async_call_climate_service = AsyncMock(
+        side_effect=_async_call_climate_service
+    )
     coordinator.hass.states.get = MagicMock(return_value=None)
 
     coordinator.persons = persons or []

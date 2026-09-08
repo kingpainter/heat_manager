@@ -41,7 +41,6 @@ from ..const import (
     DEFAULT_NIGHT_END_HOUR,
     DEFAULT_NIGHT_START_HOUR,
     HVAC_OFF,
-    NETATMO_API_CALL_DELAY_SEC,
     PRESET_AWAY,
     PRESET_SCHEDULE,
     TRV_TYPE_ZIGBEE,
@@ -271,11 +270,15 @@ class PresenceEngine:
                     if state and state.state == HVAC_OFF:
                         continue
                     try:
-                        await hass.services.async_call(
-                            "climate",
+                        # Always paced+locked (needs_delay=True): hvac_mode
+                        # calls to a Z2M TRV may still be cloud-bridged for
+                        # some setups, so this stays conservative like the
+                        # pre-lock code did (H-6 comment below, unchanged).
+                        await self.coordinator.async_call_climate_service(
                             "set_hvac_mode",
-                            {"entity_id": entity_id, "hvac_mode": HVAC_OFF},
-                            blocking=True,
+                            entity_id,
+                            {"hvac_mode": HVAC_OFF},
+                            needs_delay=True,
                         )
                         self.coordinator.set_room_state(room_name, RoomState.AWAY)
                         self.coordinator.log_event(
@@ -293,11 +296,12 @@ class PresenceEngine:
                     if state and state.attributes.get("preset_mode") == PRESET_AWAY:
                         continue
                     try:
-                        await hass.services.async_call(
-                            "climate",
+                        # H-6: preset_mode calls are always cloud — delay applies
+                        await self.coordinator.async_call_climate_service(
                             "set_preset_mode",
-                            {"entity_id": entity_id, "preset_mode": PRESET_AWAY},
-                            blocking=True,
+                            entity_id,
+                            {"preset_mode": PRESET_AWAY},
+                            needs_delay=True,
                         )
                         self.coordinator.set_room_state(room_name, RoomState.AWAY)
                         self.coordinator.log_event(
@@ -306,9 +310,6 @@ class PresenceEngine:
                     # broad-except-rationale: one entity failing must not abort the others in this loop
                     except Exception as err:  # noqa: BLE001
                         _LOGGER.warning("Failed to set away on %s: %s", entity_id, err)
-                # H-6: preset_mode calls are always cloud — delay applies
-                # Zigbee hvac_mode calls may also be cloud-bridged so delay always here
-                await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
     @guarded
     async def _restore_all_schedule(
@@ -358,7 +359,6 @@ class PresenceEngine:
             )
             return
         async with self._restore_lock:
-            hass = self.coordinator.hass
             any_restored = False
             for room in self.coordinator.rooms:
                 room_name = room.get("room_name", room.get(CONF_CLIMATE_ENTITY, ""))
@@ -381,23 +381,25 @@ class PresenceEngine:
                     if not entity_id:
                         continue
                     trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
+                    # H-6: preset_mode/hvac_mode to cloud needs stagger+lock;
+                    # HomeKit doesn't. For restore we always write to the
+                    # cloud entity (preset_mode), so this is True for
+                    # Netatmo rooms.
+                    delay = self.coordinator.needs_cloud_delay(room_name)
                     try:
                         if trv_type == TRV_TYPE_ZIGBEE:
-                            await hass.services.async_call(
-                                "climate",
+                            await self.coordinator.async_call_climate_service(
                                 "set_hvac_mode",
-                                {"entity_id": entity_id, "hvac_mode": "heat"},
-                                blocking=True,
+                                entity_id,
+                                {"hvac_mode": "heat"},
+                                needs_delay=delay,
                             )
                         else:
-                            await hass.services.async_call(
-                                "climate",
+                            await self.coordinator.async_call_climate_service(
                                 "set_preset_mode",
-                                {
-                                    "entity_id": entity_id,
-                                    "preset_mode": PRESET_SCHEDULE,
-                                },
-                                blocking=True,
+                                entity_id,
+                                {"preset_mode": PRESET_SCHEDULE},
+                                needs_delay=delay,
                             )
                         room_restored = True
                     # broad-except-rationale: one entity failing must not abort the others in this loop
@@ -405,11 +407,6 @@ class PresenceEngine:
                         _LOGGER.warning(
                             "Failed to restore schedule on %s: %s", entity_id, err
                         )
-                    # H-6: preset_mode/hvac_mode to cloud needs stagger; HomeKit
-                    # doesn't. For restore we always write to the cloud entity
-                    # (preset_mode), so delay always applies for Netatmo rooms.
-                    if self.coordinator.needs_cloud_delay(room_name):
-                        await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
                 if room_restored:
                     self.coordinator.set_room_state(room_name, RoomState.NORMAL)
@@ -441,20 +438,23 @@ class PresenceEngine:
             if not entity_id:
                 continue
             trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
+            # Same 429-race gap this room-level loop had for every other
+            # multi-TRV Netatmo write in this file — closed the same way.
+            delay = self.coordinator.needs_cloud_delay(room_name)
             try:
                 if trv_type == TRV_TYPE_ZIGBEE:
-                    await self.coordinator.hass.services.async_call(
-                        "climate",
+                    await self.coordinator.async_call_climate_service(
                         "set_hvac_mode",
-                        {"entity_id": entity_id, "hvac_mode": "heat"},
-                        blocking=True,
+                        entity_id,
+                        {"hvac_mode": "heat"},
+                        needs_delay=delay,
                     )
                 else:
-                    await self.coordinator.hass.services.async_call(
-                        "climate",
+                    await self.coordinator.async_call_climate_service(
                         "set_preset_mode",
-                        {"entity_id": entity_id, "preset_mode": PRESET_SCHEDULE},
-                        blocking=True,
+                        entity_id,
+                        {"preset_mode": PRESET_SCHEDULE},
+                        needs_delay=delay,
                     )
                 any_ok = True
                 _LOGGER.info("Force-on: %s → heating (%s)", entity_id, trv_type)

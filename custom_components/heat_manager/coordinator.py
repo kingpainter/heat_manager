@@ -28,6 +28,7 @@ v0.4.1 additions:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import deque
 from datetime import datetime, timedelta
@@ -81,6 +82,7 @@ from .const import (
     FF_WEIGHT,
     HOUSE_VOICE_DOMAIN,
     HOUSE_VOICE_SERVICE_SAY,
+    NETATMO_API_CALL_DELAY_SEC,
     PRESET_SCHEDULE,
     SCAN_INTERVAL_SECONDS,
     TRV_TYPE_ZIGBEE,
@@ -146,6 +148,17 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # via_device_id — see that method's docstring for why this replaced
         # the old via_device=(DOMAIN, entry_id) tuple form.
         self.global_device_id: str | None = None
+        # 2026-09 429/503 fix: every engine that writes to a Netatmo TRV
+        # used to pace *its own* sequential calls with
+        # asyncio.sleep(NETATMO_API_CALL_DELAY_SEC), which does nothing for
+        # concurrent callers — e.g. window_engine spawns one
+        # async_create_task() per room, so several rooms closing windows in
+        # the same instant each fired a Netatmo call at once regardless of
+        # any single engine's own internal pacing. This lock is now shared
+        # by every engine via async_call_climate_service() below, so any
+        # Netatmo-bound climate call — from any engine, any room, any task —
+        # is serialised app-wide instead of racing.
+        self._netatmo_call_lock = asyncio.Lock()
 
         # ── Shared runtime state ──────────────────────────────────────────────
         self.room_states: dict[str, RoomState] = {}
@@ -618,6 +631,45 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if state and state.state not in ("unavailable", "unknown", "off"):
                 return False  # Writing to HomeKit — no delay needed
         return True  # Writing to cloud — stagger to avoid 429
+
+    async def async_call_climate_service(
+        self,
+        service: str,
+        entity_id: str,
+        data: dict[str, Any] | None = None,
+        *,
+        needs_delay: bool,
+    ) -> None:
+        """Call climate.<service> on entity_id — the one place any engine
+        writes to a climate entity, so Netatmo-bound calls are serialised.
+
+        `needs_delay` should come from needs_cloud_delay(room_name) or
+        trv_needs_cloud_delay(trv) — True means this call is NOT reaching a
+        currently-reachable HomeKit entity, i.e. it's going to Netatmo's
+        cloud. When True, this coroutine takes self._netatmo_call_lock and
+        holds it until NETATMO_API_CALL_DELAY_SEC after the call returns,
+        so no two Netatmo calls — regardless of which engine, room, or
+        asyncio task triggered them — can ever fire concurrently or closer
+        together than the pacing interval. See the lock's own comment in
+        __init__ for why per-engine-local pacing alone wasn't enough.
+        HomeKit calls (needs_delay=False) skip the lock — they're local and
+        don't need it.
+
+        Raises whatever hass.services.async_call raises; callers keep their
+        own try/except around this to log a per-entity failure and continue
+        with the rest of their TRV loop.
+        """
+        call_data = {"entity_id": entity_id, **(data or {})}
+        if not needs_delay:
+            await self.hass.services.async_call(
+                "climate", service, call_data, blocking=True
+            )
+            return
+        async with self._netatmo_call_lock:
+            await self.hass.services.async_call(
+                "climate", service, call_data, blocking=True
+            )
+            await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
     def any_window_open(self) -> bool:
         for room in self.rooms:

@@ -41,9 +41,6 @@ from ..const import (
     CONF_CLIMATE_ENTITY,
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_NOTIFY_SERVICE,
-    CONF_TRV_TYPE,
-    NETATMO_API_CALL_DELAY_SEC,
-    TRV_TYPE_ZIGBEE,
     ControllerState,
 )
 
@@ -174,18 +171,21 @@ class ValveProtectionEngine:
                 except (TypeError, ValueError):
                     continue
 
-                trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
+                # 2026-09 fix: pace/lock by whether write_entity actually
+                # IS the cloud entity, not by the configured trv_type — the
+                # old `trv_type != TRV_TYPE_ZIGBEE` check would add the
+                # delay even when write_entity above already resolved to a
+                # reachable HomeKit id, needlessly holding the shared
+                # Netatmo lock for a call that never touches Netatmo.
+                needs_delay = write_entity == climate_id
 
                 try:
                     # Step 1: open valve to exercise setpoint
-                    await hass.services.async_call(
-                        "climate",
+                    await self.coordinator.async_call_climate_service(
                         "set_temperature",
-                        {
-                            "entity_id": write_entity,
-                            "temperature": EXERCISE_SETPOINT_C,
-                        },
-                        blocking=True,
+                        write_entity,
+                        {"temperature": EXERCISE_SETPOINT_C},
+                        needs_delay=needs_delay,
                     )
                     _LOGGER.debug(
                         "ValveProtectionEngine: %s (%s) → %.0f°C (exercise open)",
@@ -198,11 +198,11 @@ class ValveProtectionEngine:
                     await asyncio.sleep(EXERCISE_DURATION_SEC)
 
                     # Step 2: restore original setpoint
-                    await hass.services.async_call(
-                        "climate",
+                    await self.coordinator.async_call_climate_service(
                         "set_temperature",
-                        {"entity_id": write_entity, "temperature": original_setpoint},
-                        blocking=True,
+                        write_entity,
+                        {"temperature": original_setpoint},
+                        needs_delay=needs_delay,
                     )
                     _LOGGER.debug(
                         "ValveProtectionEngine: %s (%s) → %.1f°C (restored)",
@@ -222,10 +222,6 @@ class ValveProtectionEngine:
                         write_entity,
                         err,
                     )
-
-                # Stagger calls for Netatmo TRVs to avoid 429
-                if trv_type != TRV_TYPE_ZIGBEE:
-                    await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
         if rooms_done:
             rooms_str = ", ".join(rooms_done)

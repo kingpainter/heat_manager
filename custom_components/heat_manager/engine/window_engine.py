@@ -264,7 +264,18 @@ class WindowEngine:
         if not trvs:
             return
 
+        # 2026-09 429 fix: this method runs as its own independent
+        # async_create_task() per room (see _schedule_close's caller), so
+        # several rooms' windows closing within the same debounce window
+        # each fired their Netatmo calls with zero pacing and no
+        # cross-task coordination — unlike presence_engine.py's restore
+        # path, which at least serialised itself internally. Both gaps are
+        # now closed the same way: async_call_climate_service() takes a
+        # coordinator-wide lock for any cloud-bound call, so this task's
+        # calls queue up behind (and pace against) every other engine's,
+        # not just its own.
         room_restored = False
+        delay = self.coordinator.needs_cloud_delay(room_name)
         for trv in trvs:
             entity_id = trv.get(CONF_CLIMATE_ENTITY, "")
             if not entity_id:
@@ -272,18 +283,18 @@ class WindowEngine:
             trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
             try:
                 if trv_type == TRV_TYPE_ZIGBEE:
-                    await self.coordinator.hass.services.async_call(
-                        "climate",
+                    await self.coordinator.async_call_climate_service(
                         "set_hvac_mode",
-                        {"entity_id": entity_id, "hvac_mode": "heat"},
-                        blocking=True,
+                        entity_id,
+                        {"hvac_mode": "heat"},
+                        needs_delay=delay,
                     )
                 else:
-                    await self.coordinator.hass.services.async_call(
-                        "climate",
+                    await self.coordinator.async_call_climate_service(
                         "set_preset_mode",
-                        {"entity_id": entity_id, "preset_mode": PRESET_SCHEDULE},
-                        blocking=True,
+                        entity_id,
+                        {"preset_mode": PRESET_SCHEDULE},
+                        needs_delay=delay,
                     )
                 room_restored = True
             # broad-except-rationale: one entity failing must not abort the others in this loop

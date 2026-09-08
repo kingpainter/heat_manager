@@ -32,7 +32,6 @@ from ..const import (
     HV_EVENT_CONTROLLER_OFF,
     HV_EVENT_CONTROLLER_PAUSED,
     HVAC_OFF,
-    NETATMO_API_CALL_DELAY_SEC,
     PRESET_SCHEDULE,
     AutoOffReason,
     ControllerState,
@@ -242,7 +241,6 @@ class ControllerEngine:
         pre-existing single-TRV behaviour exactly.
         """
         season = self.coordinator.effective_season
-        hass = self.coordinator.hass
 
         for room in self.coordinator.rooms:
             room_name = room.get("room_name", "")
@@ -256,29 +254,35 @@ class ControllerEngine:
                         write_id = (
                             self.coordinator.get_trv_write_entity(trv) or cloud_id
                         )
-                        await hass.services.async_call(
-                            "climate",
+                        # 2026-09 fix: delay/lock decided per the entity we
+                        # actually write to (trv_needs_cloud_delay), not the
+                        # room-level check — write_id can be this TRV's own
+                        # HomeKit entity even when the room's *primary* TRV
+                        # (what needs_cloud_delay(room_name) looks at) isn't.
+                        await self.coordinator.async_call_climate_service(
                             "set_hvac_mode",
-                            {"entity_id": write_id, "hvac_mode": HVAC_OFF},
-                            blocking=True,
+                            write_id,
+                            {"hvac_mode": HVAC_OFF},
+                            needs_delay=self.coordinator.trv_needs_cloud_delay(trv),
                         )
                     else:
                         # preset_mode: schedule must go to cloud — not
-                        # supported via HomeKit
-                        await hass.services.async_call(
-                            "climate",
+                        # supported via HomeKit, so this call always needs
+                        # the lock+delay regardless of this TRV's HomeKit
+                        # reachability (2026-09 fix: needs_cloud_delay(room)
+                        # could wrongly say False here if the room's primary
+                        # TRV's HomeKit entity happened to be reachable).
+                        await self.coordinator.async_call_climate_service(
                             "set_preset_mode",
-                            {"entity_id": cloud_id, "preset_mode": PRESET_SCHEDULE},
-                            blocking=True,
+                            cloud_id,
+                            {"preset_mode": PRESET_SCHEDULE},
+                            needs_delay=True,
                         )
                 # broad-except-rationale: one entity failing must not abort the others in this loop
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning(
                         "Failed to set OFF fallback on %s: %s", cloud_id, err
                     )
-                # H-6: only delay when writing to Netatmo cloud
-                if self.coordinator.needs_cloud_delay(room_name):
-                    await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
 
     # ── Room state reset ──────────────────────────────────────────────────────
 
