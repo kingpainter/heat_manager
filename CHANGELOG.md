@@ -9,6 +9,61 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.17.2] — 2026-09-08
+
+Frontend/websocket polish pass — three streams: broader health-check
+coverage, mobile (card.js) parity with the panel, and a couple of small
+performance/code-quality fixes found along the way.
+
+### Added
+
+- `ws_get_state()` now reports `pid_power`, `calibration_offset` and
+  `window_duration_today` per room, and `unavailable_entities` — every
+  entity a room actually depends on (all TRVs, not just the primary;
+  window/humidity/CO2/battery sensors) that is currently missing,
+  `unavailable` or `unknown`. All 4 were computed by the backend already
+  but only ever visible via HA's own entity page.
+- Panel: new "Rum detaljer" chips for PID power, calibration offset and
+  window-open-minutes-today. New topbar "entity health" chip
+  (`_patchHealthChip()`), separate from the existing Netatmo cloud chip —
+  it flags a genuinely unavailable *non-Netatmo* entity (a dead
+  window-sensor battery, say) that the cloud chip's Netatmo-only check
+  never saw.
+- Card (mobile): the same 3 diagnostic values as chips on each room card,
+  plus a lightweight "TRV offline" badge (checks the one entity this
+  card's own per-instance config stores — `climate_entity`; unlike the
+  panel it has no websocket connection and never stores `window_sensors`).
+  New Hub-level "Energi i dag" section (wasted/saved kWh + efficiency %).
+
+### Fixed
+
+- `RoomWindowDurationSensor`/`RoomPidPowerSensor`/`RoomCalibrationOffsetSensor`
+  had a doubled room name baked into their friendly name (e.g. "Bathroom
+  Bathroom window duration") — `has_entity_name` already prefixes the
+  room device's own name, so the room name in `_attr_name` doubled up.
+  Never noticed before because these 3 sensors were
+  `entity_registry_enabled_default=False`; flipping that on (see below)
+  made it visible, and the mobile card's friendly-name discovery needed
+  it fixed to find them at all.
+- `EfficiencyScoreSensor`, `RoomWindowDurationSensor`, `RoomPidPowerSensor`
+  and `RoomCalibrationOffsetSensor` were `entity_registry_enabled_default
+  =False` — invisible to both frontends (and to `hass.states` lookups)
+  without the user manually enabling each one first. Same policy already
+  applied to the v0.15.0 mirror sensors.
+
+### Changed
+
+- `_async_pid_tick()` resolved each room's TRV list 3 times per room per
+  tick (via `get_room_current_temp()`'s internal
+  `get_homekit_climate_entity()` call, its own direct call to that method,
+  and `get_room_trvs()` for the write loop) — all 3 recomputing
+  `migrate_room_to_trvs()` from scratch. `get_all_room_trvs()` now has an
+  internal per-tick cache, activated only for the duration of one PID
+  tick; every other one of its ~29 call sites elsewhere in the codebase is
+  unaffected.
+- Removed the dead full-width `_cloudBannerHTML()` in panel.js — superseded
+  by the compact topbar chip since v0.16.0 and never actually called.
+
 ## [0.17.1] — 2026-09-08
 
 Fixes 429 "Too Many Requests" and follow-on 503 "Service Unavailable"

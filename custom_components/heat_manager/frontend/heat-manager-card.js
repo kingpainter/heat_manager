@@ -1,5 +1,16 @@
 // Heat Manager — Custom Lovelace Card
-// Version: 0.17.0
+// Version: 0.17.2
+//
+// v0.17.2:
+//   • Mobile parity pass: room cards now also show PID-power/calibration-
+//     offset/window-duration-today chips (same friendly-name discovery as
+//     the existing humidity/CO2/battery mirrors) and a "TRV offline" badge
+//     when the room's own climate_entity is unavailable/unknown — a
+//     lighter version of the panel's health check, scoped to what this
+//     card's own per-instance config actually stores (climate_entity only;
+//     window_sensors etc. live in the backend config entry, not here).
+//     New Hub-level "Energi i dag" section (wasted/saved kWh + efficiency
+//     %), discovered the same way against the global "Heat Manager" device.
 //
 // v0.17.0:
 //   • Room cards now show humidity/CO2/battery chips, a valve-% badge and a
@@ -292,6 +303,47 @@ class HeatManagerCard extends HTMLElement {
   _roomCo2(roomName)      { return this._roomMirrorNumeric(roomName, "CO2"); }
   _roomBattery(roomName)  { return this._roomMirrorNumeric(roomName, "Battery"); }
 
+  // 2026-09 frontend-parity fix: same discovery pattern, the 3 diagnostic
+  // sensors this session flipped to enabled_default=True (and fixed the
+  // doubled-room-name friendly_name bug on — see sensor.py).
+  _roomPidPower(roomName)           { return this._roomMirrorNumeric(roomName, "PID power"); }
+  _roomWindowDurationToday(roomName){ return this._roomMirrorNumeric(roomName, "Window duration"); }
+  _roomCalibrationOffset(roomName)  { return this._roomMirrorNumeric(roomName, "Calibration offset"); }
+
+  // Hub-level equivalent of _roomMirrorNumeric() — same friendly-name
+  // discovery, against the global "Heat Manager" device instead of a
+  // per-room one (coordinator.global_device_info()'s name is hardcoded
+  // "Heat Manager", so this string is safe to match literally).
+  _hubMirrorNumeric(label) {
+    const states = this._hass?.states ?? {};
+    for (const id of Object.keys(states)) {
+      if (id.startsWith("sensor.") && states[id]?.attributes?.friendly_name === `Heat Manager ${label}`) {
+        const v = parseFloat(states[id].state);
+        return Number.isNaN(v) ? null : v;
+      }
+    }
+    return null;
+  }
+  _hubEnergyWasted() { return this._hubMirrorNumeric("Energy wasted today"); }
+  _hubEnergySaved()  { return this._hubMirrorNumeric("Energy saved today"); }
+  _hubEfficiency()   { return this._hubMirrorNumeric("Efficiency score"); }
+
+  // 2026-09 audit fix (UI/UX #8) mobile follow-up: minimal per-room health
+  // check using only what this card's own config actually stores per room
+  // — climate_entity. Unlike the panel (which gets a full
+  // unavailable_entities list per room straight from ws_get_state(),
+  // covering secondary TRVs and window/humidity/CO2/battery sensors too),
+  // this card has no websocket connection and its per-instance config
+  // never stores window_sensors — those live in the backend's config
+  // entry, not here — so this can only ever check the one entity the card
+  // config actually has.
+  _roomTrvUnavailable(room) {
+    const id = room.climate_entity;
+    if (!id) return false;
+    const s = this._hass?.states?.[id];
+    return !s || s.state === "unavailable" || s.state === "unknown";
+  }
+
   // Mold-risk binary_sensor — same friendly_name discovery, different domain.
   _roomMoldRisk(roomName) {
     const states = this._hass?.states ?? {};
@@ -449,6 +501,37 @@ class HeatManagerCard extends HTMLElement {
       btn.textContent    = "🔥 Boost";
       btn.style.cssText  = "";
     }
+  }
+
+  // 2026-09 frontend-parity fix: Hub-level energy/efficiency — patches the
+  // section built by _cardHTML()'s energyHTML in place. If the section
+  // doesn't exist yet (none of the 3 hub sensors were available at the
+  // last full render — e.g. right after HA restart, before the first
+  // coordinator tick), this intentionally does nothing rather than trying
+  // to inject a whole new section-box surgically; it appears on the next
+  // full _render() (boost start/stop, tab/config changes, etc.), same as
+  // the rooms-section's own all-or-nothing rendering already works.
+  _patchEnergy() {
+    const root = this.shadowRoot;
+    const section = root?.querySelector("#energy-section");
+    if (!section) return;
+    const hubWasted = this._hubEnergyWasted();
+    const hubSaved  = this._hubEnergySaved();
+    const hubEff    = this._hubEfficiency();
+
+    const badge = section.querySelector("#energy-badge");
+    if (badge) {
+      badge.style.display = hubEff != null ? "inline-flex" : "none";
+      if (hubEff != null) badge.textContent = `${Math.round(hubEff)}% effektiv`;
+    }
+    const wastedStat = section.querySelector("#energy-wasted-stat");
+    const wastedVal  = section.querySelector("#energy-wasted-val");
+    if (wastedStat) wastedStat.style.display = hubWasted != null ? "block" : "none";
+    if (wastedVal && hubWasted != null) wastedVal.textContent = `${hubWasted.toFixed(2)} kWh`;
+    const savedStat = section.querySelector("#energy-saved-stat");
+    const savedVal  = section.querySelector("#energy-saved-val");
+    if (savedStat) savedStat.style.display = hubSaved != null ? "block" : "none";
+    if (savedVal && hubSaved != null) savedVal.textContent = `${hubSaved.toFixed(2)} kWh`;
   }
 
   // ── CSS ───────────────────────────────────────────────────────────────────
@@ -638,7 +721,7 @@ class HeatManagerCard extends HTMLElement {
         align-self: flex-end;
       }
       .room-valve-heating { color: #f97316; }
-      .room-mold-badge {
+      .room-mold-badge, .room-health-badge {
         display: inline-flex; align-items: center; gap: 3px;
         font-size: 9px; font-weight: 700;
         padding: 1px 5px; border-radius: 5px; margin-top: 2px;
@@ -667,6 +750,21 @@ class HeatManagerCard extends HTMLElement {
       .boost-countdown {
         font-size: calc(12px * var(--hm-scale-h)); font-weight: 600; color: var(--red);
         font-family: 'DM Mono', monospace; display: none;
+      }
+
+      /* ── Energy (2026-09 frontend-parity fix — Hub-level, mobile) ── */
+      .energy-row {
+        display: flex; gap: 16px;
+        padding: calc(10px * var(--hm-scale-h)) 16px calc(12px * var(--hm-scale-h));
+      }
+      .energy-stat { flex: 1; text-align: center; }
+      .energy-stat-val {
+        font-size: calc(14px * var(--hm-scale-h)); font-weight: 700;
+        font-family: 'DM Mono', monospace;
+      }
+      .energy-stat-lbl {
+        font-size: 9px; color: var(--sub); text-transform: uppercase;
+        letter-spacing: 0.4px; margin-top: 2px;
       }
 
       /* ── Room cards ──
@@ -810,14 +908,27 @@ class HeatManagerCard extends HTMLElement {
           const battery   = this._roomBattery(roomName);
           const valve     = this._roomValvePosition(room.climate_entity ?? "");
           const moldRisk  = this._roomMoldRisk(roomName);
-          const chipsHTML = (humidity != null || co2 != null || battery != null)
-            ? `<div class="room-extra-chips">${humidity != null ? `<span>💧${Math.round(humidity)}%</span>` : ""}${co2 != null ? `<span>🫧${Math.round(co2)}</span>` : ""}${battery != null ? `<span style="${battery <= 15 ? "color:var(--red)" : battery <= 30 ? "color:var(--amber)" : ""}">🔋${Math.round(battery)}%</span>` : ""}</div>`
+          // 2026-09 frontend-parity fix: PID power / window-open minutes
+          // today / calibration offset — same discovery pattern as
+          // humidity/CO2/battery above.
+          const pidPower  = this._roomPidPower(roomName);
+          const windowDur = this._roomWindowDurationToday(roomName);
+          const calib     = this._roomCalibrationOffset(roomName);
+          const trvDown   = this._roomTrvUnavailable(room);
+          const chipsHTML = (humidity != null || co2 != null || battery != null || pidPower != null || windowDur != null || calib != null)
+            ? `<div class="room-extra-chips">${humidity != null ? `<span>💧${Math.round(humidity)}%</span>` : ""}${co2 != null ? `<span>🫧${Math.round(co2)}</span>` : ""}${battery != null ? `<span style="${battery <= 15 ? "color:var(--red)" : battery <= 30 ? "color:var(--amber)" : ""}">🔋${Math.round(battery)}%</span>` : ""}${pidPower != null ? `<span>⚙️${Math.round(pidPower)}%</span>` : ""}${calib != null ? `<span>🎯${calib >= 0 ? "+" : ""}${calib.toFixed(1)}°</span>` : ""}${windowDur != null ? `<span>🪟${Math.round(windowDur)}m</span>` : ""}</div>`
             : "";
           const valveBadge = valve != null
             ? `<div class="room-valve-badge${valve > 0 ? " room-valve-heating" : ""}">${valve > 0 ? "🔥" : "❄"} ${Math.round(valve)}%</div>`
             : "";
           const moldBadge = moldRisk
             ? `<div class="room-mold-badge" title="Høj fugt tæt på dugpunktet — risiko for skimmelvækst">⚠️ Skimmel</div>`
+            : "";
+          // 2026-09 audit fix (UI/UX #8) mobile follow-up — own CSS class,
+          // not .room-mold-badge: a room can show both badges at once, and
+          // _updateInPlace() manages each badge class independently.
+          const trvDownBadge = trvDown
+            ? `<div class="room-health-badge" title="Rummets klima-/TRV-entitet er unavailable/unknown">⚠️ TRV offline</div>`
             : "";
           return `
             <div class="room-card state-${state}"
@@ -830,6 +941,7 @@ class HeatManagerCard extends HTMLElement {
                 ${chipsHTML}
                 ${valveBadge}
                 ${moldBadge}
+                ${trvDownBadge}
                 ${blockingBadge}
                 ${ungroupedBadge}
               </div>
@@ -838,6 +950,25 @@ class HeatManagerCard extends HTMLElement {
       : `<div style="color:var(--sub);font-size:12px;padding:4px 0;">Ingen rum konfigureret i kortet</div>`;
 
     const globalBlocked = this._globalBlockingSources();
+
+    // 2026-09 frontend-parity fix: Hub-level energy/efficiency, discovered
+    // the same friendly-name way as the per-room mirrors — see
+    // _hubMirrorNumeric() above. Only ever configured once (global device),
+    // so no room-name/index parameter needed.
+    const hubWasted = this._hubEnergyWasted();
+    const hubSaved  = this._hubEnergySaved();
+    const hubEff    = this._hubEfficiency();
+    const energyHTML = (hubWasted != null || hubSaved != null || hubEff != null) ? `
+      <div class="section-box" id="energy-section">
+        <div class="section-header">
+          <div class="section-title">Energi i dag</div>
+          <div class="section-badge" id="energy-badge" style="background:rgba(249,115,22,0.12);color:var(--amber);display:${hubEff != null ? "inline-flex" : "none"}">${hubEff != null ? Math.round(hubEff) : 0}% effektiv</div>
+        </div>
+        <div class="energy-row" id="energy-row">
+          <div class="energy-stat" id="energy-wasted-stat" style="display:${hubWasted != null ? "block" : "none"}"><div class="energy-stat-val" id="energy-wasted-val" style="color:var(--red)">${hubWasted != null ? hubWasted.toFixed(2) : "0.00"} kWh</div><div class="energy-stat-lbl">Spildt</div></div>
+          <div class="energy-stat" id="energy-saved-stat" style="display:${hubSaved != null ? "block" : "none"}"><div class="energy-stat-val" id="energy-saved-val" style="color:var(--green)">${hubSaved != null ? hubSaved.toFixed(2) : "0.00"} kWh</div><div class="energy-stat-lbl">Sparet</div></div>
+        </div>
+      </div>` : "";
 
     return `
       <div class="card-header">
@@ -900,6 +1031,8 @@ class HeatManagerCard extends HTMLElement {
           <span id="boost-countdown" class="boost-countdown"></span>
         </div>
       </div>
+
+      ${energyHTML}
 
       ${rooms.length ? `
       <div class="section-box rooms-section">
@@ -973,6 +1106,7 @@ class HeatManagerCard extends HTMLElement {
     }
 
     this._patchBoost();
+    this._patchEnergy();  // 2026-09 frontend-parity fix
 
     const rooms = this._config.rooms ?? [];
     rooms.forEach((room, i) => {
@@ -1002,15 +1136,21 @@ class HeatManagerCard extends HTMLElement {
       const battery  = this._roomBattery(roomName);
       const valve    = this._roomValvePosition(room.climate_entity ?? "");
       const moldRisk = this._roomMoldRisk(roomName);
+      // 2026-09 frontend-parity fix: PID power / window-open minutes today /
+      // calibration offset — same discovery pattern as humidity/CO2/battery.
+      const pidPower  = this._roomPidPower(roomName);
+      const windowDur = this._roomWindowDurationToday(roomName);
+      const calib     = this._roomCalibrationOffset(roomName);
+      const trvDown   = this._roomTrvUnavailable(room);
 
       let chips = cards[i].querySelector(".room-extra-chips");
-      if (humidity != null || co2 != null || battery != null) {
+      if (humidity != null || co2 != null || battery != null || pidPower != null || windowDur != null || calib != null) {
         if (!chips) {
           chips = document.createElement("div");
           chips.className = "room-extra-chips";
           tempsBox?.appendChild(chips);
         }
-        chips.innerHTML = `${humidity != null ? `<span>💧${Math.round(humidity)}%</span>` : ""}${co2 != null ? `<span>🫧${Math.round(co2)}</span>` : ""}${battery != null ? `<span style="${battery <= 15 ? "color:var(--red)" : battery <= 30 ? "color:var(--amber)" : ""}">🔋${Math.round(battery)}%</span>` : ""}`;
+        chips.innerHTML = `${humidity != null ? `<span>💧${Math.round(humidity)}%</span>` : ""}${co2 != null ? `<span>🫧${Math.round(co2)}</span>` : ""}${battery != null ? `<span style="${battery <= 15 ? "color:var(--red)" : battery <= 30 ? "color:var(--amber)" : ""}">🔋${Math.round(battery)}%</span>` : ""}${pidPower != null ? `<span>⚙️${Math.round(pidPower)}%</span>` : ""}${calib != null ? `<span>🎯${calib >= 0 ? "+" : ""}${calib.toFixed(1)}°</span>` : ""}${windowDur != null ? `<span>🪟${Math.round(windowDur)}m</span>` : ""}`;
       } else if (chips) { chips.remove(); }
 
       let vb = cards[i].querySelector(".room-valve-badge");
@@ -1036,6 +1176,18 @@ class HeatManagerCard extends HTMLElement {
           tempsBox?.appendChild(mb);
         }
       } else if (mb) { mb.remove(); }
+
+      // 2026-09 audit fix (UI/UX #8) mobile follow-up
+      let hb = cards[i].querySelector(".room-health-badge");
+      if (trvDown) {
+        if (!hb) {
+          hb = document.createElement("div");
+          hb.className = "room-health-badge";
+          hb.title = "Rummets klima-/TRV-entitet er unavailable/unknown";
+          hb.textContent = "⚠️ TRV offline";
+          tempsBox?.appendChild(hb);
+        }
+      } else if (hb) { hb.remove(); }
 
       // v0.9.0: blocking-sources badge
       const extraBlocking = this._roomExtraBlocking(room.room_name ?? "", state);

@@ -1,5 +1,18 @@
 // Heat Manager Panel
-// Version: 0.17.0
+// Version: 0.17.2
+//
+// v0.17.2:
+//   • Frontend-parity + health-check pass. New per-room "Rum detaljer" chips
+//     for PID power, calibration offset and window-open-minutes-today (all
+//     3 computed by the backend already but only ever visible via HA's own
+//     entity page — see sensor.py's enabled_default flip and websocket.py's
+//     ws_get_state() this same session). New "entity health" topbar chip
+//     (#health-chip/_patchHealthChip()), separate from the existing Netatmo
+//     cloud chip — covers every entity a room actually depends on (all
+//     TRVs, not just the primary; window/humidity/CO2/battery sensors too),
+//     not just Netatmo cloud staleness. Removed the dead full-width
+//     _cloudBannerHTML() (superseded by the topbar chip since v0.16.0,
+//     never actually called).
 //
 // v0.17.0:
 //   • Oversigt-cards now show humidity/CO2 chips, a mold-risk badge, and a
