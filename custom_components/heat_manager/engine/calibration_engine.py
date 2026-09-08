@@ -49,6 +49,19 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# 3.5 hardening: reject implausible readings (a glitching sensor reporting
+# e.g. -200 or 3000 instead of going unavailable) before they turn into a
+# bogus calibration offset — mirrors coordinator._sanity_clamp_temp's range.
+_ROOM_TEMP_SANITY_MIN = -20.0
+_ROOM_TEMP_SANITY_MAX = 50.0
+
+
+def _sanity_clamp_temp(value: float) -> float | None:
+    """Return `value` unchanged if plausible for an indoor temp, else None."""
+    if _ROOM_TEMP_SANITY_MIN <= value <= _ROOM_TEMP_SANITY_MAX:
+        return value
+    return None
+
 
 class CalibrationEngine:
     """Per-room TRV calibration offset writer with a timeout-guarding heartbeat."""
@@ -155,7 +168,7 @@ class CalibrationEngine:
         if state is None or state.state in ("unknown", "unavailable"):
             return None
         try:
-            return float(state.state)
+            return _sanity_clamp_temp(float(state.state))
         except (TypeError, ValueError):
             return None
 
@@ -181,7 +194,7 @@ class CalibrationEngine:
             return None
         try:
             val = state.attributes.get("current_temperature")
-            return float(val) if val is not None else None
+            return _sanity_clamp_temp(float(val)) if val is not None else None
         except (TypeError, ValueError):
             return None
 

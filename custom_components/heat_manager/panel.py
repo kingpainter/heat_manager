@@ -75,15 +75,15 @@ async def async_register_static_paths(hass: HomeAssistant) -> None:
         os.path.exists(logo_file),
     )
 
+    # 4.2 fix: both URLs are always requested with a ?v=<VERSION>&m=<mtime>
+    # cache-busting query string (see module_url/canonical_url below), so a
+    # long-lived browser cache is safe — an update bumps VERSION and/or the
+    # file's mtime, producing a brand-new URL that can't hit the old cache.
     static_paths: list[StaticPathConfig] = []
     if os.path.exists(panel_file):
-        static_paths.append(
-            StaticPathConfig(PANEL_URL, panel_file, cache_headers=False)
-        )
+        static_paths.append(StaticPathConfig(PANEL_URL, panel_file, cache_headers=True))
     if os.path.exists(cards_file):
-        static_paths.append(
-            StaticPathConfig(CARDS_URL, cards_file, cache_headers=False)
-        )
+        static_paths.append(StaticPathConfig(CARDS_URL, cards_file, cache_headers=True))
     if os.path.exists(logo_file):
         static_paths.append(StaticPathConfig(LOGO_URL, logo_file, cache_headers=True))
 
@@ -206,8 +206,8 @@ async def _register_lovelace_resource(
         )
 
     # broad-except-rationale: panel registration is best-effort; setup must succeed without it
-    except Exception as err:  # noqa: BLE001
-        _LOGGER.error("Failed to register Lovelace resource: %s", err)
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("Failed to register Lovelace resource")
 
 
 def async_unregister_panel(hass: HomeAssistant) -> None:

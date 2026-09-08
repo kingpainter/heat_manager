@@ -129,6 +129,8 @@ class SeasonEngine:
             # No weather data — safe fallback: keep heating on.
             new_eff = self._apply_waking_check(EffectiveSeason.ACTIVE)
             self.coordinator.effective_season = new_eff
+            self._maybe_trigger_voice(new_eff)
+            self._prev_effective_season = new_eff
             return
 
         threshold = float(

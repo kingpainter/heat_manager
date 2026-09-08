@@ -109,6 +109,20 @@ _LOGGER = logging.getLogger(__name__)
 # Maximum number of events kept in the in-memory log (FIFO)
 _MAX_EVENT_LOG = 200
 
+# 3.5 hardening: a room temperature reading outside this range is almost
+# certainly a glitching/misbehaving sensor (e.g. reporting -200 or 3000
+# instead of going unavailable) rather than a real indoor temperature —
+# treated as unavailable so it never reaches the PID/schedule logic.
+_ROOM_TEMP_SANITY_MIN = -20.0
+_ROOM_TEMP_SANITY_MAX = 50.0
+
+
+def _sanity_clamp_temp(value: float) -> float | None:
+    """Return `value` unchanged if plausible for an indoor temp, else None."""
+    if _ROOM_TEMP_SANITY_MIN <= value <= _ROOM_TEMP_SANITY_MAX:
+        return value
+    return None
+
 
 class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """
@@ -126,6 +140,12 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=SCAN_INTERVAL_SECONDS),
         )
         self.entry = entry
+        # Registry ID of the global Heat Manager device (set by
+        # async_setup_entry() right after this device is created, before
+        # platforms are forwarded). Used by room_device_info() as
+        # via_device_id — see that method's docstring for why this replaced
+        # the old via_device=(DOMAIN, entry_id) tuple form.
+        self.global_device_id: str | None = None
 
         # ── Shared runtime state ──────────────────────────────────────────────
         self.room_states: dict[str, RoomState] = {}
@@ -257,8 +277,19 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """DeviceInfo for a per-room virtual device.
 
         All per-room entities (state, window, mold risk, override, pid power)
-        belong to their room device, which is linked to the global device
-        via via_device.
+        belong to their room device, which is linked to the global device via
+        via_device_id (the global device's actual device-registry ID).
+
+        HA 2026.9 deprecated the old via_device=(DOMAIN, identifier) tuple
+        form on DeviceInfo/async_get_or_create — identifiers are no longer
+        guaranteed unique across config entries, so the registry can't
+        reliably resolve a parent from them anymore. async_setup_entry()
+        creates the global device explicitly (dr.async_get_or_create) before
+        forwarding platform setups and stores the resulting DeviceEntry.id on
+        self.global_device_id, so this method never has to look the parent
+        up itself — that also sidesteps a race where a room device could
+        otherwise be created before the global device exists (platforms are
+        forwarded concurrently via async_forward_entry_setups).
         """
         safe = room_name.lower().replace(" ", "_")
         return DeviceInfo(
@@ -266,7 +297,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             name=room_name,
             manufacturer="Heat Manager",
             model="Room",
-            via_device=(DOMAIN, self.entry.entry_id),
+            via_device_id=self.global_device_id,
         )
 
     @property
@@ -588,12 +619,6 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return False  # Writing to HomeKit — no delay needed
         return True  # Writing to cloud — stagger to avoid 429
 
-    def get_window_sensors(self, room_name: str) -> list[str]:
-        for room in self.rooms:
-            if room.get("room_name") == room_name:
-                return room.get(CONF_WINDOW_SENSORS, [])
-        return []
-
     def any_window_open(self) -> bool:
         for room in self.rooms:
             for sensor in room.get(CONF_WINDOW_SENSORS, []):
@@ -706,7 +731,10 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         2. HomeKit climate entity current_temperature (Netatmo local HAP).
         3. Cloud climate entity current_temperature (fallback).
 
-        Returns None only if all sources are unavailable.
+        Returns None only if all sources are unavailable — a value outside
+        _ROOM_TEMP_SANITY_MIN/_MAX (3.5 hardening: a glitching sensor can
+        report e.g. -200 or 3000 instead of going unavailable) also counts
+        as unavailable rather than being fed into the PID/schedule logic.
         """
         # 1. External room temperature sensor
         for room in self.rooms:
@@ -717,7 +745,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 state = self.hass.states.get(entity_id)
                 if state and state.state not in ("unknown", "unavailable"):
                     try:
-                        return float(state.state)
+                        val = _sanity_clamp_temp(float(state.state))
+                        if val is not None:
+                            return val
                     except (TypeError, ValueError):
                         pass
             break  # room found, external sensor absent or unavailable
@@ -728,9 +758,11 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             state = self.hass.states.get(hk_id)
             if state and state.state not in ("unavailable", "unknown", "off"):
                 try:
-                    val = state.attributes.get("current_temperature")
-                    if val is not None:
-                        return float(val)
+                    raw = state.attributes.get("current_temperature")
+                    if raw is not None:
+                        val = _sanity_clamp_temp(float(raw))
+                        if val is not None:
+                            return val
                 except (TypeError, ValueError):
                     pass
 
@@ -739,9 +771,11 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             state = self.hass.states.get(climate_id)
             if state and state.state not in ("unavailable", "unknown"):
                 try:
-                    val = state.attributes.get("current_temperature")
-                    if val is not None:
-                        return float(val)
+                    raw = state.attributes.get("current_temperature")
+                    if raw is not None:
+                        val = _sanity_clamp_temp(float(raw))
+                        if val is not None:
+                            return val
                 except (TypeError, ValueError):
                     pass
 
@@ -1469,7 +1503,25 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         continue
 
                 trv_current_setpoint = trv_state.attributes.get("temperature", 0.0)
-                if abs(trv_setpoint - float(trv_current_setpoint)) < 0.5:
+                try:
+                    trv_current_setpoint = float(trv_current_setpoint)
+                except (TypeError, ValueError):
+                    # 3.1 fix: a malformed/non-numeric setpoint attribute must
+                    # not abort the PID tick for every remaining room — skip
+                    # just this TRV and let the command below correct it.
+                    _LOGGER.debug(
+                        "PID tick [%s]: non-numeric current setpoint %r on %s"
+                        " — sending setpoint anyway",
+                        room_name,
+                        trv_current_setpoint,
+                        trv_write_id,
+                    )
+                    trv_current_setpoint = None
+
+                if (
+                    trv_current_setpoint is not None
+                    and abs(trv_setpoint - trv_current_setpoint) < 0.5
+                ):
                     continue
 
                 try:

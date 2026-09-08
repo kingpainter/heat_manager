@@ -45,6 +45,7 @@ from homeassistant.util.dt import now as ha_now
 
 from ..const import (
     CONF_CLIMATE_ENTITY,
+    CONF_ENERGY_TRACKING,
     CONF_PI_DEMAND_ENTITY,
     CONF_ROOM_WATTAGE,
     DEFAULT_ROOM_WATTAGE,
@@ -115,6 +116,9 @@ class WasteCalculator:
             self._last_waste_time = None
             self._last_saved_time = None
             _LOGGER.debug("WasteCalculator: reset for new day %s", today)
+
+        if not self.coordinator.config.get(CONF_ENERGY_TRACKING, True):
+            return
 
         tick_hours = SCAN_INTERVAL_SECONDS / 3600.0
 
@@ -193,7 +197,7 @@ class WasteCalculator:
             state = self.coordinator.hass.states.get(pi_entity)
             if state and state.state not in ("unknown", "unavailable"):
                 try:
-                    return float(state.state)
+                    return max(0.0, min(100.0, float(state.state)))
                 except (TypeError, ValueError):
                     pass
 
@@ -204,7 +208,7 @@ class WasteCalculator:
         if raw is None:
             return None
         try:
-            return float(raw)
+            return max(0.0, min(100.0, float(raw)))
         except (TypeError, ValueError):
             return None
 

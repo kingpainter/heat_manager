@@ -49,12 +49,29 @@ from .const import (
     CONF_WEATHER_ENTITY,
     CONF_WINDOW_SENSORS,
     DOMAIN,
+    RoomState,
 )
 
 if TYPE_CHECKING:
     from .coordinator import HeatManagerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+# 2026-09-07 audit fix (5.3) — mold-risk thresholds, intentionally duplicated
+# from binary_sensor.py's MoldRiskSensor (_RH_THRESHOLD/_SURFACE_MARGIN) so
+# ws_get_state can surface the same signal without importing the
+# binary_sensor platform module. Keep these in sync if the algorithm changes.
+_MOLD_RH_THRESHOLD = 70.0  # % — DIN 4108-2 critical humidity
+_MOLD_SURFACE_MARGIN = 1.0  # °C — wall surface is ~1 °C cooler than air
+
+
+def _mold_dewpoint(temp_c: float, rh_pct: float) -> float:
+    """Magnus formula (Lawrence 2005) — valid for 0-60 °C, 1-100% RH."""
+    import math
+
+    b, c = 17.625, 243.04
+    gamma = math.log(max(rh_pct, 0.01) / 100.0) + (b * temp_c) / (c + temp_c)
+    return (c * gamma) / (b - gamma)
 
 
 @websocket_api.websocket_command(
@@ -208,6 +225,13 @@ async def ws_set_room_temp(
             # single-TRV policy).
             temp = float(temperature)
             write_entities = coordinator.get_room_write_entities(room_name)
+            if not write_entities:
+                connection.send_error(
+                    msg["id"],
+                    "not_found",
+                    f"No write entity for room '{room_name}'",
+                )
+                return
             for entity_id in write_entities:
                 await hass.services.async_call(
                     "climate",
@@ -215,7 +239,7 @@ async def ws_set_room_temp(
                     {"entity_id": entity_id, "temperature": temp},
                     blocking=True,
                 )
-            write_entity = write_entities[0] if write_entities else None
+            write_entity = write_entities[0]
             dur_label = f"{duration} min" if duration > 0 else "permanent"
             coordinator.log_event(
                 f"{room_name}: {temp}\u00b0C ({dur_label})",
@@ -229,9 +253,16 @@ async def ws_set_room_temp(
                 dur_label,
                 write_entity,
             )
+            # 1.4 fix: mark the room OVERRIDE (bypassing presence/window
+            # logic) and record the source, matching the behaviour of the
+            # override switch and the remote-button engine \u2014 previously
+            # a manual panel temperature never engaged RoomOverrideSwitch's
+            # OVERRIDE state at all.
+            coordinator.set_room_state(room_name, RoomState.OVERRIDE)
+            coordinator.room_override_source[room_name] = "panel"
     # broad-except-rationale: must not crash the WS connection; error goes back to frontend
     except Exception as err:  # noqa: BLE001
-        _LOGGER.error("set_room_temp failed for '%s': %s", room_name, err)
+        _LOGGER.exception("set_room_temp failed for '%s'", room_name)
         connection.send_error(msg["id"], "service_error", str(err))
         return
 
@@ -367,6 +398,24 @@ async def ws_get_state(
                 with contextlib.suppress(TypeError, ValueError):
                     co2 = float(c2s.state)
 
+        # 2026-09-07 audit fix (5.3): MoldRiskSensor (binary_sensor.py)
+        # computes this per room but it was never surfaced in either
+        # frontend — a real, quietly-computed safety signal invisible to
+        # the user. Recomputed here from the same humidity/current_temp
+        # values already fetched above (rather than looking up the sensor
+        # entity by its generated entity_id) — same pattern already used
+        # for heating_power/valve_position in this function. The formula
+        # and thresholds are intentionally duplicated from
+        # MoldRiskSensor._dewpoint()/_RH_THRESHOLD/_SURFACE_MARGIN to avoid
+        # importing the binary_sensor platform module from here.
+        mold_risk = (
+            humidity is not None
+            and current_temp is not None
+            and humidity >= _MOLD_RH_THRESHOLD
+            and current_temp
+            <= _mold_dewpoint(current_temp, humidity) + _MOLD_SURFACE_MARGIN
+        )
+
         rooms.append(
             {
                 "name": name,
@@ -383,6 +432,7 @@ async def ws_get_state(
                 "battery_level": battery_level,  # % — Rum-detaljer/oversigt
                 "humidity": humidity,  # % — only set when humidity_sensor is configured
                 "co2": co2,  # ppm — only set when co2_sensor is configured
+                "mold_risk": mold_risk,  # 2026-09-07 audit fix (5.3)
                 "why": _why_label(room_state),
                 # v0.14.0: which caller ("switch"/"remote") currently holds
                 # this room in OVERRIDE, if any — None otherwise. Purely for
@@ -473,6 +523,12 @@ async def ws_get_state(
         # existing panel.js/card.js read this via `?? 0` and degrade to an
         # inert 0/no-op slider until Fase 4 wires up the per-room controls.
         "blocking_sources": coordinator.global_blocking_sources(),
+        # 2026-09-07 audit fix (5.4, 5.8): these were already computed by the
+        # coordinator/engines but never reached the panel/card payload at
+        # all — the only way to see them was the raw HA entity/attribute.
+        "remote_last_action": coordinator.remote_last_action,
+        "wind_speed": coordinator.get_wind_speed(),
+        "precipitation": coordinator.get_precipitation(),
     }
 
     connection.send_result(msg["id"], payload)
@@ -584,8 +640,6 @@ def _get_entry(hass: HomeAssistant) -> Any:
 
 
 def _why_label(state: Any) -> str:
-    from .const import RoomState
-
     return {
         RoomState.NORMAL: "Active — someone home",
         RoomState.AWAY: "Nobody home → away mode",

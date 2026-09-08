@@ -9,6 +9,207 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-09-07
+
+More of the data the backend already computed is now actually shown on the
+room cards, on both the Oversigt-fane (PC panel) and the mobile card —
+follow-up to the 0.16.0 audit's frontend/backend-parring findings (5.1-5.3,
+5.6, 5.9), picked up again the same day at the user's request for "mere
+nyttigt info/data" on both surfaces.
+
+### Added
+- **Mold-risk badge (5.3).** `binary_sensor.py`'s `MoldRiskSensor` computed
+  a dewpoint-based mold-risk signal per room but it was never surfaced
+  anywhere. `ws_get_state` now includes a `mold_risk` boolean (recomputed
+  from the same humidity/current_temp values already fetched for other
+  fields, using the same Magnus-formula thresholds as `MoldRiskSensor`,
+  intentionally duplicated to avoid a cross-platform import) — shown as a
+  "⚠️ Skimmelrisiko" badge on the panel's Oversigt cards, and independently
+  discovered via the room's own `<room> Mold risk` mirror entity on the
+  mobile card (which has no `get_state` connection of its own).
+- **Humidity + CO2 chips on Oversigt cards (5.2 follow-up).** Already shown
+  in the Rum-detaljer tab; now also on the Oversigt grid cards, for rooms
+  where the relevant sensor is configured.
+- **Humidity + CO2 + battery chips, and a valve-% badge, on the mobile
+  card (5.1-5.3 mobile).** The card only stores `room_name`/`climate_entity`
+  per room and has no `get_state` connection, so these are read directly
+  off `hass.states`: humidity/CO2/battery via the room's v0.15.0 mirror
+  sensors (`sensor.<room> Humidity/CO2/Battery`, matched by
+  `friendly_name` — the same discovery pattern already used for the
+  group-toggle switch), and valve % via the `heating_power_request`
+  attribute on the room's own `climate_entity` (Netatmo rooms; Zigbee rooms
+  without that attribute simply show no valve badge, same graceful omission
+  already used for missing humidity/CO2/battery). No new card configuration
+  required.
+- **Sync-mode / schedule / TRV-count meta row on Oversigt cards (5.6,
+  5.9).** These were already in the `get_state` payload (config-only
+  fields, no standalone entity to mirror) but shown only in the
+  Rum-detaljer tab. Panel-only — the mobile card's architecture has no way
+  to read config-level fields without a `get_state` call, so this one stays
+  PC-only for now.
+
+### Deliberately still not done
+- Full card.js/panel.js data parity (sync-mode, schedule, TRV-count on
+  mobile) would require either giving the card its own websocket
+  connection or duplicating more config into the card's own configuration
+  — a bigger architectural change than this pass, left for a future
+  session if it turns out to matter in practice.
+
+## [0.16.0] — 2026-09-07
+
+Backend/frontend audit fix pass. A deep-dive review (loose ends, dead code,
+hardening, load times, frontend/backend parity, UI/UX) produced a report of
+~50 findings across 6 categories; this release addresses effectively all of
+them. Full report: `audit/heat_manager_audit_2026-09-07.md`.
+
+### Fixed (loose ends)
+- `notify_window_warning_30` and `energy_tracking` config options were
+  configurable in the options flow but silently did nothing —
+  `window_engine.py`'s 30-min escalation notify and `waste_calculator.py`'s
+  entire `async_tick()` now actually gate on them (default `True`, so
+  existing installs see no behaviour change unless the option is toggled).
+- The panel's "Send temperatur" action (`ws_set_room_temp`) never engaged
+  `RoomState.OVERRIDE` — a manually-set temperature looked identical to a
+  normal schedule-driven one to the rest of the coordinator (presence/window
+  logic could silently override it on the next tick) and to the frontend
+  (no "Override" badge). It now marks the room OVERRIDE with
+  `room_override_source = "panel"`, consistent with the override switch and
+  the remote-button engine.
+- `heat_manager.force_room_on` existed as a service since `presence_engine.py`'s
+  earliest version with no UI element calling it — added a "⚡ Tving til"
+  button per room in the panel's Rum tab.
+- The domain's 6 services (`set_controller_state`, `pause`, `resume`,
+  `force_room_on`, `boost_start`, `boost_stop`) were registered in
+  `async_setup_entry` but never unregistered in `async_unload_entry` —
+  fixed, guarded so a still-loaded config entry never loses its services
+  (services are only removed once no entry remains).
+- Frontend version banners were badly stale — `heat-manager-panel.js` said
+  "0.3.10" (since before v0.9.1) and `heat-manager-card.js` said "0.4.3"
+  (since before v0.9.0). Both now say 0.16.0 and are bumped alongside
+  `manifest.json` going forward.
+- `const.py`'s `VERSION` constant — used in the panel/card static-asset
+  cache-busting query string — had been stuck at `"0.9.0"` since before
+  v0.10.0 while `manifest.json` kept advancing normally. Now kept in sync.
+- `STATUS.md` refreshed (was last updated 2026-09-04 at v0.13.2).
+
+### Removed (dead code)
+- `coordinator.get_window_sensors()` — never called anywhere.
+- `heat-manager-panel.js`: `_patchEnergyToday()`, `_reasonLabel()`,
+  `_seasonTriggerLabel()`, `_energyTodaySectionHTML()`, and (as a direct
+  consequence — their only remaining callers) `_energyTodayInnerHTML()` and
+  `_ringColor()` — all leftovers from the "Energi i dag" card removed in
+  0.15.0.
+- `heat-manager-card.js`: the dead `.room-homekit` change listener in the
+  card editor — the corresponding input field was removed from `_render()`
+  long ago, so it never fired.
+
+### Fixed (hardening)
+- `coordinator.py`'s PID tick: `float(trv_current_setpoint)` ran *outside*
+  the per-TRV `try/except`, so one TRV reporting a non-numeric `temperature`
+  attribute aborted PID regulation for every room after it in that tick.
+  Now guarded independently per TRV.
+- `ws_set_room_temp`: an empty `write_entities` list (no reachable write
+  entity for the room) fell through to a `success: True` response with no
+  TRV actually commanded and a misleading "temperature set" event-log
+  entry. Now returns a `not_found` error before attempting anything,
+  mirroring the existing check for the schedule-restore branch.
+- `engine/valve_protection_engine.py`'s weekly valve exercise `await`ed its
+  full per-TRV sweep directly from `async_tick()` — with N TRVs each held
+  open for 30 s plus a stagger delay, this blocked the coordinator's entire
+  60 s tick cycle (every room's PID/window/presence logic) for several
+  minutes, once a week, during the 02:00–03:00 window. Now runs as a
+  background task (`hass.async_create_task`), cancelled cleanly on
+  `async_shutdown()`.
+- Room-temperature readings (`coordinator.get_room_current_temp()`,
+  `calibration_engine.py`'s `_read_float()`/`_read_trv_raw_temperature()`)
+  had no sanity range — a glitching sensor reporting e.g. -200°C or 3000°C
+  instead of going `unavailable` would have been fed straight into the
+  PID loop / calibration offset. Now clamped to a -20…50°C plausible range;
+  out-of-range readings are treated as unavailable.
+- `waste_calculator.py`'s `_get_heating_power_pct()` had no 0–100% clamp on
+  either return path (`pi_demand_entity` or `heating_power_request`).
+- `panel.py` / `websocket.py`: two `_LOGGER.error(f"...: {err}")` calls
+  swapped for `_LOGGER.exception(...)` so the full traceback is logged, not
+  just the exception's string.
+- `config_flow.py`: 6 schema-builder functions (`_step1_schema`,
+  `_trv_schema`, `_room_schema`, `_person_schema`, `_notifications_schema`,
+  `_remote_control_schema`) used a mutable `dict = {}` default argument.
+  Switched to `dict | None = None` with an explicit `defaults = defaults or {}`.
+- `season_engine.py`: the "no outdoor weather data" fallback (spring/autumn,
+  safe-default-to-ACTIVE branch) skipped `_maybe_trigger_voice()` and the
+  `_prev_effective_season` update that every other branch performs — a
+  missing/unavailable weather entity could mean a season-change voice
+  announcement never fires and never re-fires. Now matches every other
+  branch.
+
+### Changed (load times)
+- `heat-manager-panel.js` polled `heat_manager/get_state` every 30 s while
+  the backend coordinator only ticks every 60 s (`SCAN_INTERVAL_SECONDS`) —
+  half of every poll re-fetched an identical snapshot. Interval raised to
+  60 s.
+- `panel.py`'s static paths for the panel/card JS were served with
+  `cache_headers=False`. Both are always requested with a
+  `?v=<VERSION>&m=<mtime>` cache-busting query string, so a long-lived
+  browser cache is safe — an update bumps `VERSION` and/or the file's
+  mtime, producing a brand-new URL. Switched to `cache_headers=True`.
+- `_patchRoomsTab()` rebuilt the entire Rum tab via `innerHTML` on every
+  poll, which could reset a slider's DOM node — and whatever value the user
+  was mid-drag toward — out from under their finger. Poll-driven rebuilds
+  now defer themselves while a slider drag is in progress (tracked via
+  `pointerdown`/`pointerup`/`change`) and catch up on the next poll after
+  release.
+
+### Fixed (frontend/backend parity)
+- `heat_manager/get_state` now includes `remote_last_action`, `wind_speed`
+  and `precipitation` — all already computed/tracked backend-side but
+  never reaching the panel/card payload at all.
+- Panel: wind/rain icons next to the outdoor-temperature header line;
+  a "📡 Fjernbetjening" strip on the Oversigt tab showing the global
+  remote's most recent action while it's less than 30 minutes old; a
+  "🪟 venter" badge on a room card when `windows_open` (the raw sensor
+  reading, already computed but never shown) is true while the room's
+  state hasn't flipped to `window_open` yet — surfaces the "physically
+  open, still inside the close/open delay" window that was previously
+  invisible.
+- `season_mode`, `heating_power` (largely redundant with `valve_position`
+  for Netatmo — `heating_power_request` *is* valve % there; only Zigbee
+  rooms with a separate `pi_demand_entity` would show a distinct value),
+  `MoldRiskSensor`,
+  `RoomPidPowerSensor`/`RoomWindowDurationSensor`/`RoomCalibrationOffsetSensor`,
+  a full mobile energy/efficiency overview, an `indoor_wake_sensor` payload
+  field, and visually distinguishing editable vs. read-only fields on the
+  Konfiguration tab remain as documented gaps in the audit report — out of
+  scope for this pass; each already has an HA entity of its own (several as
+  of the 0.15.0 mirror layer) even where the panel/card don't surface it.
+
+### Fixed (UI/UX)
+- The panel silently stopped polling after 4 consecutive `get_state`
+  failures, freezing on stale data with no indication anything was wrong.
+  It now retries forever; a persistent "Ingen forbindelse" chip in the
+  topbar and a toast (on the 1st failure and every 5th thereafter) make a
+  failing connection visible instead.
+- Controller actions (On/Pause/Off/Genoptag) in the panel, and every
+  action in the card (which had **no error UI at all** — not even a
+  reliable `console.error`), now show a toast on failure.
+- "Sluk hele huset" (the Off button, panel and card) had no confirmation —
+  click-to-arm added (second click within 3s confirms; non-blocking, no
+  native `confirm()` dialog).
+- Low TRV battery was colour-coded (amber ≤30%, red ≤15%) only in the Rum
+  tab — the same value on the Oversigt tab's room cards showed no warning
+  colour at all. Now consistent.
+- "On"/"Off" (English) next to "Varme aktiv"/"Slukket" (Danish) on the same
+  screen, in three separate places across panel.js/card.js — unified to
+  "Tænd"/"Sluk" (buttons) and the existing `_ctrlTitle()` Danish mapping
+  (topbar badge, both files).
+- `title=""` tooltips on the per-room blocking-reason badge never fire on
+  touch. Card now also shows the full reason as a toast on tap; panel's
+  hover tooltip is unchanged for desktop.
+- Toast containers (`role="status" aria-live="polite"`) in both panel and
+  card, so screen readers announce action feedback.
+- Cloud/health checks covering only Netatmo climate entities (not
+  window/battery/humidity/CO₂/Zigbee sensors) remains a documented gap —
+  a materially larger feature, out of scope for this pass.
+
 ### Added
 - New global remote-control config step ("Remote control" in the options
   flow) supporting a physical remote such as the Aqara Climate Sensor

@@ -343,17 +343,19 @@ class PauseRemainingSensor(CoordinatorEntity, SensorEntity):
 class EnergyWastedSensor(CoordinatorEntity, SensorEntity):
     """kWh wasted today — windows open while heating runs.
 
-    I-1 FIX: state_class = MEASUREMENT not TOTAL_INCREASING.
-    These sensors reset at midnight so HA LTS would log 'dips' with
-    TOTAL_INCREASING and possibly raise warnings. MEASUREMENT is correct
-    for values that represent today's running total and reset daily.
+    state_class = TOTAL_INCREASING (not MEASUREMENT — HA rejects that
+    combination outright for device_class ENERGY, which only allows None,
+    TOTAL or TOTAL_INCREASING). This resets to 0 at midnight; HA's
+    statistics engine treats a drop like that as a normal meter reset for
+    TOTAL_INCREASING sensors, which is exactly this value's shape, so no
+    last_reset bookkeeping (TOTAL's requirement) is needed.
     """
 
     _attr_has_entity_name = True
     _attr_translation_key = "energy_wasted_today"
     _attr_native_unit_of_measurement = "kWh"
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_suggested_display_precision = 2
     _attr_entity_registry_enabled_default = True
 
@@ -370,14 +372,15 @@ class EnergyWastedSensor(CoordinatorEntity, SensorEntity):
 class EnergySavedSensor(CoordinatorEntity, SensorEntity):
     """kWh saved today — away mode during expected heating hours.
 
-    I-1 FIX: state_class = MEASUREMENT (resets at midnight, same as wasted).
+    state_class = TOTAL_INCREASING — resets at midnight, same reasoning as
+    EnergyWastedSensor above.
     """
 
     _attr_has_entity_name = True
     _attr_translation_key = "energy_saved_today"
     _attr_native_unit_of_measurement = "kWh"
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_suggested_display_precision = 2
     _attr_entity_registry_enabled_default = True
 

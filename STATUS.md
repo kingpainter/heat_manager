@@ -1,11 +1,30 @@
 # Heat Manager — Project Status
 
-**Last updated:** 2026-09-04 · v0.13.2
-**Version (GitHub):** 0.13.2
-**Version (HA server):** 0.13.2 ✅ deployed and in sync with GitHub (confirmed 2026-09-04)
+**Last updated:** 2026-09-07 · v0.16.0
+**Version (GitHub):** 0.16.0 (pending push/commit via GitHub Desktop)
+**Version (HA server):** not yet transferred — see CHANGELOG.md [0.16.0] before deploying
 **Target:** Home Assistant 2025.1+
 **Language:** English primary · Danish translations included
-**Status:** Stable — Gold IQS complete, HomeKit-first routing, PID proportional control, boost functional end-to-end, five opt-in per-room layers from v0.9.0 (calibration, sync modes, group offset, schedule/calendar, blocking-source diagnostics) now also surfaced in the frontend panel/card (v0.9.1)
+**Status:** Stable. v0.14.0 added global remote-button control (Aqara W100-style,
+`engine/remote_button_engine.py`) and per-room `room_override_source` badges;
+v0.15.0 added a diagnostic "mirror entity" layer (every configured raw sensor
+also gets a read-through entity on its Heat Manager room/Hub device, so a
+failing sensor is visible on the Integrations page without hunting through
+whichever integration owns it) plus a "Remote last action" Hub sensor;
+v0.16.0 is a backend/frontend audit fix pass (loose ends, dead code,
+hardening, load times, frontend/backend parity, UI/UX) — see
+`audit/heat_manager_audit_2026-09-07.md` and CHANGELOG.md's [0.16.0] entry
+for the full list. Gold IQS complete, HomeKit-first routing, PID
+proportional control, boost functional end-to-end, five opt-in per-room
+layers from v0.9.0 (calibration, sync modes, group offset, schedule/calendar,
+blocking-source diagnostics) surfaced in the frontend panel/card since v0.9.1.
+
+**Known deferred items (documented, not yet fixed):** a handful of
+lower-priority frontend/backend parity and UI/UX gaps from the 2026-09-07
+audit were deliberately left for a future pass — see that report's
+sections 5 and 6 for the full list (e.g. `season_mode`/mold-risk/PID-power
+surfaced in the panel, a mobile energy overview, health checks beyond
+Netatmo climate entities, visually distinguishing editable config fields).
 
 ---
 
@@ -53,7 +72,7 @@ heat_manager/
 | `strings.json` / `translations/{en,da}.json` | Config + options + entity + issues + exceptions |
 | `quality_scale.yaml` | IQS rule tracking — all Gold rules done or exempt |
 
-### Engine layer (8 engines + PID)
+### Engine layer (9 engines + PID)
 
 | File | Description |
 |------|-------------|
@@ -68,13 +87,14 @@ heat_manager/
 | `engine/calibration_engine.py` | (v0.9.0) Writes `room_temp_sensor − TRV raw` delta to a room's `calibration_entity` (e.g. Z2M `local_temperature_calibration`), + 30 min heartbeat resend |
 | `engine/sync_engine.py` | (v0.9.0) Per-room `sync_mode` (disabled/mirror/lock) — reacts to manual/external changes on the write entity via `coordinator.last_expected_setpoint` comparison + 12 s confirm delay |
 | `engine/schedule_engine.py` | (v0.9.0) Per-room `schedule_entity` (`schedule.*`/`calendar.*`) — active block/event `temperature` overrides the room's normal target; `coordinator.schedule_override` dict, read by `_async_pid_tick()` |
+| `engine/remote_button_engine.py` | (v0.14.0) Global physical remote (e.g. Aqara W100) — 3 configurable `event.*` entities (temp-up/temp-down/mode-toggle) act on every eligible room at once via `coordinator.async_set_room_override()`; records `room_override_source`/`remote_last_action` |
 
 ### Frontend
 
 | File | Notes |
 |------|-------|
-| `frontend/heat-manager-panel.js` | Surgical DOM patching, 4 tabs (Oversigt/Rum/Historik/Konfiguration), toast notifications, cloud-status chip, manual TRV control, boost countdown (v0.3.10, synced every refresh via `_patchControllerHero()`); group-offset slider + global/per-room `blocking_sources` badges (v0.9.1) |
-| `frontend/heat-manager-card.js` | Tablet height-scaling (`--hm-scale-h`), 2-col room grid, boost delegates to `heat_manager/boost_start\|stop` WS (v0.4.3, unified with panel/service — no more separate client-side implementation); group-offset slider + global/per-room `blocking_sources` badges, read directly from entity state (no WS payload used) (v0.9.1) |
+| `frontend/heat-manager-panel.js` | Surgical DOM patching, 4 tabs (Oversigt/Rum/Historik/Konfiguration), toast notifications, cloud-status chip + WS-error chip (v0.16.0), manual TRV control + force_room_on button (v0.16.0), boost countdown, remote-last-action strip (v0.16.0); group-offset slider + global/per-room `blocking_sources` badges (v0.9.1); polls every 60s matching backend tick (was 30s, v0.16.0) |
+| `frontend/heat-manager-card.js` | Tablet height-scaling (`--hm-scale-h`), 2-col room grid, boost delegates to `heat_manager/boost_start\|stop` WS (unified with panel/service, v0.4.3); group-offset slider + global/per-room `blocking_sources` badges, read directly from entity state (no WS payload used) (v0.9.1); toast error UI added (v0.16.0, previously none) |
 | `frontend/heat_manager_logo1.png` | 44 KB. Served at `/api/heat_manager-logo`. (The stray `heat_manager_logo2.png` on the HA server has been deleted by dev — resolved 2026-09-02.) |
 
 ### Tests (24 files, 381 tests, 66.80% coverage)
@@ -184,6 +204,29 @@ See `quality_scale.yaml` for the authoritative, maintained list — all Bronze/S
 all Gold rules done or exempt, Platinum `strict-typing` still todo. Not duplicated here anymore
 to avoid this file drifting out of sync with the real tracker again (see "Known documentation
 debt" below).
+
+---
+
+## Recent fixes (2026-09-07)
+
+Backend/frontend audit fix pass — full detail in `CHANGELOG.md`'s [0.16.0]
+entry and `audit/heat_manager_audit_2026-09-07.md`. Summary: fixed 2 config
+options that did nothing (`notify_window_warning_30`, `energy_tracking`);
+manual panel temperature-setting now correctly engages `RoomState.OVERRIDE`;
+added a UI button for the previously UI-less `force_room_on` service;
+services are now unregistered on unload; removed ~6 dead JS functions;
+fixed a PID-tick bug where one bad TRV reading could abort regulation for
+every later room that tick; fixed a silent-success bug in `set_room_temp`
+when no write entity exists; the weekly valve-exercise sweep no longer
+blocks the coordinator's tick loop for minutes; added sanity-range clamping
+to room-temperature reads; fixed 6 mutable-default-argument functions in
+`config_flow.py`; the panel now polls at the backend's own cadence (60s,
+was 30s) and no longer silently stops polling after repeated failures;
+added visible error toasts/chips to both panel and card (card had none at
+all); added a confirmation step before "Sluk hele huset"; several other
+UI/UX and frontend/backend-parity fixes (wind/precipitation now shown,
+remote-last-action surfaced, low-battery colour consistency, English/Danish
+label consistency, touch-friendly blocking-reason display).
 
 ---
 

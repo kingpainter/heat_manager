@@ -1,5 +1,19 @@
 // Heat Manager — Custom Lovelace Card
-// Version: 0.4.3
+// Version: 0.17.0
+//
+// v0.17.0:
+//   • Room cards now show humidity/CO2/battery chips, a valve-% badge and a
+//     mold-risk badge — read via the room's own v0.15.0 mirror sensors and
+//     climate_entity attributes (friendly_name discovery, same pattern this
+//     card already used for the group-toggle switch), no new card config
+//     needed. Brings the mobile card closer to Oversigt-fane parity.
+//
+// v0.16.0:
+//   • Version banner corrected — this file had said 0.4.3 since before
+//     v0.9.0's frontend surfacing work, several releases out of date.
+//   • Removed the dead .room-homekit-lytter listener in the card editor
+//     (2.3): the corresponding input field was removed from _render() long
+//     ago, so the field was never rendered and the listener never fired.
 //
 // v0.4.3:
 //   • Boost button now delegates to heat_manager/boost_start|stop WS
@@ -255,6 +269,56 @@ class HeatManagerCard extends HTMLElement {
     return true; // no toggle entity for this room (single-TRV room) — always "grouped"
   }
 
+  // 2026-09-07 audit fix (5.1-5.3 mobile follow-up): humidity/CO2/battery
+  // are only exposed to this card through the v0.15.0 per-room "mirror"
+  // diagnostic sensors (sensor.py's _room_mirror_sensors) — has_entity_name
+  // devices whose friendly_name is exactly "<room> <label>", same
+  // discovery pattern _roomGroupEnabled() above already uses for the group
+  // switch. This only ever finds a value when the room actually has that
+  // raw sensor configured (mirrors are only created for configured
+  // fields) — same "omit when not configured" behaviour the panel has.
+  _roomMirrorNumeric(roomName, label) {
+    const states = this._hass?.states ?? {};
+    for (const id of Object.keys(states)) {
+      if (id.startsWith("sensor.") && states[id]?.attributes?.friendly_name === `${roomName} ${label}`) {
+        const v = parseFloat(states[id].state);
+        return Number.isNaN(v) ? null : v;
+      }
+    }
+    return null;
+  }
+
+  _roomHumidity(roomName) { return this._roomMirrorNumeric(roomName, "Humidity"); }
+  _roomCo2(roomName)      { return this._roomMirrorNumeric(roomName, "CO2"); }
+  _roomBattery(roomName)  { return this._roomMirrorNumeric(roomName, "Battery"); }
+
+  // Mold-risk binary_sensor — same friendly_name discovery, different domain.
+  _roomMoldRisk(roomName) {
+    const states = this._hass?.states ?? {};
+    for (const id of Object.keys(states)) {
+      if (id.startsWith("binary_sensor.") && states[id]?.attributes?.friendly_name === `${roomName} Mold risk`) {
+        return states[id].state === "on";
+      }
+    }
+    return false;
+  }
+
+  // Valve/heating % — read straight off the room's own configured
+  // climate_entity attribute, exactly like websocket.py's ws_get_state does
+  // for the Netatmo case (heating_power_request). The Zigbee pi_demand_entity
+  // override websocket.py also applies isn't available here since this
+  // card's config only stores climate_entity — Netatmo rooms (the common
+  // case) still get a correct reading; Zigbee rooms without that attribute
+  // simply show no valve badge, same graceful-omission behaviour as
+  // humidity/CO2 above.
+  _roomValvePosition(climateEntityId) {
+    if (!climateEntityId) return null;
+    const raw = this._attr(climateEntityId, "heating_power_request");
+    if (raw == null) return null;
+    const v = parseFloat(raw);
+    return Number.isNaN(v) ? null : v;
+  }
+
   _outdoorTemp() {
     const id = this._config.weather_entity;
     if (!id) return null;
@@ -268,14 +332,43 @@ class HeatManagerCard extends HTMLElement {
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
+  // 2026-09-07 audit fix: this card had NO error UI at all — a failed
+  // service call was invisible (not even a console.error in some cases).
+  // Minimal toast, mirroring heat-manager-panel.js's _showToast().
+  _showToast(message, kind = "error") {
+    const container = this.shadowRoot?.querySelector("#hm-toast-container");
+    if (!container) return;
+    const toast = document.createElement("div");
+    toast.className = `hm-toast hm-toast-${kind}`;
+    const icon = kind === "error" ? "⚠️ " : kind === "success" ? "✅ " : "⛔ ";
+    toast.textContent = icon + message;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 4000);
+  }
+
   async _setCtrl(state) {
-    await this._hass.callService("heat_manager", "set_controller_state", { state });
+    try {
+      await this._hass.callService("heat_manager", "set_controller_state", { state });
+    } catch (e) {
+      console.error("[HeatManager]", e);
+      this._showToast("Kunne ikke ændre varme-tilstand");
+    }
   }
   async _pause() {
-    await this._hass.callService("heat_manager", "pause", { duration_minutes: this._pauseMinutes });
+    try {
+      await this._hass.callService("heat_manager", "pause", { duration_minutes: this._pauseMinutes });
+    } catch (e) {
+      console.error("[HeatManager]", e);
+      this._showToast("Kunne ikke sætte pause");
+    }
   }
   async _resume() {
-    await this._hass.callService("heat_manager", "resume", {});
+    try {
+      await this._hass.callService("heat_manager", "resume", {});
+    } catch (e) {
+      console.error("[HeatManager]", e);
+      this._showToast("Kunne ikke genoptage varmestyring");
+    }
   }
 
   async _boost() {
@@ -306,6 +399,7 @@ class HeatManagerCard extends HTMLElement {
       });
     } catch (e) {
       console.warn("Heat Manager boost_start failed:", e);
+      this._showToast("Kunne ikke starte boost");
       return;
     }
 
@@ -333,6 +427,7 @@ class HeatManagerCard extends HTMLElement {
       await this._hass.callWS({ type: "heat_manager/boost_stop" });
     } catch (e) {
       console.warn("Heat Manager boost_stop failed:", e);
+      this._showToast("Kunne ikke stoppe boost");
     }
     this._render();
   }
@@ -394,6 +489,7 @@ class HeatManagerCard extends HTMLElement {
         display: flex;
         flex-direction: column;
         overflow: hidden;
+        position: relative; /* anchors .hm-toast-container */
       }
 
       /* ── Header ── */
@@ -527,6 +623,30 @@ class HeatManagerCard extends HTMLElement {
         align-self: flex-end;
       }
 
+      /* 2026-09-07 audit fix (5.1-5.3 mobile): humidity/CO2/battery chips,
+         valve %, and mold-risk badge — mirrors the panel's Oversigt-fane
+         additions for feature parity on the card most people touch daily. */
+      .room-extra-chips {
+        display: flex; gap: 5px; margin-top: 2px;
+        font-size: 9px; color: var(--sub);
+        align-self: flex-end;
+      }
+      .room-valve-badge {
+        font-size: 9px; font-weight: 600;
+        color: var(--sub); margin-top: 2px;
+        font-family: 'DM Mono', monospace;
+        align-self: flex-end;
+      }
+      .room-valve-heating { color: #f97316; }
+      .room-mold-badge {
+        display: inline-flex; align-items: center; gap: 3px;
+        font-size: 9px; font-weight: 700;
+        padding: 1px 5px; border-radius: 5px; margin-top: 2px;
+        background: rgba(217,119,6,0.14); color: #fbbf24;
+        text-transform: uppercase; letter-spacing: 0.4px;
+        align-self: flex-end;
+      }
+
 
       /* ── Boost ── */
       .boost-row {
@@ -590,6 +710,22 @@ class HeatManagerCard extends HTMLElement {
       .room-temps { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex-shrink: 0; }
       .room-temp-current  { font-size: calc(13px * var(--hm-scale-h)); font-weight: 700; font-family: 'DM Mono', monospace; }
       .room-temp-setpoint { font-size: calc(10px * var(--hm-scale-h)); color: var(--sub); }
+
+      /* 2026-09-07 audit fix: minimal toast for action failures — this card
+         previously had no error UI at all. */
+      .hm-toast-container {
+        position: absolute; left: 8px; right: 8px; bottom: 8px;
+        display: flex; flex-direction: column; gap: 4px;
+        pointer-events: none; z-index: 5;
+      }
+      .hm-toast {
+        font-size: 11px; font-weight: 500; padding: 6px 10px;
+        border-radius: 8px; color: #fff; text-align: center;
+        font-family: 'DM Sans', sans-serif;
+      }
+      .hm-toast-error   { background: rgba(239,68,68,0.92); }
+      .hm-toast-success { background: rgba(34,197,94,0.92); }
+      .hm-toast-info    { background: rgba(51,65,85,0.92); }
     `;
   }
 
@@ -652,13 +788,36 @@ class HeatManagerCard extends HTMLElement {
           // v0.9.0: blocking-sources badge (controller_off/controller_pause
           // only — window/presence are already shown via the state pill)
           const extraBlocking = this._roomExtraBlocking(room.room_name ?? "", state);
+          // 2026-09-07 audit fix (UI/UX-10): title="" tooltips don't fire on
+          // touch — data-blocking-reason + a delegated tap handler in
+          // _attachEvents() shows the full reason as a toast on mobile,
+          // while the title attribute still covers desktop hover.
+          const blockingReason = extraBlocking.map(s => _hmBlockingLabel(s)).join(", ");
           const blockingBadge = extraBlocking.length
-            ? `<div class="room-blocking-badge" title="${_hmEsc(extraBlocking.map(s => _hmBlockingLabel(s)).join(", "))}">⛔ ${_hmEsc(_hmBlockingLabel(extraBlocking[0]))}${extraBlocking.length > 1 ? ` +${extraBlocking.length - 1}` : ""}</div>`
+            ? `<div class="room-blocking-badge" title="${_hmEsc(blockingReason)}" data-blocking-reason="${_hmEsc(blockingReason)}">⛔ ${_hmEsc(_hmBlockingLabel(extraBlocking[0]))}${extraBlocking.length > 1 ? ` +${extraBlocking.length - 1}` : ""}</div>`
             : "";
           // B18 Fase 3: read-only indicator when a multi-TRV room's group
           // toggle is off — full offset/toggle controls live in the panel.
           const ungroupedBadge = !this._roomGroupEnabled(room.room_name ?? "")
             ? `<div class="room-ungrouped-badge" title="Ekstra TRV'er frigivet til manuel styring">🔓 Ikke grupperet</div>`
+            : "";
+          // 2026-09-07 audit fix (5.1-5.3 mobile): humidity/CO2/battery via
+          // the room's mirror sensors, valve % straight off climate_entity
+          // — see the discovery helpers above for why/how.
+          const roomName  = room.room_name ?? "";
+          const humidity  = this._roomHumidity(roomName);
+          const co2       = this._roomCo2(roomName);
+          const battery   = this._roomBattery(roomName);
+          const valve     = this._roomValvePosition(room.climate_entity ?? "");
+          const moldRisk  = this._roomMoldRisk(roomName);
+          const chipsHTML = (humidity != null || co2 != null || battery != null)
+            ? `<div class="room-extra-chips">${humidity != null ? `<span>💧${Math.round(humidity)}%</span>` : ""}${co2 != null ? `<span>🫧${Math.round(co2)}</span>` : ""}${battery != null ? `<span style="${battery <= 15 ? "color:var(--red)" : battery <= 30 ? "color:var(--amber)" : ""}">🔋${Math.round(battery)}%</span>` : ""}</div>`
+            : "";
+          const valveBadge = valve != null
+            ? `<div class="room-valve-badge${valve > 0 ? " room-valve-heating" : ""}">${valve > 0 ? "🔥" : "❄"} ${Math.round(valve)}%</div>`
+            : "";
+          const moldBadge = moldRisk
+            ? `<div class="room-mold-badge" title="Høj fugt tæt på dugpunktet — risiko for skimmelvækst">⚠️ Skimmel</div>`
             : "";
           return `
             <div class="room-card state-${state}"
@@ -668,6 +827,9 @@ class HeatManagerCard extends HTMLElement {
               <div class="room-temps">
                 <div class="room-temp-current">${temp}</div>
                 ${setpt ? `<div class="room-temp-setpoint">→ ${setpt}</div>` : ""}
+                ${chipsHTML}
+                ${valveBadge}
+                ${moldBadge}
                 ${blockingBadge}
                 ${ungroupedBadge}
               </div>
@@ -701,9 +863,9 @@ class HeatManagerCard extends HTMLElement {
         </div>
         <div class="section-body">
           <div class="ctrl-btn-row">
-            <button id="btn-on"    class="ctrl-btn" style="${btnStyle("on")}">🔥 On</button>
+            <button id="btn-on"    class="ctrl-btn" style="${btnStyle("on")}">🔥 Tænd</button>
             <button id="btn-pause" class="ctrl-btn" style="${btnStyle("pause")}">⏸ Pause</button>
-            <button id="btn-off"   class="ctrl-btn" style="${btnStyle("off")}">❄️ Off</button>
+            <button id="btn-off"   class="ctrl-btn" style="${btnStyle("off")}">❄️ Sluk</button>
           </div>
           <div class="ctrl-pause-row">
             <span class="ctrl-pause-label">Pause i</span>
@@ -752,6 +914,7 @@ class HeatManagerCard extends HTMLElement {
         </div>
       </div>` : ""}
 
+      <div id="hm-toast-container" class="hm-toast-container" role="status" aria-live="polite"></div>
       </div>`;
   }
 
@@ -830,9 +993,52 @@ class HeatManagerCard extends HTMLElement {
       const ts = cards[i].querySelector(".room-temp-setpoint");
       if (ts) ts.textContent = setpt ? "→ " + setpt : "";
 
+      const tempsBox = cards[i].querySelector(".room-temps");
+
+      // 2026-09-07 audit fix (5.1-5.3 mobile): humidity/CO2/battery/valve/mold-risk.
+      const roomName = room.room_name ?? "";
+      const humidity = this._roomHumidity(roomName);
+      const co2      = this._roomCo2(roomName);
+      const battery  = this._roomBattery(roomName);
+      const valve    = this._roomValvePosition(room.climate_entity ?? "");
+      const moldRisk = this._roomMoldRisk(roomName);
+
+      let chips = cards[i].querySelector(".room-extra-chips");
+      if (humidity != null || co2 != null || battery != null) {
+        if (!chips) {
+          chips = document.createElement("div");
+          chips.className = "room-extra-chips";
+          tempsBox?.appendChild(chips);
+        }
+        chips.innerHTML = `${humidity != null ? `<span>💧${Math.round(humidity)}%</span>` : ""}${co2 != null ? `<span>🫧${Math.round(co2)}</span>` : ""}${battery != null ? `<span style="${battery <= 15 ? "color:var(--red)" : battery <= 30 ? "color:var(--amber)" : ""}">🔋${Math.round(battery)}%</span>` : ""}`;
+      } else if (chips) { chips.remove(); }
+
+      let vb = cards[i].querySelector(".room-valve-badge");
+      if (valve != null) {
+        const newCls = "room-valve-badge" + (valve > 0 ? " room-valve-heating" : "");
+        const newTxt = (valve > 0 ? "🔥" : "❄") + " " + Math.round(valve) + "%";
+        if (!vb) {
+          vb = document.createElement("div");
+          vb.className = newCls;
+          tempsBox?.appendChild(vb);
+        }
+        vb.className = newCls;
+        vb.textContent = newTxt;
+      } else if (vb) { vb.remove(); }
+
+      let mb = cards[i].querySelector(".room-mold-badge");
+      if (moldRisk) {
+        if (!mb) {
+          mb = document.createElement("div");
+          mb.className = "room-mold-badge";
+          mb.title = "Høj fugt tæt på dugpunktet — risiko for skimmelvækst";
+          mb.textContent = "⚠️ Skimmel";
+          tempsBox?.appendChild(mb);
+        }
+      } else if (mb) { mb.remove(); }
+
       // v0.9.0: blocking-sources badge
       const extraBlocking = this._roomExtraBlocking(room.room_name ?? "", state);
-      const tempsBox = cards[i].querySelector(".room-temps");
       let blk = cards[i].querySelector(".room-blocking-badge");
       if (extraBlocking.length) {
         const title = extraBlocking.map(s => _hmBlockingLabel(s)).join(", ");
@@ -866,13 +1072,41 @@ class HeatManagerCard extends HTMLElement {
   _attachEvents() {
     const root = this.shadowRoot;
     root.querySelector("#btn-on")?.addEventListener("click",     () => this._setCtrl("on"));
-    root.querySelector("#btn-off")?.addEventListener("click",    () => this._setCtrl("off"));
+    // 2026-09-07 audit fix (UI/UX-5): click-to-arm confirmation before
+    // turning off heating for every room — previously a single tap did it
+    // immediately, with no confirmation at all.
+    root.querySelector("#btn-off")?.addEventListener("click", (e) => {
+      const btn = e.currentTarget;
+      if (btn.dataset.confirmOff === "1") {
+        clearTimeout(this._offConfirmTimer);
+        delete btn.dataset.confirmOff;
+        btn.textContent = btn.dataset.offOrigLabel || "❄️ Sluk";
+        this._setCtrl("off");
+        return;
+      }
+      btn.dataset.offOrigLabel = btn.dataset.offOrigLabel || btn.textContent;
+      btn.dataset.confirmOff = "1";
+      btn.textContent = "Tryk igen";
+      this._offConfirmTimer = setTimeout(() => {
+        delete btn.dataset.confirmOff;
+        btn.textContent = btn.dataset.offOrigLabel;
+      }, 3000);
+    });
     root.querySelector("#resume-btn")?.addEventListener("click", () => this._resume());
     root.querySelector("#pause-dur")?.addEventListener("change", e => {
       this._pauseMinutes = parseInt(e.target.value, 10);
     });
     root.querySelector("#btn-pause")?.addEventListener("click",  () => this._pause());
     root.querySelector("#boost-btn")?.addEventListener("click",  () => this._boost());
+    // 2026-09-07 audit fix (UI/UX-10): tap-friendly blocking-reason display —
+    // title="" tooltips never fire on touch, so the reason was unreachable
+    // on a phone/tablet. Delegated so it also works after _patchRooms().
+    root.querySelector("#rooms-list")?.addEventListener("click", (e) => {
+      const badge = e.target.closest(".room-blocking-badge");
+      if (!badge) return;
+      const reason = badge.dataset.blockingReason;
+      if (reason) this._showToast(reason, "info");
+    });
   }
 
   static getConfigElement() {
@@ -1073,12 +1307,6 @@ class HeatManagerCardEditor extends HTMLElement {
     root.querySelectorAll(".room-climate").forEach(el => {
       el.addEventListener("change", e => {
         this._rooms[+e.target.dataset.idx].climate_entity = e.target.value.trim();
-        this._fire();
-      });
-    });
-    root.querySelectorAll(".room-homekit").forEach(el => {
-      el.addEventListener("change", e => {
-        this._rooms[+e.target.dataset.idx].homekit_climate_entity = e.target.value.trim();
         this._fire();
       });
     });

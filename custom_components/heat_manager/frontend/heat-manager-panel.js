@@ -1,5 +1,18 @@
 // Heat Manager Panel
-// Version: 0.3.10
+// Version: 0.17.0
+//
+// v0.17.0:
+//   • Oversigt-cards now show humidity/CO2 chips, a mold-risk badge, and a
+//     sync-mode/schedule/TRV-count meta row — data that already existed in
+//     the get_state payload but was only ever shown in the Rum-detaljer tab.
+//
+// v0.16.0:
+//   • Version banner corrected — this file had said 0.3.10 since before
+//     v0.9.1's frontend surfacing work, several releases out of date.
+//   • Removed dead code left over from the removed "Energi i dag" card:
+//     _patchEnergyToday(), _reasonLabel(), _seasonTriggerLabel(),
+//     _energyTodaySectionHTML() (2.2).
+//   • Backend/frontend audit fix pass — see CHANGELOG.md.
 //
 // Design: Unified visual language with Indeklima — same font (DM Sans/DM Mono),
 // same card system, same section-box pattern, same score ring, same chip/badge
@@ -140,10 +153,16 @@ class HeatManagerPanel extends HTMLElement {
       this._srAppendHTML(`<div class="panel"><div class="loading-wrap"><div class="loading-icon">🔥</div><div class="loading-text">Indlæser Heat Manager…</div></div></div>`);
     }
     if (this._data) this._scheduleRender();
+    // 2026-09-07 audit fix (4.1, UI/UX-1): poll at the same cadence as the
+    // backend's own SCAN_INTERVAL_SECONDS (60 s) — polling twice as often
+    // as the coordinator ticks only ever re-fetched the same snapshot.
+    // Also: never silently give up after repeated failures — that used to
+    // freeze the panel on stale data with zero indication anything was
+    // wrong. Polling keeps retrying forever; _patchWsErrorChip() (see
+    // _load()) is what tells the user a fetch is failing.
     this._interval = setInterval(() => {
-      if (this._errCount > 3) { clearInterval(this._interval); return; }
       if (document.visibilityState === "visible") this._load();
-    }, 30000);
+    }, 60000);
   }
 
   disconnectedCallback() {
@@ -195,10 +214,20 @@ class HeatManagerPanel extends HTMLElement {
     try {
       this._data     = await this._hass.callWS({ type: "heat_manager/get_state" });
       this._errCount = 0;
+      this._wsError  = false;
       this._lastSyncTime = new Date();  // UX3
     } catch (e) {
       this._errCount++;
+      this._wsError = true;
       this._data = this._entitiesSnapshot();
+      // Surface it — previously only console.error, indistinguishable from
+      // a quiet, working panel to anyone not watching devtools.
+      if (this._errCount === 1 || this._errCount % 5 === 0) {
+        this._showToast(
+          "Kunne ikke hente status fra Heat Manager — viser sidst kendte data",
+          "error"
+        );
+      }
     } finally {
       this._loadInFlight = false;
       if (fromRefreshBtn) { this._refreshing = false; this._patchRefreshBtn(); }
@@ -319,14 +348,16 @@ class HeatManagerPanel extends HTMLElement {
     const ctrl  = this._data?.controller_state ?? "unknown";
     const badge = root.querySelector("#topbar-badge");
     if (!badge) return;
-    const labels = { on:"On", pause:"Pause", off:"Off" };
+    // 2026-09-07 audit fix (UI/UX-7): was "On/Pause/Off" here but "Varme
+    // aktiv/Pause/Slukket" everywhere else on the same screen (ctrl ring,
+    // controller title) — now shares _ctrlTitle()'s single Danish mapping.
     const colors = {
       on:    { bg:"rgba(251,146,60,0.2)", color:"#fed7aa", border:"#f97316" },
       pause: { bg:"rgba(234,179,8,0.15)", color:"#fef08a", border:"#ca8a04" },
       off:   { bg:"rgba(148,163,184,0.1)", color:"#94a3b8", border:"rgba(148,163,184,0.3)" },
     };
     const c = colors[ctrl] ?? colors.off;
-    badge.textContent       = labels[ctrl] ?? ctrl;
+    badge.textContent       = this._ctrlTitle(ctrl);
     badge.style.background  = c.bg;
     badge.style.color       = c.color;
     badge.style.borderColor = c.border;
@@ -344,9 +375,22 @@ class HeatManagerPanel extends HTMLElement {
     this._patchPersons();
     this._patchAutoOff();
     this._patchCloudChip();   // replaces _patchCloudBanner (now in topbar)
+    this._patchWsErrorChip(); // 2026-09-07 audit UI/UX-2
+    this._patchRemoteLastAction(); // 2026-09-07 audit 5.4
     this._patchHistoryTab();
     this._patchRoomsTab();    // UX2
     this._patchRefreshBtn();  // UX3
+  }
+
+  // 2026-09-07 audit fix (UI/UX-2, 4.1): visible, persistent indicator that
+  // the panel's own WS calls to Heat Manager are failing — previously an
+  // empty rooms list from a failed heat_manager/get_state was visually
+  // identical to "no rooms configured", and after 4 failures the panel
+  // simply stopped polling with no indication anything was wrong at all.
+  _patchWsErrorChip() {
+    const chip = this.shadowRoot.querySelector("#ws-error-chip");
+    if (!chip) return;
+    chip.hidden = !this._wsError;
   }
 
   // Update the version/temp/season line in the header without re-rendering topbar.
@@ -357,7 +401,12 @@ class HeatManagerPanel extends HTMLElement {
     const d      = this._data;
     const season = ({ winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår", auto:"Auto" })[d?.season_mode] ?? "Auto";
     const otemp  = d?.outdoor_temp != null ? `${Math.round(d.outdoor_temp)}°C · ` : "";
-    verEl.textContent = `${otemp}${season}`;
+    // 6.0 m/s mirrors const.py's WIND_FAST_MS — keep in sync if that changes.
+    const wxIcons = [
+      d?.precipitation > 0 ? "🌧️" : null,
+      d?.wind_speed != null && d.wind_speed >= 6.0 ? "💨" : null,
+    ].filter(Boolean).join(" ");
+    verEl.textContent = `${otemp}${season}${wxIcons ? " · " + wxIcons : ""}`;
   }
 
   // Update the four quick-stat numbers in the overview Rum section.
@@ -413,6 +462,10 @@ class HeatManagerPanel extends HTMLElement {
       const tempStr = room.current_temp != null ? (Math.round(room.current_temp * 10) / 10) + "°C" : "–";
       const battery = room.battery_level != null ? Math.round(room.battery_level) : null;
       const battStr = battery != null ? `${battery}%` : "–";
+      // 2026-09-07 audit fix (UI/UX-6): low battery was only colour-coded in
+      // the Rum tab — Oversigt showed the same percentage with no warning
+      // colour at all, so a critically low TRV battery was easy to miss.
+      const battColor = battery == null ? "" : battery <= 15 ? "var(--red)" : battery <= 30 ? "var(--amber)" : "";
       const fillPct = state === "normal" ? "100" : state === "away" ? "20" : state === "window_open" ? "50" : state === "pre_heat" ? "75" : "40";
 
       // Update card styles
@@ -428,7 +481,7 @@ class HeatManagerPanel extends HTMLElement {
       const vals = card.querySelectorAll(".room-temp-val");
       if (vals[0]) vals[0].textContent = tempStr;
       if (vals[1]) vals[1].textContent = setpt ?? "–";
-      if (vals[2]) vals[2].textContent = battStr;
+      if (vals[2]) { vals[2].textContent = battStr; vals[2].style.color = battColor; }
 
       // Update state bar fill
       const fill = card.querySelector(".room-state-fill");
@@ -470,6 +523,65 @@ class HeatManagerPanel extends HTMLElement {
         blk.title = title;
         blk.textContent = txt;
       } else if (blk) { blk.remove(); }
+
+      // 2026-09-07 audit fix (5.2): "window physically open, still inside
+      // the close/open delay" badge — see _roomCardHTML()'s comment.
+      let wpb = card.querySelector(".room-window-pending-badge");
+      if (room.windows_open && state !== "window_open") {
+        if (!wpb) {
+          wpb = document.createElement("div");
+          wpb.className = "room-window-pending-badge";
+          wpb.title = "Vindue fysisk åbent — venter på forsinkelse før varmen slås fra";
+          wpb.textContent = "🪟 venter";
+          card.appendChild(wpb);
+        }
+      } else if (wpb) { wpb.remove(); }
+
+      // 2026-09-07 audit fix (5.2 follow-up): humidity/CO2 chip line.
+      const humidityStr = room.humidity != null ? `${Math.round(room.humidity * 10) / 10}%` : null;
+      const co2Str      = room.co2 != null ? `${Math.round(room.co2)} ppm` : null;
+      let chips = card.querySelector(".room-extra-chips");
+      if (humidityStr || co2Str) {
+        if (!chips) {
+          chips = document.createElement("div");
+          chips.className = "room-extra-chips";
+          card.querySelector(".room-state-bar")?.insertAdjacentElement("afterend", chips);
+        }
+        chips.innerHTML = `${humidityStr ? `<span>💧 ${humidityStr}</span>` : ""}${co2Str ? `<span>🫧 ${co2Str}</span>` : ""}`;
+      } else if (chips) { chips.remove(); }
+
+      // 2026-09-07 audit fix (5.3): mold-risk badge.
+      let moldBadge = card.querySelector(".room-mold-badge");
+      if (room.mold_risk) {
+        if (!moldBadge) {
+          moldBadge = document.createElement("div");
+          moldBadge.className = "room-mold-badge";
+          moldBadge.title = "Høj fugt tæt på dugpunktet — risiko for skimmelvækst";
+          moldBadge.textContent = "⚠️ Skimmelrisiko";
+          card.appendChild(moldBadge);
+        }
+      } else if (moldBadge) { moldBadge.remove(); }
+
+      // 2026-09-07 audit fix (5.6/5.9): sync-mode / schedule / TRV-count.
+      const metaBadges = [];
+      if (room.sync_mode && room.sync_mode !== "disabled") {
+        metaBadges.push(`<span class="room-meta-badge" title="Synkroniseringstilstand">🔄 ${this._esc(this._syncModeLabel(room.sync_mode))}</span>`);
+      }
+      if (room.schedule_entity) {
+        metaBadges.push(`<span class="room-meta-badge" title="Schedule-entity konfigureret">🗓 Schedule</span>`);
+      }
+      if (room.trv_count > 1) {
+        metaBadges.push(`<span class="room-meta-badge" title="Antal TRV'er i rummet">🔧 ${room.trv_count} TRV'er</span>`);
+      }
+      let metaRow = card.querySelector(".room-meta-row");
+      if (metaBadges.length) {
+        if (!metaRow) {
+          metaRow = document.createElement("div");
+          metaRow.className = "room-meta-row";
+          card.appendChild(metaRow);
+        }
+        metaRow.innerHTML = metaBadges.join("");
+      } else if (metaRow) { metaRow.remove(); }
     });
   }
 
@@ -487,18 +599,6 @@ class HeatManagerPanel extends HTMLElement {
     const wrapper = root.querySelector("#autooff-wrapper");
     if (!wrapper) return;
     wrapper.innerHTML = this._autoOffInnerHTML();
-  }
-
-  // v0.3.9: refresh "Energi i dag" card in-place on auto-refresh.
-  // v0.14.0: no longer called from _patchAll() — the card was removed from
-  // Oversigt (it modelled estimated fjernvarme kWh from valve-open time, not
-  // a real measurement, and was judged not useful). Left in place (dormant)
-  // rather than deleted, in case it is repurposed later.
-  _patchEnergyToday() {
-    const root    = this.shadowRoot;
-    const wrapper = root.querySelector("#energy-today-wrapper");
-    if (!wrapper) return;
-    wrapper.innerHTML = this._energyTodayInnerHTML();
   }
 
   // Update compact cloud status chip in the topbar (replaces full-width banner).
@@ -682,6 +782,12 @@ class HeatManagerPanel extends HTMLElement {
   _patchRoomsTab() {
     const root = this.shadowRoot;
     if (this._tab !== "rooms") return;
+    // 2026-09-07 audit fix (4.3): don't yank the tab out from under an
+    // in-progress slider drag — a poll landing mid-drag used to rebuild the
+    // whole tab via innerHTML, which reset the slider's own DOM node (and
+    // whatever value the user was in the middle of dragging to) on every
+    // 60 s tick. Defer this rebuild; the next poll after release re-syncs.
+    if (this._roomsTabDragging) return;
     // Find the rooms detail section — rebuild its inner content surgically
     const container = root.querySelector(".rooms-detail-container");
     if (!container) return;
@@ -720,6 +826,13 @@ class HeatManagerPanel extends HTMLElement {
       };
       updateSlider();
       slider.addEventListener("input", updateSlider);
+      // 2026-09-07 audit fix (4.3): _patchRoomsTab() used to unconditionally
+      // rebuild the whole tab via innerHTML on every poll, which could rip
+      // this slider out from under the user's finger mid-drag. Track drag
+      // state so the poll-driven rebuild can defer itself until release.
+      slider.addEventListener("pointerdown", () => { this._roomsTabDragging = true; });
+      slider.addEventListener("pointerup",   () => { this._roomsTabDragging = false; });
+      slider.addEventListener("change",      () => { this._roomsTabDragging = false; });
     });
 
     // Manual-control: send button — set_room_temp WS
@@ -774,6 +887,29 @@ class HeatManagerPanel extends HTMLElement {
       });
     });
 
+    // 2026-09-07 audit fix (1.3): heat_manager.force_room_on existed as a
+    // service since presence_engine.py's earliest version but had no UI
+    // element calling it anywhere — advanced-users-only via Developer
+    // Tools. Simple per-room button, same pattern as room-manual-reset.
+    root.querySelectorAll(".room-manual-force").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const roomName = btn.dataset.room;
+        if (!roomName) return;
+        btn.textContent = "⚡ ...";
+        try {
+          await this._hass.callService("heat_manager", "force_room_on", {
+            room_name: roomName,
+          });
+          btn.textContent = "⚡ OK";
+        } catch (e) {
+          btn.textContent = "⚡ Fejl";
+          this._showToast(`${roomName}: kunne ikke tvinge varme til`, "error");
+          console.error("[HeatManager] force_room_on failed:", e);
+        }
+        setTimeout(() => { btn.textContent = "⚡ Tving til"; }, 1500);
+      });
+    });
+
     // B18 Fase 3: per-room offset slider — live label while dragging,
     // number.set_value on release (same UX as the old global slider).
     root.querySelectorAll(".room-offset-slider").forEach(slider => {
@@ -786,7 +922,10 @@ class HeatManagerPanel extends HTMLElement {
       };
       updateLabel();
       slider.addEventListener("input", updateLabel);
+      slider.addEventListener("pointerdown", () => { this._roomsTabDragging = true; });
+      slider.addEventListener("pointerup",   () => { this._roomsTabDragging = false; });
       slider.addEventListener("change", async () => {
+        this._roomsTabDragging = false; // safety net for keyboard-driven changes
         const roomName = slider.dataset.room;
         if (!roomName) return;
         const entityId = this._roomOffsetEntityId(roomName);
@@ -867,7 +1006,10 @@ class HeatManagerPanel extends HTMLElement {
       this._patchControllerHero();
       this._patchTopbarBadge();
       this._startPauseCountdown();
-    } catch (e) { console.error("[HeatManager]", e); }
+    } catch (e) {
+      console.error("[HeatManager]", e);
+      this._showToast("Kunne ikke ændre varme-tilstand", "error");
+    }
   }
 
   async _pause(minutes) {
@@ -879,7 +1021,10 @@ class HeatManagerPanel extends HTMLElement {
       this._patchControllerHero();
       this._patchTopbarBadge();
       this._startPauseCountdown();
-    } catch (e) { console.error("[HeatManager]", e); }
+    } catch (e) {
+      console.error("[HeatManager]", e);
+      this._showToast("Kunne ikke sætte pause", "error");
+    }
   }
 
   async _resume() {
@@ -891,7 +1036,10 @@ class HeatManagerPanel extends HTMLElement {
       this._patchController();
       this._patchControllerHero();
       this._patchTopbarBadge();
-    } catch (e) { console.error("[HeatManager]", e); }
+    } catch (e) {
+      console.error("[HeatManager]", e);
+      this._showToast("Kunne ikke genoptage varmestyring", "error");
+    }
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -982,15 +1130,6 @@ class HeatManagerPanel extends HTMLElement {
     }).join("");
   }
 
-  _reasonLabel(r) { return ({ season:"Sæson — sommer", temperature:"Ude-temp over grænse", none:"Manuel" })[r] ?? r ?? "–"; }
-  _seasonTriggerLabel(season, reason) {
-    if (season === "summer") return reason === "season" ? "Sommer — slået fra" : "Sommer — auto-off klar";
-    if (season === "spring") return reason === "season" ? "Forår — afventer temperatur" : "Forår — varme aktiv (for koldt)";
-    if (season === "autumn") return reason === "season" ? "Efterår — afventer temperatur" : "Efterår — varme aktiv (stadig koldt)";
-    if (season === "auto")   return "Auto — kalender + temperatur overvåges";
-    return reason === "season" ? "Vinter — slået fra" : "Vinter — kører normalt";
-  }
-
   _ctrlIcon(s) { return ({ on:"🔥", pause:"⏸", off:"❄️" })[s] ?? "●"; }
   _ctrlTitle(s) { return ({ on:"Varme aktiv", pause:"Pause", off:"Slukket" })[s] ?? s; }
 
@@ -1034,14 +1173,6 @@ class HeatManagerPanel extends HTMLElement {
       const mm = String(d.getMinutes()).padStart(2, "0");
       return `kl. ${hh}:${mm}`;
     } catch { return null; }
-  }
-
-  // Efficiency ring — inverted from severity: 100 = good (full green ring)
-  _ringColor(score) {
-    if (score == null) return "#64748b";
-    if (score >= 80) return "#f97316";
-    if (score >= 50) return "#eab308";
-    return "#ef4444";
   }
 
   // ── CSS ───────────────────────────────────────────────────────────────────
@@ -1225,6 +1356,22 @@ class HeatManagerPanel extends HTMLElement {
       .cloud-chip-label { font-size: 11px; font-weight: 600; color: #fca5a5; }
       .cloud-chip-x { font-size: 10px; color: rgba(252,165,165,0.5); margin-left:2px; }
 
+      /* Backend connection error chip — distinct from cloud-chip (that's about
+         Netatmo cloud staleness; this is about the panel's own WS calls to
+         Heat Manager failing, see UI/UX-2 in the 2026-09-07 audit) */
+      .ws-error-chip {
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 3px 8px; border-radius: 20px;
+        background: rgba(239,68,68,0.15);
+        border: 1px solid rgba(239,68,68,0.35);
+        font-family: 'DM Sans', sans-serif;
+      }
+      .ws-error-dot {
+        width: 6px; height: 6px; border-radius: 50%; background: #ef4444;
+        flex-shrink: 0; animation: chip-pulse 2s ease-in-out infinite;
+      }
+      .ws-error-label { font-size: 11px; font-weight: 600; color: #fca5a5; }
+
       /* Manual TRV control */
       .room-manual {
         padding: 10px 16px 12px;
@@ -1281,6 +1428,14 @@ class HeatManagerPanel extends HTMLElement {
         transition: color .15s, border-color .15s;
       }
       .room-manual-reset:hover { color: var(--fg); border-color: var(--fg); }
+      .room-manual-force {
+        padding: 5px 10px; border-radius: 7px; border: 1px solid rgba(245,158,11,0.4);
+        background: rgba(245,158,11,0.1); color: #f59e0b;
+        font-size: 11px; font-weight: 600; cursor: pointer;
+        font-family: 'DM Sans', sans-serif; white-space: nowrap;
+        transition: background .15s;
+      }
+      .room-manual-force:hover { background: rgba(245,158,11,0.2); }
 
       /* Toggle button (used for manual control) */
       .toggle-btn {
@@ -1426,6 +1581,36 @@ class HeatManagerPanel extends HTMLElement {
         padding: 2px 6px; border-radius: 5px; margin-top: 5px;
         background: rgba(239,68,68,0.12); color: #fca5a5;
         text-transform: uppercase; letter-spacing: 0.4px;
+      }
+      .room-window-pending-badge {
+        display: inline-flex; align-items: center; gap: 3px;
+        font-size: 9px; font-weight: 700;
+        padding: 2px 6px; border-radius: 5px; margin-top: 5px;
+        background: rgba(14,165,233,0.12); color: #7dd3fc;
+        text-transform: uppercase; letter-spacing: 0.4px;
+      }
+
+      /* 2026-09-07 audit fix (5.2/5.3/5.6/5.9): humidity/CO2 chips, mold-risk
+         badge, and the sync/schedule/TRV-count meta row on Oversigt cards. */
+      .room-extra-chips {
+        display: flex; gap: 8px; margin-top: 6px;
+        font-size: 10px; color: var(--sub);
+      }
+      .room-mold-badge {
+        display: inline-flex; align-items: center; gap: 3px;
+        font-size: 9px; font-weight: 700;
+        padding: 2px 6px; border-radius: 5px; margin-top: 5px;
+        background: rgba(217,119,6,0.14); color: #fbbf24;
+        text-transform: uppercase; letter-spacing: 0.4px;
+      }
+      .room-meta-row {
+        display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px;
+      }
+      .room-meta-badge {
+        display: inline-flex; align-items: center; gap: 3px;
+        font-size: 9px; font-weight: 600;
+        padding: 2px 6px; border-radius: 5px;
+        background: rgba(148,163,184,0.12); color: var(--sub);
       }
 
       /* E) Refresh button spin */
@@ -1770,7 +1955,14 @@ class HeatManagerPanel extends HTMLElement {
     const ctrl   = d?.controller_state ?? "unknown";
     const season = ({ winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår", auto:"Auto" })[d?.season_mode] ?? "Auto";
     const otemp  = d?.outdoor_temp != null ? `${Math.round(d.outdoor_temp)}°C · ` : "";
-    const labels = { on:"On", pause:"Pause", off:"Off" };
+    // 2026-09-07 audit fix (5.8): wind/precipitation were already read by
+    // WindowEngine/WasteCalculator to shape delay/waste decisions but never
+    // reached the panel payload at all — small icons next to outdoor temp.
+    // 6.0 m/s mirrors const.py's WIND_FAST_MS — keep in sync if that changes.
+    const wxIcons = [
+      d?.precipitation > 0 ? "🌧️" : null,
+      d?.wind_speed != null && d.wind_speed >= 6.0 ? "💨" : null,
+    ].filter(Boolean).join(" ");
     const bColors = {
       on:    { bg:"rgba(249,115,22,0.2)",  color:"#fed7aa", border:"#f97316" },
       pause: { bg:"rgba(234,179,8,0.15)",  color:"#fef08a", border:"#ca8a04" },
@@ -1783,7 +1975,7 @@ class HeatManagerPanel extends HTMLElement {
         <div class="header-icon"></div>
         <div class="header-text">
           <h1>Heat Manager</h1>
-          <div class="version">${otemp}${season}</div>
+          <div class="version">${otemp}${season}${wxIcons ? " · " + wxIcons : ""}</div>
         </div>
         <button id="cloud-chip" class="cloud-chip" hidden
           data-action="dismiss-cloud-banner" title="" aria-label="Skjul cloud-status besked">
@@ -1791,10 +1983,15 @@ class HeatManagerPanel extends HTMLElement {
           <span class="cloud-chip-label"></span>
           <span class="cloud-chip-x">✕</span>
         </button>
+        <div id="ws-error-chip" class="ws-error-chip" hidden role="status"
+          title="Kunne ikke hente status fra Heat Manager — viser sidst kendte data">
+          <span class="ws-error-dot"></span>
+          <span class="ws-error-label">Ingen forbindelse</span>
+        </div>
         <div id="topbar-badge" class="topbar-badge"
           style="background:${bc.bg};color:${bc.color};border-color:${bc.border}">
           <div class="badge-dot" style="background:${bc.color}"></div>
-          ${labels[ctrl] ?? ctrl}
+          ${this._ctrlTitle(ctrl)}
         </div>
         <button class="header-refresh" data-action="refresh">↻ Opdater</button>
       </div>
@@ -1871,9 +2068,9 @@ class HeatManagerPanel extends HTMLElement {
 
         <div class="ctrl-btns-wrap">
           <div class="ctrl-btn-row">
-            <button id="ctrl-btn-on"    class="ctrl-btn" data-action="on">🔥 On</button>
+            <button id="ctrl-btn-on"    class="ctrl-btn" data-action="on">🔥 Tænd</button>
             <button id="ctrl-btn-pause" class="ctrl-btn" data-action="pause">⏸ Pause</button>
-            <button id="ctrl-btn-off"   class="ctrl-btn" data-action="off">❄️ Off</button>
+            <button id="ctrl-btn-off"   class="ctrl-btn" data-action="off">❄️ Sluk</button>
             <button id="ctrl-btn-boost" class="ctrl-btn ctrl-btn-boost" data-action="boost"
               title="Boost — varm op hurtigt">⚡ Boost</button>
           </div>
@@ -1906,6 +2103,7 @@ class HeatManagerPanel extends HTMLElement {
     const tempStr  = room.current_temp != null ? (Math.round(room.current_temp * 10) / 10) + "°C" : "–";
     const battery  = room.battery_level != null ? Math.round(room.battery_level) : null;
     const battStr  = battery != null ? `${battery}%` : "–";
+    const battColor = battery == null ? "" : battery <= 15 ? "var(--red)" : battery <= 30 ? "var(--amber)" : "";
     const fillPct  = state === "normal" ? "100" : state === "away" ? "20" : state === "window_open" ? "50" : state === "pre_heat" ? "75" : "40";
     // C) Valve badge
     const valve    = room.valve_position != null ? Math.round(room.valve_position) : null;
@@ -1923,6 +2121,42 @@ class HeatManagerPanel extends HTMLElement {
     const blockingBadge = extraBlocking.length
       ? `<div class="room-blocking-badge" title="${this._esc(extraBlocking.map(s => this._blockingLabel(s)).join(", "))}">⛔ ${this._esc(this._blockingLabel(extraBlocking[0]))}${extraBlocking.length > 1 ? ` +${extraBlocking.length - 1}` : ""}</div>`
       : "";
+    // 2026-09-07 audit fix (5.2): `windows_open` (the raw sensor reading)
+    // was already in the payload but never shown — a window physically
+    // open during the configured close/open delay looked identical to a
+    // fully closed one until the state pill actually flipped to
+    // "Vindue åbent". Only shown for that in-between case.
+    const windowPendingBadge = room.windows_open && state !== "window_open"
+      ? `<div class="room-window-pending-badge" title="Vindue fysisk åbent — venter på forsinkelse før varmen slås fra">🪟 venter</div>`
+      : "";
+    // 2026-09-07 audit fix (5.2 follow-up): humidity/CO2 were already in the
+    // payload (used by the Rum-detaljer tab) but never shown on the
+    // Oversigt cards — same slim chip line, just here too.
+    const humidityStr = room.humidity != null ? `${Math.round(room.humidity * 10) / 10}%` : null;
+    const co2Str      = room.co2 != null ? `${Math.round(room.co2)} ppm` : null;
+    const extraChips  = (humidityStr || co2Str)
+      ? `<div class="room-extra-chips">${humidityStr ? `<span>💧 ${humidityStr}</span>` : ""}${co2Str ? `<span>🫧 ${co2Str}</span>` : ""}</div>`
+      : "";
+    // 2026-09-07 audit fix (5.3): mold-risk badge (see websocket.py comment
+    // at the mold_risk field for the algorithm).
+    const moldBadge = room.mold_risk
+      ? `<div class="room-mold-badge" title="Høj fugt tæt på dugpunktet — risiko for skimmelvækst">⚠️ Skimmelrisiko</div>`
+      : "";
+    // 2026-09-07 audit fix (5.6/5.9): sync-mode, schedule and multi-TRV were
+    // already in the payload (Rum-detaljer tab, config-only fields) but
+    // absent from Oversigt — grouped into one compact meta row so they
+    // don't push the valve/blocking badges further down the card.
+    const metaBadges = [];
+    if (room.sync_mode && room.sync_mode !== "disabled") {
+      metaBadges.push(`<span class="room-meta-badge" title="Synkroniseringstilstand">🔄 ${this._esc(this._syncModeLabel(room.sync_mode))}</span>`);
+    }
+    if (room.schedule_entity) {
+      metaBadges.push(`<span class="room-meta-badge" title="Schedule-entity konfigureret">🗓 Schedule</span>`);
+    }
+    if (room.trv_count > 1) {
+      metaBadges.push(`<span class="room-meta-badge" title="Antal TRV'er i rummet">🔧 ${room.trv_count} TRV'er</span>`);
+    }
+    const metaRow = metaBadges.length ? `<div class="room-meta-row">${metaBadges.join("")}</div>` : "";
     return `
       <div class="room-card state-${state}" data-room-id="${this._esc(room.name)}"
            style="background:${grad};border-left-color:${color}">
@@ -1943,15 +2177,19 @@ class HeatManagerPanel extends HTMLElement {
             <div class="room-temp-lbl">Sætpunkt</div>
           </div>
           <div class="room-temp-box">
-            <div class="room-temp-val">${battStr}</div>
+            <div class="room-temp-val" style="${battColor ? `color:${battColor}` : ""}">${battStr}</div>
             <div class="room-temp-lbl">Trv batt</div>
           </div>
         </div>
         <div class="room-state-bar">
           <div class="room-state-fill" style="width:${fillPct}%;background:${color}"></div>
         </div>
+        ${extraChips}
         ${valveBadge}
+        ${moldBadge}
         ${blockingBadge}
+        ${windowPendingBadge}
+        ${metaRow}
       </div>`;
   }
 
@@ -2029,61 +2267,6 @@ class HeatManagerPanel extends HTMLElement {
     return `<div id="autooff-wrapper" class="section-box">${this._autoOffInnerHTML()}</div>`;
   }
 
-  // v0.3.9: "Energi i dag" card for the Oversigt tab. Uses energy_saved_today /
-  // energy_wasted_today / efficiency_score — already in the get_state payload,
-  // so no backend changes needed. Mirrors the controller-ring visual language
-  // at a smaller scale for the efficiency score.
-  _energyTodayInnerHTML() {
-    const d      = this._data;
-    const saved  = d?.energy_saved_today;
-    const wasted = d?.energy_wasted_today;
-    const score  = d?.efficiency_score;
-    const lastSaved  = this._fmtEventTime(d?.last_saved_time);
-    const lastWasted = this._fmtEventTime(d?.last_waste_time);
-
-    const r          = 40;
-    const circ       = 2 * Math.PI * r;
-    const pct        = score != null ? Math.max(0, Math.min(100, score)) : 0;
-    const dashOffset = circ - (circ * pct) / 100;
-    const ringColor  = this._ringColor(score);
-
-    const fmt = v => v != null ? (Math.round(v * 100) / 100).toLocaleString("da-DK") : "–";
-
-    return `
-      <div class="section-box-header">
-        <div class="section-box-title">Energi i dag</div>
-      </div>
-      <div class="energy-today-grid">
-        <div class="energy-stat">
-          <div class="energy-stat-icon" style="color:var(--green)">🟢</div>
-          <div class="energy-stat-val" style="color:var(--green)">${fmt(saved)} <span class="energy-stat-unit">kWh</span></div>
-          <div class="energy-stat-lbl">Sparet${lastSaved ? ` · ${lastSaved}` : ""}</div>
-        </div>
-        <div class="energy-eff-ring-wrap">
-          <svg class="eff-ring-svg" viewBox="0 0 100 100">
-            <circle class="eff-ring-bg" cx="50" cy="50" r="${r}" />
-            <circle class="eff-ring-fill" cx="50" cy="50" r="${r}"
-              stroke="${ringColor}"
-              stroke-dasharray="${circ}"
-              stroke-dashoffset="${dashOffset}" />
-          </svg>
-          <div class="eff-ring-center">
-            <div class="eff-ring-val" style="color:${ringColor}">${score ?? "–"}</div>
-            <div class="eff-ring-lbl">score</div>
-          </div>
-        </div>
-        <div class="energy-stat">
-          <div class="energy-stat-icon" style="color:var(--amber)">🔥</div>
-          <div class="energy-stat-val" style="color:var(--amber)">${fmt(wasted)} <span class="energy-stat-unit">kWh</span></div>
-          <div class="energy-stat-lbl">Spildt${lastWasted ? ` · ${lastWasted}` : ""}</div>
-        </div>
-      </div>`;
-  }
-
-  _energyTodaySectionHTML() {
-    return `<div id="energy-today-wrapper" class="section-box">${this._energyTodayInnerHTML()}</div>`;
-  }
-
   _energyChartHTML() {
     const days = this._history?.days ?? this._fakeDays();
     const max  = Math.max(...days.map(d => (d.saved ?? 0) + (d.wasted ?? 0)), 0.01);
@@ -2129,13 +2312,45 @@ class HeatManagerPanel extends HTMLElement {
 
   // ── Tab builders ──────────────────────────────────────────────────────────
 
+  // 2026-09-07 audit fix (5.4): coordinator.remote_last_action was already
+  // tracked (v0.14.0's global remote buttons, exposed as a Hub sensor via
+  // the v0.15.0 mirror layer) but never shown anywhere in the panel/card
+  // UI itself — only visible by hunting for the sensor entity. Shown here
+  // only while recent (< 30 min) so it doesn't linger as stale info.
+  _remoteLastActionHTML() {
+    const a = this._data?.remote_last_action;
+    if (!a?.timestamp) return "";
+    const ageMin = (Date.now() - new Date(a.timestamp).getTime()) / 60000;
+    if (!(ageMin >= 0 && ageMin < 30)) return "";
+    const roomsStr = (a.rooms ?? []).join(", ");
+    return `Fjernbetjening: ${this._esc(a.description ?? "")}${roomsStr ? ` — ${this._esc(roomsStr)}` : ""}`;
+  }
+
+  // Keeps the remote-last-action strip in sync on every poll (unlike a
+  // plain _overviewHTML() string, which only renders once — see _load()'s
+  // _patchAll()-vs-_scheduleRender() split). Hides itself once the action
+  // is more than 30 min old, or none has ever happened.
+  _patchRemoteLastAction() {
+    const box = this.shadowRoot.querySelector("#remote-last-action-box");
+    if (!box) return;
+    const text = this._remoteLastActionHTML();
+    box.hidden = !text;
+    if (text) box.querySelector(".rla-text").textContent = text;
+  }
+
   _overviewHTML() {
     const rooms  = this._data?.rooms ?? [];
     const active = rooms.filter(r => r.state === "normal").length;
     const away   = rooms.filter(r => r.state === "away").length;
     const winOpen = rooms.filter(r => r.state === "window_open").length;
+    const rlaText = this._remoteLastActionHTML();
     return `
       ${this._controllerSectionHTML()}
+      <div id="remote-last-action-box" class="section-box"
+        style="padding:10px 16px;display:flex;align-items:center;gap:8px;" ${rlaText ? "" : "hidden"}>
+        <span style="font-size:16px">📡</span>
+        <span class="rla-text" style="font-size:12px;color:var(--sub)">${rlaText}</span>
+      </div>
 
       <div class="section-box">
         <div class="section-box-header">
@@ -2233,6 +2448,10 @@ class HeatManagerPanel extends HTMLElement {
           </select>
           <button class="room-manual-send" data-room="${this._esc(room.name)}">Send ↗</button>
           <button class="room-manual-reset" data-room="${this._esc(room.name)}">↺ Schedule</button>
+        </div>
+        <div class="room-manual-row" style="margin-top:6px">
+          <button class="room-manual-force" data-room="${this._esc(room.name)}"
+            title="Tving rummet til at varme nu, uanset tilstedeværelse/vindue (heat_manager.force_room_on)">⚡ Tving til</button>
         </div>
       </div>` : "";
 
@@ -2525,7 +2744,7 @@ class HeatManagerPanel extends HTMLElement {
       <div class="panel">
         <div class="panel-topbar">${this._topbarHTML()}</div>
         <div class="panel-scroll"><div>${content}</div></div>
-        <div id="toast-container" class="toast-container"></div>
+        <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
       </div>`;
 
     const existing = root.querySelector(".panel");
@@ -2554,7 +2773,27 @@ class HeatManagerPanel extends HTMLElement {
     }));
     root.querySelector("[data-action='refresh']")?.addEventListener("click", () => this._load(true));
     root.querySelector("[data-action='on']"    )?.addEventListener("click", () => this._setController("on"));
-    root.querySelector("[data-action='off']"   )?.addEventListener("click", () => this._setController("off"));
+    // 2026-09-07 audit fix (UI/UX-5): "Sluk hele huset" had no confirmation
+    // at all — one misclick turned off heating for every room. Click-to-arm
+    // instead of a blocking native confirm(), consistent with the rest of
+    // this panel's non-blocking UI (toasts, inline patches).
+    root.querySelector("[data-action='off']"   )?.addEventListener("click", (e) => {
+      const btn = e.currentTarget;
+      if (btn.dataset.confirmOff === "1") {
+        clearTimeout(this._offConfirmTimer);
+        delete btn.dataset.confirmOff;
+        btn.textContent = btn.dataset.offOrigLabel || "❄️ Sluk";
+        this._setController("off");
+        return;
+      }
+      btn.dataset.offOrigLabel = btn.dataset.offOrigLabel || btn.textContent;
+      btn.dataset.confirmOff = "1";
+      btn.textContent = "Tryk igen for at slukke";
+      this._offConfirmTimer = setTimeout(() => {
+        delete btn.dataset.confirmOff;
+        btn.textContent = btn.dataset.offOrigLabel;
+      }, 3000);
+    });
     root.querySelector("[data-action='resume']")?.addEventListener("click", () => this._resume());
     root.querySelector("[data-action='pause']" )?.addEventListener("click", () => {
       const min = parseInt(root.querySelector("#pause-dur")?.value ?? "120", 10);

@@ -121,6 +121,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.runtime_data = coordinator
 
+    # Create the global Heat Manager device explicitly, before any platform
+    # is set up, and record its registry ID on the coordinator. Room devices
+    # (coordinator.room_device_info()) link to it via via_device_id, which
+    # needs the actual DeviceEntry.id rather than an identifiers tuple (see
+    # that method's docstring) — creating it here up front also avoids a
+    # race where a room device could be created by one platform before the
+    # global device exists, since PLATFORMS are forwarded concurrently.
+    # Built from the same fields as coordinator.global_device_info() — kept
+    # as an explicit call (not **dict(...)-unpacked from that DeviceInfo)
+    # because DeviceInfo's entry_type accepts a plain string for typing
+    # convenience while async_get_or_create expects the DeviceEntryType
+    # enum member itself.
+    dev_reg = dr.async_get(hass)
+    global_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.entry_id)},
+        name="Heat Manager",
+        manufacturer="Heat Manager",
+        model="Multi-room heating controller",
+        entry_type=dr.DeviceEntryType.SERVICE,
+    )
+    coordinator.global_device_id = global_device.id
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     _register_services(hass, coordinator)
@@ -161,6 +184,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     DOMAIN,
                     f"{REPAIR_ISSUE_MISSING_CLIMATE}_{safe}_{entry.entry_id[:8]}",
                 )
+        # Only remove the domain-wide services once no config entry is left
+        # to back them — otherwise a still-loaded entry would lose its
+        # services after this one unloads.
+        remaining = [
+            e
+            for e in hass.config_entries.async_entries(DOMAIN)
+            if e.entry_id != entry.entry_id
+        ]
+        if not remaining:
+            _unregister_services(hass)
     return unload_ok
 
 
@@ -375,3 +408,21 @@ def _register_services(
         handle_boost_stop,
         schema=vol.Schema({}),
     )
+
+
+def _unregister_services(hass: HomeAssistant) -> None:
+    """Remove all domain-wide services registered by _register_services.
+
+    Only called from async_unload_entry once no config entry remains, so a
+    still-loaded entry never loses its services.
+    """
+    for service in (
+        SERVICE_SET_CONTROLLER_STATE,
+        SERVICE_PAUSE,
+        SERVICE_RESUME,
+        SERVICE_FORCE_ROOM_ON,
+        SERVICE_BOOST_START,
+        SERVICE_BOOST_STOP,
+    ):
+        if hass.services.has_service(DOMAIN, service):
+            hass.services.async_remove(DOMAIN, service)

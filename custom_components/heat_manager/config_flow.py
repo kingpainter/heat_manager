@@ -121,7 +121,8 @@ _LOGGER = logging.getLogger(__name__)
 # ── Shared schemas ────────────────────────────────────────────────────────────
 
 
-def _step1_schema(defaults: dict = {}) -> vol.Schema:
+def _step1_schema(defaults: dict | None = None) -> vol.Schema:
+    defaults = defaults or {}
     return vol.Schema(
         {
             # default=vol.UNDEFINED (not "") — the entity selector rejects ""
@@ -376,8 +377,9 @@ def _step1_schema(defaults: dict = {}) -> vol.Schema:
     )
 
 
-def _trv_schema(defaults: dict = {}) -> vol.Schema:
+def _trv_schema(defaults: dict | None = None) -> vol.Schema:
     """Schema for a single physical TRV within a room — see CONF_TRVS."""
+    defaults = defaults or {}
     return vol.Schema(
         {
             vol.Required(
@@ -447,9 +449,10 @@ def _trv_schema(defaults: dict = {}) -> vol.Schema:
     )
 
 
-def _room_schema(defaults: dict = {}) -> vol.Schema:
+def _room_schema(defaults: dict | None = None) -> vol.Schema:
     """Schema for a room's own fields — its TRVs are managed separately
     through the room-TRV sub-flow (see _trv_schema and CONF_TRVS)."""
+    defaults = defaults or {}
     return vol.Schema(
         {
             vol.Required(
@@ -558,7 +561,8 @@ def _room_schema(defaults: dict = {}) -> vol.Schema:
     )
 
 
-def _person_schema(defaults: dict = {}) -> vol.Schema:
+def _person_schema(defaults: dict | None = None) -> vol.Schema:
+    defaults = defaults or {}
     return vol.Schema(
         {
             vol.Required(
@@ -586,7 +590,8 @@ def _person_schema(defaults: dict = {}) -> vol.Schema:
     )
 
 
-def _notifications_schema(defaults: dict = {}) -> vol.Schema:
+def _notifications_schema(defaults: dict | None = None) -> vol.Schema:
+    defaults = defaults or {}
     return vol.Schema(
         {
             vol.Optional(
@@ -609,12 +614,13 @@ def _notifications_schema(defaults: dict = {}) -> vol.Schema:
     )
 
 
-def _remote_control_schema(defaults: dict = {}) -> vol.Schema:
+def _remote_control_schema(defaults: dict | None = None) -> vol.Schema:
     """Global physical remote (e.g. Aqara Climate Sensor W100) — see
     const.py's "Remote button control" section and engine/remote_button_engine.py.
     All 3 fields are optional `event.*` entities, independently configurable
     so any button/remote hardware can be assigned, not just one specific model.
     """
+    defaults = defaults or {}
     return vol.Schema(
         {
             vol.Optional(

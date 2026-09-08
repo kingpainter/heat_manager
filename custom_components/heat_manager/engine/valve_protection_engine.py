@@ -69,6 +69,7 @@ class ValveProtectionEngine:
         self.coordinator = coordinator
         self._last_exercise_week: int | None = None  # ISO week number
         self._running: bool = False
+        self._task: asyncio.Task[None] | None = None
 
     # ── Tick ──────────────────────────────────────────────────────────────────
 
@@ -98,10 +99,31 @@ class ValveProtectionEngine:
         )
         self._last_exercise_week = current_week
         self._running = True
+        # 3.3 hardening: fire-and-forget rather than awaiting the sweep
+        # directly — with N TRVs each held open for EXERCISE_DURATION_SEC
+        # plus a stagger delay, an inline await here blocked the
+        # coordinator's entire 60 s tick cycle for several minutes, once a
+        # week. Running it as its own background task keeps the tick loop
+        # (and every other room's PID/window/presence logic) responsive
+        # while the sweep proceeds.
+        self._task = self.coordinator.hass.async_create_task(
+            self._run_exercise_sweep(),
+            name="heat_manager_valve_exercise",
+        )
+
+    async def _run_exercise_sweep(self) -> None:
+        """Background wrapper around _exercise_all_valves() — see async_tick()."""
         try:
             await self._exercise_all_valves()
+        # broad-except-rationale: this runs detached from the coordinator's
+        # tick loop, so a failure here would otherwise become an unlogged
+        # unhandled task exception instead of a warning — next week's tick
+        # simply tries again.
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("ValveProtectionEngine: exercise sweep failed")
         finally:
             self._running = False
+            self._task = None
 
     # ── Exercise sweep ────────────────────────────────────────────────────────
 
@@ -244,4 +266,6 @@ class ValveProtectionEngine:
             _LOGGER.warning("ValveProtectionEngine notification failed: %s", err)
 
     async def async_shutdown(self) -> None:
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
         _LOGGER.debug("ValveProtectionEngine shut down")

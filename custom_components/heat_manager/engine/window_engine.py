@@ -26,6 +26,7 @@ from homeassistant.util.dt import utcnow
 from ..const import (
     CONF_AWAY_TEMP_OVERRIDE,
     CONF_CLIMATE_ENTITY,
+    CONF_NOTIFY_WINDOW_WARNING_30,
     CONF_NOTIFY_WINDOWS,
     CONF_TRV_TYPE,
     CONF_WINDOW_DELAY_MIN,
@@ -339,7 +340,8 @@ class WindowEngine:
                     f"  CO₂: {co2_ppm:.0f} ppm" if co2_ppm else "",
                 )
                 self.coordinator.log_event(log_msg, "30-min warning", "window_open")
-                await self._notify(notif_msg)
+                if self.coordinator.config.get(CONF_NOTIFY_WINDOW_WARNING_30, True):
+                    await self._notify(notif_msg)
                 self._warning_sent[room_name] = True
 
     # ── CO₂ context helpers ───────────────────────────────────────────────────

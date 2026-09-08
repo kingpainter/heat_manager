@@ -5,7 +5,13 @@ from __future__ import annotations
 from enum import StrEnum
 
 DOMAIN = "heat_manager"
-VERSION = "0.9.0"
+# 2026-09-07 audit fix: this had been stuck at "0.9.0" since before v0.10.0
+# while manifest.json kept advancing normally — it feeds the panel/card
+# static-asset cache-busting query string (see panel.py's module_url/
+# canonical_url), so every release since v0.9.0 was silently relying on the
+# file-mtime half of that query string alone. Now kept in sync with
+# manifest.json's "version" on every release.
+VERSION = "0.17.0"
 
 # ── Config entry keys ────────────────────────────────────────────────────────
 
