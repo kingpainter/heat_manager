@@ -152,7 +152,12 @@ def _room_mirror_sensors(
             SensorDeviceClass.TEMPERATURE,
             "room_temp_mirror",
         ),
-        (CONF_HUMIDITY_SENSOR, "Humidity", SensorDeviceClass.HUMIDITY, "humidity_mirror"),
+        (
+            CONF_HUMIDITY_SENSOR,
+            "Humidity",
+            SensorDeviceClass.HUMIDITY,
+            "humidity_mirror",
+        ),
         (CONF_CO2_SENSOR, "CO2", SensorDeviceClass.CO2, "co2_mirror"),
         (CONF_BATTERY_SENSOR, "Battery", SensorDeviceClass.BATTERY, "battery_mirror"),
     ):

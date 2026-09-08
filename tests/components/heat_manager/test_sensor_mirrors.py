@@ -215,14 +215,16 @@ def test_set_remote_last_action_records_and_notifies():
     from custom_components.heat_manager.coordinator import HeatManagerCoordinator
 
     coord = _coordinator()
-    coord.set_remote_last_action = HeatManagerCoordinator.set_remote_last_action.__get__(
-        coord, type(coord)
+    coord.set_remote_last_action = (
+        HeatManagerCoordinator.set_remote_last_action.__get__(coord, type(coord))
     )
     coord.async_update_listeners = MagicMock()
 
     coord.set_remote_last_action("Remote: +0.5°C — Bathroom → 20.5°C", ["Bathroom"])
 
-    assert coord.remote_last_action["description"] == "Remote: +0.5°C — Bathroom → 20.5°C"
+    assert (
+        coord.remote_last_action["description"] == "Remote: +0.5°C — Bathroom → 20.5°C"
+    )
     assert coord.remote_last_action["rooms"] == ["Bathroom"]
     assert "timestamp" in coord.remote_last_action
     coord.async_update_listeners.assert_called_once()
