@@ -108,6 +108,16 @@ def _make_coordinator(rooms=None, persons=None) -> MagicMock:
     coord.get_trv_write_entity = MagicMock(side_effect=_trv_write_entity)
     coord.get_room_write_entities = MagicMock(side_effect=_room_write_entities)
 
+    # 2026-09 frontend-parity fix: ws_get_state() reads get_pid()/
+    # calibration_engine directly for the pid_power/calibration_offset
+    # fields. Default to "no PID yet" / "no calibration written yet" so
+    # those fields resolve to None like every other unconfigured room
+    # field, instead of a bare MagicMock leaking into the payload.
+    coord.get_pid = MagicMock(return_value=None)
+    calibration_engine = MagicMock()
+    calibration_engine._last_written = {}
+    coord.calibration_engine = calibration_engine
+
     return coord
 
 
@@ -544,6 +554,132 @@ async def test_get_state_humidity_and_co2_default_to_none_when_not_configured():
     room = conn.send_result.call_args[0][1]["rooms"][0]
     assert room["humidity"] is None
     assert room["co2"] is None
+
+
+# ── ws_get_state: PID power / calibration offset / window duration / health
+#    (2026-09 frontend-parity fix — these were computed but only ever
+#    visible via HA's own entity page) ───────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_get_state_pid_calibration_window_duration_default_to_none():
+    coord = _make_coordinator(rooms=[_room(climate="climate.bathroom")])
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["pid_power"] is None
+    assert room["calibration_offset"] is None
+    assert room["window_duration_today"] is None
+    # No state at all for climate.bathroom in this fixture — correctly
+    # counted as unavailable, matching a real HA instance where a missing
+    # state means the entity truly isn't reporting.
+    assert room["unavailable_entities"] == ["climate.bathroom"]
+
+
+@pytest.mark.asyncio
+async def test_get_state_pid_power_computed_from_pid_last_output():
+    coord = _make_coordinator(
+        rooms=[_room(name="Bathroom", climate="climate.bathroom")]
+    )
+    pid = MagicMock()
+    pid._last_output = 0.35
+    coord.get_pid = MagicMock(
+        side_effect=lambda name: pid if name == "Bathroom" else None
+    )
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["pid_power"] == 35.0
+
+
+@pytest.mark.asyncio
+async def test_get_state_calibration_offset_from_calibration_engine_last_written():
+    coord = _make_coordinator(
+        rooms=[_room(name="Bathroom", climate="climate.bathroom")]
+    )
+    coord.calibration_engine._last_written = {"Bathroom": -0.5}
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["calibration_offset"] == -0.5
+
+
+@pytest.mark.asyncio
+async def test_get_state_unavailable_entities_lists_missing_or_unavailable():
+    coord = _make_coordinator(
+        rooms=[
+            _room(
+                climate="climate.bathroom",
+                window_sensors=["binary_sensor.bathroom_window"],
+                humidity_sensor="sensor.bathroom_humidity",
+            )
+        ]
+    )
+    climate_state = MagicMock()
+    climate_state.state = "heat"
+    climate_state.attributes = {}
+    window_state = MagicMock()
+    window_state.state = "unavailable"
+
+    def _get(eid):
+        if eid == "climate.bathroom":
+            return climate_state
+        if eid == "binary_sensor.bathroom_window":
+            return window_state
+        return None  # sensor.bathroom_humidity has no state at all
+
+    coord.hass.states.get = MagicMock(side_effect=_get)
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert "climate.bathroom" not in room["unavailable_entities"]
+    assert "binary_sensor.bathroom_window" in room["unavailable_entities"]
+    assert "sensor.bathroom_humidity" in room["unavailable_entities"]
+
+
+@pytest.mark.asyncio
+async def test_get_state_unavailable_entities_empty_when_everything_reporting():
+    coord = _make_coordinator(
+        rooms=[
+            _room(
+                climate="climate.bathroom",
+                window_sensors=["binary_sensor.bathroom_window"],
+            )
+        ]
+    )
+    ok_state = MagicMock()
+    ok_state.state = "heat"
+    ok_state.attributes = {}
+    window_state = MagicMock()
+    window_state.state = "off"
+
+    def _get(eid):
+        if eid == "climate.bathroom":
+            return ok_state
+        if eid == "binary_sensor.bathroom_window":
+            return window_state
+        return None
+
+    coord.hass.states.get = MagicMock(side_effect=_get)
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["unavailable_entities"] == []
 
 
 # ── ws_get_state: climate entity resolved via CONF_TRVS (regression) ────────

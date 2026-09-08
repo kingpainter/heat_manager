@@ -408,7 +408,11 @@ class EfficiencyScoreSensor(CoordinatorEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_suggested_display_precision = 0
-    _attr_entity_registry_enabled_default = False
+    # 2026-09 frontend-parity fix: was off-by-default, so neither UI could
+    # show it without the user manually enabling it first. Same policy
+    # shift already applied to the v0.15.0 mirror sensors — the point of
+    # exposing this at all is to be visible without a manual step.
+    _attr_entity_registry_enabled_default = True
 
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -509,7 +513,11 @@ class RoomWindowDurationSensor(CoordinatorEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False  # diagnostic — off by default
+    # 2026-09 frontend-parity fix: was off-by-default (see
+    # EfficiencyScoreSensor above for the same reasoning) — now surfaced in
+    # ws_get_state()/panel.js and discovered by card.js the same way the
+    # v0.15.0 mirrors are, neither of which is possible while disabled.
+    _attr_entity_registry_enabled_default = True
 
     def __init__(
         self,
@@ -521,7 +529,16 @@ class RoomWindowDurationSensor(CoordinatorEntity, SensorEntity):
         self._room_name = room["room_name"]
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_window_duration"
-        self._attr_name = f"{self._room_name} window duration"
+        # 2026-09 naming fix: has_entity_name already prefixes with the
+        # room device's own name ("Bathroom") — a room name baked into
+        # _attr_name too doubled it up into "Bathroom Bathroom window
+        # duration". Never noticed before this session because these 3
+        # sensors were enabled_default=False; now that they're on by
+        # default (frontend-parity fix above) and card.js discovers them
+        # by friendly_name (same pattern as the v0.15.0 Humidity/CO2/
+        # Battery mirrors, which never had this bug), the name has to be
+        # correct. Matches _MirrorSensorBase's convention: just the label.
+        self._attr_name = "Window duration"
         self._total_minutes: int = 0
         self._was_open: bool = False
         self._opened_at: datetime | None = None
@@ -574,7 +591,8 @@ class RoomPidPowerSensor(CoordinatorEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_suggested_display_precision = 0
-    _attr_entity_registry_enabled_default = False  # diagnostic — off by default
+    # 2026-09 frontend-parity fix: see EfficiencyScoreSensor above.
+    _attr_entity_registry_enabled_default = True
 
     def __init__(
         self,
@@ -586,7 +604,8 @@ class RoomPidPowerSensor(CoordinatorEntity, SensorEntity):
         self._room_name = room["room_name"]
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_pid_power"
-        self._attr_name = f"{self._room_name} PID power"
+        # 2026-09 naming fix: see RoomWindowDurationSensor above.
+        self._attr_name = "PID power"
         self._attr_device_info = coordinator.room_device_info(self._room_name)
 
     @property
@@ -626,7 +645,8 @@ class RoomCalibrationOffsetSensor(CoordinatorEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_suggested_display_precision = 1
-    _attr_entity_registry_enabled_default = False  # diagnostic — off by default
+    # 2026-09 frontend-parity fix: see EfficiencyScoreSensor above.
+    _attr_entity_registry_enabled_default = True
 
     def __init__(
         self,
@@ -638,7 +658,8 @@ class RoomCalibrationOffsetSensor(CoordinatorEntity, SensorEntity):
         self._room_name = room["room_name"]
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_calibration_offset"
-        self._attr_name = f"{self._room_name} calibration offset"
+        # 2026-09 naming fix: see RoomWindowDurationSensor above.
+        self._attr_name = "Calibration offset"
         self._attr_device_info = coordinator.room_device_info(self._room_name)
 
     @property

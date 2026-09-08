@@ -116,6 +116,10 @@ class HeatManagerPanel extends HTMLElement {
     this._renderPending   = false;
     this._lastCtrlState   = null;
     this._showCloudBanner = true;  // can be toggled off in config tab
+    // 2026-09 audit fix (UI/UX #8): separate dismiss state from the cloud
+    // chip — a user dismissing "Netatmo cloud down" shouldn't also hide an
+    // unrelated "window sensor battery dead" warning, and vice versa.
+    this._showHealthBanner = true;
     this._pauseTimer      = null;  // local countdown interval
     this._boostTimer      = null;  // local boost countdown interval
     this._historyLoading  = false; // skeleton guard
@@ -375,6 +379,7 @@ class HeatManagerPanel extends HTMLElement {
     this._patchPersons();
     this._patchAutoOff();
     this._patchCloudChip();   // replaces _patchCloudBanner (now in topbar)
+    this._patchHealthChip();  // 2026-09 audit fix (UI/UX #8)
     this._patchWsErrorChip(); // 2026-09-07 audit UI/UX-2
     this._patchRemoteLastAction(); // 2026-09-07 audit 5.4
     this._patchHistoryTab();
@@ -616,6 +621,28 @@ class HeatManagerPanel extends HTMLElement {
         allUnavailable ? "#ef4444" : "#f97316";
       chip.querySelector(".cloud-chip-label").textContent =
         allUnavailable ? "Cloud nede" : `⏱ ${staleMinutes} min`;
+    } else {
+      chip.hidden = true;
+    }
+  }
+
+  // 2026-09 audit fix (UI/UX #8): companion chip for non-Netatmo entity
+  // health — a dead window-sensor battery or missing humidity sensor never
+  // trips the cloud chip above (it only ever looks at climate entities),
+  // so it would otherwise stay completely invisible in both frontends.
+  // Same compact/dismissible pattern, own dismiss state (_showHealthBanner)
+  // so dismissing one chip never hides the other.
+  _patchHealthChip() {
+    const root = this.shadowRoot;
+    const chip = root.querySelector("#health-chip");
+    if (!chip) return;
+    const { otherIssues } = this._cloudStatus();
+    if (otherIssues.length && this._showHealthBanner) {
+      chip.hidden = false;
+      chip.title  = otherIssues.map(i => `${i.room}: ${i.entity}`).join("\n");
+      chip.querySelector(".cloud-chip-dot").style.background = "#f97316";
+      chip.querySelector(".cloud-chip-label").textContent =
+        `⚠ ${otherIssues.length} entitet${otherIssues.length > 1 ? "er" : ""}`;
     } else {
       chip.hidden = true;
     }
@@ -1892,14 +1919,27 @@ class HeatManagerPanel extends HTMLElement {
 
   _cloudStatus() {
     // Detect Netatmo cloud issues from HA entity state — no external fetch needed.
-    // Returns: { ok, allUnavailable, staleMinutes } where staleMinutes is the
-    // age (in minutes) of the oldest climate entity's last_updated, or 0 if fresh.
-    if (!this._hass || !this._data) return { ok: true, allUnavailable: false, staleMinutes: 0 };
+    // Returns: { ok, allUnavailable, staleMinutes, otherIssues } where
+    // staleMinutes is the age (in minutes) of the oldest climate entity's
+    // last_updated (0 if fresh), and otherIssues (2026-09 audit fix UI/UX
+    // #8) lists every *non*-Netatmo entity ws_get_state() reports as
+    // unavailable for some room (a window/humidity/CO2/battery sensor, or
+    // a secondary TRV in a multi-TRV room — this method's own climateIds
+    // loop below only ever checked each room's primary TRV).
+    const empty = { ok: true, allUnavailable: false, staleMinutes: 0, otherIssues: [] };
+    if (!this._hass || !this._data) return empty;
     const rooms = this._data?.rooms ?? [];
-    if (!rooms.length) return { ok: true, allUnavailable: false, staleMinutes: 0 };
+    if (!rooms.length) return empty;
+
+    const otherIssues = [];
+    for (const room of rooms) {
+      for (const id of room.unavailable_entities ?? []) {
+        if (!id.startsWith("climate.")) otherIssues.push({ room: room.name, entity: id });
+      }
+    }
 
     const climateIds = rooms.map(r => r.climate_entity).filter(Boolean);
-    if (!climateIds.length) return { ok: true, allUnavailable: false, staleMinutes: 0 };
+    if (!climateIds.length) return { ...empty, otherIssues };
 
     const states = this._hass.states ?? {};
     const now = Date.now();
@@ -1920,35 +1960,13 @@ class HeatManagerPanel extends HTMLElement {
     const allUnavailable = unavailableCount === climateIds.length;
     const staleMinutes   = Math.floor(maxStaleMs / 60000);
     const isStale        = staleMinutes >= 10;
-    return { ok: !allUnavailable && !isStale, allUnavailable, staleMinutes };
+    return { ok: !allUnavailable && !isStale, allUnavailable, staleMinutes, otherIssues };
   }
 
-  _cloudBannerHTML() {
-    if (!this._showCloudBanner) return "";
-    const { ok, allUnavailable, staleMinutes } = this._cloudStatus();
-    if (ok) return "";
-
-    let icon, title, detail;
-    if (allUnavailable) {
-      icon   = "☁️";
-      title  = "Netatmo cloud utilgængelig";
-      detail = "Alle klimaentiteter er unavailable — tjek <a href='https://health.netatmo.com' target='_blank' rel='noopener' style='color:inherit;text-decoration:underline'>health.netatmo.com</a>";
-    } else {
-      icon   = "⏱️";
-      title  = "Netatmo data forsinket";
-      detail = `Klimadata er ${staleMinutes} min gammel — mulig cloud-forsinkelse`;
-    }
-
-    return `
-      <div class="cloud-banner">
-        <span class="cloud-banner-icon">${icon}</span>
-        <div class="cloud-banner-body">
-          <div class="cloud-banner-title">${title}</div>
-          <div class="cloud-banner-detail">${detail}</div>
-        </div>
-        <button class="cloud-banner-dismiss" data-action="dismiss-cloud-banner" title="Skjul">✕</button>
-      </div>`;
-  }
+  // NB: a full-width _cloudBannerHTML() used to live here — dead code,
+  // superseded by the compact topbar chip (_patchCloudChip()/#cloud-chip)
+  // and never actually called. Removed 2026-09 (kode-polish pass); see
+  // _patchCloudChip()/_patchHealthChip() for the live equivalent.
 
   _topbarHTML() {
     const d      = this._data;
@@ -1979,6 +1997,12 @@ class HeatManagerPanel extends HTMLElement {
         </div>
         <button id="cloud-chip" class="cloud-chip" hidden
           data-action="dismiss-cloud-banner" title="" aria-label="Skjul cloud-status besked">
+          <span class="cloud-chip-dot"></span>
+          <span class="cloud-chip-label"></span>
+          <span class="cloud-chip-x">✕</span>
+        </button>
+        <button id="health-chip" class="cloud-chip" hidden
+          data-action="dismiss-health-banner" title="" aria-label="Skjul entitets-status besked">
           <span class="cloud-chip-dot"></span>
           <span class="cloud-chip-label"></span>
           <span class="cloud-chip-x">✕</span>
@@ -2411,6 +2435,24 @@ class HeatManagerPanel extends HTMLElement {
     const batteryStr  = battery != null ? `${battery}%` : "–";
     const humidityStr = room.humidity != null ? `${Math.round(room.humidity * 10) / 10}%` : null;
     const co2Str      = room.co2 != null ? `${Math.round(room.co2)} ppm` : null;
+    // 2026-09 frontend-parity fix: these were computed by the backend
+    // (PID's own power output, calibration_engine's last written offset,
+    // RoomWindowDurationSensor's running total) but only ever visible via
+    // HA's own entity page — same "Rum detaljer" pattern as humidity/CO2
+    // above, just added a session later once ws_get_state() started
+    // reporting them.
+    const pidPowerStr  = room.pid_power != null ? `${Math.round(room.pid_power)}%` : null;
+    const calibStr     = room.calibration_offset != null
+      ? `${room.calibration_offset >= 0 ? "+" : ""}${room.calibration_offset.toFixed(1)}°C`
+      : null;
+    const windowDurStr = room.window_duration_today != null ? `${room.window_duration_today} min` : null;
+    // 2026-09 audit fix (UI/UX #8): unavailable_entities lists every entity
+    // this room depends on (all TRVs, window/humidity/CO2/battery sensors)
+    // that's currently missing/unavailable/unknown — a small warning chip
+    // here surfaces it without waiting for the top-level Netatmo-only
+    // cloud banner to notice (a dead window-sensor battery, say, is not a
+    // cloud outage and never trips that banner).
+    const unavailableList = room.unavailable_entities ?? [];
     const valve    = room.valve_position != null ? Math.round(room.valve_position) : null;
     const isHeat   = valve != null && valve > 0;
     const trvBadge = this._trvBadgeHTML(room.trv_type); // v0.3.9 (B15)
@@ -2496,10 +2538,14 @@ class HeatManagerPanel extends HTMLElement {
            ${statBox("Trv temp", trvTempStr)}
            ${statBox("Trv batt", batteryStr, batteryColor)}
          </div>`;
-    const extraSensorsHTML = (humidityStr || co2Str) ? `
-         <div style="display:flex;gap:6px;margin-top:6px">
+    const extraSensorsHTML = (humidityStr || co2Str || pidPowerStr || calibStr || windowDurStr || unavailableList.length) ? `
+         <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
            ${humidityStr ? `<span style="font-size:10px;color:var(--sub)">💧 ${humidityStr}</span>` : ""}
            ${co2Str ? `<span style="font-size:10px;color:var(--sub)">🫧 CO₂ ${co2Str}</span>` : ""}
+           ${pidPowerStr ? `<span style="font-size:10px;color:var(--sub)">⚙️ PID ${pidPowerStr}</span>` : ""}
+           ${calibStr ? `<span style="font-size:10px;color:var(--sub)">🎯 ${calibStr}</span>` : ""}
+           ${windowDurStr ? `<span style="font-size:10px;color:var(--sub)">🪟 ${windowDurStr} i dag</span>` : ""}
+           ${unavailableList.length ? `<span style="font-size:10px;color:var(--red)" title="${this._esc(unavailableList.join(", "))}">⚠️ ${unavailableList.length} utilgængelig${unavailableList.length > 1 ? "e" : ""}</span>` : ""}
          </div>` : "";
 
     return `
@@ -2759,6 +2805,7 @@ class HeatManagerPanel extends HTMLElement {
     this._patchController();
     this._patchControllerHero();
     this._patchCloudChip();
+    this._patchHealthChip();  // 2026-09 audit fix (UI/UX #8)
     this._startPauseCountdown();
     this._startBoostCountdown();
     this._attachEvents();
@@ -2837,6 +2884,10 @@ class HeatManagerPanel extends HTMLElement {
     root.querySelector("[data-action='dismiss-cloud-banner']")?.addEventListener("click", () => {
       this._showCloudBanner = false;
       this._patchCloudChip();
+    });
+    root.querySelector("[data-action='dismiss-health-banner']")?.addEventListener("click", () => {
+      this._showHealthBanner = false;
+      this._patchHealthChip();
     });
 
     // Manual TRV control toggle

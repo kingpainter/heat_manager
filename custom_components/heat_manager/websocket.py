@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 
 from .const import (
     CONF_ALARM_PANEL,
@@ -416,6 +417,70 @@ async def ws_get_state(
             <= _mold_dewpoint(current_temp, humidity) + _MOLD_SURFACE_MARGIN
         )
 
+        # 2026-09 frontend-parity fix — PID power, calibration offset and
+        # window-open-minutes-today were computed but only ever visible via
+        # HA's own entity page (diagnostic sensors, off by default until
+        # this session flipped them to enabled-by-default in sensor.py).
+        # PID power and calibration offset already live directly on the
+        # coordinator/engine — read the same underlying value the sensors
+        # themselves read, no entity lookup needed. Window-duration's
+        # running total (accumulated across possibly several open/close
+        # cycles today) only exists inside RoomWindowDurationSensor's own
+        # instance state, so it's resolved via the entity registry by
+        # unique_id (not by guessing the entity_id) and read like any other
+        # entity this function already reads.
+        pid_power: float | None = None
+        pid = coordinator.get_pid(name)
+        if pid is not None:
+            raw_pid = getattr(pid, "_last_output", None)
+            if raw_pid is not None:
+                pid_power = round(raw_pid * 100.0, 1)
+
+        calibration_offset = coordinator.calibration_engine._last_written.get(name)
+
+        window_duration_today: int | None = None
+        safe_name = name.lower().replace(" ", "_")
+        window_duration_uid = f"{entry.entry_id}_{safe_name}_window_duration"
+        window_duration_id = er.async_get(hass).async_get_entity_id(
+            "sensor", DOMAIN, window_duration_uid
+        )
+        if window_duration_id:
+            wds = hass.states.get(window_duration_id)
+            if wds and wds.state not in ("unknown", "unavailable"):
+                with contextlib.suppress(TypeError, ValueError):
+                    window_duration_today = int(float(wds.state))
+
+        # 2026-09 audit fix (UI/UX #8) — the old cloud-status check (panel.js
+        # _cloudStatus()) only ever looked at the room's *primary* TRV. Give
+        # the frontend the full picture instead: every configured entity
+        # this room actually depends on (all TRVs, not just the primary —
+        # multi-TRV rooms have secondary TRVs the old check never saw —
+        # plus window/humidity/CO2/battery sensors), so it can tell "Netatmo
+        # cloud is down" apart from "some other sensor/TRV is unavailable"
+        # instead of only ever detecting the former.
+        unavailable_entities: list[str] = []
+        for trv in coordinator.get_all_room_trvs(name):
+            trv_id = trv.get(CONF_CLIMATE_ENTITY, "")
+            if trv_id:
+                trv_state = hass.states.get(trv_id)
+                if trv_state is None or trv_state.state in ("unknown", "unavailable"):
+                    unavailable_entities.append(trv_id)
+        for sensor_id in sensors:
+            sensor_state = hass.states.get(sensor_id)
+            if sensor_state is None or sensor_state.state in (
+                "unknown",
+                "unavailable",
+            ):
+                unavailable_entities.append(sensor_id)
+        for extra_id in (battery_entity, humidity_entity, co2_entity):
+            if extra_id:
+                extra_state = hass.states.get(extra_id)
+                if extra_state is None or extra_state.state in (
+                    "unknown",
+                    "unavailable",
+                ):
+                    unavailable_entities.append(extra_id)
+
         rooms.append(
             {
                 "name": name,
@@ -433,6 +498,10 @@ async def ws_get_state(
                 "humidity": humidity,  # % — only set when humidity_sensor is configured
                 "co2": co2,  # ppm — only set when co2_sensor is configured
                 "mold_risk": mold_risk,  # 2026-09-07 audit fix (5.3)
+                "pid_power": pid_power,  # 2026-09 frontend-parity fix
+                "calibration_offset": calibration_offset,  # 2026-09 frontend-parity fix
+                "window_duration_today": window_duration_today,  # 2026-09 frontend-parity fix
+                "unavailable_entities": unavailable_entities,  # 2026-09 audit fix (UI/UX #8)
                 "why": _why_label(room_state),
                 # v0.14.0: which caller ("switch"/"remote") currently holds
                 # this room in OVERRIDE, if any — None otherwise. Purely for

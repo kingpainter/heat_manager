@@ -160,6 +160,23 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # is serialised app-wide instead of racing.
         self._netatmo_call_lock = asyncio.Lock()
 
+        # 2026-09 performance fix: _async_pid_tick() resolves each room's
+        # TRV list 3x per room per tick (once via get_room_current_temp()'s
+        # internal get_homekit_climate_entity() call, once via its own
+        # direct get_homekit_climate_entity() call, once via get_room_trvs()
+        # for the write loop) — all 3 route through get_all_room_trvs(),
+        # which re-scans self.rooms and re-runs migrate_room_to_trvs() every
+        # time. None (disabled) outside a PID tick, so all 29 other call
+        # sites across the codebase see get_all_room_trvs() behave exactly
+        # as before — only _async_pid_tick() activates it (see that method)
+        # for the duration of one tick. Safe even though the tick awaits
+        # between rooms (a config change could land there): each room's 3
+        # reads all happen back-to-back with no await in between, and no
+        # room is ever read a second time later in the same tick — so
+        # whichever value was live at the *start* of a room's turn is what
+        # every one of that room's 3 reads sees, tick-cache or not.
+        self._trv_cache: dict[str, list[dict[str, Any]]] | None = None
+
         # ── Shared runtime state ──────────────────────────────────────────────
         self.room_states: dict[str, RoomState] = {}
         # Restore persisted season_mode if present (set via select entity)
@@ -406,10 +423,18 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         that actually writes a climate service call — should use
         get_room_trvs() instead.
         """
+        if self._trv_cache is not None and room_name in self._trv_cache:
+            return self._trv_cache[room_name]
+
+        trvs: list[dict[str, Any]] = []
         for room in self.rooms:
             if room.get("room_name") == room_name:
-                return migrate_room_to_trvs(room).get(CONF_TRVS, [])
-        return []
+                trvs = migrate_room_to_trvs(room).get(CONF_TRVS, [])
+                break
+
+        if self._trv_cache is not None:
+            self._trv_cache[room_name] = trvs
+        return trvs
 
     def get_room_trvs(self, room_name: str) -> list[dict[str, Any]]:
         """Return every physical TRV Heat Manager should currently *command*
@@ -1388,220 +1413,233 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 pid.reset()
             return
 
-        for room in self.rooms:
-            room_name = room.get("room_name", "")
-            primary_id = room.get(CONF_CLIMATE_ENTITY, "")
-            if not room_name or not primary_id:
-                continue
+        # 2026-09 performance fix: activate the per-tick TRV cache (see
+        # get_all_room_trvs()) for the duration of this loop — always
+        # reset in the finally, even if a room's processing raises, so a
+        # bug here can never leave every other get_all_room_trvs() call
+        # site (all 29 of them) silently reading a stale cache forever.
+        self._trv_cache = {}
+        try:
+            for room in self.rooms:
+                room_name = room.get("room_name", "")
+                primary_id = room.get(CONF_CLIMATE_ENTITY, "")
+                if not room_name or not primary_id:
+                    continue
 
-            pid = self.pid_controllers.get(room_name)
-            if pid is None:
-                continue
+                pid = self.pid_controllers.get(room_name)
+                if pid is None:
+                    continue
 
-            if self.get_room_state(room_name) != RoomState.NORMAL:
-                pid.reset()
-                continue
+                if self.get_room_state(room_name) != RoomState.NORMAL:
+                    pid.reset()
+                    continue
 
-            # ── Read current temperature via unified helper ────────────────
-            # Preference: room_temp_sensor → HomeKit entity → cloud entity
-            current_temp = self.get_room_current_temp(room_name, primary_id)
-            if current_temp is None:
-                pid.reset()
-                continue
+                # ── Read current temperature via unified helper ────────────────
+                # Preference: room_temp_sensor → HomeKit entity → cloud entity
+                current_temp = self.get_room_current_temp(room_name, primary_id)
+                if current_temp is None:
+                    pid.reset()
+                    continue
 
-            hk_id = self.get_homekit_climate_entity(room_name)
+                hk_id = self.get_homekit_climate_entity(room_name)
 
-            if hk_id:
-                # ── Netatmo split-entity path (unchanged) ───────────────
-                write_id = hk_id
-                primary_state = self.hass.states.get(primary_id)
-                if primary_state is None or primary_state.state in (
+                if hk_id:
+                    # ── Netatmo split-entity path (unchanged) ───────────────
+                    write_id = hk_id
+                    primary_state = self.hass.states.get(primary_id)
+                    if primary_state is None or primary_state.state in (
+                        "unavailable",
+                        "unknown",
+                    ):
+                        pid.reset()
+                        continue
+                    target_temp = primary_state.attributes.get("temperature")
+                    if target_temp is None:
+                        continue
+                    try:
+                        target_temp = float(target_temp)
+                    except (TypeError, ValueError):
+                        continue
+                    demand_pct = primary_state.attributes.get(
+                        "heating_power_request", "?"
+                    )
+                else:
+                    # ── Local TRV path (Zigbee today, Matter/Thread later) ──
+                    # No separate cloud schedule entity exists here —
+                    # CONF_COMFORT_TEMP is the target, playing the same role
+                    # Netatmo's cloud schedule setpoint plays above. Write
+                    # directly to the room's own climate_entity: Z2M/Matter/
+                    # Thread are local, no rate-limit stagger needed.
+                    write_id = primary_id
+                    target_temp = float(
+                        room.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP)
+                    )
+                    demand_pct = "n/a (local)"
+
+                # ── Schedule override (v0.9.0, Fase D) ──────────────────────────
+                # An active block on the room's CONF_SCHEDULE_ENTITY replaces
+                # whichever base target the branch above resolved (cloud
+                # schedule setpoint or CONF_COMFORT_TEMP). Read fresh every
+                # tick by schedule_engine.async_tick() earlier in this same
+                # coordinator tick — releases automatically once the block/
+                # event ends, no state to restore. Group offset and setbacks
+                # still apply on top, same as for either base target.
+                schedule_temp = self.schedule_override.get(room_name)
+                if schedule_temp is not None:
+                    target_temp = schedule_temp
+
+                # ── Room offset (B18 Fase 3) — non-destructive per-room shift ──
+                # Applied fresh every tick, on top of whichever base target the
+                # branch above resolved (cloud schedule setpoint or
+                # CONF_COMFORT_TEMP) — mirrors climate_group_helper's "Group
+                # Offset": it automatically follows the next schedule/season
+                # transition since it is never baked into a stored target, only
+                # ever added at read time. See number.py RoomOffsetNumber.
+                room_offset = self.room_offsets.get(room_name, 0.0)
+                if room_offset:
+                    target_temp += room_offset
+
+                # ── Setbacks: night + wake — applied cumulatively, both paths ──
+                setback = self.night_setback_delta() + self.wake_setback_delta()
+                if setback > 0.0:
+                    target_temp = max(
+                        target_temp - setback,
+                        float(room.get("away_temp_override", 10.0)),
+                    )
+                    _LOGGER.debug(
+                        "Setback [%s]: %.1f°C → %.1f°C (night=−%.1f°C wake=−%.1f°C)",
+                        room_name,
+                        target_temp + setback,
+                        target_temp,
+                        self.night_setback_delta(),
+                        self.wake_setback_delta(),
+                    )
+
+                # ── PID tick → power fraction 0..1 ──────────────────────────
+                power = pid.update(setpoint=target_temp, current=current_temp)
+
+                # ── Outdoor feedforward (weather compensation) ──────────────
+                # Proactive contribution added on top of PID's reactive term.
+                # Applies to both room types — independent of write target.
+                if self.outdoor_temperature is not None:
+                    feedforward = min(
+                        FF_MAX_CONTRIBUTION,
+                        max(
+                            0.0,
+                            (FF_REFERENCE_OUTDOOR_TEMP - self.outdoor_temperature)
+                            * FF_WEIGHT,
+                        ),
+                    )
+                    if feedforward > 0.0:
+                        power = min(1.0, power + feedforward)
+
+                trv_setpoint = PidController.power_to_setpoint(
+                    power=power,
+                    current_temp=current_temp,
+                    trv_max=self.trv_max_temp,
+                    trv_min=float(room.get("away_temp_override", 10.0)),
+                )
+
+                # Record the setpoint this tick computed as "correct" for this
+                # room — regardless of whether the suppress-check below actually
+                # sends it. SyncEngine reads this to recognise Heat Manager's
+                # own expected value and tell a genuine manual/external TRV
+                # change apart from it, without duplicating this whole
+                # computation (which would double-advance the PID integrator).
+                self.last_expected_setpoint[room_name] = trv_setpoint
+
+                # Reset the PID (not just skip) when the room's primary TRV
+                # write entity is unavailable — same policy as before B18. A
+                # secondary TRV in a multi-TRV room being briefly unavailable
+                # does not reset the room's PID; it's just skipped below.
+                write_state = self.hass.states.get(write_id)
+                if write_state is None or write_state.state in (
                     "unavailable",
                     "unknown",
+                    "off",
                 ):
                     pid.reset()
                     continue
-                target_temp = primary_state.attributes.get("temperature")
-                if target_temp is None:
-                    continue
-                try:
-                    target_temp = float(target_temp)
-                except (TypeError, ValueError):
-                    continue
-                demand_pct = primary_state.attributes.get("heating_power_request", "?")
-            else:
-                # ── Local TRV path (Zigbee today, Matter/Thread later) ──
-                # No separate cloud schedule entity exists here —
-                # CONF_COMFORT_TEMP is the target, playing the same role
-                # Netatmo's cloud schedule setpoint plays above. Write
-                # directly to the room's own climate_entity: Z2M/Matter/
-                # Thread are local, no rate-limit stagger needed.
-                write_id = primary_id
-                target_temp = float(room.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP))
-                demand_pct = "n/a (local)"
 
-            # ── Schedule override (v0.9.0, Fase D) ──────────────────────────
-            # An active block on the room's CONF_SCHEDULE_ENTITY replaces
-            # whichever base target the branch above resolved (cloud
-            # schedule setpoint or CONF_COMFORT_TEMP). Read fresh every
-            # tick by schedule_engine.async_tick() earlier in this same
-            # coordinator tick — releases automatically once the block/
-            # event ends, no state to restore. Group offset and setbacks
-            # still apply on top, same as for either base target.
-            schedule_temp = self.schedule_override.get(room_name)
-            if schedule_temp is not None:
-                target_temp = schedule_temp
+                # ── Send the same computed setpoint to every TRV in the room ──
+                # B18 "grouping": one PID loop per room, N identical outputs.
+                # Each TRV resolves its own write entity the same way the
+                # primary one above did (its own homekit_climate_entity if
+                # configured, else its own climate_entity — no live-reachability
+                # fallback, matching pre-B18 behaviour exactly for the primary
+                # TRV: an unreachable configured HomeKit entity is skipped and
+                # logged, not silently redirected to the cloud entity), and is
+                # suppressed independently — a newly-added or differently-typed
+                # TRV can sit at a different current setpoint than the room's
+                # primary one.
+                for trv in self.get_room_trvs(room_name):
+                    trv_write_id = trv.get(CONF_HOMEKIT_CLIMATE_ENTITY) or trv.get(
+                        CONF_CLIMATE_ENTITY
+                    )
+                    if not trv_write_id:
+                        continue
 
-            # ── Room offset (B18 Fase 3) — non-destructive per-room shift ──
-            # Applied fresh every tick, on top of whichever base target the
-            # branch above resolved (cloud schedule setpoint or
-            # CONF_COMFORT_TEMP) — mirrors climate_group_helper's "Group
-            # Offset": it automatically follows the next schedule/season
-            # transition since it is never baked into a stored target, only
-            # ever added at read time. See number.py RoomOffsetNumber.
-            room_offset = self.room_offsets.get(room_name, 0.0)
-            if room_offset:
-                target_temp += room_offset
+                    if trv_write_id == write_id:
+                        trv_state = write_state  # already fetched above
+                    else:
+                        trv_state = self.hass.states.get(trv_write_id)
+                        if trv_state is None or trv_state.state in (
+                            "unavailable",
+                            "unknown",
+                            "off",
+                        ):
+                            continue
 
-            # ── Setbacks: night + wake — applied cumulatively, both paths ──
-            setback = self.night_setback_delta() + self.wake_setback_delta()
-            if setback > 0.0:
-                target_temp = max(
-                    target_temp - setback,
-                    float(room.get("away_temp_override", 10.0)),
-                )
-                _LOGGER.debug(
-                    "Setback [%s]: %.1f°C → %.1f°C (night=−%.1f°C wake=−%.1f°C)",
-                    room_name,
-                    target_temp + setback,
-                    target_temp,
-                    self.night_setback_delta(),
-                    self.wake_setback_delta(),
-                )
+                    trv_current_setpoint = trv_state.attributes.get("temperature", 0.0)
+                    try:
+                        trv_current_setpoint = float(trv_current_setpoint)
+                    except (TypeError, ValueError):
+                        # 3.1 fix: a malformed/non-numeric setpoint attribute must
+                        # not abort the PID tick for every remaining room — skip
+                        # just this TRV and let the command below correct it.
+                        _LOGGER.debug(
+                            "PID tick [%s]: non-numeric current setpoint %r on %s"
+                            " — sending setpoint anyway",
+                            room_name,
+                            trv_current_setpoint,
+                            trv_write_id,
+                        )
+                        trv_current_setpoint = None
 
-            # ── PID tick → power fraction 0..1 ──────────────────────────
-            power = pid.update(setpoint=target_temp, current=current_temp)
-
-            # ── Outdoor feedforward (weather compensation) ──────────────
-            # Proactive contribution added on top of PID's reactive term.
-            # Applies to both room types — independent of write target.
-            if self.outdoor_temperature is not None:
-                feedforward = min(
-                    FF_MAX_CONTRIBUTION,
-                    max(
-                        0.0,
-                        (FF_REFERENCE_OUTDOOR_TEMP - self.outdoor_temperature)
-                        * FF_WEIGHT,
-                    ),
-                )
-                if feedforward > 0.0:
-                    power = min(1.0, power + feedforward)
-
-            trv_setpoint = PidController.power_to_setpoint(
-                power=power,
-                current_temp=current_temp,
-                trv_max=self.trv_max_temp,
-                trv_min=float(room.get("away_temp_override", 10.0)),
-            )
-
-            # Record the setpoint this tick computed as "correct" for this
-            # room — regardless of whether the suppress-check below actually
-            # sends it. SyncEngine reads this to recognise Heat Manager's
-            # own expected value and tell a genuine manual/external TRV
-            # change apart from it, without duplicating this whole
-            # computation (which would double-advance the PID integrator).
-            self.last_expected_setpoint[room_name] = trv_setpoint
-
-            # Reset the PID (not just skip) when the room's primary TRV
-            # write entity is unavailable — same policy as before B18. A
-            # secondary TRV in a multi-TRV room being briefly unavailable
-            # does not reset the room's PID; it's just skipped below.
-            write_state = self.hass.states.get(write_id)
-            if write_state is None or write_state.state in (
-                "unavailable",
-                "unknown",
-                "off",
-            ):
-                pid.reset()
-                continue
-
-            # ── Send the same computed setpoint to every TRV in the room ──
-            # B18 "grouping": one PID loop per room, N identical outputs.
-            # Each TRV resolves its own write entity the same way the
-            # primary one above did (its own homekit_climate_entity if
-            # configured, else its own climate_entity — no live-reachability
-            # fallback, matching pre-B18 behaviour exactly for the primary
-            # TRV: an unreachable configured HomeKit entity is skipped and
-            # logged, not silently redirected to the cloud entity), and is
-            # suppressed independently — a newly-added or differently-typed
-            # TRV can sit at a different current setpoint than the room's
-            # primary one.
-            for trv in self.get_room_trvs(room_name):
-                trv_write_id = trv.get(CONF_HOMEKIT_CLIMATE_ENTITY) or trv.get(
-                    CONF_CLIMATE_ENTITY
-                )
-                if not trv_write_id:
-                    continue
-
-                if trv_write_id == write_id:
-                    trv_state = write_state  # already fetched above
-                else:
-                    trv_state = self.hass.states.get(trv_write_id)
-                    if trv_state is None or trv_state.state in (
-                        "unavailable",
-                        "unknown",
-                        "off",
+                    if (
+                        trv_current_setpoint is not None
+                        and abs(trv_setpoint - trv_current_setpoint) < 0.5
                     ):
                         continue
 
-                trv_current_setpoint = trv_state.attributes.get("temperature", 0.0)
-                try:
-                    trv_current_setpoint = float(trv_current_setpoint)
-                except (TypeError, ValueError):
-                    # 3.1 fix: a malformed/non-numeric setpoint attribute must
-                    # not abort the PID tick for every remaining room — skip
-                    # just this TRV and let the command below correct it.
-                    _LOGGER.debug(
-                        "PID tick [%s]: non-numeric current setpoint %r on %s"
-                        " — sending setpoint anyway",
-                        room_name,
-                        trv_current_setpoint,
-                        trv_write_id,
-                    )
-                    trv_current_setpoint = None
-
-                if (
-                    trv_current_setpoint is not None
-                    and abs(trv_setpoint - trv_current_setpoint) < 0.5
-                ):
-                    continue
-
-                try:
-                    await self.hass.services.async_call(
-                        "climate",
-                        "set_temperature",
-                        {"entity_id": trv_write_id, "temperature": trv_setpoint},
-                        blocking=True,
-                    )
-                    _LOGGER.debug(
-                        "PID tick [%s] (%s): target=%.1f cur=%.1f pwr=%.2f → %.1f°C"
-                        "  (heating_power_request=%s%%)",
-                        room_name,
-                        "HomeKit" if hk_id else "local",
-                        target_temp,
-                        current_temp,
-                        power,
-                        trv_setpoint,
-                        demand_pct,
-                    )
-                # broad-except-rationale: one entity failing must not abort the others in this loop
-                except Exception as err:  # noqa: BLE001
-                    _LOGGER.warning(
-                        "PID setpoint failed for '%s' via %s: %s",
-                        room_name,
-                        trv_write_id,
-                        err,
-                    )
+                    try:
+                        await self.hass.services.async_call(
+                            "climate",
+                            "set_temperature",
+                            {"entity_id": trv_write_id, "temperature": trv_setpoint},
+                            blocking=True,
+                        )
+                        _LOGGER.debug(
+                            "PID tick [%s] (%s): target=%.1f cur=%.1f pwr=%.2f → %.1f°C"
+                            "  (heating_power_request=%s%%)",
+                            room_name,
+                            "HomeKit" if hk_id else "local",
+                            target_temp,
+                            current_temp,
+                            power,
+                            trv_setpoint,
+                            demand_pct,
+                        )
+                    # broad-except-rationale: one entity failing must not abort the others in this loop
+                    except Exception as err:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "PID setpoint failed for '%s' via %s: %s",
+                            room_name,
+                            trv_write_id,
+                            err,
+                        )
+        finally:
+            self._trv_cache = None
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
