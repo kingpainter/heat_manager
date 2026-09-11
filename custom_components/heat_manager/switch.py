@@ -16,10 +16,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import (
-    CONF_CLIMATE_ENTITY,
-    RoomState,
-)
+from .const import RoomState
 from .coordinator import HeatManagerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,7 +63,6 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
     ) -> None:
         super().__init__(coordinator)
         self._room_name = room["room_name"]
-        self._climate_id = room.get(CONF_CLIMATE_ENTITY, "")
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_override"
         # B18 Fase 3 verification: has_entity_name=True + device.name ==

@@ -44,7 +44,6 @@ from typing import TYPE_CHECKING
 from homeassistant.util.dt import now as ha_now
 
 from ..const import (
-    CONF_CLIMATE_ENTITY,
     CONF_ENERGY_TRACKING,
     CONF_PI_DEMAND_ENTITY,
     CONF_ROOM_WATTAGE,
@@ -124,8 +123,10 @@ class WasteCalculator:
 
         for room in self.coordinator.rooms:
             room_name = room.get("room_name", "")
-            climate_id = room.get(CONF_CLIMATE_ENTITY, "")
-            if not room_name or not climate_id:
+            if not room_name:
+                continue
+            climate_id = self.coordinator.get_climate_entity(room_name) or ""
+            if not climate_id:
                 continue
 
             room_watts = float(room.get(CONF_ROOM_WATTAGE, DEFAULT_ROOM_WATTAGE))

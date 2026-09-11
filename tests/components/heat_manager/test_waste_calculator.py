@@ -24,6 +24,16 @@ def _make_coordinator(rooms=None, outdoor_temp=5.0) -> MagicMock:
     coord.is_raining = MagicMock(return_value=False)
     coord.get_room_co2 = MagicMock(return_value=None)
     coord.get_room_co2_threshold = MagicMock(return_value=900)
+    # 2026-09 audit fix: waste_calculator now resolves the climate entity via
+    # coordinator.get_climate_entity() (TRV-aware) instead of reading the
+    # room's flat "climate_entity" field directly — mirror that resolution
+    # here from the same flat field these test fixtures already use.
+    coord.get_climate_entity = MagicMock(
+        side_effect=lambda name: next(
+            (r.get("climate_entity") for r in coord.rooms if r.get("room_name") == name),
+            None,
+        )
+    )
 
     coord.hass = MagicMock()
     coord.hass.states = MagicMock()

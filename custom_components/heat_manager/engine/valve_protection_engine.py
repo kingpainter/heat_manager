@@ -32,6 +32,7 @@ EXERCISE_NIGHT_END    : hour to end   the sweep (3 — 03:00 local)
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -262,6 +263,18 @@ class ValveProtectionEngine:
             _LOGGER.warning("ValveProtectionEngine notification failed: %s", err)
 
     async def async_shutdown(self) -> None:
+        """Cancel and await the in-flight exercise sweep, if any.
+
+        2026-09 audit fix: cancel() alone schedules cancellation but never
+        waits for it — the task's cancellation could still be delivered and
+        run its except/finally blocks (touching self.coordinator.hass,
+        climate entities, etc.) after async_unload_entry() had already torn
+        the rest of the integration down. Awaiting it here, with
+        CancelledError suppressed, ensures the task has actually stopped
+        before shutdown returns.
+        """
         if self._task is not None and not self._task.done():
             self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
         _LOGGER.debug("ValveProtectionEngine shut down")

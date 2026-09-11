@@ -118,6 +118,20 @@ def _make_coordinator(rooms=None, persons=None) -> MagicMock:
     calibration_engine._last_written = {}
     coord.calibration_engine = calibration_engine
 
+    # 2026-09 audit fix: ws_get_state() now resolves "calibration_entity"
+    # via coordinator.get_room_calibration_entity() (TRV-aware) instead of
+    # reading the room's flat field directly, and adds "open_windows" from
+    # window_engine.get_open_windows() — default both so a bare MagicMock
+    # doesn't leak into the payload, same rationale as get_pid() above.
+    def _calibration_entity(name):
+        room = next((r for r in coord.rooms if r.get("room_name") == name), None)
+        return (room or {}).get("calibration_entity") or None
+
+    coord.get_room_calibration_entity = MagicMock(side_effect=_calibration_entity)
+    window_engine = MagicMock()
+    window_engine.get_open_windows = MagicMock(return_value=[])
+    coord.window_engine = window_engine
+
     return coord
 
 
@@ -346,7 +360,10 @@ async def test_get_state_netatmo_valve_position_from_heating_power_request():
 
     room = conn.send_result.call_args[0][1]["rooms"][0]
     assert room["valve_position"] == 42.0
-    assert room["heating_power"] == 42.0
+    # "heating_power" was dropped from the payload in 0.18.1 (frontend
+    # dead-code sweep) — it always duplicated valve_position for Netatmo
+    # rooms and no frontend ever read it separately.
+    assert "heating_power" not in room
 
 
 @pytest.mark.asyncio

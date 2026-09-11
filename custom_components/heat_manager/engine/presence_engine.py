@@ -93,12 +93,44 @@ class PresenceEngine:
             )
             _LOGGER.debug("Tracking persons: %s", person_entity_ids)
 
+        self._alarm_unsub: Any = None
         alarm = self.coordinator.alarm_panel
         if alarm:
-            self._unsubs.append(
-                async_track_state_change_event(hass, [alarm], self._handle_alarm_change)
+            self._alarm_unsub = async_track_state_change_event(
+                hass, [alarm], self._handle_alarm_change
             )
+            self._unsubs.append(self._alarm_unsub)
             _LOGGER.debug("Tracking alarm panel: %s", alarm)
+
+    def rebuild_alarm_listener(self) -> None:
+        """Re-subscribe the alarm-panel listener to the current
+        CONF_ALARM_PANEL entity.
+
+        2026-09 audit fix: the alarm entity was only ever read once, in
+        __init__ — changing it in the options flow (Alarm/security step) had
+        no effect until the next full integration reload, which only
+        happens today when rooms/persons change (see __init__.py's
+        _async_update_listener). CONF_PERSONS changes already trigger that
+        full reload — which re-creates this engine from scratch — so only
+        the alarm listener needs an explicit rebuild path here; person
+        tracking is intentionally left untouched.
+        """
+        if self._alarm_unsub is not None:
+            self._alarm_unsub()
+            if self._alarm_unsub in self._unsubs:
+                self._unsubs.remove(self._alarm_unsub)
+            self._alarm_unsub = None
+
+        hass = self.coordinator.hass
+        alarm = self.coordinator.alarm_panel
+        if alarm:
+            self._alarm_unsub = async_track_state_change_event(
+                hass, [alarm], self._handle_alarm_change
+            )
+            self._unsubs.append(self._alarm_unsub)
+            _LOGGER.debug("Tracking alarm panel (rebuilt): %s", alarm)
+        else:
+            _LOGGER.debug("Alarm panel unset — listener not re-registered")
 
     def _check_initial_presence(self) -> None:
         """Sync heating state with current presence at startup (B11 fix).

@@ -92,6 +92,23 @@ class RemoteButtonEngine:
         if not (up_id or down_id or mode_id):
             _LOGGER.debug("RemoteButtonEngine: no button entities configured — idle")
 
+    def rebuild_listeners(self) -> None:
+        """Unsubscribe and re-register every button listener from the
+        current config.
+
+        2026-09 audit fix: the 3 button entity IDs were only ever read once,
+        in __init__ — changing CONF_BUTTON_TEMP_UP_ENTITY/_DOWN_ENTITY/
+        _MODE_TOGGLE_ENTITY in the options flow had no effect until the next
+        full integration reload (which only happens today when rooms/persons
+        change — see __init__.py's _async_update_listener). Called from
+        there unconditionally so a button re-assignment takes effect
+        immediately, matching SyncEngine.rebuild_entity_map()'s pattern.
+        """
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs.clear()
+        self._register_listeners()
+
     @staticmethod
     def _is_single_press(new_state: Any) -> bool:
         """True only for a plain single click — see module docstring for

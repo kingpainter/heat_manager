@@ -9,6 +9,172 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-09-11
+
+### Fixed
+
+- **B21 — Netatmo rooms ignored `comfort_temp`, chasing the cloud schedule's
+  own setpoint instead.** `_async_pid_tick()`'s HomeKit split-entity path
+  read `target_temp` from the Netatmo cloud climate entity's own
+  `temperature` attribute — i.e. whatever Netatmo's own app-side schedule
+  (e.g. "Vinter") currently dictated — completely bypassing the room's
+  configured `comfort_temp`, which was silently ignored for every Netatmo
+  room (it only ever applied to local Zigbee/Matter rooms). Reported
+  symptom: rooms heating to 24–26°C instead of the configured 21°C target,
+  with no way to see the discrepancy since the panel never exposed a
+  setpoint field. Heat Manager is now the sole authority for room target
+  temperature for every TRV type — `comfort_temp` is authoritative for
+  Netatmo rooms too, layered under schedule_override/room_offset/setbacks
+  exactly as it already was for local rooms. PID still writes only to the
+  local HomeKit entity (unchanged) — no new Netatmo cloud API calls are
+  introduced. Full analysis:
+  `audit/heat_manager_target_temp_analysis_2026-09-11.md`.
+  **Action required:** `comfort_temp` defaults to 20°C per room and was
+  previously decorative for Netatmo rooms — verify/set it correctly for
+  every Netatmo room in Settings → Heat Manager after upgrading, or those
+  rooms will target 20°C instead of your intended value until you do.
+
+## [0.18.2] — 2026-09-10
+
+Hotfix for a regression from 0.18.0's own "Fixed" section (E).
+
+### Fixed
+
+- `panel.py::_get_version()` reads `manifest.json` with a blocking
+  `open()`/`json.load()` call. 0.18.0 (E) started calling it directly from
+  `async_register_static_paths()` and `async_register_panel()` — both run
+  on the event loop — which HA's `homeassistant.util.loop` blocking-call
+  detector flagged in production (`Detected blocking call to open... by
+  custom integration 'heat_manager' at .../panel.py, line 45`). Both call
+  sites now resolve the version via `hass.async_add_executor_job(
+  _get_version, hass)` before using it, instead of calling the blocking
+  function inline.
+
+## [0.18.1] — 2026-09-10
+
+Frontend/config dead-code sweep — "alt vi har på frontend eller i konfig
+skal være i brug og være funktionel eller fjernes". Follow-up to 0.18.0:
+that audit covered the backend only; this round covers the panel
+(`heat-manager-panel.js`) and the config surface, plus one piece of
+self-cleanup left behind by 0.18.0 itself.
+
+### Removed
+
+- The panel's config tab still showed two "Away temp mildt"/"Away temp
+  koldt" rows reading `away_temp_mild`/`away_temp_cold` — both settings
+  were removed from the backend in 0.18.0 (B.1), so these always rendered
+  "–". Removed the rows.
+- Two grayed-out "🔥 Boost til"/"🔥 Boost slut" badges in the House Voice
+  section had no backend support — `async_house_voice_say()` is never
+  called for boost events anywhere in the codebase. Removed; the 4 real
+  badges (Pause/Sluk/Sommer/Vinter) are unaffected.
+- `const.VERSION` — orphaned by 0.18.0's own fix (E): once `panel.py`
+  started reading the version from `manifest.json` at runtime, this
+  second, independently-maintained copy had no remaining reader anywhere
+  in `custom_components/heat_manager` or `tests/`. Removed rather than
+  left to go stale again.
+- Per-room `"why"` field (`_why_label()`) — an English one-line reason
+  string computed from `room_state` every tick and sent in every payload,
+  but never read by either frontend file. Both panels already derive all
+  of their state-driven UI (badges, colors, filters, quick-stat counts)
+  directly from `room.state` itself, so this was a pure duplicate with no
+  functional gap behind it — removed rather than displayed.
+- Per-room `"heating_power"` field — always numerically identical to
+  `valve_position` for Netatmo rooms (it *is* the source value
+  `valve_position` is set from) and stale/superseded once
+  `pi_demand_entity` overrides `valve_position` for Zigbee rooms. No
+  reader ever used it separately from `valve_position`. The underlying
+  `heating_power_request` attribute read is still used internally to
+  compute `valve_position` — only the redundant duplicate key was
+  dropped from the payload.
+
+### Fixed
+
+- `CONF_OUTDOOR_TEMP_SENSOR` — a real, functional setting (the
+  coordinator prefers it over the weather entity for outdoor temperature)
+  — was configurable and the panel's config tab has always had a row for
+  it, but the value never reached `ws_get_state()`'s payload, so the row
+  always showed "–". Wired into `config_snap`.
+- `auto_off_reason` was computed by the backend every tick and sent in
+  every payload, but nothing displayed it — the "Slukket" badge gave no
+  indication of *why* the system had turned itself off. The panel's
+  auto-off badge now appends the reason ("sæson"/"temperatur") when set.
+- `open_windows` (0.18.0, B.3) was added to the payload but the fix
+  stopped there — no frontend ever displayed it, so the underlying gap
+  ("implemented but never surfaced") was only half-closed. Completed:
+  the overview's "Vindue åbent" card now shows the live sensor-level list
+  as a tooltip.
+- `energy_saved_today`/`energy_wasted_today`/`efficiency_score`/
+  `last_waste_time`/`last_saved_time` were computed and sent in every
+  payload (mirrors the real `sensor.heat_manager_energy_*` entities the
+  mobile card already reads directly), but the panel's own "Energi i dag"
+  display had been removed as dead code back in 0.17.2 — the data kept
+  flowing with nothing showing it. Restored as a compact "Energi i dag"
+  box in the overview (spildt/sparet, with an efficiency badge and last
+  event timestamps).
+
+## [0.18.0] — 2026-09-10
+
+Backend deep-dive audit (2026-09-10) — fixes for every finding, applied
+across the board rather than one at a time.
+
+### Fixed
+
+- **Critical**: 13 call sites (coordinator's PID tick, `__init__.py`
+  startup reachability check + RepairIssue creation, `diagnostics.py`,
+  `waste_calculator.py`, `calibration_engine.py`, 4 sites in
+  `binary_sensor.py`, 2 in `sensor.py`, `switch.py`) read a room's
+  `climate_entity`/`calibration_entity` via the flat, un-persisted mirror
+  field instead of `coordinator.get_climate_entity()` /
+  `get_room_calibration_entity()` — for any room saved through the
+  per-TRV edit UI (B18), that flat field was never written back to the
+  config entry, so these all silently saw an empty/stale value. Worst
+  case: **the PID controller silently skipped such a room entirely**,
+  every tick. Config flow now also re-syncs the flat mirror at save time
+  (`migrate_room_to_trvs()`) as a compatibility safety net for any reader
+  that still uses it directly.
+- The 3 physical remote-button entities (`RemoteButtonEngine`) and the
+  alarm-panel entity (`PresenceEngine`) were only ever subscribed once, in
+  `__init__` — re-assigning either in the options flow had no effect until
+  something else (a room edit) happened to trigger a full reload. Both
+  engines now expose a `rebuild_listeners()`/`rebuild_alarm_listener()`
+  method, called unconditionally from `_async_update_listener()` whenever
+  an options write doesn't already reload the whole entry.
+- `ws_set_room_temp`'s `duration_min` was accepted and logged but never
+  actually wired to anything — a manual panel temperature override stayed
+  in effect forever regardless of the requested duration. The coordinator
+  now tracks a per-room expiry and auto-restores the schedule once it
+  elapses, checked every tick alongside boost expiry.
+- `panel.py` read its cache-busting version from `const.VERSION`, a
+  second, independently-maintained copy of the version that had already
+  drifted from `manifest.json` once before. Now reads `manifest.json`
+  directly at runtime — that class of drift can't recur.
+- `ValveProtectionEngine.async_shutdown()` cancelled its in-flight
+  exercise-sweep task but never awaited it, so the cancellation (and
+  whatever `except`/`finally` cleanup it triggers) could still run after
+  the rest of the integration had already been torn down.
+- `window_engine.py` read `"window_warning_min"` and `"notify_service"` as
+  magic strings instead of the `CONF_*` constants — `DEFAULT_WINDOW_WARNING_MIN`
+  existed with no matching config key, so there was no way to actually set
+  it from the UI. Added `CONF_WINDOW_WARNING_MIN` and a config_flow field
+  for it.
+- `RoomOverrideSwitch` (`switch.py`) stored a `climate_entity` on itself
+  that was never read anywhere — removed.
+- `window_engine.get_open_windows()` was fully implemented but never
+  surfaced anywhere — `ws_get_state()` now includes it as `open_windows`.
+
+### Removed
+
+- `away_temp_mild` / `away_temp_cold` / `mild_threshold` (and
+  `coordinator.get_away_temperature()`) — these config fields existed in
+  the UI and were read by `ws_get_state()`'s config snapshot, but nothing
+  in the actual heating logic ever called `get_away_temperature()`: a
+  Zigbee room's AWAY state turns the valve fully off (`hvac_mode: off`)
+  and a Netatmo room uses `preset_mode: away` — neither path used a
+  computed away temperature. Removing dead configuration rather than
+  wiring it up, since the existing off/away behaviour is intentional.
+  **No change to actual heating behaviour.**
+
 ## [0.17.2] — 2026-09-08
 
 Frontend/websocket polish pass — three streams: broader health-check

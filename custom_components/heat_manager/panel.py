@@ -13,6 +13,7 @@ FIX: Static HTTP paths moved to async_register_static_paths() called from
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 
@@ -20,9 +21,32 @@ from homeassistant.components import panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, VERSION
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+# 2026-09 audit fix: this module used to import VERSION from const.py, which
+# had drifted from manifest.json's version before (const.py stuck at
+# "0.17.0" for several releases while manifest.json kept advancing) — every
+# release during that drift silently relied on the file-mtime half of the
+# cache-busting query string alone. manifest.json is Home Assistant's own
+# source of truth for the integration's version, so read it directly here
+# instead of trusting a second, independently-maintained copy of the number.
+_MANIFEST_FILE = "manifest.json"
+
+
+def _get_version(hass: HomeAssistant) -> str:
+    """Return the integration version from manifest.json, or "0.0.0" if
+    it can't be read (never blocks panel/static-path registration)."""
+    manifest_path = os.path.join(
+        hass.config.path("custom_components"), DOMAIN, _MANIFEST_FILE
+    )
+    try:
+        with open(manifest_path, encoding="utf-8") as f:
+            return json.load(f).get("version", "0.0.0")
+    except (OSError, ValueError) as err:
+        _LOGGER.debug("Could not read version from %s: %s", manifest_path, err)
+        return "0.0.0"
 
 PANEL_URL = f"/api/{DOMAIN}-panel"
 CARDS_URL = f"/api/{DOMAIN}-cards"
@@ -105,12 +129,18 @@ async def async_register_static_paths(hass: HomeAssistant) -> None:
                 panel_mtime = int(os.path.getmtime(panel_file))
             except OSError:
                 panel_mtime = 0
+            # 2026-09-10 fix (regression from this file's own 0.18.0 change):
+            # _get_version() does a blocking open()/json.load() — calling it
+            # directly here ran that blocking I/O straight on the event loop.
+            # HA's loop-blocking detector caught it in production. Offload to
+            # the executor like any other synchronous file read.
+            version = await hass.async_add_executor_job(_get_version, hass)
             try:
                 await panel_custom.async_register_panel(
                     hass,
                     webcomponent_name=PANEL_NAME,
                     frontend_url_path=DOMAIN,
-                    module_url=f"{PANEL_URL}?v={VERSION}&m={panel_mtime}",
+                    module_url=f"{PANEL_URL}?v={version}&m={panel_mtime}",
                     sidebar_title=PANEL_TITLE,
                     sidebar_icon=PANEL_ICON,
                     require_admin=False,
@@ -139,9 +169,13 @@ async def async_register_panel(hass: HomeAssistant) -> None:
             cards_mtime = int(os.path.getmtime(cards_file))
         except OSError:
             cards_mtime = 0
+        # 2026-09-10 fix: see the matching comment in
+        # async_register_static_paths() — _get_version() must run off the
+        # event loop.
+        version = await hass.async_add_executor_job(_get_version, hass)
         await _register_lovelace_resource(
             hass,
-            canonical_url=f"{CARDS_URL}?v={VERSION}&m={cards_mtime}",
+            canonical_url=f"{CARDS_URL}?v={version}&m={cards_mtime}",
         )
     else:
         _LOGGER.warning("Card JS not found at %s", cards_file)

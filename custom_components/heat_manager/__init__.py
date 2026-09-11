@@ -101,8 +101,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # specific missing entity is visible in the log even when setup
         # fails entirely (before _async_check_repair_issues runs).
         for room in rooms:
-            climate_id = room.get("climate_entity", "")
             room_name = room.get("room_name", "?")
+            climate_id = coordinator.get_climate_entity(room_name) or ""
             if climate_id and hass.states.get(climate_id) is None:
                 _LOGGER.warning(
                     "Heat Manager: climate entity '%s' for room '%s' not found"
@@ -110,9 +110,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     climate_id,
                     room_name,
                 )
-        reachable = [
-            r for r in rooms if hass.states.get(r.get("climate_entity", "")) is not None
-        ]
+        reachable = []
+        for room in rooms:
+            cid = coordinator.get_climate_entity(room.get("room_name", ""))
+            if cid and hass.states.get(cid) is not None:
+                reachable.append(room)
         if not reachable:
             raise ConfigEntryNotReady(
                 translation_domain=DOMAIN,
@@ -236,9 +238,19 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         new_rooms == coordinator._last_known_rooms
         and new_persons == coordinator._last_known_persons
     ):
+        # 2026-09 audit fix: rooms/persons are the only config a reload is
+        # needed for, but two other listener sets were only ever built once
+        # in each engine's __init__ and had no other rebuild path at all —
+        # an alarm_panel re-assignment or a remote-button entity change had
+        # no effect until something else (e.g. a room edit) happened to
+        # trigger a full reload. Rebuilt unconditionally on every options
+        # write that doesn't already reload the whole entry; both are cheap
+        # unsub+resubscribe operations, harmless when nothing changed.
+        coordinator.presence_engine.rebuild_alarm_listener()
+        coordinator.remote_button_engine.rebuild_listeners()
         _LOGGER.debug(
             "Heat Manager: entry.options changed but rooms/persons unchanged — "
-            "skipping reload (already applied live)"
+            "skipping full reload (alarm/remote-button listeners rebuilt live)"
         )
         return
 
@@ -253,11 +265,14 @@ def _async_check_repair_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
     so it clears automatically after a reload when the entity reappears.
     Issue ID is scoped per room + entry so multiple entries don't collide.
     """
+    coordinator: HeatManagerCoordinator = entry.runtime_data
     rooms = {**entry.data, **entry.options}.get(CONF_ROOMS, [])
     for room in rooms:
         room_name = room.get("room_name", "")
-        climate_id = room.get("climate_entity", "")
-        if not room_name or not climate_id:
+        if not room_name:
+            continue
+        climate_id = coordinator.get_climate_entity(room_name) or ""
+        if not climate_id:
             continue
         safe = room_name.lower().replace(" ", "_")
         issue_id = f"{REPAIR_ISSUE_MISSING_CLIMATE}_{safe}_{entry.entry_id[:8]}"

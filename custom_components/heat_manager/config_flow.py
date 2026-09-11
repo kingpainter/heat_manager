@@ -27,8 +27,6 @@ from .const import (
     CONF_ALARM_PANEL,
     CONF_AUTO_OFF_TEMP_DAYS,
     CONF_AUTO_OFF_TEMP_THRESHOLD,
-    CONF_AWAY_TEMP_COLD,
-    CONF_AWAY_TEMP_MILD,
     CONF_AWAY_TEMP_OVERRIDE,
     CONF_BATTERY_SENSOR,
     CONF_BUTTON_MODE_TOGGLE_ENTITY,
@@ -47,7 +45,6 @@ from .const import (
     CONF_HUMIDITY_SENSOR,
     CONF_INDOOR_WAKE_SENSOR,
     CONF_INDOOR_WAKE_THRESHOLD,
-    CONF_MILD_THRESHOLD,
     CONF_NIGHT_END_HOUR,
     CONF_NIGHT_SETBACK_ENABLED,
     CONF_NIGHT_SETBACK_TEMP,
@@ -84,16 +81,14 @@ from .const import (
     CONF_WIND_SPEED_SENSOR,
     CONF_WINDOW_DELAY_MIN,
     CONF_WINDOW_SENSORS,
+    CONF_WINDOW_WARNING_MIN,
     DEFAULT_AUTO_OFF_TEMP_DAYS,
     DEFAULT_AUTO_OFF_TEMP_THRESHOLD,
-    DEFAULT_AWAY_TEMP_COLD,
-    DEFAULT_AWAY_TEMP_MILD,
     DEFAULT_CO2_VENTILATION_THRESHOLD,
     DEFAULT_COMFORT_TEMP,
     DEFAULT_GRACE_DAY_MIN,
     DEFAULT_GRACE_NIGHT_MIN,
     DEFAULT_INDOOR_WAKE_THRESHOLD,
-    DEFAULT_MILD_THRESHOLD,
     DEFAULT_NIGHT_END_HOUR,
     DEFAULT_NIGHT_SETBACK_ENABLED,
     DEFAULT_NIGHT_SETBACK_TEMP,
@@ -108,12 +103,14 @@ from .const import (
     DEFAULT_TRV_MAX_TEMP,
     DEFAULT_WAKE_SETBACK_TEMP,
     DEFAULT_WINDOW_DELAY_MIN,
+    DEFAULT_WINDOW_WARNING_MIN,
     DOMAIN,
     SYNC_MODE_DISABLED,
     SYNC_MODE_LOCK,
     SYNC_MODE_MIRROR,
     TRV_TYPE_NETATMO,
 )
+from .migrations import migrate_room_to_trvs
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -155,41 +152,17 @@ def _step1_schema(defaults: dict | None = None) -> vol.Schema:
                 CONF_NOTIFY_SERVICE, default=defaults.get(CONF_NOTIFY_SERVICE, "")
             ): selector.selector({"text": {}}),
             vol.Optional(
-                CONF_AWAY_TEMP_MILD,
-                default=defaults.get(CONF_AWAY_TEMP_MILD, DEFAULT_AWAY_TEMP_MILD),
+                CONF_WINDOW_WARNING_MIN,
+                default=defaults.get(
+                    CONF_WINDOW_WARNING_MIN, DEFAULT_WINDOW_WARNING_MIN
+                ),
             ): selector.selector(
                 {
                     "number": {
                         "min": 5,
-                        "max": 25,
-                        "step": 0.5,
-                        "unit_of_measurement": "°C",
-                    }
-                }
-            ),
-            vol.Optional(
-                CONF_AWAY_TEMP_COLD,
-                default=defaults.get(CONF_AWAY_TEMP_COLD, DEFAULT_AWAY_TEMP_COLD),
-            ): selector.selector(
-                {
-                    "number": {
-                        "min": 5,
-                        "max": 25,
-                        "step": 0.5,
-                        "unit_of_measurement": "°C",
-                    }
-                }
-            ),
-            vol.Optional(
-                CONF_MILD_THRESHOLD,
-                default=defaults.get(CONF_MILD_THRESHOLD, DEFAULT_MILD_THRESHOLD),
-            ): selector.selector(
-                {
-                    "number": {
-                        "min": 0,
-                        "max": 20,
-                        "step": 1,
-                        "unit_of_measurement": "°C",
+                        "max": 180,
+                        "step": 5,
+                        "unit_of_measurement": "min",
                     }
                 }
             ),
@@ -502,9 +475,9 @@ def _room_schema(defaults: dict | None = None) -> vol.Schema:
                     }
                 }
             ),
-            # PID target for rooms without a HomeKit entity (Zigbee today,
-            # Matter/Thread later) — ignored for Netatmo rooms, which use the
-            # cloud entity's own schedule setpoint as PID target instead.
+            # PID target temperature — v0.19.0: authoritative for ALL room
+            # types, Netatmo included (previously ignored for Netatmo rooms,
+            # which used the cloud entity's own schedule setpoint instead).
             vol.Optional(
                 CONF_COMFORT_TEMP,
                 default=defaults.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP),
@@ -721,6 +694,16 @@ class HeatManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_room_trvs_menu()
             if action in ("done_add_room", "done"):
                 self._room_draft[CONF_TRVS] = self._trv_draft
+                # 2026-09 audit fix: mirror trvs[0]'s fields back onto the
+                # room's flat keys (climate_entity, homekit_climate_entity,
+                # trv_type, pi_demand_entity, calibration_entity) at save
+                # time. Without this, a room saved through this per-TRV UI
+                # had CONF_TRVS but no flat climate_entity at all — every
+                # reader now goes through coordinator.get_climate_entity()
+                # and friends instead, so this is now purely a compatibility
+                # mirror (diagnostics/tests that still read the flat field
+                # directly), not a functional dependency.
+                self._room_draft = migrate_room_to_trvs(self._room_draft)
                 self._rooms.append(self._room_draft)
                 self._room_draft = None
                 self._trv_draft = []
@@ -1112,6 +1095,9 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_room_trvs_menu()
             if action == "done":
                 self._room_draft[CONF_TRVS] = self._trv_draft
+                # 2026-09 audit fix — see the identical comment in the
+                # initial config flow's async_step_room_trvs_menu().
+                self._room_draft = migrate_room_to_trvs(self._room_draft)
                 original_name = self._editing_room_name
                 if original_name is not None:
                     updated_rooms = [

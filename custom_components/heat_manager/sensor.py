@@ -51,8 +51,6 @@ from .const import (
     CONF_BUTTON_MODE_TOGGLE_ENTITY,
     CONF_BUTTON_TEMP_DOWN_ENTITY,
     CONF_BUTTON_TEMP_UP_ENTITY,
-    CONF_CALIBRATION_ENTITY,
-    CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
     CONF_HUMIDITY_SENSOR,
     CONF_INDOOR_WAKE_SENSOR,
@@ -97,7 +95,7 @@ async def async_setup_entry(
         # regulate against CONF_COMFORT_TEMP and previously had no way to
         # expose their PID output at all.
         entities.append(RoomPidPowerSensor(coordinator, entry, room))
-        if room.get(CONF_CALIBRATION_ENTITY):
+        if coordinator.get_room_calibration_entity(room.get("room_name", "")):
             entities.append(RoomCalibrationOffsetSensor(coordinator, entry, room))
         # v0.15.0 — mirror this room's own already-configured raw sensors
         # (temperature/humidity/CO2/battery) under the room's device, so a
@@ -447,7 +445,7 @@ class RoomStateSensor(CoordinatorEntity, SensorEntity):
     ) -> None:
         super().__init__(coordinator)
         self._room_name = room["room_name"]
-        self._climate_id = room.get(CONF_CLIMATE_ENTITY, "")
+        self._climate_id = coordinator.get_climate_entity(self._room_name) or ""
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_state"
         self._attr_name = f"{self._room_name} state"

@@ -37,7 +37,7 @@ def make_coordinator(
     climate_unavailable: bool = False,
     climate_missing_temps: bool = False,
     homekit_entity: str | None = "climate.living_room_homekit",
-    comfort_temp: float = 20.0,
+    comfort_temp: float | None = None,
     outdoor_temperature: float | None = None,
 ) -> MagicMock:
     """Build a mock coordinator for _async_pid_tick() tests.
@@ -51,11 +51,22 @@ def make_coordinator(
     fragile and doesn't let tests explicitly select the local/Zigbee path —
     pass homekit_entity=None for that.
 
+    comfort_temp defaults to None, in which case it mirrors target_temp —
+    since 0.19.0 (B21) comfort_temp is the PID target for BOTH the HomeKit
+    and local paths, so most tests only need to set target_temp and get the
+    same value wired in as the room's comfort_temp automatically, matching
+    pre-0.19.0 call sites that only ever set one of the two. Pass comfort_temp
+    explicitly when a test needs it to diverge from the mocked cloud state's
+    'temperature' attribute (target_temp) — e.g. to prove the cloud attribute
+    is no longer read for target purposes at all.
+
     outdoor_temperature defaults to None (matching a fresh coordinator before
     its first _refresh_outdoor_temperature() tick) so the outdoor-feedforward
     code added in the hybrid PID engine doesn't perform arithmetic on an
     unconfigured MagicMock, which raises TypeError in max()/comparisons.
     """
+    if comfort_temp is None:
+        comfort_temp = target_temp
     coord = MagicMock()
     coord.pid_enabled = pid_enabled
     coord.controller_state = controller_state
@@ -302,7 +313,7 @@ async def test_bug_b_pid_2_no_call_when_delta_below_threshold():
     """
     B-PID-2: delta < 0.5 °C → no TRV command spam.
 
-    Setup: current_temperature=21.8, climate.temperature (schedule target)=22.0
+    Setup: current_temperature=21.8, comfort_temp (PID target)=22.0
     error = 22.0 - 21.8 = 0.2
     power = Kp * 0.2 = 0.5 * 0.2 = 0.1  (Ki=0 for clean math)
     trv_setpoint = 21.8 + 0.1 * (28.0 - 21.8) = 21.8 + 0.62 = 22.42 → rounds to 22.4
@@ -320,6 +331,7 @@ async def test_bug_b_pid_2_no_call_when_delta_below_threshold():
             "room_name": "kitchen",
             "climate_entity": "climate.kitchen",
             "away_temp_override": 10.0,
+            "comfort_temp": 22.0,  # B21: now the target on the HomeKit path too
         }
     ]
     coord.get_room_state = MagicMock(return_value=RoomState.NORMAL)
@@ -336,7 +348,10 @@ async def test_bug_b_pid_2_no_call_when_delta_below_threshold():
     coord.pid_controllers = {"kitchen": pid}
     cs = MagicMock()
     cs.state = "heat"
-    cs.attributes = {"current_temperature": 21.8, "temperature": 22.0}
+    # 'temperature' (99.0) deliberately diverges from comfort_temp (22.0) —
+    # B21: the cloud entity's own schedule attribute must no longer be read
+    # as the PID target on the HomeKit path.
+    cs.attributes = {"current_temperature": 21.8, "temperature": 99.0}
     coord.hass = MagicMock()
     coord.hass.states.get = MagicMock(return_value=cs)
     coord.hass.services.async_call = AsyncMock()
@@ -492,15 +507,45 @@ async def test_schedule_override_replaces_local_comfort_temp():
 
 
 @pytest.mark.asyncio
-async def test_schedule_override_replaces_cloud_schedule_target():
-    """An active schedule/calendar block overrides the Netatmo cloud
-    schedule's own 'temperature' attribute on the HomeKit split-entity path."""
-    coord = make_coordinator(current_temp=20.0, target_temp=17.0)  # cloud says 17°C
+async def test_schedule_override_replaces_comfort_temp_on_homekit_path():
+    """An active schedule/calendar block overrides comfort_temp on the
+    HomeKit split-entity path too, same as the local path."""
+    coord = make_coordinator(
+        current_temp=20.0, target_temp=17.0, comfort_temp=19.0
+    )  # cloud attribute (17°C, ignored) deliberately differs from comfort_temp
     coord.schedule_override = {"living_room": 23.0}  # schedule engine overrides
     await _pid_tick(coord)
     coord.hass.services.async_call.assert_called_once()
     call_args = coord.hass.services.async_call.call_args
     assert call_args[0][2]["temperature"] > 20.0
+
+
+@pytest.mark.asyncio
+async def test_bug_b21_homekit_path_uses_comfort_temp_not_cloud_schedule():
+    """B21 regression: the HomeKit/Netatmo split-entity path must use
+    comfort_temp as its PID target, not the cloud entity's own 'temperature'
+    attribute (which reflects Netatmo's own app-side schedule and used to be
+    read directly here, silently making comfort_temp decorative for every
+    Netatmo room — see audit/heat_manager_target_temp_analysis_2026-09-11.md).
+
+    Cloud attribute says 26°C (mimicking the reported real-world symptom of
+    Netatmo's own "Vinter" schedule overshooting); comfort_temp says 21°C.
+    Room is already at 21°C → error should be ~0 relative to comfort_temp,
+    not the 6°C error a 26°C cloud-sourced target would produce.
+    """
+    coord = make_coordinator(current_temp=21.0, target_temp=26.0, comfort_temp=21.0)
+    # trv_min floor (away_temp_override default 10.0) + a near-zero PID
+    # output would sit far from a 26°C-target-driven setpoint. Simplest
+    # sufficient check: the already-at-target room emits at most one command
+    # driven by outdoor feedforward/anti-windup noise, never one implying a
+    # large positive error toward 26°C.
+    await _pid_tick(coord)
+    if coord.hass.services.async_call.await_count:
+        sent_temp = coord.hass.services.async_call.call_args[0][2]["temperature"]
+        # A 6°C error (target=26) would saturate power at 1.0 → setpoint
+        # would equal trv_max (28.0). A ~0°C error (target=21) stays far
+        # below that ceiling.
+        assert sent_temp < 25.0
 
 
 # ── B18: multi-TRV grouping — one PID loop, N identical outputs ───────────────

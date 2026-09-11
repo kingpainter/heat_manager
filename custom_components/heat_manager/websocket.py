@@ -25,15 +25,13 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util.dt import utcnow
 
 from .const import (
     CONF_ALARM_PANEL,
     CONF_AUTO_OFF_TEMP_DAYS,
     CONF_AUTO_OFF_TEMP_THRESHOLD,
-    CONF_AWAY_TEMP_COLD,
-    CONF_AWAY_TEMP_MILD,
     CONF_BATTERY_SENSOR,
-    CONF_CALIBRATION_ENTITY,
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
     CONF_GRACE_DAY_MIN,
@@ -41,6 +39,7 @@ from .const import (
     CONF_HOUSE_VOICE_ENABLED,
     CONF_HUMIDITY_SENSOR,
     CONF_NOTIFY_SERVICE,
+    CONF_OUTDOOR_TEMP_SENSOR,
     CONF_PERSON_ENTITY,
     CONF_PERSON_TRACKING,
     CONF_PI_DEMAND_ENTITY,
@@ -261,6 +260,16 @@ async def ws_set_room_temp(
             # OVERRIDE state at all.
             coordinator.set_room_state(room_name, RoomState.OVERRIDE)
             coordinator.room_override_source[room_name] = "panel"
+            # 2026-09 fix: duration_min was accepted and logged but never
+            # actually wired to anything — a manual panel temperature stayed
+            # in effect forever regardless of the requested duration. 0
+            # means "permanent" (no auto-restore), matching the docstring.
+            if duration > 0:
+                coordinator.room_override_expires_at[room_name] = utcnow() + timedelta(
+                    minutes=duration
+                )
+            else:
+                coordinator.room_override_expires_at.pop(room_name, None)
     # broad-except-rationale: must not crash the WS connection; error goes back to frontend
     except Exception as err:  # noqa: BLE001
         _LOGGER.exception("set_room_temp failed for '%s'", room_name)
@@ -490,7 +499,15 @@ async def ws_get_state(
                 ),  # B15: for UI badge
                 "state": room_state.value,
                 "current_temp": current_temp,
-                "heating_power": heating_power,
+                # 2026-09 audit fix (frontend dead-code sweep): "heating_power"
+                # used to be sent here too, but it's always exactly equal to
+                # valve_position for Netatmo rooms (that's where it comes
+                # from, see above) and stale/unset for Zigbee rooms once
+                # pi_demand_entity overrides valve_position — no reader in
+                # either frontend file ever used it separately. Dropped as a
+                # redundant duplicate of valve_position; the raw
+                # heating_power_request value is still read locally above,
+                # just no longer echoed to the frontend under its own key.
                 "valve_position": valve_position,  # B1
                 "boost_active": boost_active,  # B2
                 "windows_open": windows_open,
@@ -502,7 +519,6 @@ async def ws_get_state(
                 "calibration_offset": calibration_offset,  # 2026-09 frontend-parity fix
                 "window_duration_today": window_duration_today,  # 2026-09 frontend-parity fix
                 "unavailable_entities": unavailable_entities,  # 2026-09 audit fix (UI/UX #8)
-                "why": _why_label(room_state),
                 # v0.14.0: which caller ("switch"/"remote") currently holds
                 # this room in OVERRIDE, if any — None otherwise. Purely for
                 # the frontend badge (see coordinator.room_override_source).
@@ -513,7 +529,7 @@ async def ws_get_state(
                 # v0.9.0: optional per-room engines — raw config values only,
                 # the panel/card own the display labels (config-flow wizard
                 # remains the way to configure these).
-                "calibration_entity": room.get(CONF_CALIBRATION_ENTITY) or None,
+                "calibration_entity": coordinator.get_room_calibration_entity(name),
                 "sync_mode": room.get(CONF_SYNC_MODE) or None,
                 "schedule_entity": room.get(CONF_SCHEDULE_ENTITY) or None,
                 # B18 Fase 3: per-room replacement for the old single global
@@ -556,10 +572,16 @@ async def ws_get_state(
     # ── Config snapshot ────────────────────────────────────────────────────────
     config_snap = {
         "weather_entity": cfg.get(CONF_WEATHER_ENTITY, ""),
+        # 2026-09 audit fix (frontend dead-field sweep): the panel's config
+        # tab has always shown an "Outdoor temp sensor" row, but this key
+        # was never in the payload — CONF_OUTDOOR_TEMP_SENSOR is a real,
+        # functional setting (coordinator.py prefers it over the weather
+        # entity for outdoor temperature), it just never reached the
+        # display. Wired up rather than removing the row, since the
+        # underlying setting is genuinely in use.
+        "outdoor_temp_sensor": cfg.get(CONF_OUTDOOR_TEMP_SENSOR, ""),
         "grace_day_min": cfg.get(CONF_GRACE_DAY_MIN),
         "grace_night_min": cfg.get(CONF_GRACE_NIGHT_MIN),
-        "away_temp_mild": cfg.get(CONF_AWAY_TEMP_MILD),
-        "away_temp_cold": cfg.get(CONF_AWAY_TEMP_COLD),
         "auto_off_temp_threshold": cfg.get(CONF_AUTO_OFF_TEMP_THRESHOLD),
         "auto_off_temp_days": cfg.get(CONF_AUTO_OFF_TEMP_DAYS),
         "alarm_panel": cfg.get(CONF_ALARM_PANEL, ""),
@@ -576,6 +598,10 @@ async def ws_get_state(
         "outdoor_temp": outdoor_temp,
         "rooms": rooms,
         "persons": persons,
+        # 2026-09 audit fix: window_engine already tracks this — it just
+        # was never surfaced to the panel/card, so an open window's
+        # heat-reduction effect had no visible confirmation in the UI.
+        "open_windows": coordinator.window_engine.get_open_windows(),
         "energy_saved_today": coordinator.energy_saved_today,
         "energy_wasted_today": coordinator.energy_wasted_today,
         "efficiency_score": coordinator.efficiency_score,
@@ -706,16 +732,6 @@ def _get_entry(hass: HomeAssistant) -> Any:
         if hasattr(e, "runtime_data") and e.runtime_data is not None
     ]
     return candidates[0] if candidates else None
-
-
-def _why_label(state: Any) -> str:
-    return {
-        RoomState.NORMAL: "Active — someone home",
-        RoomState.AWAY: "Nobody home → away mode",
-        RoomState.WINDOW_OPEN: "Window open → heating suppressed",
-        RoomState.PRE_HEAT: "Pre-heating before arrival",
-        RoomState.OVERRIDE: "Manual override active",
-    }.get(state, "")
 
 
 def _fmt_time(dt: datetime) -> str:

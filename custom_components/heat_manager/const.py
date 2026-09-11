@@ -5,13 +5,12 @@ from __future__ import annotations
 from enum import StrEnum
 
 DOMAIN = "heat_manager"
-# 2026-09-07 audit fix: this had been stuck at "0.9.0" since before v0.10.0
-# while manifest.json kept advancing normally — it feeds the panel/card
-# static-asset cache-busting query string (see panel.py's module_url/
-# canonical_url), so every release since v0.9.0 was silently relying on the
-# file-mtime half of that query string alone. Now kept in sync with
-# manifest.json's "version" on every release.
-VERSION = "0.17.0"
+# 2026-09-10 audit fix: this VERSION constant used to feed the panel/card
+# cache-busting query string, and had drifted from manifest.json's version
+# before (stuck at "0.9.0" for several releases). panel.py now reads the
+# version from manifest.json directly at runtime instead — the one and only
+# source of truth — so this second, independently-maintained copy has been
+# removed entirely rather than left to go stale again.
 
 # ── Config entry keys ────────────────────────────────────────────────────────
 
@@ -32,6 +31,10 @@ CONF_CLIMATE_ENTITY = "climate_entity"
 CONF_TRVS = "trvs"
 CONF_WINDOW_SENSORS = "window_sensors"
 CONF_WINDOW_DELAY_MIN = "window_delay_min"
+# 2026-09 audit fix: DEFAULT_WINDOW_WARNING_MIN existed with no matching
+# CONF_ key — window_engine.py read the magic string "window_warning_min"
+# directly, so this option had no config_flow field to set it from.
+CONF_WINDOW_WARNING_MIN = "window_warning_min"
 CONF_AWAY_TEMP_OVERRIDE = "away_temp_override"
 
 CONF_PERSONS = "persons"
@@ -42,10 +45,6 @@ CONF_ALARM_PANEL = "alarm_panel"
 CONF_WEATHER_ENTITY = "weather_entity"
 CONF_NOTIFY_SERVICE = "notify_service"
 CONF_PREHEAT_LEAD_TIME_MIN = "preheat_lead_time_min"
-
-CONF_AWAY_TEMP_MILD = "away_temp_mild"
-CONF_AWAY_TEMP_COLD = "away_temp_cold"
-CONF_MILD_THRESHOLD = "mild_threshold"
 
 CONF_GRACE_DAY_MIN = "grace_day_min"
 CONF_GRACE_NIGHT_MIN = "grace_night_min"
@@ -107,9 +106,8 @@ DEFAULT_SYNC_MODE = SYNC_MODE_DISABLED
 # set, a `schedule.*` entity's per-block "Additional data" (native HA
 # feature) or a `calendar.*` entity's active-event "Description" (parsed as
 # YAML, mirroring climate_group_helper's format) supplies a `temperature`
-# that overrides CONF_COMFORT_TEMP / the cloud schedule setpoint for as long
-# as the block/event is active. SeasonEngine and the existing Netatmo cloud
-# schedule are untouched — this is an optional extra layer, applied before
+# that overrides CONF_COMFORT_TEMP for as long as the block/event is active.
+# SeasonEngine is untouched — this is an optional extra layer, applied before
 # the group offset and setbacks so both still stack on top of it.
 CONF_SCHEDULE_ENTITY = "schedule_entity"
 
@@ -164,9 +162,6 @@ DEFAULT_WINDOW_CLOSE_DELAY_MIN = 2
 DEFAULT_WINDOW_WARNING_MIN = 30
 DEFAULT_WINDOW_DELAY_WIND_MIN = 1  # reduced delay when wind > threshold
 WIND_FAST_MS: float = 6.0  # m/s — window heat loss accelerates above this
-DEFAULT_AWAY_TEMP_MILD = 17.0
-DEFAULT_AWAY_TEMP_COLD = 15.0
-DEFAULT_MILD_THRESHOLD = 8.0
 DEFAULT_GRACE_DAY_MIN = 30
 DEFAULT_GRACE_NIGHT_MIN = 15
 DEFAULT_NIGHT_START_HOUR = 23
@@ -185,13 +180,13 @@ CONF_NIGHT_SETBACK_TEMP = "night_setback_temp"
 DEFAULT_NIGHT_SETBACK_ENABLED = False
 DEFAULT_NIGHT_SETBACK_TEMP: float = 2.0  # °C — subtracted from schedule setpoint
 
-# Per-room comfort temperature — used as the PID target for rooms WITHOUT a
-# homekit_climate_entity (Zigbee today; Matter/Thread later). Those rooms
-# have only ONE climate entity total, unlike Netatmo's cloud+HomeKit split
-# where the cloud entity's own schedule setpoint serves as the PID target.
-# Combined with RoomState (AWAY/NORMAL) and night_setback_delta() for
-# presence + day/night — the same logic Netatmo rooms already get for free
-# from the cloud schedule.
+# Per-room comfort temperature — the PID target for ALL rooms, regardless of
+# TRV manufacturer (v0.19.0). Combined with RoomState (AWAY/NORMAL) and
+# night_setback_delta() for presence + day/night.
+# Before 0.19.0 this was only used for rooms WITHOUT a homekit_climate_entity
+# (Zigbee/Matter/Thread); Netatmo rooms instead read the cloud entity's own
+# schedule 'temperature' attribute, which meant this field was silently
+# ignored for them — see audit/heat_manager_target_temp_analysis_2026-09-11.md.
 CONF_COMFORT_TEMP = "comfort_temp"
 DEFAULT_COMFORT_TEMP: float = 20.0
 

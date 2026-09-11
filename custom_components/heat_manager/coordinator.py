@@ -42,14 +42,12 @@ from homeassistant.util.dt import utcnow
 
 from .const import (
     CONF_ALARM_PANEL,
-    CONF_AWAY_TEMP_COLD,
-    CONF_AWAY_TEMP_MILD,
+    CONF_CALIBRATION_ENTITY,
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
     CONF_COMFORT_TEMP,
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_HOUSE_VOICE_ENABLED,
-    CONF_MILD_THRESHOLD,
     CONF_OUTDOOR_HUMIDITY_SENSOR,
     CONF_OUTDOOR_TEMP_SENSOR,
     CONF_PERSONS,
@@ -66,12 +64,9 @@ from .const import (
     CONF_WEATHER_ENTITY,
     CONF_WIND_SPEED_SENSOR,
     CONF_WINDOW_SENSORS,
-    DEFAULT_AWAY_TEMP_COLD,
-    DEFAULT_AWAY_TEMP_MILD,
     DEFAULT_BOOST_MINUTES,
     DEFAULT_BOOST_TEMP,
     DEFAULT_COMFORT_TEMP,
-    DEFAULT_MILD_THRESHOLD,
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
@@ -205,6 +200,17 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # frontend can show which caller is currently holding a room in
         # manual mode. Never gates any control-flow decision.
         self.room_override_source: dict[str, str] = {}
+
+        # 2026-09 fix: ws_set_room_temp's duration_min was accepted and
+        # logged but never actually wired to anything — a manual panel
+        # temperature stayed in effect forever regardless of the requested
+        # duration. Maps room_name → the UTC timestamp at which a
+        # duration-limited manual override should auto-restore to schedule.
+        # Only holds an entry for rooms with a *timed* override (duration_min
+        # > 0); a permanent override (duration_min == 0) has no entry here.
+        # Popped automatically by set_room_state() whenever a room leaves
+        # OVERRIDE for any reason, exactly like room_override_source.
+        self.room_override_expires_at: dict[str, datetime] = {}
 
         # v0.15.0: last action taken by the global physical remote (any of
         # the 3 configurable button entities — see
@@ -359,6 +365,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # return below, so a stale source can never survive.
         if state != RoomState.OVERRIDE:
             self.room_override_source.pop(room_name, None)
+            self.room_override_expires_at.pop(room_name, None)
 
         old = self.room_states.get(room_name)
         if old == state:
@@ -624,6 +631,20 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not trvs:
             return None
         val = trvs[0].get(CONF_HOMEKIT_CLIMATE_ENTITY)
+        return val if val else None
+
+    def get_room_calibration_entity(self, room_name: str) -> str | None:
+        """Return the room's primary TRV calibration/offset number entity, if set.
+
+        See get_climate_entity() — same fix, same reason: resolves via the
+        primary TRV's CONF_TRVS entry rather than the room's flat
+        CONF_CALIBRATION_ENTITY mirror, which is never re-persisted after an
+        edit through the per-TRV UI.
+        """
+        trvs = self.get_all_room_trvs(room_name)
+        if not trvs:
+            return None
+        val = trvs[0].get(CONF_CALIBRATION_ENTITY)
         return val if val else None
 
     def get_write_entity(self, room_name: str) -> str | None:
@@ -1057,6 +1078,71 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.info("Boost expired — auto-restoring")
             await self.async_boost_stop()
 
+    async def async_restore_room_schedule(self, room_name: str) -> str | None:
+        """Restore a room's TRVs to their schedule/heat mode, releasing any
+        manual override. Shared by ws_set_room_temp's temperature=None
+        branch and _async_check_room_override_expiry() below so both restore
+        identically. Returns the first write entity actually commanded, or
+        None if the room has no configured TRVs.
+        """
+        trvs = self.get_room_trvs(room_name)
+        if not trvs:
+            return None
+
+        write_entity: str | None = None
+        for trv in trvs:
+            trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
+            if trv_type == "zigbee":
+                entity_id = self.get_trv_write_entity(trv) or trv.get(CONF_CLIMATE_ENTITY)
+                if not entity_id:
+                    continue
+                await self.async_call_climate_service(
+                    "set_hvac_mode",
+                    entity_id,
+                    {"hvac_mode": "heat"},
+                    needs_delay=self.trv_needs_cloud_delay(trv),
+                )
+            else:
+                entity_id = trv.get(CONF_CLIMATE_ENTITY)
+                if not entity_id:
+                    continue
+                await self.async_call_climate_service(
+                    "set_preset_mode",
+                    entity_id,
+                    {"preset_mode": "schedule"},
+                    needs_delay=True,
+                )
+            if write_entity is None:
+                write_entity = entity_id
+        return write_entity
+
+    async def _async_check_room_override_expiry(self) -> None:
+        """Auto-restore rooms whose duration-limited manual override
+        (ws_set_room_temp with duration_min > 0) has elapsed."""
+        if not self.room_override_expires_at:
+            return
+        now = utcnow()
+        expired = [
+            room_name
+            for room_name, expires_at in self.room_override_expires_at.items()
+            if now >= expires_at
+        ]
+        for room_name in expired:
+            try:
+                await self.async_restore_room_schedule(room_name)
+            # broad-except-rationale: one room's restore failing must not block the rest
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Room override expiry restore failed for '%s': %s", room_name, err
+                )
+            self.set_room_state(room_name, RoomState.NORMAL)
+            self.log_event(
+                f"{room_name}: manuel override udløbet — plan gendannet",
+                reason="auto",
+                event_type="manual",
+            )
+            _LOGGER.info("Room '%s' manual override expired — auto-restored", room_name)
+
     # ── Event log ─────────────────────────────────────────────────────────────
 
     def log_event(
@@ -1187,15 +1273,6 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     temp_key,
                 )
                 continue
-
-    def get_away_temperature(self) -> float:
-        mild_threshold = self.config.get(CONF_MILD_THRESHOLD, DEFAULT_MILD_THRESHOLD)
-        if (
-            self.outdoor_temperature is not None
-            and self.outdoor_temperature >= mild_threshold
-        ):
-            return float(self.config.get(CONF_AWAY_TEMP_MILD, DEFAULT_AWAY_TEMP_MILD))
-        return float(self.config.get(CONF_AWAY_TEMP_COLD, DEFAULT_AWAY_TEMP_COLD))
 
     def wake_setback_delta(self) -> float:
         """Return the wake setback delta in °C. 0.0 when not in WAKING phase.
@@ -1346,6 +1423,12 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("boost expiry check failed: %s", err)
 
+        try:
+            await self._async_check_room_override_expiry()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("room override expiry check failed: %s", err)
+
         # B3/B7: persist energy snapshot at midnight
         from homeassistant.util.dt import now as ha_now
 
@@ -1371,19 +1454,30 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Drive the PID controller for every room currently in NORMAL state.
 
         v0.8.0: generalised to a hybrid PID + outdoor-feedforward engine that
-        now regulates BOTH room types, not just Netatmo HomeKit rooms:
+        now regulates BOTH room types, not just Netatmo HomeKit rooms.
 
-          - Netatmo rooms (homekit_climate_entity set): unchanged behaviour.
-            Target temperature comes from the cloud entity's own schedule
-            setpoint; PID writes to the local HomeKit entity.
+        v0.19.0: CONF_COMFORT_TEMP is now the target for BOTH room types —
+        Heat Manager is the sole authority for room target temperature,
+        regardless of TRV manufacturer:
+
+          - Netatmo rooms (homekit_climate_entity set): target_temp comes
+            from CONF_COMFORT_TEMP; PID writes to the local HomeKit entity.
+            Before 0.19.0 this read the cloud entity's own 'temperature'
+            attribute instead — i.e. whatever Netatmo's own app-side
+            schedule dictated — which silently overrode the user's
+            configured comfort_temp for every Netatmo room (see
+            audit/heat_manager_target_temp_analysis_2026-09-11.md). The
+            cloud entity is still read for availability/health and for the
+            heating_power_request demand percentage, just no longer for
+            the target itself.
           - Local rooms (Zigbee today, Matter/Thread later — no
-            homekit_climate_entity): NEW. These have only one climate entity
-            total, so there is no separate "cloud schedule" to read a target
-            from. CONF_COMFORT_TEMP fills that role instead — combined with
-            the same RoomState (AWAY/NORMAL) and night_setback_delta() logic
-            Netatmo rooms already get for free from the cloud schedule.
-            PID writes directly to the room's single climate_entity, since
-            Zigbee2MQTT/Matter/Thread are local with no cloud rate limit.
+            homekit_climate_entity): unchanged — CONF_COMFORT_TEMP was
+            already the target here. PID writes directly to the room's
+            single climate_entity, since Zigbee2MQTT/Matter/Thread are
+            local with no cloud rate limit.
+
+        Both paths still layer schedule_override, room_offset and the
+        night/wake setbacks on top of this base target identically.
 
         Both paths now also receive a small proactive "feedforward" power
         contribution based on outdoor temperature (see FF_* constants) on
@@ -1422,8 +1516,10 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             for room in self.rooms:
                 room_name = room.get("room_name", "")
-                primary_id = room.get(CONF_CLIMATE_ENTITY, "")
-                if not room_name or not primary_id:
+                if not room_name:
+                    continue
+                primary_id = self.get_climate_entity(room_name)
+                if not primary_id:
                     continue
 
                 pid = self.pid_controllers.get(room_name)
@@ -1444,7 +1540,11 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 hk_id = self.get_homekit_climate_entity(room_name)
 
                 if hk_id:
-                    # ── Netatmo split-entity path (unchanged) ───────────────
+                    # ── Netatmo split-entity path ────────────────────────────
+                    # v0.19.0: target_temp comes from CONF_COMFORT_TEMP, same
+                    # as the local path below — see docstring above. The
+                    # cloud entity is still read here for availability/health
+                    # and the heating_power_request demand percentage.
                     write_id = hk_id
                     primary_state = self.hass.states.get(primary_id)
                     if primary_state is None or primary_state.state in (
@@ -1453,23 +1553,18 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     ):
                         pid.reset()
                         continue
-                    target_temp = primary_state.attributes.get("temperature")
-                    if target_temp is None:
-                        continue
-                    try:
-                        target_temp = float(target_temp)
-                    except (TypeError, ValueError):
-                        continue
+                    target_temp = float(
+                        room.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP)
+                    )
                     demand_pct = primary_state.attributes.get(
                         "heating_power_request", "?"
                     )
                 else:
                     # ── Local TRV path (Zigbee today, Matter/Thread later) ──
                     # No separate cloud schedule entity exists here —
-                    # CONF_COMFORT_TEMP is the target, playing the same role
-                    # Netatmo's cloud schedule setpoint plays above. Write
-                    # directly to the room's own climate_entity: Z2M/Matter/
-                    # Thread are local, no rate-limit stagger needed.
+                    # CONF_COMFORT_TEMP is the target. Write directly to the
+                    # room's own climate_entity: Z2M/Matter/Thread are local,
+                    # no rate-limit stagger needed.
                     write_id = primary_id
                     target_temp = float(
                         room.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP)

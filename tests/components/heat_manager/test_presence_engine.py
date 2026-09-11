@@ -63,7 +63,6 @@ def _make_coordinator(
 
     coordinator.someone_home = MagicMock(return_value=someone_home)
     coordinator.any_window_open = MagicMock(return_value=any_window_open)
-    coordinator.get_away_temperature = MagicMock(return_value=17.0)
     coordinator.get_climate_entity = MagicMock(return_value="climate.kitchen")
     coordinator.get_write_entity = MagicMock(return_value="climate.kitchen")
     coordinator.get_room_state = MagicMock(

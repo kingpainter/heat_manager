@@ -20,8 +20,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-    CONF_CLIMATE_ENTITY,
-    CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_HUMIDITY_SENSOR,
     CONF_ROOM_TEMP_SENSOR,
     CONF_WINDOW_SENSORS,
@@ -101,7 +99,7 @@ class HeatingWastedSensor(CoordinatorEntity, BinarySensorEntity):
     def is_on(self) -> bool:
         for room in self.coordinator.rooms:
             room_name = room.get("room_name", "")
-            climate_id = room.get(CONF_CLIMATE_ENTITY, "")
+            climate_id = self.coordinator.get_climate_entity(room_name) or ""
             if not climate_id:
                 continue
             if self.coordinator.get_room_state(room_name) != RoomState.WINDOW_OPEN:
@@ -150,9 +148,10 @@ class CloudAvailableSensor(CoordinatorEntity, BinarySensorEntity):
         total = 0
 
         for room in rooms:
-            climate_id = room.get(CONF_CLIMATE_ENTITY, "")
+            room_name = room.get("room_name", "")
+            climate_id = self.coordinator.get_climate_entity(room_name) or ""
             # Skip HomeKit entities — they are local and not a cloud indicator
-            hk_id = room.get(CONF_HOMEKIT_CLIMATE_ENTITY, "")
+            hk_id = self.coordinator.get_homekit_climate_entity(room_name) or ""
             if not climate_id or climate_id == hk_id:
                 continue
             total += 1
@@ -184,8 +183,9 @@ class CloudAvailableSensor(CoordinatorEntity, BinarySensorEntity):
 
         now = datetime.now(UTC)
         for room in rooms:
-            climate_id = room.get(CONF_CLIMATE_ENTITY, "")
-            hk_id = room.get(CONF_HOMEKIT_CLIMATE_ENTITY, "")
+            room_name = room.get("room_name", "")
+            climate_id = self.coordinator.get_climate_entity(room_name) or ""
+            hk_id = self.coordinator.get_homekit_climate_entity(room_name) or ""
             if not climate_id or climate_id == hk_id:
                 continue
             state = self.coordinator.hass.states.get(climate_id)
@@ -283,7 +283,7 @@ class MoldRiskSensor(CoordinatorEntity, BinarySensorEntity):
         self._room_name = room["room_name"]
         self._humidity_id = room.get(CONF_HUMIDITY_SENSOR, "")
         self._temp_id = room.get(CONF_ROOM_TEMP_SENSOR, "")
-        self._climate_id = room.get(CONF_CLIMATE_ENTITY, "")
+        self._climate_id = coordinator.get_climate_entity(self._room_name) or ""
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_mold_risk"
         # Short local name — see the identical note on RoomWindowSensor

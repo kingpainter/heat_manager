@@ -25,8 +25,6 @@ from custom_components.heat_manager.config_flow import (
 )
 from custom_components.heat_manager.const import (
     CONF_ALARM_PANEL,
-    CONF_AWAY_TEMP_COLD,
-    CONF_AWAY_TEMP_MILD,
     CONF_CALIBRATION_ENTITY,
     CONF_CLIMATE_ENTITY,
     CONF_GRACE_DAY_MIN,
@@ -162,9 +160,6 @@ async def test_full_setup_wizard_creates_entry():
             user_input={
                 CONF_WEATHER_ENTITY: "",
                 "notify_service": "",
-                CONF_AWAY_TEMP_MILD: 17.0,
-                CONF_AWAY_TEMP_COLD: 15.0,
-                "mild_threshold": 8.0,
                 CONF_GRACE_DAY_MIN: 30,
                 CONF_GRACE_NIGHT_MIN: 15,
                 "auto_off_temp_threshold": 18.0,
@@ -245,9 +240,6 @@ async def test_multiple_rooms_and_persons():
             user_input={
                 CONF_WEATHER_ENTITY: "",
                 "notify_service": "",
-                CONF_AWAY_TEMP_MILD: 17,
-                CONF_AWAY_TEMP_COLD: 15,
-                "mild_threshold": 8,
                 CONF_GRACE_DAY_MIN: 30,
                 CONF_GRACE_NIGHT_MIN: 15,
                 "auto_off_temp_threshold": 18,
@@ -360,9 +352,6 @@ async def test_step_user_invalid_weather_entity():
             user_input={
                 CONF_WEATHER_ENTITY: "weather.nonexistent",
                 "notify_service": "",
-                CONF_AWAY_TEMP_MILD: 17,
-                CONF_AWAY_TEMP_COLD: 15,
-                "mild_threshold": 8,
                 CONF_GRACE_DAY_MIN: 30,
                 CONF_GRACE_NIGHT_MIN: 15,
                 "auto_off_temp_threshold": 18,
@@ -544,9 +533,6 @@ def _make_entry(rooms=None, persons=None):
     entry.data = {
         CONF_ROOMS: rooms or [_minimal_room()],
         CONF_PERSONS: persons or [_minimal_person()],
-        CONF_AWAY_TEMP_MILD: 17.0,
-        CONF_AWAY_TEMP_COLD: 15.0,
-        "mild_threshold": 8.0,
         CONF_GRACE_DAY_MIN: 30,
         CONF_GRACE_NIGHT_MIN: 15,
         "auto_off_temp_threshold": 18.0,
@@ -577,17 +563,13 @@ async def test_options_flow_global_settings():
         user_input={
             CONF_WEATHER_ENTITY: "",
             "notify_service": "",
-            CONF_AWAY_TEMP_MILD: 18.0,  # changed
-            CONF_AWAY_TEMP_COLD: 14.0,
-            "mild_threshold": 8.0,
-            CONF_GRACE_DAY_MIN: 45,
+            CONF_GRACE_DAY_MIN: 45,  # changed
             CONF_GRACE_NIGHT_MIN: 15,
             "auto_off_temp_threshold": 20.0,
             "auto_off_temp_days": 7,
         }
     )
     assert result["type"] == "create_entry"
-    assert result["data"][CONF_AWAY_TEMP_MILD] == 18.0
     assert result["data"][CONF_GRACE_DAY_MIN] == 45
 
 

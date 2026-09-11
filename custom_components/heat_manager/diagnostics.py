@@ -37,7 +37,7 @@ async def async_get_config_entry_diagnostics(
     rooms_diag = []
     for room in coordinator.rooms:
         room_name = room.get("room_name", "")
-        climate_id = room.get("climate_entity", "")
+        climate_id = coordinator.get_climate_entity(room_name) or ""
         room_state = coordinator.get_room_state(room_name)
 
         climate_attrs: dict[str, Any] = {}

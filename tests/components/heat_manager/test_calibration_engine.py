@@ -25,6 +25,27 @@ def _make_coordinator(rooms=None) -> MagicMock:
     hass = MagicMock()
     hass.services.async_call = AsyncMock()
     coord.hass = hass
+
+    # 2026-09 audit fix: the engine now resolves both entities via
+    # coordinator.get_climate_entity()/get_room_calibration_entity() (TRV-
+    # aware) instead of reading the room's flat fields directly — mirror
+    # that resolution here from the same flat fields these fixtures use.
+    coord.get_climate_entity = MagicMock(
+        side_effect=lambda name: next(
+            (r.get("climate_entity") for r in coord.rooms if r.get("room_name") == name),
+            None,
+        )
+    )
+    coord.get_room_calibration_entity = MagicMock(
+        side_effect=lambda name: next(
+            (
+                r.get("calibration_entity")
+                for r in coord.rooms
+                if r.get("room_name") == name
+            ),
+            None,
+        )
+    )
     return coord
 
 

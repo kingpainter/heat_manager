@@ -39,7 +39,6 @@ from ..const import (
     CALIBRATION_CHANGE_THRESHOLD,
     CALIBRATION_OFFSET_MAX,
     CALIBRATION_OFFSET_MIN,
-    CONF_CALIBRATION_ENTITY,
     CONF_ROOM_TEMP_SENSOR,
     DEFAULT_CALIBRATION_HEARTBEAT_MIN,
 )
@@ -75,10 +74,12 @@ class CalibrationEngine:
         """Called every SCAN_INTERVAL_SECONDS from the coordinator's main tick."""
         for room in self.coordinator.rooms:
             room_name = room.get("room_name", "")
-            calibration_entity = room.get(CONF_CALIBRATION_ENTITY) or None
+            if not room_name:
+                continue
+            calibration_entity = self.coordinator.get_room_calibration_entity(room_name)
             room_temp_sensor = room.get(CONF_ROOM_TEMP_SENSOR) or None
-            climate_entity = room.get("climate_entity", "")
-            if not room_name or not calibration_entity or not room_temp_sensor:
+            climate_entity = self.coordinator.get_climate_entity(room_name) or ""
+            if not calibration_entity or not room_temp_sensor:
                 continue
             await self._async_update_room(
                 room_name, climate_entity, room_temp_sensor, calibration_entity

@@ -26,11 +26,13 @@ from homeassistant.util.dt import utcnow
 from ..const import (
     CONF_AWAY_TEMP_OVERRIDE,
     CONF_CLIMATE_ENTITY,
+    CONF_NOTIFY_SERVICE,
     CONF_NOTIFY_WINDOW_WARNING_30,
     CONF_NOTIFY_WINDOWS,
     CONF_TRV_TYPE,
     CONF_WINDOW_DELAY_MIN,
     CONF_WINDOW_SENSORS,
+    CONF_WINDOW_WARNING_MIN,
     DEFAULT_CO2_VENTILATION_THRESHOLD,
     DEFAULT_WINDOW_CLOSE_DELAY_MIN,
     DEFAULT_WINDOW_DELAY_MIN,
@@ -325,7 +327,7 @@ class WindowEngine:
 
         threshold = int(
             self.coordinator.config.get(
-                "window_warning_min", DEFAULT_WINDOW_WARNING_MIN
+                CONF_WINDOW_WARNING_MIN, DEFAULT_WINDOW_WARNING_MIN
             )
         )
         now = utcnow()
@@ -411,7 +413,7 @@ class WindowEngine:
         return True
 
     async def _notify(self, message: str) -> None:
-        service = self.coordinator.config.get("notify_service", "")
+        service = self.coordinator.config.get(CONF_NOTIFY_SERVICE, "")
         if not service:
             return
         domain, _, service_name = service.partition(".")

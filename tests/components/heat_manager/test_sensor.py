@@ -34,6 +34,11 @@ def _make_coordinator() -> MagicMock:
     coord.get_room_state = MagicMock(return_value=RoomState.NORMAL)
     coord.get_room_blocking_sources = MagicMock(return_value=[])
     coord.get_pid = MagicMock(return_value=None)
+    # 2026-09 audit fix: RoomStateSensor now resolves its climate entity via
+    # coordinator.get_climate_entity() (TRV-aware) instead of reading the
+    # room's flat "climate_entity" field directly — default to "climate.bathroom"
+    # (matching _room()'s own default), overridden per-test as needed.
+    coord.get_climate_entity = MagicMock(return_value="climate.bathroom")
 
     hass = MagicMock()
     hass.states.get = MagicMock(return_value=None)
@@ -176,6 +181,7 @@ def test_room_state_sensor_available_true_when_no_climate_entity_configured():
     """A room with no climate_entity at all (misconfigured / template room)
     should not be forced unavailable — there's nothing to watch."""
     coord = _make_coordinator()
+    coord.get_climate_entity = MagicMock(return_value=None)
     sensor = RoomStateSensor(coord, _entry(), _room(climate=None))
     assert sensor.available is True
 

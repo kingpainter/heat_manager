@@ -2267,6 +2267,12 @@ class HeatManagerPanel extends HTMLElement {
   _autoOffInnerHTML() {
     const d      = this._data;
     const isOff  = d?.controller_state === "off";
+    // 2026-09 audit fix: auto_off_reason was computed by the backend and
+    // sent in every payload, but never actually displayed anywhere — the
+    // "Slukket" badge below gave no clue *why*. Label only the two reasons
+    // that actually fire (see AutoOffReason in const.py); "none" needs no
+    // label since isOff is already false whenever it applies.
+    const reasonLabel = { season: "sæson", temperature: "temperatur" }[d?.auto_off_reason] ?? null;
     const calMap = { winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår" };
     const calLabel = calMap[d?.calendar_season] ?? "–";
     // v0.3.9 fix: effective_season is dormant/waking/active, not a calendar
@@ -2277,7 +2283,7 @@ class HeatManagerPanel extends HTMLElement {
       <div class="section-box-header">
         <div class="section-box-title">Auto-off status</div>
         <div class="section-box-badge" style="background:${isOff?"rgba(239,68,68,0.15)":"rgba(249,115,22,0.15)"};color:${isOff?"#ef4444":"#f97316"}">
-          ${isOff ? "Slukket" : "Aktiv"}
+          ${isOff ? "Slukket" + (reasonLabel ? ` (${reasonLabel})` : "") : "Aktiv"}
         </div>
       </div>
       <div class="autooff-grid">
@@ -2380,6 +2386,13 @@ class HeatManagerPanel extends HTMLElement {
     const active = rooms.filter(r => r.state === "normal").length;
     const away   = rooms.filter(r => r.state === "away").length;
     const winOpen = rooms.filter(r => r.state === "window_open").length;
+    // 2026-09 audit fix: window_engine.get_open_windows() reads the actual
+    // window/door sensors directly (real-time truth) — winOpen above counts
+    // rooms already in the WINDOW_OPEN *state*, which lags slightly behind
+    // during the open/close delay windows. Surface the sensor-level list as
+    // a tooltip on the card rather than a second, easily-confused counter.
+    const openWindowsList = this._data?.open_windows ?? [];
+    const winOpenTitle = openWindowsList.length ? openWindowsList.join(", ") : "";
     const rlaText = this._remoteLastActionHTML();
     return `
       ${this._controllerSectionHTML()}
@@ -2405,7 +2418,7 @@ class HeatManagerPanel extends HTMLElement {
             <div class="qs-value" data-qs="qs-away" style="color:var(--sub)">${away}</div>
             <div class="qs-label">Fraværende</div>
           </div>
-          <div class="qs-card">
+          <div class="qs-card" ${winOpenTitle ? `title="${this._esc(winOpenTitle)}"` : ""}>
             <div class="qs-icon">🪟</div>
             <div class="qs-value" data-qs="qs-window" style="color:${winOpen > 0 ? "var(--red)" : "var(--sub)"}">${winOpen}</div>
             <div class="qs-label">Vindue åbent</div>
@@ -2428,7 +2441,42 @@ class HeatManagerPanel extends HTMLElement {
         ${this._personsHTML()}
       </div>
 
+      ${this._energySectionHTML()}
       ${this._autoOffSectionHTML()}`;
+  }
+
+  // 2026-09 audit fix: energy_saved_today/energy_wasted_today/
+  // efficiency_score/last_waste_time/last_saved_time were already computed
+  // (same source as the real sensor.heat_manager_energy_* entities the card
+  // mirrors) and sent in every get_state payload, but the panel's own
+  // "Energi i dag" display had been removed as dead code in 0.17.2 — the
+  // data kept flowing with nothing showing it here. Restored as a compact
+  // box, mirroring the card's own simple energy-row style.
+  _energySectionHTML() {
+    const d = this._data;
+    const wasted = d?.energy_wasted_today;
+    const saved  = d?.energy_saved_today;
+    const eff    = d?.efficiency_score;
+    if (wasted == null && saved == null && eff == null) return "";
+    const lastWaste = this._fmtEventTime(d?.last_waste_time);
+    const lastSaved = this._fmtEventTime(d?.last_saved_time);
+    return `
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Energi i dag</div>
+          ${eff != null ? `<div class="section-box-badge" style="background:rgba(249,115,22,0.15);color:#f97316">${Math.round(eff)}% effektiv</div>` : ""}
+        </div>
+        <div class="autooff-grid">
+          <div class="aocard">
+            <div class="aocard-lbl">Spildt${lastWaste ? ` · ${lastWaste}` : ""}</div>
+            <div class="aocard-val" style="color:var(--red)">${wasted != null ? wasted.toFixed(2) : "0.00"} kWh</div>
+          </div>
+          <div class="aocard">
+            <div class="aocard-lbl">Sparet${lastSaved ? ` · ${lastSaved}` : ""}</div>
+            <div class="aocard-val" style="color:#10b981">${saved != null ? saved.toFixed(2) : "0.00"} kWh</div>
+          </div>
+        </div>
+      </div>`;
   }
 
   _roomDetailRowHTML(room) {
@@ -2645,8 +2693,6 @@ class HeatManagerPanel extends HTMLElement {
       ["Outdoor temp sensor", d.outdoor_temp_sensor      ?? "–"],
       ["Grace dag",           d.grace_day_min   != null  ? d.grace_day_min   + " min" : "–"],
       ["Grace nat",           d.grace_night_min != null  ? d.grace_night_min + " min" : "–"],
-      ["Away temp mildt",     d.away_temp_mild  != null  ? d.away_temp_mild  + "°C"   : "–"],
-      ["Away temp koldt",     d.away_temp_cold  != null  ? d.away_temp_cold  + "°C"   : "–"],
       ["Auto-off grænse",     d.auto_off_temp_threshold != null ? d.auto_off_temp_threshold + "°C" : "–"],
       ["Auto-off dage",       d.auto_off_temp_days != null ? d.auto_off_temp_days + " dage" : "–"],
     ];
@@ -2751,8 +2797,6 @@ class HeatManagerPanel extends HTMLElement {
               <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.1);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">⏹ Sluk</span>
               <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.1);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">☀ Sommer</span>
               <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.1);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">❄ Vinter</span>
-              <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.06);color:rgba(20,184,166,0.45);border:1px solid rgba(20,184,166,0.12)">🔥 Boost til</span>
-              <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.06);color:rgba(20,184,166,0.45);border:1px solid rgba(20,184,166,0.12)">🔥 Boost slut</span>
             </div>
           </div>` : ''}
 
