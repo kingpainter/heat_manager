@@ -9,6 +9,32 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.25.0] — 2026-09-11
+
+Panel overview tile requested by Flemming: the "Rum" quick-stats row undercounted what it
+claimed to show once monitoring-only rooms (v0.24.1) and interior doors (v0.24.0) existed —
+"Aktiv" included TRV-less rooms it had no business counting, and door state wasn't surfaced
+at the overview level at all (only in Rum detaljer / Historik).
+
+### Added
+
+- **Panel — Oversigt**: two new quick-stats tiles, "Passiv" (🛋️, monitoring-only rooms with no
+  TRV — Gang and friends) and "Åbne døre" (🚪, live count of open interior doors from each
+  door sensor's `is_open`, same real-time-truth pattern as the existing "Vindue åbent" tile —
+  turns red when > 0). Hovering "Åbne døre" lists which room-pairs are open, matching the
+  existing "Vindue åbent" tooltip behaviour.
+
+### Changed
+
+- **Panel — Oversigt**: "Aktiv" now only counts rooms with `state === "normal"` AND a
+  configured TRV (`climate_entity`) — a monitoring-only room in its default state moves to
+  the new "Passiv" tile instead, so the six tiles (Aktiv/Fraværende/Passiv/Vindue åbent/Åbne
+  døre/Forvarmning) stay mutually exclusive and sum to the total room count. A monitoring-only
+  room that's genuinely away or has an open window still counts under those tiles, not
+  "Passiv" — "Passiv" only catches the otherwise-uneventful case.
+- **Panel CSS**: `.qs-grid` widened from 4 to 6 columns on desktop, with new breakpoints
+  (3 columns ≤700px, 2 columns ≤380px) so the six tiles wrap sensibly on narrower panel widths.
+
 ## [0.24.2] — 2026-09-11
 
 Second follow-up to the monitoring-only-room work, from putting "Gang" into real use: its front

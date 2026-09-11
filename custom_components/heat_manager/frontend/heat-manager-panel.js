@@ -1814,10 +1814,11 @@ class HeatManagerPanel extends HTMLElement {
 
       /* ── Quick stats grid ── */
       .qs-grid {
-        display: grid; grid-template-columns: repeat(4,1fr);
+        display: grid; grid-template-columns: repeat(6,1fr);
         gap: 8px; padding: 0 16px 14px;
       }
-      @media (max-width: 500px) { .qs-grid { grid-template-columns: repeat(2,1fr); } }
+      @media (max-width: 700px) { .qs-grid { grid-template-columns: repeat(3,1fr); } }
+      @media (max-width: 380px) { .qs-grid { grid-template-columns: repeat(2,1fr); } }
       .qs-card {
         background: var(--bg3); border-radius: 12px;
         padding: 12px 10px; text-align: center;
@@ -2475,7 +2476,16 @@ class HeatManagerPanel extends HTMLElement {
 
   _overviewHTML() {
     const rooms  = this._data?.rooms ?? [];
-    const active = rooms.filter(r => r.state === "normal").length;
+    // 2026-09-11: a monitoring-only room (no TRV — v0.24.1) still gets a
+    // room.state from the coordinator, but nothing is actively controlling
+    // heat in it. Counting it under "Aktiv" overstated how many rooms are
+    // really under active heat control, so it gets its own "Passiv" tile
+    // instead. Kept mutually exclusive with the other tiles: a monitoring-
+    // only room in "away"/"window_open" still counts under those (its real,
+    // more specific state), "Passiv" only catches the otherwise-uneventful
+    // monitoring-only rooms, so every room lands in exactly one tile.
+    const active  = rooms.filter(r => r.state === "normal" && r.climate_entity).length;
+    const passive = rooms.filter(r => r.state === "normal" && !r.climate_entity).length;
     const away   = rooms.filter(r => r.state === "away").length;
     const winOpen = rooms.filter(r => r.state === "window_open").length;
     // 2026-09 audit fix: window_engine.get_open_windows() reads the actual
@@ -2485,6 +2495,12 @@ class HeatManagerPanel extends HTMLElement {
     // a tooltip on the card rather than a second, easily-confused counter.
     const openWindowsList = this._data?.open_windows ?? [];
     const winOpenTitle = openWindowsList.length ? openWindowsList.join(", ") : "";
+    // 2026-09-11: interior doors (v0.24.0) already carry a live "is_open"
+    // per door from the sensor itself — same real-time-truth pattern as
+    // open_windows above, just doors instead of windows.
+    const doorsList = this._data?.doors ?? [];
+    const openDoors = doorsList.filter(d => d.is_open);
+    const doorsOpenTitle = openDoors.map(d => `${d.room_a} ↔ ${d.room_b}`).join(", ");
     const rlaText = this._remoteLastActionHTML();
     return `
       ${this._controllerSectionHTML()}
@@ -2509,10 +2525,20 @@ class HeatManagerPanel extends HTMLElement {
             <div class="qs-value" data-qs="qs-away" style="color:var(--sub)">${away}</div>
             <div class="qs-label">Fraværende</div>
           </div>
+          <div class="qs-card">
+            <div class="qs-icon">🛋️</div>
+            <div class="qs-value" data-qs="qs-passive" style="color:var(--sub)">${passive}</div>
+            <div class="qs-label">Passiv</div>
+          </div>
           <div class="qs-card" ${winOpenTitle ? `title="${this._esc(winOpenTitle)}"` : ""}>
             <div class="qs-icon">🪟</div>
             <div class="qs-value" data-qs="qs-window" style="color:${winOpen > 0 ? "var(--red)" : "var(--sub)"}">${winOpen}</div>
             <div class="qs-label">Vindue åbent</div>
+          </div>
+          <div class="qs-card" ${doorsOpenTitle ? `title="${this._esc(doorsOpenTitle)}"` : ""}>
+            <div class="qs-icon">🚪</div>
+            <div class="qs-value" data-qs="qs-doors" style="color:${openDoors.length > 0 ? "var(--red)" : "var(--sub)"}">${openDoors.length}</div>
+            <div class="qs-label">Åbne døre</div>
           </div>
           <div class="qs-card">
             <div class="qs-icon">❄️</div>
