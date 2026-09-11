@@ -37,6 +37,25 @@ CONF_WINDOW_DELAY_MIN = "window_delay_min"
 CONF_WINDOW_WARNING_MIN = "window_warning_min"
 CONF_AWAY_TEMP_OVERRIDE = "away_temp_override"
 
+# ── Interior doors (2026-09-11) ──────────────────────────────────────────────
+# An interior door connects TWO rooms — unlike CONF_WINDOW_SENSORS (which
+# belongs to a single room and means "heat is escaping outside, suppress
+# it"), an open interior door means heat is moving BETWEEN two rooms Heat
+# Manager already controls. It carries no heat-suppression meaning on its
+# own; DoorEngine only logs the state change and exposes it to
+# CalibrationEngine, which learns a separate heat-up-rate profile per room
+# for "door open" vs "door closed" (a room heats up faster with its door
+# shut). list[dict] on the config entry, each dict:
+#   CONF_DOOR_SENSOR  — binary_sensor.* (door/window class) contact sensor
+#   CONF_DOOR_ROOM_A  — one side's CONF_ROOM_NAME
+#   CONF_DOOR_ROOM_B  — the other side's CONF_ROOM_NAME
+# See config_flow._door_schema(), coordinator.get_room_doors()/
+# is_room_door_open(), and engine/door_engine.py.
+CONF_DOORS = "doors"
+CONF_DOOR_SENSOR = "door_sensor"
+CONF_DOOR_ROOM_A = "door_room_a"
+CONF_DOOR_ROOM_B = "door_room_b"
+
 CONF_PERSONS = "persons"
 CONF_PERSON_ENTITY = "person_entity"
 CONF_PERSON_TRACKING = "person_tracking"

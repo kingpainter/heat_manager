@@ -37,6 +37,10 @@ from .const import (
     CONF_CO2_SENSOR,
     CONF_CO2_THRESHOLD,
     CONF_COMFORT_TEMP,
+    CONF_DOOR_ROOM_A,
+    CONF_DOOR_ROOM_B,
+    CONF_DOOR_SENSOR,
+    CONF_DOORS,
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
     CONF_HOMEKIT_CLIMATE_ENTITY,
@@ -126,25 +130,31 @@ def _step1_schema(defaults: dict | None = None) -> vol.Schema:
                 CONF_WEATHER_ENTITY,
                 default=defaults.get(CONF_WEATHER_ENTITY) or vol.UNDEFINED,
             ): selector.selector({"entity": {"domain": "weather"}}),
+            # 2026-09-11 UX fix: these four were left on a raw text box (type
+            # the entity_id yourself, no autocomplete, easy to typo) because
+            # the entity selector used to reject an empty default outright.
+            # CONF_WEATHER_ENTITY above and CONF_SCHEDULE_ENTITY below already
+            # proved the fix — `default=... or vol.UNDEFINED` instead of
+            # `default=..., ""` — so there's no reason left for these four to
+            # be worse pickers than every other entity field in this flow.
+            # Also makes it trivial to find e.g. an Indeklima room sensor:
+            # type "indeklima" or the room name into the picker's own search.
             vol.Optional(
                 CONF_OUTDOOR_TEMP_SENSOR,
-                default=defaults.get(CONF_OUTDOOR_TEMP_SENSOR, ""),
-            ): selector.selector(
-                {"text": {}}
-            ),  # text allows blank; entity selector rejects empty
+                default=defaults.get(CONF_OUTDOOR_TEMP_SENSOR) or vol.UNDEFINED,
+            ): selector.selector({"entity": {"domain": "sensor"}}),
             vol.Optional(
                 CONF_OUTDOOR_HUMIDITY_SENSOR,
-                default=defaults.get(CONF_OUTDOOR_HUMIDITY_SENSOR, ""),
-            ): selector.selector(
-                {"text": {}}
-            ),  # sensor.* — outdoor relative humidity %
+                default=defaults.get(CONF_OUTDOOR_HUMIDITY_SENSOR) or vol.UNDEFINED,
+            ): selector.selector({"entity": {"domain": "sensor"}}),
             vol.Optional(
                 CONF_PRECIPITATION_SENSOR,
-                default=defaults.get(CONF_PRECIPITATION_SENSOR, ""),
-            ): selector.selector({"text": {}}),  # sensor.* — precipitation mm or mm/h
+                default=defaults.get(CONF_PRECIPITATION_SENSOR) or vol.UNDEFINED,
+            ): selector.selector({"entity": {"domain": "sensor"}}),
             vol.Optional(
-                CONF_WIND_SPEED_SENSOR, default=defaults.get(CONF_WIND_SPEED_SENSOR, "")
-            ): selector.selector({"text": {}}),  # sensor.* — wind speed m/s
+                CONF_WIND_SPEED_SENSOR,
+                default=defaults.get(CONF_WIND_SPEED_SENSOR) or vol.UNDEFINED,
+            ): selector.selector({"entity": {"domain": "sensor"}}),
             vol.Optional(
                 CONF_NOTIFY_SERVICE, default=defaults.get(CONF_NOTIFY_SERVICE, "")
             ): selector.selector({"text": {}}),
@@ -311,10 +321,10 @@ def _step1_schema(defaults: dict | None = None) -> vol.Schema:
             # ── Wake / WAKING phase ────────────────────────────────────
             vol.Optional(
                 CONF_INDOOR_WAKE_SENSOR,
-                default=defaults.get(CONF_INDOOR_WAKE_SENSOR, ""),
+                default=defaults.get(CONF_INDOOR_WAKE_SENSOR) or vol.UNDEFINED,
             ): selector.selector(
-                {"text": {}}
-            ),  # sensor.* — shared indoor temperature probe
+                {"entity": {"domain": "sensor"}}
+            ),  # shared indoor temperature probe
             vol.Optional(
                 CONF_INDOOR_WAKE_THRESHOLD,
                 default=defaults.get(
@@ -476,9 +486,17 @@ def _room_schema(defaults: dict | None = None) -> vol.Schema:
                 }
             ),
             # ── Sensor inputs ─────────────────────────────────────────────────
+            # 2026-09-11 UX fix: same as _step1_schema above — real entity
+            # pickers (searchable, no typos) instead of raw text boxes, now
+            # that the `default=... or vol.UNDEFINED` pattern is proven safe
+            # for an optional entity selector. Also makes it trivial to pick
+            # e.g. this room's own Indeklima sensor by typing "indeklima" or
+            # the room name into the picker's search — no hard dependency on
+            # Indeklima, any sensor entity still works exactly as before.
             vol.Optional(
-                CONF_CO2_SENSOR, default=defaults.get(CONF_CO2_SENSOR, "")
-            ): selector.selector({"text": {}}),  # sensor.* — CO₂ in ppm
+                CONF_CO2_SENSOR,
+                default=defaults.get(CONF_CO2_SENSOR) or vol.UNDEFINED,
+            ): selector.selector({"entity": {"domain": "sensor"}}),  # CO₂ in ppm
             vol.Optional(
                 CONF_CO2_THRESHOLD,
                 default=defaults.get(
@@ -495,14 +513,17 @@ def _room_schema(defaults: dict | None = None) -> vol.Schema:
                 }
             ),
             vol.Optional(
-                CONF_ROOM_TEMP_SENSOR, default=defaults.get(CONF_ROOM_TEMP_SENSOR, "")
-            ): selector.selector({"text": {}}),  # sensor.* — room temperature in °C
+                CONF_ROOM_TEMP_SENSOR,
+                default=defaults.get(CONF_ROOM_TEMP_SENSOR) or vol.UNDEFINED,
+            ): selector.selector({"entity": {"domain": "sensor"}}),  # room temp °C
             vol.Optional(
-                CONF_BATTERY_SENSOR, default=defaults.get(CONF_BATTERY_SENSOR, "")
-            ): selector.selector({"text": {}}),  # sensor.* — TRV battery level in %
+                CONF_BATTERY_SENSOR,
+                default=defaults.get(CONF_BATTERY_SENSOR) or vol.UNDEFINED,
+            ): selector.selector({"entity": {"domain": "sensor"}}),  # TRV battery %
             vol.Optional(
-                CONF_HUMIDITY_SENSOR, default=defaults.get(CONF_HUMIDITY_SENSOR, "")
-            ): selector.selector({"text": {}}),  # sensor.* — relative humidity in %
+                CONF_HUMIDITY_SENSOR,
+                default=defaults.get(CONF_HUMIDITY_SENSOR) or vol.UNDEFINED,
+            ): selector.selector({"entity": {"domain": "sensor"}}),  # relative humidity %
             # ── Schedule / calendar override (v0.9.0, Fase D) ───────────────────
             # schedule.* or calendar.* entity — see engine/schedule_engine.py.
             # While a block/event is active, its temperature overrides this
@@ -543,6 +564,30 @@ def _person_schema(defaults: dict | None = None) -> vol.Schema:
                     }
                 }
             ),
+        }
+    )
+
+
+def _door_schema(
+    defaults: dict | None = None, room_names: list[str] | None = None
+) -> vol.Schema:
+    """Schema for one interior door — a contact sensor plus the two rooms it
+    connects (see CONF_DOORS in const.py for the modeling rationale: unlike
+    CONF_WINDOW_SENSORS, a door belongs to a PAIR of rooms, not one)."""
+    defaults = defaults or {}
+    room_names = room_names or []
+    room_options = [{"value": name, "label": name} for name in room_names]
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_DOOR_SENSOR, default=defaults.get(CONF_DOOR_SENSOR, "")
+            ): selector.selector({"entity": {"domain": "binary_sensor"}}),
+            vol.Required(
+                CONF_DOOR_ROOM_A, default=defaults.get(CONF_DOOR_ROOM_A, "")
+            ): selector.selector({"select": {"options": room_options}}),
+            vol.Required(
+                CONF_DOOR_ROOM_B, default=defaults.get(CONF_DOOR_ROOM_B, "")
+            ): selector.selector({"select": {"options": room_options}}),
         }
     )
 
@@ -658,9 +703,13 @@ class HeatManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_room_trvs_menu(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Add/edit/delete this room's TRVs before it's saved — at least
-        one is required, mirroring CONF_CLIMATE_ENTITY's old Required
-        status at the room level."""
+        """Add/edit/delete this room's TRVs before it's saved.
+
+        2026-09-11: zero TRVs is a deliberate, supported choice (a
+        monitoring-only room — temp/humidity sensor, no heat source of its
+        own, e.g. a hallway) — previously required at least one, mirroring
+        CONF_CLIMATE_ENTITY's old Required status at the room level, but
+        every engine already tolerates an empty TRV list gracefully."""
         assert self._room_draft is not None
 
         if user_input is not None:
@@ -713,6 +762,31 @@ class HeatManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {"value": "done_add_room", "label": "Save room and add another room"}
             )
             options.append({"value": "done", "label": "Save room and continue"})
+        else:
+            # 2026-09-11: a room with zero TRVs is a deliberate, supported
+            # choice — a monitoring-only room (temp/humidity sensor, no
+            # heat source of its own, e.g. a hallway connecting every other
+            # room) that every engine already tolerates gracefully:
+            # get_climate_entity() returns None for it, and every "for trv
+            # in get_room_trvs(room_name)" loop across the codebase simply
+            # no-ops on an empty list. migrate_room_to_trvs() already had an
+            # explicit `if not trvs: return room` early-out for exactly this
+            # case. Labelled explicitly here so it reads as an intentional
+            # choice on the "Save room" button itself, not a silently
+            # accepted gap — see planning/heat_manager_features_2026-09-11.md
+            # follow-up conversation (the "Gang" hallway case).
+            options.append(
+                {
+                    "value": "done_add_room",
+                    "label": "Save room without a TRV (monitoring only) and add another room",
+                }
+            )
+            options.append(
+                {
+                    "value": "done",
+                    "label": "Save room without a TRV (monitoring only)",
+                }
+            )
 
         return self.async_show_form(
             step_id="room_trvs_menu",
@@ -867,8 +941,10 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
         self._config_entry = config_entry
         self._rooms: list[dict] = []
         self._persons: list[dict] = []
+        self._doors: list[dict] = []
         self._editing_room_name: str | None = None
         self._editing_person_entity: str | None = None
+        self._editing_door_sensor: str | None = None
         self._room_draft: dict[str, Any] | None = None
         self._trv_draft: list[dict] = []
         self._editing_trv_index: int | None = None
@@ -887,6 +963,8 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_rooms_menu()
             if section == "persons":
                 return await self.async_step_persons_menu()
+            if section == "doors":
+                return await self.async_step_doors_menu()
             if section == "notifications":
                 return await self.async_step_notifications()
             if section == "remote_control":
@@ -906,6 +984,10 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
                                     },
                                     {"value": "rooms", "label": "Manage rooms"},
                                     {"value": "persons", "label": "Manage persons"},
+                                    {
+                                        "value": "doors",
+                                        "label": "Manage interior doors",
+                                    },
                                     {
                                         "value": "notifications",
                                         "label": "Notification preferences",
@@ -1059,9 +1141,13 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
     async def async_step_room_trvs_menu(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Add/edit/delete this room's TRVs before it's saved — at least
-        one is required, mirroring CONF_CLIMATE_ENTITY's old Required
-        status at the room level."""
+        """Add/edit/delete this room's TRVs before it's saved.
+
+        2026-09-11: zero TRVs is a deliberate, supported choice (a
+        monitoring-only room — temp/humidity sensor, no heat source of its
+        own, e.g. a hallway) — previously required at least one, mirroring
+        CONF_CLIMATE_ENTITY's old Required status at the room level, but
+        every engine already tolerates an empty TRV list gracefully."""
         assert self._room_draft is not None
 
         if user_input is not None:
@@ -1108,8 +1194,18 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
             for i, trv in enumerate(self._trv_draft)
         ]
         options.append({"value": "add", "label": "Add a TRV"})
-        if self._trv_draft:
-            options.append({"value": "done", "label": "Save room"})
+        # 2026-09-11: a room with zero TRVs is a deliberate, supported choice
+        # (monitoring-only room, e.g. a hallway) — see the identical comment
+        # in the initial config flow's async_step_room_trvs_menu() for why
+        # this is safe everywhere else in the codebase. Always offer "Save
+        # room" now, just with a label that makes the zero-TRV case explicit
+        # rather than silently allowed.
+        options.append(
+            {
+                "value": "done",
+                "label": "Save room" if self._trv_draft else "Save room without a TRV (monitoring only)",
+            }
+        )
 
         return self.async_show_form(
             step_id="room_trvs_menu",
@@ -1279,6 +1375,160 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="person_add",
             data_schema=_person_schema(),
+            errors=errors,
+        )
+
+    def _door_room_pair(self, door: dict[str, Any]) -> frozenset:
+        return frozenset({door.get(CONF_DOOR_ROOM_A), door.get(CONF_DOOR_ROOM_B)})
+
+    def _validate_door(
+        self, user_input: dict[str, Any], other_doors: list[dict]
+    ) -> dict[str, str]:
+        """Shared validation for door add/edit. Returns an errors dict (empty
+        if valid). Room-pair uniqueness and room_a != room_b are hard errors —
+        a door is defined by its pair of rooms, so either mistake silently
+        produces a meaningless or duplicate config. A door sensor that is
+        ALSO configured as a window sensor elsewhere is only logged (2026-09-11
+        proposal, item 1/2: soft warning, not a blocker — some contact sensors
+        legitimately sit on a door that is both an interior passage and, in
+        some floor plans, worth keeping as a window-suppression trigger too)."""
+        errors: dict[str, str] = {}
+        sensor = user_input.get(CONF_DOOR_SENSOR, "")
+        room_a = user_input.get(CONF_DOOR_ROOM_A, "")
+        room_b = user_input.get(CONF_DOOR_ROOM_B, "")
+
+        if room_a and room_b and room_a == room_b:
+            errors[CONF_DOOR_ROOM_B] = "same_room"
+        elif frozenset({room_a, room_b}) in {
+            self._door_room_pair(d) for d in other_doors
+        }:
+            errors["base"] = "duplicate_door_pair"
+        elif sensor and self.hass.states.get(sensor) is None:
+            errors[CONF_DOOR_SENSOR] = "entity_not_found"
+        elif sensor in {d.get(CONF_DOOR_SENSOR) for d in other_doors}:
+            errors[CONF_DOOR_SENSOR] = "duplicate_door_sensor"
+
+        if not errors and sensor:
+            current_rooms = self._current().get(CONF_ROOMS, [])
+            for room in current_rooms:
+                if sensor in room.get(CONF_WINDOW_SENSORS, []):
+                    _LOGGER.warning(
+                        "Door sensor '%s' is already configured as a window "
+                        "sensor on room '%s' — this is allowed, but the same "
+                        "contact will now drive both WindowEngine and "
+                        "DoorEngine logic.",
+                        sensor,
+                        room.get(CONF_ROOM_NAME),
+                    )
+        return errors
+
+    async def async_step_doors_menu(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        current_doors = self._current().get(CONF_DOORS, [])
+
+        def _label(door: dict[str, Any]) -> str:
+            sensor_name = door.get(CONF_DOOR_SENSOR, "").split(".")[-1]
+            return (
+                f"{door.get(CONF_DOOR_ROOM_A)} ↔ {door.get(CONF_DOOR_ROOM_B)} "
+                f"({sensor_name})"
+            )
+
+        if user_input is not None:
+            action = user_input.get("action")
+            if action == "add":
+                self._doors = list(current_doors)
+                return await self.async_step_door_add()
+            if action and action.startswith("edit:"):
+                sensor_id = action[len("edit:") :]
+                self._doors = list(current_doors)
+                self._editing_door_sensor = sensor_id
+                return await self.async_step_door_edit()
+            if action and action.startswith("delete:"):
+                sensor_id = action[len("delete:") :]
+                updated = [
+                    d for d in current_doors if d.get(CONF_DOOR_SENSOR) != sensor_id
+                ]
+                return self.async_create_entry(
+                    data={**self._current(), CONF_DOORS: updated}
+                )
+
+        options = [
+            {"value": f"edit:{d[CONF_DOOR_SENSOR]}", "label": f"Edit: {_label(d)}"}
+            for d in current_doors
+        ]
+        options += [
+            {"value": f"delete:{d[CONF_DOOR_SENSOR]}", "label": f"Delete: {_label(d)}"}
+            for d in current_doors
+        ]
+        options.append({"value": "add", "label": "Add a new interior door"})
+
+        return self.async_show_form(
+            step_id="doors_menu",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("action"): selector.selector(
+                        {"select": {"options": options}}
+                    )
+                }
+            ),
+            description_placeholders={"door_count": str(len(current_doors))},
+        )
+
+    async def async_step_door_edit(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        errors: dict[str, str] = {}
+        original_sensor = self._editing_door_sensor
+        current_door = next(
+            (d for d in self._doors if d.get(CONF_DOOR_SENSOR) == original_sensor),
+            None,
+        )
+        if current_door is None:
+            return await self.async_step_doors_menu()
+
+        other_doors = [
+            d for d in self._doors if d.get(CONF_DOOR_SENSOR) != original_sensor
+        ]
+        room_names = [r[CONF_ROOM_NAME] for r in self._current().get(CONF_ROOMS, [])]
+
+        if user_input is not None:
+            errors = self._validate_door(user_input, other_doors)
+            if not errors:
+                updated_doors = [
+                    dict(user_input)
+                    if d.get(CONF_DOOR_SENSOR) == original_sensor
+                    else d
+                    for d in self._doors
+                ]
+                return self.async_create_entry(
+                    data={**self._current(), CONF_DOORS: updated_doors}
+                )
+
+        return self.async_show_form(
+            step_id="door_edit",
+            data_schema=_door_schema(current_door, room_names),
+            errors=errors,
+            description_placeholders={"door_sensor": original_sensor},
+        )
+
+    async def async_step_door_add(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        errors: dict[str, str] = {}
+        room_names = [r[CONF_ROOM_NAME] for r in self._current().get(CONF_ROOMS, [])]
+
+        if user_input is not None:
+            errors = self._validate_door(user_input, self._doors)
+            if not errors:
+                self._doors.append(dict(user_input))
+                return self.async_create_entry(
+                    data={**self._current(), CONF_DOORS: self._doors}
+                )
+
+        return self.async_show_form(
+            step_id="door_add",
+            data_schema=_door_schema(room_names=room_names),
             errors=errors,
         )
 

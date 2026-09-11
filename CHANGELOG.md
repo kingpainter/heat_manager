@@ -9,6 +9,90 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.24.1] — 2026-09-11
+
+Follow-up to v0.24.0's door feature, prompted by a real case: Flemming's "Gang" (hallway)
+connects every other room, has its own temperature sensor, but no heat source of its own —
+so it needs to exist as a room (doors can only connect two entries in `CONF_ROOMS`) without a TRV.
+
+### Added
+
+- **Monitoring-only rooms**: a room can now be saved in the config/options flow with zero TRVs
+  — an explicit, labelled choice ("Save room without a TRV (monitoring only)"), not a silent
+  gap. Verified every engine already tolerates this gracefully (`get_climate_entity()` returns
+  `None`, every `for trv in get_room_trvs(room_name)` loop across the codebase simply no-ops on
+  an empty list, `get_room_current_temp()` already reads `CONF_ROOM_TEMP_SENSOR` independently of
+  any TRV, `migrate_room_to_trvs()` already had an explicit early-out for an empty TRV list).
+  Lets a hallway/entryway/etc. be a real room with its own sensor and, via v0.24.0's interior
+  doors, participate fully in the door graph and heat-up-rate learning for its neighbours.
+
+### Fixed
+
+- **`websocket.py`/panel**: a monitoring-only room previously would have shown a misleading
+  "Netatmo" TRV badge (the `trv_type` field defaulted to `"netatmo"` even with no TRV at all) and
+  a "Sætpunkt" target temperature that nothing actually enforces (`get_room_target_temp()` always
+  returns a computed number regardless of TRV presence, but `_async_pid_tick()` never runs for a
+  room with no climate entity to write to). Both are now `None`/omitted for a TRV-less room
+  instead of showing hardware or a controlled setpoint that doesn't exist.
+
+## [0.24.0] — 2026-09-11
+
+Feature round from Flemming's 5-point request (interior doors, Indeklima sensor coupling,
+config/options flow, mobile card). See `planning/heat_manager_features_2026-09-11.md` in the
+project for the full decision write-up and the four approved scope choices this release
+implements. The panel Settings tab and the mobile-card press-and-hold redesign (points 4 and 5)
+are deferred to a separate Fase-2 spec — not part of this release.
+
+### Added
+
+- **Interior doors** — new `CONF_DOORS` config entity (contact sensor + the two rooms it
+  connects), managed via a new "Manage interior doors" section in the options flow (mirrors the
+  existing Rooms/Persons CRUD pattern: add/edit/delete, with validation for room_a ≠ room_b,
+  no duplicate room-pair across doors, and sensor existence — a sensor already used as a window
+  sensor elsewhere is allowed but logged as a warning, not blocked).
+- **`engine/door_engine.py`** (new) — logs a real "Dør åbnet/lukket mellem X og Y" event
+  (`event_type="door"`) every time a configured interior door genuinely opens or closes. Built
+  restart-safe from day one using the same known-old-state guard as the 0.23.0 window/presence
+  fix — no false door events from an HA restart or reload. Purely observational: an interior
+  door has no heat-suppression meaning of its own (unlike an exterior window/door sensor), so
+  this engine only logs, it never touches heating.
+- **`coordinator.py`**: `doors` property, `get_room_doors()`, `get_door_other_room()`, and
+  `is_room_door_open()` — the live (never cached) "is any door connected to this room currently
+  open" check other engines and the frontend read.
+- **`engine/calibration_engine.py`**: heat-up-rate learning — tracks, per room, two running
+  averages (°C/hour) of how fast the room actually warms while heating is genuinely being
+  called for, split by whether its interior door was open or closed during that interval
+  (`get_room_heatup_rate(room_name, door_open)`). This is deliberately a *different* mechanism
+  from the existing sensor-offset writer in the same file (that corrects a TRV's raw thermometer
+  reading, a constant independent of door state; this tracks the room's thermal response, which
+  genuinely does depend on it). In-memory only, resets on restart. Nothing reads these learned
+  rates to change a control decision yet — informational groundwork only, matching the approved
+  "visibility + learning" scope (a later, separate, larger decision would be needed before an
+  open door in one room is allowed to actively adjust another room's target temperature).
+- **Panel**: door status surfaced in "Rum detaljer" (🚪 Åben/Lukket, only for rooms actually
+  connected to a configured door) and a new "Dør" filter chip in the Historik tab, separate from
+  "Vindue" so interior door traffic doesn't dilute that filter.
+- **`websocket.py`**: `get_state` payload gained a top-level `doors` list and, per room,
+  `door_open`, `heatup_rate_door_open`, `heatup_rate_door_closed`.
+
+### Changed
+
+- **Config flow UX**: `CONF_OUTDOOR_TEMP_SENSOR`, `CONF_OUTDOOR_HUMIDITY_SENSOR`,
+  `CONF_PRECIPITATION_SENSOR`, `CONF_WIND_SPEED_SENSOR`, `CONF_INDOOR_WAKE_SENSOR`,
+  `CONF_CO2_SENSOR`, `CONF_ROOM_TEMP_SENSOR`, `CONF_BATTERY_SENSOR`, `CONF_HUMIDITY_SENSOR` were
+  raw text boxes (type the entity_id yourself, no autocomplete) — now proper searchable entity
+  pickers, using the same `default=... or vol.UNDEFINED` fix already proven on
+  `CONF_WEATHER_ENTITY`/`CONF_SCHEDULE_ENTITY` (B17) so an empty optional field still saves
+  correctly. Makes it trivial to find e.g. an Indeklima room sensor by typing "indeklima" or the
+  room name into the picker's own search — addresses Flemming's point 3 (all external sensors
+  come from the Indeklima project) without adding a hard dependency between the two integrations:
+  a real, flexible, searchable picker rather than a restrictive integration filter (which HA's
+  declarative entity selector schema cannot express as a soft "suggestion only" anyway).
+  Verified backward-compatible: every downstream read of these 9 keys already tolerated an
+  absent/empty value.
+
+No test files were affected — `tests/components/heat_manager/` only covers `select.py`.
+
 ## [0.23.0] — 2026-09-11
 
 Fixes false events in the Historik tab caused by HA restarts. User-reported: the event log

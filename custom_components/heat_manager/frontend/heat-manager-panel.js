@@ -1230,13 +1230,19 @@ class HeatManagerPanel extends HTMLElement {
       boost:       { label: "Boost",    color: "#c084fc" },
       manual:      { label: "Manuel",   color: "#0ea5e9" },
       override:    { label: "Override", color: "#a855f7" },
+      // 2026-09-11 door feature: interior door open/close events, logged by
+      // DoorEngine with event_type="door" — kept separate from window_open
+      // (an interior door has no heat-suppression meaning, see
+      // engine/door_engine.py) so the "Vindue" filter isn't diluted with
+      // unrelated internal door traffic.
+      door:        { label: "Dør",      color: "#14b8a6" },
     })[type] ?? { label: type ?? "–", color: "#64748b" };
   }
 
   // Filter chip row for the Historik tab. Active filter highlighted with its
   // own colour; click handling lives in _attachEvents().
   _historyFilterChipsHTML() {
-    const types = ["all","normal","away","window_open","boost","manual","override"];
+    const types = ["all","normal","away","window_open","door","boost","manual","override"];
     return types.map(t => {
       const info   = this._eventTypeInfo(t);
       const active = this._historyFilter === t;
@@ -2541,6 +2547,16 @@ class HeatManagerPanel extends HTMLElement {
       ? `${room.calibration_offset >= 0 ? "+" : ""}${room.calibration_offset.toFixed(1)}°C`
       : null;
     const windowDurStr = room.window_duration_today != null ? `${room.window_duration_today} min` : null;
+    // 2026-09-11 door feature (level A visibility): only shown for rooms
+    // actually connected to a configured interior door — room.door_open is
+    // otherwise just "false" for every door-less room too, which would
+    // silently show every room as "door closed".
+    const connectedDoors = (this._data?.doors ?? []).filter(
+      d => d.room_a === room.name || d.room_b === room.name
+    );
+    const doorStr = connectedDoors.length
+      ? (room.door_open ? "Åben" : "Lukket")
+      : null;
     // 2026-09 audit fix (UI/UX #8): unavailable_entities lists every entity
     // this room depends on (all TRVs, window/humidity/CO2/battery sensors)
     // that's currently missing/unavailable/unknown — a small warning chip
@@ -2550,7 +2566,10 @@ class HeatManagerPanel extends HTMLElement {
     const unavailableList = room.unavailable_entities ?? [];
     const valve    = room.valve_position != null ? Math.round(room.valve_position) : null;
     const isHeat   = valve != null && valve > 0;
-    const trvBadge = this._trvBadgeHTML(room.trv_type); // v0.3.9 (B15)
+    // v0.3.9 (B15); 2026-09-11: no badge at all for a monitoring-only room
+    // with no TRV (room.trv_type is None — see websocket.py) rather than a
+    // misleading "–" badge.
+    const trvBadge = room.trv_type ? this._trvBadgeHTML(room.trv_type) : "";
     const boostBadge = room.boost_active
       ? `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(168,85,247,0.15);color:#c084fc;margin-left:4px">⚡ BOOST</span>`
       : "";
@@ -2633,13 +2652,14 @@ class HeatManagerPanel extends HTMLElement {
            ${statBox("Trv temp", trvTempStr)}
            ${statBox("Trv batt", batteryStr, batteryColor)}
          </div>`;
-    const extraSensorsHTML = (humidityStr || co2Str || pidPowerStr || calibStr || windowDurStr || unavailableList.length) ? `
+    const extraSensorsHTML = (humidityStr || co2Str || pidPowerStr || calibStr || windowDurStr || doorStr || unavailableList.length) ? `
          <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
            ${humidityStr ? `<span style="font-size:10px;color:var(--sub)">💧 ${humidityStr}</span>` : ""}
            ${co2Str ? `<span style="font-size:10px;color:var(--sub)">🫧 CO₂ ${co2Str}</span>` : ""}
            ${pidPowerStr ? `<span style="font-size:10px;color:var(--sub)">⚙️ PID ${pidPowerStr}</span>` : ""}
            ${calibStr ? `<span style="font-size:10px;color:var(--sub)">🎯 ${calibStr}</span>` : ""}
            ${windowDurStr ? `<span style="font-size:10px;color:var(--sub)">🪟 ${windowDurStr} i dag</span>` : ""}
+           ${doorStr ? `<span style="font-size:10px;color:var(--sub)">🚪 Dør ${doorStr}</span>` : ""}
            ${unavailableList.length ? `<span style="font-size:10px;color:var(--red)" title="${this._esc(unavailableList.join(", "))}">⚠️ ${unavailableList.length} utilgængelig${unavailableList.length > 1 ? "e" : ""}</span>` : ""}
          </div>` : "";
     // Fase 2 (2026-09-11) — the user's `select.mit_hjem`-style visibility

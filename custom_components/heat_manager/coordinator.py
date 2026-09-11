@@ -45,6 +45,10 @@ from .const import (
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
     CONF_COMFORT_TEMP,
+    CONF_DOOR_ROOM_A,
+    CONF_DOOR_ROOM_B,
+    CONF_DOOR_SENSOR,
+    CONF_DOORS,
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_HOUSE_VOICE_ENABLED,
     CONF_OUTDOOR_HUMIDITY_SENSOR,
@@ -88,6 +92,7 @@ from .const import (
 )
 from .engine.calibration_engine import CalibrationEngine
 from .engine.controller import ControllerEngine
+from .engine.door_engine import DoorEngine
 from .engine.pid_controller import PidController
 from .engine.preheat_engine import PreheatEngine
 from .engine.presence_engine import PresenceEngine
@@ -224,6 +229,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.controller = ControllerEngine(self)
         self.presence_engine = PresenceEngine(self)
         self.window_engine = WindowEngine(self)
+        self.door_engine = DoorEngine(self)
         self.season_engine = SeasonEngine(self)
         self.preheat_engine = PreheatEngine(self)
         self.valve_protection = ValveProtectionEngine(self)
@@ -285,6 +291,40 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @property
     def persons(self) -> list[dict[str, Any]]:
         return self.config.get(CONF_PERSONS, [])
+
+    @property
+    def doors(self) -> list[dict[str, Any]]:
+        return self.config.get(CONF_DOORS, [])
+
+    def get_room_doors(self, room_name: str) -> list[dict[str, Any]]:
+        """Every configured interior door touching this room, either side."""
+        return [
+            d
+            for d in self.doors
+            if d.get(CONF_DOOR_ROOM_A) == room_name
+            or d.get(CONF_DOOR_ROOM_B) == room_name
+        ]
+
+    def get_door_other_room(self, door: dict[str, Any], room_name: str) -> str:
+        """Given a door dict and one of its two rooms, return the other one."""
+        if door.get(CONF_DOOR_ROOM_A) == room_name:
+            return door.get(CONF_DOOR_ROOM_B, "")
+        return door.get(CONF_DOOR_ROOM_A, "")
+
+    def is_room_door_open(self, room_name: str) -> bool:
+        """True if ANY interior door connected to this room is currently open.
+
+        Used by CalibrationEngine to pick which of a room's two learned
+        heat-up-rate profiles to use — see engine/calibration_engine.py.
+        """
+        for door in self.get_room_doors(room_name):
+            sensor_id = door.get(CONF_DOOR_SENSOR)
+            if not sensor_id:
+                continue
+            state = self.hass.states.get(sensor_id)
+            if state and state.state == "on":
+                return True
+        return False
 
     @property
     def alarm_panel(self) -> str | None:
@@ -1737,6 +1777,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Event log persist on shutdown failed: %s", err)
         await self.presence_engine.async_shutdown()
         await self.window_engine.async_shutdown()
+        await self.door_engine.async_shutdown()
         await self.season_engine.async_shutdown()
         await self.preheat_engine.async_shutdown()
         await self.valve_protection.async_shutdown()

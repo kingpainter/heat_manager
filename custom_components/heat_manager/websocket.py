@@ -32,6 +32,9 @@ from .const import (
     CONF_BATTERY_SENSOR,
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
+    CONF_DOOR_ROOM_A,
+    CONF_DOOR_ROOM_B,
+    CONF_DOOR_SENSOR,
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
     CONF_HOUSE_VOICE_ENABLED,
@@ -359,7 +362,16 @@ async def ws_get_state(
         # with _async_pid_tick() via get_room_target_temp() so this can never
         # show a different number than what the PID actually chases (the gap
         # that made the B21 target-temp bug invisible in the first place).
-        target_temp: float = coordinator.get_room_target_temp(room)
+        # 2026-09-11 (monitoring-only rooms): get_room_target_temp() always
+        # returns a computed number regardless of whether the room has a
+        # TRV — it's a pure function of comfort_temp/offsets/setbacks. For a
+        # room with no TRV at all (climate_id empty — e.g. a hallway with
+        # only a temp sensor), _async_pid_tick() never runs for it and
+        # nothing ever chases that number, so showing it as a real
+        # "Sætpunkt" would be actively misleading. None here instead.
+        target_temp: float | None = (
+            coordinator.get_room_target_temp(room) if climate_id else None
+        )
 
         # Fase 2 — raw attributes straight from the room's cloud climate
         # entity (Netatmo rooms only; stay None for Zigbee/local rooms,
@@ -543,9 +555,13 @@ async def ws_get_state(
             {
                 "name": name,
                 "climate_entity": climate_id,
-                "trv_type": primary_trv.get(
-                    CONF_TRV_TYPE, "netatmo"
-                ),  # B15: for UI badge
+                # B15: for UI badge. 2026-09-11: None (not a fake "netatmo"
+                # default) when the room has no TRV at all — a monitoring-only
+                # room (e.g. a hallway) shouldn't show a misleading TRV-type
+                # badge for hardware it doesn't have.
+                "trv_type": primary_trv.get(CONF_TRV_TYPE, "netatmo")
+                if primary_trv
+                else None,
                 "state": room_state.value,
                 "current_temp": current_temp,
                 # 2026-09 audit fix (frontend dead-code sweep): "heating_power"
@@ -603,6 +619,19 @@ async def ws_get_state(
                 "cloud_min_temp": cloud_min_temp,
                 "cloud_max_temp": cloud_max_temp,
                 "cloud_target_temp_step": cloud_target_temp_step,
+                # 2026-09-11 door feature (level A visibility + level B
+                # learning) — door_open is read live via coordinator, never
+                # cached, so it can't drift from the actual sensor state.
+                # The two heatup_rate_* fields are None until CalibrationEngine
+                # has observed enough genuine heating to learn a rate — see
+                # engine/calibration_engine.py's "Heat-up-rate learning".
+                "door_open": coordinator.is_room_door_open(name),
+                "heatup_rate_door_open": coordinator.calibration_engine.get_room_heatup_rate(
+                    name, True
+                ),
+                "heatup_rate_door_closed": coordinator.calibration_engine.get_room_heatup_rate(
+                    name, False
+                ),
             }
         )
 
@@ -628,6 +657,23 @@ async def ws_get_state(
                 "state": state_str,
                 "tracking": tracking,
                 "since": since,
+            }
+        )
+
+    # ── Interior doors (2026-09-11) ──────────────────────────────────────────
+    doors = []
+    for door in coordinator.doors:
+        sensor_id = door.get(CONF_DOOR_SENSOR, "")
+        room_a = door.get(CONF_DOOR_ROOM_A, "")
+        room_b = door.get(CONF_DOOR_ROOM_B, "")
+        ds = hass.states.get(sensor_id) if sensor_id else None
+        doors.append(
+            {
+                "sensor": sensor_id,
+                "room_a": room_a,
+                "room_b": room_b,
+                "is_open": bool(ds and ds.state == "on"),
+                "available": ds is not None and ds.state not in ("unknown", "unavailable"),
             }
         )
 
@@ -663,6 +709,7 @@ async def ws_get_state(
         "outdoor_temp": outdoor_temp,
         "rooms": rooms,
         "persons": persons,
+        "doors": doors,
         # 2026-09 audit fix: window_engine already tracks this — it just
         # was never surfaced to the panel/card, so an open window's
         # heat-reduction effect had no visible confirmation in the UI.
