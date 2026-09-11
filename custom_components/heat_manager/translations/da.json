@@ -388,6 +388,9 @@
           "waking": "Vågner",
           "active": "Aktiv"
         }
+      },
+      "netatmo_preset_mode": {
+        "name": "Netatmo-tilstand"
       }
     },
     "binary_sensor": {

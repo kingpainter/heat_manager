@@ -132,6 +132,13 @@ def _make_coordinator(rooms=None, persons=None) -> MagicMock:
     window_engine.get_open_windows = MagicMock(return_value=[])
     coord.window_engine = window_engine
 
+    # Fase 2 (2026-09-11): ws_get_state() now reads the room's resolved
+    # target via coordinator.get_room_target_temp(room) instead of any
+    # flat field — default to a plain float so payload["target_temp"]
+    # behaves like real data in every existing test instead of leaking a
+    # bare MagicMock. Tests that care about a specific value override this.
+    coord.get_room_target_temp = MagicMock(return_value=21.0)
+
     return coord
 
 
@@ -697,6 +704,106 @@ async def test_get_state_unavailable_entities_empty_when_everything_reporting():
 
     room = conn.send_result.call_args[0][1]["rooms"][0]
     assert room["unavailable_entities"] == []
+
+
+# ── ws_get_state: Fase 2 (2026-09-11) target_temp / cloud_* diagnostics ─────
+
+
+@pytest.mark.asyncio
+async def test_get_state_target_temp_comes_from_coordinator_helper():
+    """target_temp must be whatever get_room_target_temp() resolves — this
+    is the single source of truth shared with _async_pid_tick() so the
+    panel can never show a different target than the one the PID actually
+    chases (the gap that hid the B21 bug)."""
+    coord = _make_coordinator(rooms=[_room(name="Bathroom")])
+    coord.get_room_target_temp = MagicMock(
+        side_effect=lambda room: 19.5 if room.get("room_name") == "Bathroom" else 21.0
+    )
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["target_temp"] == 19.5
+
+
+@pytest.mark.asyncio
+async def test_get_state_cloud_fields_default_to_none_without_climate_state():
+    coord = _make_coordinator(rooms=[_room(climate="climate.bathroom")])
+    hass = _make_hass_with_entry(coord)  # states.get() default MagicMock returns None
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    for key in (
+        "cloud_temperature",
+        "cloud_hvac_action",
+        "cloud_preset_mode",
+        "cloud_preset_modes",
+        "cloud_selected_schedule",
+        "cloud_hvac_modes",
+        "cloud_min_temp",
+        "cloud_max_temp",
+        "cloud_target_temp_step",
+    ):
+        assert room[key] is None, f"{key} should default to None"
+
+
+@pytest.mark.asyncio
+async def test_get_state_cloud_fields_populated_from_climate_attributes():
+    coord = _make_coordinator(rooms=[_room(climate="climate.bathroom")])
+    climate_state = MagicMock()
+    climate_state.attributes = {
+        "temperature": 18.0,
+        "hvac_action": "idle",
+        "preset_mode": "away",
+        "preset_modes": ["schedule", "away", "frost_guard", "boost"],
+        "selected_schedule": "Vinter",
+        "hvac_modes": ["auto", "heat"],
+        "min_temp": 7,
+        "max_temp": 30,
+        "target_temp_step": 0.5,
+    }
+    coord.hass.states.get = MagicMock(
+        side_effect=lambda eid: climate_state if eid == "climate.bathroom" else None
+    )
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["cloud_temperature"] == 18.0
+    assert room["cloud_hvac_action"] == "idle"
+    assert room["cloud_preset_mode"] == "away"
+    assert room["cloud_preset_modes"] == ["schedule", "away", "frost_guard", "boost"]
+    assert room["cloud_selected_schedule"] == "Vinter"
+    assert room["cloud_hvac_modes"] == ["auto", "heat"]
+    assert room["cloud_min_temp"] == 7.0
+    assert room["cloud_max_temp"] == 30.0
+    assert room["cloud_target_temp_step"] == 0.5
+
+
+@pytest.mark.asyncio
+async def test_get_state_cloud_temperature_non_numeric_coerces_to_none():
+    """_coerce_float() must swallow a non-numeric attribute (e.g. Netatmo
+    entity briefly reporting 'unknown' as an attribute string) rather than
+    raising and breaking the whole get_state response."""
+    coord = _make_coordinator(rooms=[_room(climate="climate.bathroom")])
+    climate_state = MagicMock()
+    climate_state.attributes = {"temperature": "unknown"}
+    coord.hass.states.get = MagicMock(
+        side_effect=lambda eid: climate_state if eid == "climate.bathroom" else None
+    )
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["cloud_temperature"] is None
 
 
 # ── ws_get_state: climate entity resolved via CONF_TRVS (regression) ────────

@@ -476,7 +476,7 @@ class HeatManagerPanel extends HTMLElement {
       const color   = this._stateColor(state);
       const grad    = this._stateGradient(state);
       const label   = this._stateLabel(state, room.override_source);
-      const setpt   = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
+      const setpt   = this._roomSetpoint(room);
       const tempStr = room.current_temp != null ? (Math.round(room.current_temp * 10) / 10) + "°C" : "–";
       const battery = room.battery_level != null ? Math.round(room.battery_level) : null;
       const battStr = battery != null ? `${battery}%` : "–";
@@ -1201,6 +1201,25 @@ class HeatManagerPanel extends HTMLElement {
   _climateSetpoint(id) {
     const t = this._hass?.states?.[id]?.attributes?.temperature;
     return t != null ? (Math.round(t * 10) / 10) + "°C" : null;
+  }
+
+  // Fase 2 (2026-09-11): Heat Manager's own resolved target (comfort_temp +
+  // schedule_override + room_offset + setback — coordinator.
+  // get_room_target_temp()) is the authoritative "Sætpunkt" value. Before
+  // this, "Sætpunkt" read the cloud climate entity's own live 'temperature'
+  // attribute via _climateSetpoint() — after the B21 fix (PID no longer
+  // writes comfort_temp to that entity for Netatmo rooms) that attribute no
+  // longer reflects what Heat Manager is actually asking for, so leaving
+  // this unchanged would have silently reintroduced exactly the confusion
+  // B21 fixed, just moved into the panel. See
+  // audit/heat_manager_target_temp_analysis_2026-09-11.md. Falls back to
+  // the old live-cloud-read only if target_temp is unexpectedly absent
+  // (e.g. an older backend payload during a rolling update).
+  _roomSetpoint(room) {
+    if (room?.target_temp != null) {
+      return (Math.round(room.target_temp * 10) / 10) + "°C";
+    }
+    return room?.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
   }
 
   // Format an ISO timestamp to a short Danish clock string, e.g. "kl. 14:37".
@@ -2136,7 +2155,7 @@ class HeatManagerPanel extends HTMLElement {
     const color    = this._stateColor(state);
     const grad     = this._stateGradient(state);
     const label    = this._stateLabel(state, room.override_source);
-    const setpt    = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
+    const setpt    = this._roomSetpoint(room);
     const tempStr  = room.current_temp != null ? (Math.round(room.current_temp * 10) / 10) + "°C" : "–";
     const battery  = room.battery_level != null ? Math.round(room.battery_level) : null;
     const battStr  = battery != null ? `${battery}%` : "–";
@@ -2488,7 +2507,7 @@ class HeatManagerPanel extends HTMLElement {
     // shown separately since it sits on the radiator body and commonly reads
     // 1-3°C hot (see coordinator.get_room_current_temp docstring).
     const trvTemp  = room.climate_entity ? this._climateTemp(room.climate_entity) : null;
-    const setpt    = room.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
+    const setpt    = this._roomSetpoint(room);
     const roomTempStr = room.current_temp != null ? (Math.round(room.current_temp * 10) / 10) + "°C" : "–";
     const trvTempStr  = trvTemp ?? "–";
     const battery     = room.battery_level != null ? Math.round(room.battery_level) : null;
@@ -2608,6 +2627,26 @@ class HeatManagerPanel extends HTMLElement {
            ${windowDurStr ? `<span style="font-size:10px;color:var(--sub)">🪟 ${windowDurStr} i dag</span>` : ""}
            ${unavailableList.length ? `<span style="font-size:10px;color:var(--red)" title="${this._esc(unavailableList.join(", "))}">⚠️ ${unavailableList.length} utilgængelig${unavailableList.length > 1 ? "e" : ""}</span>` : ""}
          </div>` : "";
+    // Fase 2 (2026-09-11) — the user's `select.mit_hjem`-style visibility
+    // request: what Netatmo's OWN cloud entity currently reports, shown
+    // side by side with Heat Manager's "Sætpunkt" above so the two can
+    // never be confused again the way they were before B21. Only present
+    // for rooms with a Netatmo cloud climate entity (cloud_preset_mode etc.
+    // are null for Zigbee/local rooms — see websocket.py ws_get_state()).
+    // Actually switching the mode lives on the new
+    // select.<room>_netatmo_preset_mode entity (select.py) — usable from
+    // any standard HA dashboard/Entities page already; not yet wired into
+    // this custom panel's own controls.
+    const netatmoDiverges = room.cloud_temperature != null && room.target_temp != null
+      && Math.abs(room.cloud_temperature - room.target_temp) >= 0.5;
+    const netatmoHTML = (room.cloud_preset_mode || room.cloud_selected_schedule || room.cloud_temperature != null) ? `
+         <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center">
+           <span style="font-size:10px;color:var(--sub)">🛰️ Netatmo:</span>
+           ${room.cloud_preset_mode ? `<span style="font-size:10px;color:var(--sub)">${this._esc(room.cloud_preset_mode)}</span>` : ""}
+           ${room.cloud_selected_schedule ? `<span style="font-size:10px;color:var(--sub)">(${this._esc(room.cloud_selected_schedule)})</span>` : ""}
+           ${room.cloud_hvac_action ? `<span style="font-size:10px;color:var(--sub)">${this._esc(room.cloud_hvac_action)}</span>` : ""}
+           ${room.cloud_temperature != null ? `<span style="font-size:10px;color:${netatmoDiverges ? "var(--amber)" : "var(--sub)"}" title="Netatmo-appens eget sidst kendte sætpunkt for denne enhed — ikke det Heat Manager beder om">${(Math.round(room.cloud_temperature * 10) / 10)}°C${netatmoDiverges ? " ⚠" : ""}</span>` : ""}
+         </div>` : "";
 
     return `
       <div class="room-detail-row" style="border-bottom:1px solid var(--div)">
@@ -2622,6 +2661,7 @@ class HeatManagerPanel extends HTMLElement {
           </div>
           ${statsRowHTML}
           ${extraSensorsHTML}
+          ${netatmoHTML}
           ${valveBar}
         </div>
         ${manualHTML}

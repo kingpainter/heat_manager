@@ -416,6 +416,12 @@ class AutoOffReason(StrEnum):
 
 PRESET_AWAY = "away"
 PRESET_SCHEDULE = "schedule"
+# Fase 2 (2026-09-11): not written by Heat Manager itself, only used as a
+# NetatmoPresetModeSelect fallback options list when the live entity's own
+# 'preset_modes' attribute is unavailable — the real options always come
+# from that attribute when present.
+PRESET_BOOST = "boost"
+PRESET_FROST_GUARD = "frost_guard"
 HVAC_OFF = "off"
 
 # ── Notification action identifiers ───────────────────────────────────────────

@@ -1449,6 +1449,61 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "efficiency_score": self.efficiency_score,
         }
 
+    def get_room_target_temp(self, room: dict[str, Any]) -> float:
+        """Resolve a room's PID target temperature (°C), before PID power/
+        setpoint mapping.
+
+        Layers, identical for every TRV type since v0.19.0 (B21 — Heat
+        Manager is the sole target authority regardless of manufacturer):
+
+            CONF_COMFORT_TEMP → schedule_override → room_offset → setback
+
+        Shared by _async_pid_tick() (drives the PID) and ws_get_state()
+        (drives the panel's target-temp display, Fase 2), so the two can
+        never drift apart — see
+        audit/heat_manager_target_temp_analysis_2026-09-11.md.
+        """
+        room_name = room.get("room_name", "")
+        target_temp = float(room.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP))
+
+        # ── Schedule override (v0.9.0, Fase D) ──────────────────────────────
+        # An active block on the room's CONF_SCHEDULE_ENTITY replaces the
+        # comfort_temp base. Read fresh every tick by
+        # schedule_engine.async_tick() earlier in this same coordinator tick
+        # — releases automatically once the block/event ends, no state to
+        # restore.
+        schedule_temp = self.schedule_override.get(room_name)
+        if schedule_temp is not None:
+            target_temp = schedule_temp
+
+        # ── Room offset (B18 Fase 3) — non-destructive per-room shift ───────
+        # Mirrors climate_group_helper's "Group Offset": it automatically
+        # follows the next schedule/season transition since it is never
+        # baked into a stored target, only ever added at read time. See
+        # number.py RoomOffsetNumber.
+        room_offset = self.room_offsets.get(room_name, 0.0)
+        if room_offset:
+            target_temp += room_offset
+
+        # ── Setbacks: night + wake — applied cumulatively ───────────────────
+        setback = self.night_setback_delta() + self.wake_setback_delta()
+        if setback > 0.0:
+            before = target_temp
+            target_temp = max(
+                target_temp - setback,
+                float(room.get("away_temp_override", 10.0)),
+            )
+            _LOGGER.debug(
+                "Setback [%s]: %.1f°C → %.1f°C (night=−%.1f°C wake=−%.1f°C)",
+                room_name,
+                before,
+                target_temp,
+                self.night_setback_delta(),
+                self.wake_setback_delta(),
+            )
+
+        return target_temp
+
     async def _async_pid_tick(self) -> None:
         """
         Drive the PID controller for every room currently in NORMAL state.
@@ -1541,10 +1596,11 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
                 if hk_id:
                     # ── Netatmo split-entity path ────────────────────────────
-                    # v0.19.0: target_temp comes from CONF_COMFORT_TEMP, same
-                    # as the local path below — see docstring above. The
-                    # cloud entity is still read here for availability/health
-                    # and the heating_power_request demand percentage.
+                    # v0.19.0: target comes from get_room_target_temp() (same
+                    # CONF_COMFORT_TEMP base as the local path below) — see
+                    # docstring above. The cloud entity is still read here for
+                    # availability/health and the heating_power_request demand
+                    # percentage, not for the target itself.
                     write_id = hk_id
                     primary_state = self.hass.states.get(primary_id)
                     if primary_state is None or primary_state.state in (
@@ -1553,62 +1609,24 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     ):
                         pid.reset()
                         continue
-                    target_temp = float(
-                        room.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP)
-                    )
                     demand_pct = primary_state.attributes.get(
                         "heating_power_request", "?"
                     )
                 else:
                     # ── Local TRV path (Zigbee today, Matter/Thread later) ──
-                    # No separate cloud schedule entity exists here —
-                    # CONF_COMFORT_TEMP is the target. Write directly to the
-                    # room's own climate_entity: Z2M/Matter/Thread are local,
-                    # no rate-limit stagger needed.
+                    # Write directly to the room's own climate_entity:
+                    # Z2M/Matter/Thread are local, no rate-limit stagger
+                    # needed.
                     write_id = primary_id
-                    target_temp = float(
-                        room.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP)
-                    )
                     demand_pct = "n/a (local)"
 
-                # ── Schedule override (v0.9.0, Fase D) ──────────────────────────
-                # An active block on the room's CONF_SCHEDULE_ENTITY replaces
-                # whichever base target the branch above resolved (cloud
-                # schedule setpoint or CONF_COMFORT_TEMP). Read fresh every
-                # tick by schedule_engine.async_tick() earlier in this same
-                # coordinator tick — releases automatically once the block/
-                # event ends, no state to restore. Group offset and setbacks
-                # still apply on top, same as for either base target.
-                schedule_temp = self.schedule_override.get(room_name)
-                if schedule_temp is not None:
-                    target_temp = schedule_temp
-
-                # ── Room offset (B18 Fase 3) — non-destructive per-room shift ──
-                # Applied fresh every tick, on top of whichever base target the
-                # branch above resolved (cloud schedule setpoint or
-                # CONF_COMFORT_TEMP) — mirrors climate_group_helper's "Group
-                # Offset": it automatically follows the next schedule/season
-                # transition since it is never baked into a stored target, only
-                # ever added at read time. See number.py RoomOffsetNumber.
-                room_offset = self.room_offsets.get(room_name, 0.0)
-                if room_offset:
-                    target_temp += room_offset
-
-                # ── Setbacks: night + wake — applied cumulatively, both paths ──
-                setback = self.night_setback_delta() + self.wake_setback_delta()
-                if setback > 0.0:
-                    target_temp = max(
-                        target_temp - setback,
-                        float(room.get("away_temp_override", 10.0)),
-                    )
-                    _LOGGER.debug(
-                        "Setback [%s]: %.1f°C → %.1f°C (night=−%.1f°C wake=−%.1f°C)",
-                        room_name,
-                        target_temp + setback,
-                        target_temp,
-                        self.night_setback_delta(),
-                        self.wake_setback_delta(),
-                    )
+                # ── Target resolution ────────────────────────────────────────
+                # comfort_temp → schedule_override → room_offset → setback,
+                # identical for both room types since v0.19.0 (B21). Shared
+                # with ws_get_state() via get_room_target_temp() so the
+                # panel's displayed target can never drift from what the PID
+                # actually chases.
+                target_temp = self.get_room_target_temp(room)
 
                 # ── PID tick → power fraction 0..1 ──────────────────────────
                 power = pid.update(setpoint=target_temp, current=current_temp)

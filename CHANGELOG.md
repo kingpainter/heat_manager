@@ -9,6 +9,65 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-09-11
+
+Fase 2 of the target-temp fix (0.19.0): visibility + Netatmo mode control,
+per the user's original requests 2 and 3 (`select.mit_hjem`-style
+visibility/control, and surfacing `hvac_modes`/`min_temp`/`max_temp`/
+`target_temp_step`/`preset_modes`/`current_temperature`/`temperature`/
+`hvac_action`/`preset_mode`/`selected_schedule`).
+
+### Added
+
+- **`select.<room>_netatmo_preset_mode`** — new per-room select entity
+  (one per room with a Netatmo/cloud TRV; skipped for Zigbee-only rooms)
+  that reads and writes the room's cloud climate entity's own
+  `preset_mode` (away/frost_guard/boost/schedule) directly via
+  `climate.set_preset_mode`, serialised through
+  `coordinator.async_call_climate_service(..., needs_delay=True)` like
+  every other preset_mode call site in the codebase. This is the
+  `select.mit_hjem`-equivalent the user asked for, as a first-class HA
+  entity usable from any dashboard — not duplicated Heat Manager state,
+  just a thin pass-through to Netatmo's own mode. `CONFIG` category,
+  enabled by default.
+- `HeatManagerCoordinator.get_room_target_temp(room)` — the single
+  resolved-target helper `_async_pid_tick()` and `ws_get_state()` both
+  now call, so the panel can never show a different number than what the
+  PID is actually chasing.
+- `ws_get_state()` room payload gained 10 new fields: `target_temp`
+  (Heat Manager's own resolved target) plus 9 read-only `cloud_*`
+  diagnostics straight from the room's Netatmo cloud climate entity —
+  `cloud_temperature`, `cloud_hvac_action`, `cloud_preset_mode`,
+  `cloud_preset_modes`, `cloud_selected_schedule`, `cloud_hvac_modes`,
+  `cloud_min_temp`, `cloud_max_temp`, `cloud_target_temp_step`. All
+  `None` for Zigbee/local rooms (no separate cloud entity to read).
+- Panel (`heat-manager-panel.js`) room-detail view now shows a Netatmo
+  diagnostics block (cloud preset mode, selected schedule, hvac action,
+  cloud temperature) with an amber warning when the cloud's own
+  temperature diverges ≥0.5°C from Heat Manager's `target_temp` — makes
+  a future B21-style drift visible immediately instead of silently.
+
+### Fixed
+
+- Panel's room "Sætpunkt" display read the Netatmo cloud entity's
+  `temperature` attribute directly — after the 0.19.0 (B21) fix, PID no
+  longer writes to that entity for Netatmo rooms, so this would have
+  shown a stale/wrong value. Now reads the same resolved
+  `get_room_target_temp()` value as the PID via a new `_roomSetpoint()`
+  helper, for all three places the panel renders a room's setpoint.
+
+### Known limitation
+
+- `heat-manager-card.js` (the separate mobile card) still reads its
+  configured `climate_entity`'s raw `temperature` attribute for its own
+  setpoint display and was **not** changed this round — it has no access
+  to the coordinator's `get_room_target_temp()` (WS-API only). If that
+  card's `climate_entity` points at a room's Netatmo cloud entity, its
+  displayed setpoint can now diverge from the panel's. Point the card's
+  per-room config at each room's local/HomeKit climate entity instead of
+  the cloud one, or expect this divergence until the card is reworked to
+  read `target_temp` from `heat_manager/get_state` like the panel does.
+
 ## [0.19.0] — 2026-09-11
 
 ### Fixed

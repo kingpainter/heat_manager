@@ -1,4 +1,5 @@
-"""Tests for select.py — ControllerStateSelect and SeasonModeSelect.
+"""Tests for select.py — ControllerStateSelect, SeasonModeSelect and
+NetatmoPresetModeSelect (Fase 2, 2026-09-11).
 
 All tests run completely offline — HA core is mocked with MagicMock/AsyncMock.
 """
@@ -17,7 +18,9 @@ from custom_components.heat_manager.const import (
 )
 from custom_components.heat_manager.select import (
     ControllerStateSelect,
+    NetatmoPresetModeSelect,
     SeasonModeSelect,
+    async_setup_entry,
 )
 
 # ── shared fixtures ──────────────────────────────────────────────────────────
@@ -51,6 +54,14 @@ def _make_coordinator() -> MagicMock:
     coord.async_update_listeners = MagicMock()
 
     coord.global_device_info = MagicMock(return_value={"identifiers": {("x", "y")}})
+    coord.room_device_info = MagicMock(
+        side_effect=lambda name: {"identifiers": {("x", name)}}
+    )
+
+    # Fase 2 (2026-09-11): NetatmoPresetModeSelect fixtures.
+    coord.rooms = []
+    coord.get_all_room_trvs = MagicMock(return_value=[])
+    coord.async_call_climate_service = AsyncMock()
     return coord
 
 
@@ -161,3 +172,189 @@ async def test_season_mode_select_option_invalid_is_ignored():
     coord.hass.config_entries.async_update_entry.assert_not_called()
     coord.log_event.assert_not_called()
     coord.async_update_listeners.assert_not_called()
+
+
+# ── NetatmoPresetModeSelect (Fase 2, 2026-09-11) ────────────────────────────
+
+
+def _netatmo_select(coord=None, room_name="Bathroom", climate_id="climate.bathroom"):
+    coord = coord or _make_coordinator()
+    return NetatmoPresetModeSelect(coord, _entry(), room_name, climate_id)
+
+
+def test_netatmo_preset_select_unique_id_and_device_info():
+    coord = _make_coordinator()
+    select = _netatmo_select(coord, room_name="Living Room")
+    assert select.unique_id == "entry123_living_room_netatmo_preset_mode"
+    coord.room_device_info.assert_called_with("Living Room")
+
+
+def test_netatmo_preset_select_available_true_when_state_reporting():
+    coord = _make_coordinator()
+    state = MagicMock()
+    state.state = "heat"
+    coord.hass.states.get = MagicMock(
+        side_effect=lambda eid: state if eid == "climate.bathroom" else None
+    )
+    select = _netatmo_select(coord)
+    assert select.available is True
+
+
+@pytest.mark.parametrize("bad_state", ["unavailable", "unknown"])
+def test_netatmo_preset_select_available_false_when_unavailable_or_missing(bad_state):
+    coord = _make_coordinator()
+    state = MagicMock()
+    state.state = bad_state
+    coord.hass.states.get = MagicMock(
+        side_effect=lambda eid: state if eid == "climate.bathroom" else None
+    )
+    select = _netatmo_select(coord)
+    assert select.available is False
+
+
+def test_netatmo_preset_select_available_false_when_no_state_at_all():
+    coord = _make_coordinator()
+    coord.hass.states.get = MagicMock(return_value=None)
+    select = _netatmo_select(coord)
+    assert select.available is False
+
+
+def test_netatmo_preset_select_options_from_live_entity_attribute():
+    coord = _make_coordinator()
+    state = MagicMock()
+    state.attributes = {"preset_modes": ["schedule", "away", "frost_guard", "boost"]}
+    coord.hass.states.get = MagicMock(
+        side_effect=lambda eid: state if eid == "climate.bathroom" else None
+    )
+    select = _netatmo_select(coord)
+    assert select.options == ["schedule", "away", "frost_guard", "boost"]
+
+
+def test_netatmo_preset_select_options_falls_back_when_no_state():
+    coord = _make_coordinator()
+    coord.hass.states.get = MagicMock(return_value=None)
+    select = _netatmo_select(coord)
+    assert select.options == ["schedule", "away", "frost_guard", "boost"]
+
+
+def test_netatmo_preset_select_options_falls_back_when_attribute_missing():
+    coord = _make_coordinator()
+    state = MagicMock()
+    state.attributes = {}
+    coord.hass.states.get = MagicMock(
+        side_effect=lambda eid: state if eid == "climate.bathroom" else None
+    )
+    select = _netatmo_select(coord)
+    assert select.options == ["schedule", "away", "frost_guard", "boost"]
+
+
+def test_netatmo_preset_select_current_option_reads_preset_mode_attribute():
+    coord = _make_coordinator()
+    state = MagicMock()
+    state.attributes = {"preset_mode": "away"}
+    coord.hass.states.get = MagicMock(
+        side_effect=lambda eid: state if eid == "climate.bathroom" else None
+    )
+    select = _netatmo_select(coord)
+    assert select.current_option == "away"
+
+
+def test_netatmo_preset_select_current_option_none_when_no_state():
+    coord = _make_coordinator()
+    coord.hass.states.get = MagicMock(return_value=None)
+    select = _netatmo_select(coord)
+    assert select.current_option is None
+
+
+@pytest.mark.asyncio
+async def test_netatmo_preset_select_option_calls_climate_service_with_delay():
+    coord = _make_coordinator()
+    select = _netatmo_select(coord, room_name="Bathroom", climate_id="climate.bathroom")
+
+    await select.async_select_option("away")
+
+    coord.async_call_climate_service.assert_awaited_once_with(
+        "set_preset_mode",
+        "climate.bathroom",
+        {"preset_mode": "away"},
+        needs_delay=True,
+    )
+    coord.log_event.assert_called_once()
+    coord.async_update_listeners.assert_called_once()
+
+
+# ── select.py async_setup_entry: NetatmoPresetModeSelect room fan-out ──────
+
+
+def _mk_entry():
+    entry = MagicMock()
+    entry.entry_id = "entry123"
+    return entry
+
+
+def _mk_add_entities():
+    added: list = []
+    return added, MagicMock(side_effect=lambda entities: added.extend(entities))
+
+
+@pytest.mark.asyncio
+async def test_setup_entry_adds_netatmo_select_for_netatmo_room():
+    coord = _make_coordinator()
+    coord.rooms = [{"room_name": "Bathroom"}]
+    coord.get_all_room_trvs = MagicMock(
+        return_value=[{"climate_entity": "climate.bathroom", "trv_type": "netatmo"}]
+    )
+    entry = _mk_entry()
+    entry.runtime_data = coord
+    added, add_entities = _mk_add_entities()
+
+    await async_setup_entry(coord.hass, entry, add_entities)
+
+    netatmo_selects = [e for e in added if isinstance(e, NetatmoPresetModeSelect)]
+    assert len(netatmo_selects) == 1
+    assert netatmo_selects[0]._climate_entity_id == "climate.bathroom"
+    assert netatmo_selects[0]._room_name == "Bathroom"
+
+
+@pytest.mark.asyncio
+async def test_setup_entry_skips_netatmo_select_for_zigbee_room():
+    coord = _make_coordinator()
+    coord.rooms = [{"room_name": "Kitchen"}]
+    coord.get_all_room_trvs = MagicMock(
+        return_value=[{"climate_entity": "climate.kitchen", "trv_type": "zigbee"}]
+    )
+    entry = _mk_entry()
+    entry.runtime_data = coord
+    added, add_entities = _mk_add_entities()
+
+    await async_setup_entry(coord.hass, entry, add_entities)
+
+    assert not any(isinstance(e, NetatmoPresetModeSelect) for e in added)
+
+
+@pytest.mark.asyncio
+async def test_setup_entry_skips_room_without_climate_entity():
+    coord = _make_coordinator()
+    coord.rooms = [{"room_name": "Attic"}]
+    coord.get_all_room_trvs = MagicMock(return_value=[])
+    entry = _mk_entry()
+    entry.runtime_data = coord
+    added, add_entities = _mk_add_entities()
+
+    await async_setup_entry(coord.hass, entry, add_entities)
+
+    assert not any(isinstance(e, NetatmoPresetModeSelect) for e in added)
+
+
+@pytest.mark.asyncio
+async def test_setup_entry_always_adds_controller_and_season_selects():
+    coord = _make_coordinator()
+    coord.rooms = []
+    entry = _mk_entry()
+    entry.runtime_data = coord
+    added, add_entities = _mk_add_entities()
+
+    await async_setup_entry(coord.hass, entry, add_entities)
+
+    assert any(isinstance(e, ControllerStateSelect) for e in added)
+    assert any(isinstance(e, SeasonModeSelect) for e in added)

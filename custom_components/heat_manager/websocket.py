@@ -74,6 +74,18 @@ def _mold_dewpoint(temp_c: float, rh_pct: float) -> float:
     return (c * gamma) / (b - gamma)
 
 
+def _coerce_float(value: Any) -> float | None:
+    """Best-effort float conversion for a raw climate-entity attribute —
+    Fase 2 (2026-09-11): these come straight from another integration's
+    entity and are never guaranteed numeric (unavailable/unknown/None)."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "heat_manager/boost_start",
@@ -345,6 +357,34 @@ async def ws_get_state(
         valve_position: float | None = None  # B1: valve % for Zigbee and Netatmo
         boost_active: bool = False  # B2: boost state per room
 
+        # Fase 2 (2026-09-11) — Heat Manager's own resolved target, shared
+        # with _async_pid_tick() via get_room_target_temp() so this can never
+        # show a different number than what the PID actually chases (the gap
+        # that made the B21 target-temp bug invisible in the first place).
+        target_temp: float = coordinator.get_room_target_temp(room)
+
+        # Fase 2 — raw attributes straight from the room's cloud climate
+        # entity (Netatmo rooms only; stay None for Zigbee/local rooms,
+        # which have no separate cloud entity). Read-only diagnostics: shows
+        # what Netatmo itself currently reports (its own last-applied
+        # setpoint, schedule, hvac/preset state) side by side with
+        # Heat Manager's own target_temp above, so the two are never
+        # confused again — see
+        # audit/heat_manager_target_temp_analysis_2026-09-11.md. Also the
+        # user's `select.mit_hjem`-style visibility request: hvac_modes/
+        # preset_modes/min_temp/max_temp/target_temp_step describe what the
+        # entity supports; NetatmoPresetModeSelect (select.py) is the actual
+        # control surface for preset_mode.
+        cloud_temperature: float | None = None
+        cloud_hvac_action: str | None = None
+        cloud_preset_mode: str | None = None
+        cloud_preset_modes: list[str] | None = None
+        cloud_selected_schedule: str | None = None
+        cloud_hvac_modes: list[str] | None = None
+        cloud_min_temp: float | None = None
+        cloud_max_temp: float | None = None
+        cloud_target_temp_step: float | None = None
+
         if climate_id:
             cs = hass.states.get(climate_id)
             if cs:
@@ -355,6 +395,17 @@ async def ws_get_state(
                         valve_position = (
                             heating_power  # Netatmo: heating_power_request IS valve %
                         )
+                cloud_temperature = _coerce_float(cs.attributes.get("temperature"))
+                cloud_hvac_action = cs.attributes.get("hvac_action")
+                cloud_preset_mode = cs.attributes.get("preset_mode")
+                cloud_preset_modes = cs.attributes.get("preset_modes")
+                cloud_selected_schedule = cs.attributes.get("selected_schedule")
+                cloud_hvac_modes = cs.attributes.get("hvac_modes")
+                cloud_min_temp = _coerce_float(cs.attributes.get("min_temp"))
+                cloud_max_temp = _coerce_float(cs.attributes.get("max_temp"))
+                cloud_target_temp_step = _coerce_float(
+                    cs.attributes.get("target_temp_step")
+                )
 
         # B1: Zigbee pi_demand_entity overrides Netatmo valve when present
         pi_entity = primary_trv.get(CONF_PI_DEMAND_ENTITY) or None
@@ -538,6 +589,22 @@ async def ws_get_state(
                 "trv_count": len(coordinator.get_all_room_trvs(name)),
                 "offset": coordinator.room_offsets.get(name, 0.0),
                 "group_enabled": coordinator.room_group_enabled.get(name, True),
+                # Fase 2 (2026-09-11) — see comment block above where these
+                # are read. target_temp is Heat Manager's own resolved
+                # target (get_room_target_temp() — same value the PID
+                # chases); the cloud_* fields are Netatmo's own raw
+                # attributes, only populated for rooms with a Netatmo cloud
+                # climate entity (None for Zigbee/local rooms).
+                "target_temp": target_temp,
+                "cloud_temperature": cloud_temperature,
+                "cloud_hvac_action": cloud_hvac_action,
+                "cloud_preset_mode": cloud_preset_mode,
+                "cloud_preset_modes": cloud_preset_modes,
+                "cloud_selected_schedule": cloud_selected_schedule,
+                "cloud_hvac_modes": cloud_hvac_modes,
+                "cloud_min_temp": cloud_min_temp,
+                "cloud_max_temp": cloud_max_temp,
+                "cloud_target_temp_step": cloud_target_temp_step,
             }
         )
 

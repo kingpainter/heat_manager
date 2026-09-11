@@ -388,6 +388,9 @@
           "waking": "Waking",
           "active": "Active"
         }
+      },
+      "netatmo_preset_mode": {
+        "name": "Netatmo mode"
       }
     },
     "binary_sensor": {
