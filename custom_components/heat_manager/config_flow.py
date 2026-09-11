@@ -523,7 +523,9 @@ def _room_schema(defaults: dict | None = None) -> vol.Schema:
             vol.Optional(
                 CONF_HUMIDITY_SENSOR,
                 default=defaults.get(CONF_HUMIDITY_SENSOR) or vol.UNDEFINED,
-            ): selector.selector({"entity": {"domain": "sensor"}}),  # relative humidity %
+            ): selector.selector(
+                {"entity": {"domain": "sensor"}}
+            ),  # relative humidity %
             # ── Schedule / calendar override (v0.9.0, Fase D) ───────────────────
             # schedule.* or calendar.* entity — see engine/schedule_engine.py.
             # While a block/event is active, its temperature overrides this
@@ -1203,7 +1205,9 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
         options.append(
             {
                 "value": "done",
-                "label": "Save room" if self._trv_draft else "Save room without a TRV (monitoring only)",
+                "label": "Save room"
+                if self._trv_draft
+                else "Save room without a TRV (monitoring only)",
             }
         )
 

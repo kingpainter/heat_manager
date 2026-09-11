@@ -136,7 +136,9 @@ class CalibrationEngine:
 
     # ── Heat-up-rate learning ────────────────────────────────────────────────
 
-    def _async_update_heatup_learning(self, room_name: str, climate_entity: str) -> None:
+    def _async_update_heatup_learning(
+        self, room_name: str, climate_entity: str
+    ) -> None:
         """Update the running heat-up-rate estimate for one room.
 
         Uses coordinator.get_room_current_temp() (room sensor when
@@ -195,9 +197,7 @@ class CalibrationEngine:
 
         self._heatup_reset_baseline(room_name, current_temp, now)
 
-    def _heatup_reset_baseline(
-        self, room_name: str, temp: float, at: datetime
-    ) -> None:
+    def _heatup_reset_baseline(self, room_name: str, temp: float, at: datetime) -> None:
         self._heatup_baseline_temp[room_name] = temp
         self._heatup_baseline_time[room_name] = at
         self._heatup_baseline_door_open[room_name] = self.coordinator.is_room_door_open(
