@@ -48,6 +48,7 @@ def _get_version(hass: HomeAssistant) -> str:
         _LOGGER.debug("Could not read version from %s: %s", manifest_path, err)
         return "0.0.0"
 
+
 PANEL_URL = f"/api/{DOMAIN}-panel"
 CARDS_URL = f"/api/{DOMAIN}-cards"
 LOGO_URL = f"/api/{DOMAIN}-logo"
