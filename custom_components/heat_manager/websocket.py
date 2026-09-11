@@ -673,7 +673,8 @@ async def ws_get_state(
                 "room_a": room_a,
                 "room_b": room_b,
                 "is_open": bool(ds and ds.state == "on"),
-                "available": ds is not None and ds.state not in ("unknown", "unavailable"),
+                "available": ds is not None
+                and ds.state not in ("unknown", "unavailable"),
             }
         )
 
