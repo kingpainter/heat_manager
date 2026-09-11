@@ -9,6 +9,94 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.21.1] — 2026-09-11
+
+Fixes the mobile card's setpoint-source divergence that 0.20.0/0.21.0 both left as a known,
+open limitation. Frontend-only (`heat-manager-card.js`).
+
+### Fixed
+
+- `heat-manager-card.js`'s per-room setpoint display read the room's configured `climate_entity`'s
+  raw `temperature` attribute directly. Since the 0.19.0 (B21) fix, the PID no longer writes
+  `comfort_temp` to that attribute for Netatmo rooms — it targets `get_room_target_temp()` and
+  writes to the local HomeKit entity instead — so the card could show a number Heat Manager wasn't
+  actually chasing, potentially differing from what the panel showed for the same room at the same
+  time.
+
+### Added
+
+- New `_loadTargetTemps()` on the card: polls `heat_manager/get_state` every 60s (mirroring the
+  panel's own poll cadence — never on every `set hass()` tick, which fires on every relevant
+  state-bus event and would otherwise spam the backend) and builds a room-name → `target_temp` map.
+  New `_roomSetpoint(room)` prefers this map, falling back to the old direct cloud-entity read when
+  the fetch hasn't completed yet or a room's config name isn't found in the backend's room list.
+  The card receives the same full `hass` object (and thus `callWS()`) a panel does — the earlier
+  "card has no websocket access" framing (`audit/heat_manager_fixes_2026-09-11_fase2.md`) was a
+  scope choice for that round, not a hard technical limitation.
+
+## [0.21.0] — 2026-09-11
+
+Statustjek follow-up on today's Fase 2 (0.20.0), triggered by a live
+screenshot of the panel after deployment — see
+`audit/heat_manager_status_check_2026-09-11.md`. Frontend-only: no backend
+Python changed this round.
+
+### Fixed
+
+- **Confirmed, real bug**: `#cloud-chip`, `#health-chip` and `#ws-error-chip`
+  each set `display` unconditionally in their own CSS class
+  (`heat-manager-panel.js`). Author-origin CSS always wins over the
+  browser's default `[hidden] { display: none }` rule regardless of
+  selector specificity, so `chip.hidden = true/false` had **no visual
+  effect on any of the three**. `#cloud-chip`/`#health-chip` were
+  permanently visible as empty pills (their label is only ever populated
+  when there's an actual issue) and `#ws-error-chip`'s "Ingen forbindelse"
+  was almost certainly showing all the time — defeating the entire point
+  of the 2026-09-07 UI/UX-2 fix it exists for. Added the missing
+  `.cloud-chip[hidden], .ws-error-chip[hidden] { display: none; }`.
+- `_cloudStatus()` (panel) previously only reported a problem when *every*
+  configured room's Netatmo climate entity was unavailable at the same
+  time — a partial outage (say 2 of 5 rooms down) silently reported
+  `ok: true` and the chip never showed at all. Now surfaces three distinct
+  states.
+- `_render()` (panel's full first-render path) was missing the
+  `_patchWsErrorChip()`/`_patchRemoteLastAction()` calls that `_patchAll()`
+  already had — both could sit stuck in their template-default hidden
+  state for up to a 60s poll cycle after a fresh page load.
+
+### Added
+
+- Panel's cloud-status chip now distinguishes **all rooms down** (labelled
+  "Netatmo cloud/gateway nede" — the closest available proxy to a
+  cloud-vs-gateway signal, since HA's own Netatmo integration exposes no
+  separate reachable/connectivity attribute for thermostat/valve devices;
+  confirmed against `home-assistant/core`'s `netatmo/climate.py` and
+  `binary_sensor.py`), **some rooms down** (labelled "Netatmo: X/Y rum
+  nede", most likely a single device's battery/RF, not cloud or gateway),
+  and **stale-but-available** (cloud responding, not updating).
+- `#ws-error-chip` now shows the last-known-good time ("Ingen forbindelse —
+  sidst OK kl. HH:MM") instead of a static, undated message.
+- **New on the mobile card** (`heat-manager-card.js`): a `#cloud-status-row`
+  mirroring the same three-state Netatmo cloud/gateway logic, computed
+  client-side from `hass.states` (the card has no `get_state()`/websocket
+  access). Previously the card had per-room "TRV offline" badges but
+  nothing telling the person whether one room's device had a flat battery
+  or the whole house's Netatmo connection was down — those looked
+  identical, one badge at a time, unless counted.
+
+### Known limitation (unchanged this round)
+
+- A true third "gateway" layer, distinct from "Netatmo cloud", is not
+  observable from HA's own Netatmo integration for thermostat/valve
+  devices — only `weather`/`air_care`/`opening` device categories get a
+  dedicated connectivity `binary_sensor`; `THERM` (thermostats/valves)
+  does not, so a climate entity's own `state` already folds cloud +
+  gateway/relay + device into one. The "all rooms down together" vs. "one
+  room down" split above is the most specific signal available without
+  requiring new configuration from every room.
+- Mobile card's setpoint-source divergence (from 0.20.0's Known
+  limitation) is still open — not addressed this round.
+
 ## [0.20.0] — 2026-09-11
 
 Fase 2 of the target-temp fix (0.19.0): visibility + Netatmo mode control,

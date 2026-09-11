@@ -1,5 +1,36 @@
 // Heat Manager Panel
-// Version: 0.17.2
+// Version: 0.17.2 (comment log below is stale — see manifest.json for the
+// actual running version; panel.py reads it from there at runtime, not
+// from this comment. See CHANGELOG.md for everything since v0.17.2.)
+//
+// v0.21.0 (2026-09-11 statustjek):
+//   • Fixed a real, confirmed-by-screenshot bug: #cloud-chip, #health-chip
+//     and #ws-error-chip all set `display` unconditionally in their own
+//     CSS class, which — because author CSS always wins over the browser's
+//     default `[hidden] { display: none }` rule, regardless of selector
+//     specificity — completely neutralised `chip.hidden = true/false`.
+//     #cloud-chip/#health-chip were permanently visible as empty pills
+//     (label only ever gets text when there's an issue) and #ws-error-chip
+//     was very likely showing "Ingen forbindelse" all the time, defeating
+//     the 2026-09-07 UI/UX-2 fix it exists for. Added the missing
+//     `.cloud-chip[hidden], .ws-error-chip[hidden] { display: none; }`.
+//   • _cloudStatus() previously only flagged "Netatmo cloud nede" when
+//     EVERY configured room's climate entity was unavailable at once — a
+//     partial outage (2 of 5 rooms down, say) silently reported `ok: true`
+//     and never showed anything. Now three distinct, separately-worded
+//     states: all rooms down (cloud/gateway — see docstring), some rooms
+//     down (single device, more likely battery/RF), or stale-but-available
+//     (cloud responding, not updating).
+//   • #ws-error-chip now shows the last-known-good time ("Ingen forbindelse
+//     — sidst OK kl. HH:MM") instead of a static, undated message.
+//   • _render() (the full first-load render path) was missing the
+//     _patchWsErrorChip()/_patchRemoteLastAction() calls that _patchAll()
+//     already had — both could sit stuck in their template-default hidden
+//     state for up to a 60s poll cycle after a fresh page load.
+//   • See audit/heat_manager_status_check_2026-09-11.md for the full
+//     analysis, including why a true "gateway" layer distinct from
+//     "cloud" isn't observable from HA's own Netatmo integration for
+//     thermostat/valve devices.
 //
 // v0.17.2:
 //   • Frontend-parity + health-check pass. New per-room "Rum detaljer" chips
@@ -409,6 +440,20 @@ class HeatManagerPanel extends HTMLElement {
     const chip = this.shadowRoot.querySelector("#ws-error-chip");
     if (!chip) return;
     chip.hidden = !this._wsError;
+    if (!this._wsError) return;
+    // 2026-09-11 statustjek: was a static "Ingen forbindelse" with no way to
+    // tell how long ago the panel last actually heard from the backend —
+    // add the last-known-good timestamp so this reads as "since when",
+    // not just "right now, maybe".
+    const label = chip.querySelector(".ws-error-label");
+    if (!label) return;
+    if (this._lastSyncTime) {
+      const hh = String(this._lastSyncTime.getHours()).padStart(2, "0");
+      const mm = String(this._lastSyncTime.getMinutes()).padStart(2, "0");
+      label.textContent = `Ingen forbindelse — sidst OK kl. ${hh}:${mm}`;
+    } else {
+      label.textContent = "Ingen forbindelse — intet svar modtaget endnu";
+    }
   }
 
   // Update the version/temp/season line in the header without re-rendering topbar.
@@ -620,20 +665,33 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   // Update compact cloud status chip in the topbar (replaces full-width banner).
+  //
+  // 2026-09-11 statustjek: now three distinct, separately-worded states
+  // instead of two — see _cloudStatus()'s docstring for why "all down" vs
+  // "some down" is the closest thing to a cloud-vs-gateway-vs-single-device
+  // signal HA's own Netatmo integration exposes.
   _patchCloudChip() {
     const root  = this.shadowRoot;
     const chip  = root.querySelector("#cloud-chip");
     if (!chip) return;
-    const { ok, allUnavailable, staleMinutes } = this._cloudStatus();
+    const { ok, allUnavailable, unavailableCount, totalCount, staleMinutes } = this._cloudStatus();
     if (!ok && this._showCloudBanner) {
       chip.hidden = false;
-      chip.title  = allUnavailable
-        ? "Netatmo cloud utilgængelig"
-        : `Netatmo data ${staleMinutes} min forsinket`;
-      chip.querySelector(".cloud-chip-dot").style.background =
-        allUnavailable ? "#ef4444" : "#f97316";
-      chip.querySelector(".cloud-chip-label").textContent =
-        allUnavailable ? "Cloud nede" : `⏱ ${staleMinutes} min`;
+      const dot   = chip.querySelector(".cloud-chip-dot");
+      const label = chip.querySelector(".cloud-chip-label");
+      if (allUnavailable) {
+        chip.title = "Alle Netatmo-rum er utilgængelige samtidig — tyder på Netatmo cloud eller selve gateway'en/relæet, ikke én enkelt enhed (HA's Netatmo-integration skelner ikke de to for TRV'er/termostater)";
+        dot.style.background = "#ef4444";
+        label.textContent = "Netatmo cloud/gateway nede";
+      } else if (unavailableCount > 0) {
+        chip.title = `${unavailableCount} af ${totalCount} rums Netatmo-enhed er utilgængelig, resten svarer fint — tyder på batteri/RF for netop det/de rum, ikke cloud eller gateway`;
+        dot.style.background = "#f97316";
+        label.textContent = `Netatmo: ${unavailableCount}/${totalCount} rum nede`;
+      } else {
+        chip.title = `Netatmo svarer, men data er ${staleMinutes} min gammel`;
+        dot.style.background = "#f97316";
+        label.textContent = `⏱ Netatmo ${staleMinutes} min forsinket`;
+      }
     } else {
       chip.hidden = true;
     }
@@ -1431,6 +1489,20 @@ class HeatManagerPanel extends HTMLElement {
       }
       .ws-error-label { font-size: 11px; font-weight: 600; color: #fca5a5; }
 
+      /* 2026-09-11 statustjek fix: the three chips above all have their own
+         unconditional display declaration, which — because author CSS
+         always wins over the browser's default [hidden] display:none rule
+         regardless of selector specificity — completely neutralised
+         chip.hidden = true/false in the JS below. Net effect, confirmed
+         against a live screenshot: #cloud-chip and #health-chip were
+         PERMANENTLY visible (as empty pills showing only their close icon,
+         since no issue meant their label was never populated) and
+         #ws-error-chip's "Ingen forbindelse" was almost certainly showing
+         all the time, defeating the entire point of the 2026-09-07 UI/UX-2
+         fix. This is the missing piece that actually lets hidden hide them
+         again. See audit/heat_manager_status_check_2026-09-11.md. */
+      .cloud-chip[hidden], .ws-error-chip[hidden] { display: none; }
+
       /* Manual TRV control */
       .room-manual {
         padding: 10px 16px 12px;
@@ -1950,15 +2022,36 @@ class HeatManagerPanel extends HTMLElement {
   // ── Cloud status banner ──────────────────────────────────────────────────
 
   _cloudStatus() {
-    // Detect Netatmo cloud issues from HA entity state — no external fetch needed.
-    // Returns: { ok, allUnavailable, staleMinutes, otherIssues } where
-    // staleMinutes is the age (in minutes) of the oldest climate entity's
-    // last_updated (0 if fresh), and otherIssues (2026-09 audit fix UI/UX
-    // #8) lists every *non*-Netatmo entity ws_get_state() reports as
-    // unavailable for some room (a window/humidity/CO2/battery sensor, or
-    // a secondary TRV in a multi-TRV room — this method's own climateIds
-    // loop below only ever checked each room's primary TRV).
-    const empty = { ok: true, allUnavailable: false, staleMinutes: 0, otherIssues: [] };
+    // Detect Netatmo cloud/gateway issues from HA entity state — no external
+    // fetch needed. Returns: { ok, allUnavailable, unavailableCount,
+    // totalCount, staleMinutes, otherIssues }.
+    //
+    // 2026-09-11 statustjek: previously `ok` was only ever false when EVERY
+    // configured Netatmo room was unavailable at once — a partial outage
+    // (say 2 of 5 rooms down) silently reported `ok: true` and the chip
+    // never showed at all. Now surfaces three distinct states instead of
+    // two:
+    //   1. allUnavailable  — every room down together. HA's own Netatmo
+    //      integration exposes no separate "reachable"/connectivity signal
+    //      for thermostat/valve devices (confirmed against home-assistant/
+    //      core's netatmo/climate.py + binary_sensor.py — only weather/
+    //      air-care/opening categories get a connectivity binary_sensor;
+    //      THERM does not), so a climate entity's own state already folds
+    //      cloud + gateway/relay + device into one. Everything going down
+    //      at the same instant is the strongest signal available without
+    //      new configuration that the shared cloud API or the physical
+    //      gateway/relay is the problem, not one device.
+    //   2. unavailableCount > 0 but < totalCount — only some rooms down.
+    //      Far more likely a single device's battery/RF link to the
+    //      gateway than the cloud or gateway itself (those would take
+    //      every room with them).
+    //   3. isStale — every entity technically available, but data hasn't
+    //      moved in 10+ minutes (cloud responding but not updating).
+    // See audit/heat_manager_status_check_2026-09-11.md.
+    const empty = {
+      ok: true, allUnavailable: false, unavailableCount: 0, totalCount: 0,
+      staleMinutes: 0, otherIssues: [],
+    };
     if (!this._hass || !this._data) return empty;
     const rooms = this._data?.rooms ?? [];
     if (!rooms.length) return empty;
@@ -1989,10 +2082,14 @@ class HeatManagerPanel extends HTMLElement {
       }
     }
 
-    const allUnavailable = unavailableCount === climateIds.length;
+    const totalCount     = climateIds.length;
+    const allUnavailable = unavailableCount === totalCount;
     const staleMinutes   = Math.floor(maxStaleMs / 60000);
     const isStale        = staleMinutes >= 10;
-    return { ok: !allUnavailable && !isStale, allUnavailable, staleMinutes, otherIssues };
+    return {
+      ok: unavailableCount === 0 && !isStale,
+      allUnavailable, unavailableCount, totalCount, staleMinutes, otherIssues,
+    };
   }
 
   // NB: a full-width _cloudBannerHTML() used to live here — dead code,
@@ -2903,6 +3000,15 @@ class HeatManagerPanel extends HTMLElement {
     this._patchControllerHero();
     this._patchCloudChip();
     this._patchHealthChip();  // 2026-09 audit fix (UI/UX #8)
+    // 2026-09-11 statustjek fix: this full-render path built the topbar with
+    // #ws-error-chip and #remote-last-action-box always in their hidden/
+    // empty template state, but never called the two patches that actually
+    // sync them to live data — cloud-chip/health-chip got that treatment
+    // here, these two didn't. On a fresh page load, that left both stuck at
+    // "hidden" for up to a full 60s poll cycle even when there already was
+    // something to show (e.g. a WS error on the very first load).
+    this._patchWsErrorChip();
+    this._patchRemoteLastAction();
     this._startPauseCountdown();
     this._startBoostCountdown();
     this._attachEvents();

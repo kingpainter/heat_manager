@@ -1,5 +1,32 @@
 // Heat Manager — Custom Lovelace Card
-// Version: 0.17.2
+// Version: 0.17.2 (comment log below is stale — see manifest.json for the
+// actual running version. See CHANGELOG.md for everything since v0.17.2.)
+//
+// v0.21.1 (2026-09-11 mobil-sætpunkt fix):
+//   • Fixed the "known still-open item" from v0.21.0 below: room setpoint
+//     display now prefers Heat Manager's own resolved target_temp (same
+//     value the PID chases, fetched via a new heat_manager/get_state
+//     WS poll every 60s — see _loadTargetTemps()/_roomSetpoint()) over the
+//     raw Netatmo cloud-entity temperature attribute. Falls back to the old
+//     direct read whenever the fetch hasn't completed yet or a room's
+//     config name isn't found in the backend's room list. This card always
+//     had the same full hass object (and thus callWS()) a panel gets —
+//     the earlier "no websocket access" framing in
+//     audit/heat_manager_fixes_2026-09-11_fase2.md was a scope choice for
+//     that round, not a hard technical limitation.
+//
+// v0.21.0 (2026-09-11 statustjek):
+//   • New #cloud-status-row: this card previously had per-room "TRV
+//     offline" badges (_roomTrvUnavailable) but nothing at the card level
+//     distinguishing "one room's device has a flat battery" from "the
+//     whole house's Netatmo connection is down" — those looked identical,
+//     one badge at a time, unless you counted them. New
+//     _netatmoCloudStatus()/_netatmoCloudStatusHTML() mirror the panel's
+//     _cloudStatus() logic (all rooms down at once → cloud/gateway; some
+//     rooms down → single device; stale-but-available → cloud not
+//     updating), computed client-side from hass.states like every other
+//     mirror helper on this card, since the card has no get_state() access.
+//   • Setpoint-source divergence noted here — fixed in v0.21.1 above.
 //
 // v0.17.2:
 //   • Mobile parity pass: room cards now also show PID-power/calibration-
@@ -115,6 +142,9 @@ class HeatManagerCard extends HTMLElement {
     this._boostActive  = false;
     this._boostTimer   = null;   // setInterval handle
     this._boostRemain  = 0;      // seconds remaining
+    this._targetTemps  = null;   // 2026-09-11 mobil-sætpunkt fix — room name → target_temp
+    this._targetTempPollStarted = false;
+    this._targetTempInterval    = null;
   }
 
   setConfig(config) {
@@ -125,6 +155,16 @@ class HeatManagerCard extends HTMLElement {
 
   set hass(h) {
     this._hass = h;
+    // 2026-09-11 mobil-sætpunkt fix: kick off the first target_temp fetch as
+    // soon as hass is actually available, so the correct setpoint shows
+    // without waiting for the first 60s poll tick — but only once. set
+    // hass() fires on every relevant state-bus event (can be many times a
+    // second), so anything heavier than a plain object read has to be
+    // gated, not run unconditionally here.
+    if (h && !this._targetTempPollStarted) {
+      this._targetTempPollStarted = true;
+      this._loadTargetTemps();
+    }
     this._updateInPlace();
   }
 
@@ -149,10 +189,18 @@ class HeatManagerCard extends HTMLElement {
     this._updateScale();
     this._resizeHandler = () => this._updateScale();
     window.addEventListener("resize", this._resizeHandler);
+    // 2026-09-11 mobil-sætpunkt fix: same 60s cadence as the panel's own
+    // get_state poll — see _loadTargetTemps(). Started here (not just from
+    // set hass()) so it also resumes if the card is ever removed and
+    // re-added to the DOM (tab switch in some dashboards re-mounts cards).
+    if (!this._targetTempInterval) {
+      this._targetTempInterval = setInterval(() => this._loadTargetTemps(), 60000);
+    }
   }
 
   disconnectedCallback() {
     if (this._resizeHandler) window.removeEventListener("resize", this._resizeHandler);
+    if (this._targetTempInterval) { clearInterval(this._targetTempInterval); this._targetTempInterval = null; }
   }
 
   // WebKit-safe helper — ShadowRoot does not support insertAdjacentHTML
@@ -200,6 +248,52 @@ class HeatManagerCard extends HTMLElement {
   _climateSetpoint(id) {
     const t = this._attr(id, "temperature");
     return t != null ? (Math.round(t * 10) / 10) + "°C" : null;
+  }
+
+  // 2026-09-11 mobil-sætpunkt fix. Since the 0.19.0 (B21) fix, the PID no
+  // longer writes comfort_temp to the Netatmo cloud entity's own
+  // `temperature` attribute for Netatmo rooms — it targets
+  // get_room_target_temp() and writes to the local HomeKit entity instead.
+  // _climateSetpoint() above still reads exactly that now-stale cloud
+  // attribute directly, so it can show a number Heat Manager isn't
+  // actually chasing (see audit/heat_manager_fixes_2026-09-11_fase2.md's
+  // "Known limitation" and audit/heat_manager_connection_health_fix_
+  // 2026-09-11.md). The panel fixed this with a WS fetch of target_temp
+  // (_roomSetpoint() there); this card had no websocket call anywhere
+  // before now, only ever reading this._hass.states directly — but the
+  // hass object a Lovelace card receives is the same full frontend object
+  // a panel gets, so callWS() has always been available here too. That was
+  // a scope choice in Fase 2, not a hard technical limitation.
+  //
+  // Polled every 60s from connectedCallback() (see _loadTargetTemps()) —
+  // NOT on every set hass() tick, which fires on every relevant state-bus
+  // event and would otherwise spam the backend. Falls back to the raw
+  // cloud-entity read below whenever the map hasn't loaded yet, or this
+  // room's name isn't found in it (e.g. a name mismatch between this
+  // card's own per-instance room_name config and the integration's actual
+  // configured rooms) — same graceful-degradation convention every other
+  // mirror helper on this card already follows.
+  _roomSetpoint(room) {
+    const name = room?.room_name ?? "";
+    const t = name ? this._targetTemps?.[name] : null;
+    if (t != null) return (Math.round(t * 10) / 10) + "°C";
+    return this._climateSetpoint(room?.climate_entity ?? "");
+  }
+
+  async _loadTargetTemps() {
+    if (!this._hass?.callWS) return;
+    try {
+      const data = await this._hass.callWS({ type: "heat_manager/get_state" });
+      const map = {};
+      for (const room of data?.rooms ?? []) {
+        if (room?.name != null && room.target_temp != null) map[room.name] = room.target_temp;
+      }
+      this._targetTemps = map;
+    } catch (e) {
+      // Backend not up yet / WS hiccup — keep whatever we last had (or
+      // null) rather than throwing; _roomSetpoint() falls back gracefully.
+    }
+    this._updateInPlace();
   }
 
   _roomState(name) {
@@ -342,6 +436,66 @@ class HeatManagerCard extends HTMLElement {
     if (!id) return false;
     const s = this._hass?.states?.[id];
     return !s || s.state === "unavailable" || s.state === "unknown";
+  }
+
+  // 2026-09-11 statustjek: card-level equivalent of the panel's
+  // _cloudStatus() — this card has no get_state()/websocket access, so it
+  // reads this._config.rooms' climate_entity list straight off hass.states,
+  // same pattern as every other mirror helper on this card. Was previously
+  // ENTIRELY missing at the card level: per-room "TRV offline" badges
+  // existed (_roomTrvUnavailable above), but nothing told the person
+  // looking at the mobile card whether one room's device had a flat battery
+  // or the whole house's Netatmo connection was down — those look
+  // identical, one badge at a time, unless you count them.
+  //
+  // Distinguishes the same three states as the panel, for the same reason
+  // (see heat-manager-panel.js's _cloudStatus() docstring): HA's own
+  // Netatmo integration exposes no separate reachable/connectivity signal
+  // for thermostat/valve devices, so "every room down at once" is the best
+  // available proxy for "cloud or gateway", vs. "one room down" (battery/RF
+  // on that device) vs. "stale" (cloud responding, not updating).
+  _netatmoCloudStatus() {
+    const rooms = this._config.rooms ?? [];
+    const climateIds = rooms.map(r => r.climate_entity).filter(Boolean);
+    const empty = { ok: true, allUnavailable: false, unavailableCount: 0, totalCount: 0, staleMinutes: 0 };
+    if (!climateIds.length) return empty;
+
+    const states = this._hass?.states ?? {};
+    const now = Date.now();
+    let unavailableCount = 0;
+    let maxStaleMs = 0;
+    for (const id of climateIds) {
+      const s = states[id];
+      if (!s) { unavailableCount++; continue; }
+      if (s.state === "unavailable" || s.state === "unknown") { unavailableCount++; continue; }
+      if (s.last_updated) {
+        const staleMs = now - new Date(s.last_updated).getTime();
+        if (staleMs > maxStaleMs) maxStaleMs = staleMs;
+      }
+    }
+    const totalCount     = climateIds.length;
+    const allUnavailable = unavailableCount === totalCount;
+    const staleMinutes   = Math.floor(maxStaleMs / 60000);
+    const isStale        = staleMinutes >= 10;
+    return {
+      ok: unavailableCount === 0 && !isStale,
+      allUnavailable, unavailableCount, totalCount, staleMinutes,
+    };
+  }
+
+  // Text + color for the cloud-status row — shared between _cardHTML()
+  // (first render) and _updateInPlace() (every poll) so the two can never
+  // drift apart, same reasoning as get_room_target_temp() on the backend.
+  _netatmoCloudStatusHTML() {
+    const s = this._netatmoCloudStatus();
+    if (s.ok) return { show: false, text: "", color: "" };
+    if (s.allUnavailable) {
+      return { show: true, color: "#ef4444", text: "☁️ Netatmo cloud/gateway nede — alle rum utilgængelige" };
+    }
+    if (s.unavailableCount > 0) {
+      return { show: true, color: "#f97316", text: `☁️ Netatmo: ${s.unavailableCount}/${s.totalCount} rum utilgængelige` };
+    }
+    return { show: true, color: "#f97316", text: `☁️ Netatmo-data ${s.staleMinutes} min forsinket` };
   }
 
   // Mold-risk binary_sensor — same friendly_name discovery, different domain.
@@ -882,7 +1036,7 @@ class HeatManagerCard extends HTMLElement {
           const color = _hmStateColor(state);
           const label = _hmStateLabel(state, this._roomOverrideSource(room.room_name ?? ""));
           const temp  = this._climateTemp(room.climate_entity ?? "");
-          const setpt = this._climateSetpoint(room.climate_entity ?? "");
+          const setpt = this._roomSetpoint(room);
           // v0.9.0: blocking-sources badge (controller_off/controller_pause
           // only — window/presence are already shown via the state pill)
           const extraBlocking = this._roomExtraBlocking(room.room_name ?? "", state);
@@ -950,6 +1104,9 @@ class HeatManagerCard extends HTMLElement {
       : `<div style="color:var(--sub);font-size:12px;padding:4px 0;">Ingen rum konfigureret i kortet</div>`;
 
     const globalBlocked = this._globalBlockingSources();
+    // 2026-09-11 statustjek: see _netatmoCloudStatusHTML() — was completely
+    // missing at the card level before this.
+    const cloudStatus = this._netatmoCloudStatusHTML();
 
     // 2026-09 frontend-parity fix: Hub-level energy/efficiency, discovered
     // the same friendly-name way as the per-room mirrors — see
@@ -985,6 +1142,8 @@ class HeatManagerCard extends HTMLElement {
       </div>
 
       <div id="blocking-row" class="blocking-row" style="display:${globalBlocked.length ? "flex" : "none"}">⛔ ${_hmEsc(globalBlocked.map(s => _hmBlockingLabel(s)).join(", "))}</div>
+
+      <div id="cloud-status-row" class="blocking-row" style="display:${cloudStatus.show ? "flex" : "none"};color:${cloudStatus.color || "#fca5a5"}">${_hmEsc(cloudStatus.text)}</div>
 
       <div class="section-box">
         <div class="section-header">
@@ -1105,6 +1264,15 @@ class HeatManagerCard extends HTMLElement {
         : "";
     }
 
+    // 2026-09-11 statustjek: Netatmo cloud/gateway status row.
+    const cloudStatus  = this._netatmoCloudStatusHTML();
+    const cloudRow     = root.querySelector("#cloud-status-row");
+    if (cloudRow) {
+      cloudRow.style.display = cloudStatus.show ? "flex" : "none";
+      cloudRow.style.color   = cloudStatus.color || "#fca5a5";
+      cloudRow.textContent   = cloudStatus.text;
+    }
+
     this._patchBoost();
     this._patchEnergy();  // 2026-09 frontend-parity fix
 
@@ -1116,7 +1284,7 @@ class HeatManagerCard extends HTMLElement {
       const color = _hmStateColor(state);
       const label = _hmStateLabel(state, this._roomOverrideSource(room.room_name ?? ""));
       const temp  = this._climateTemp(room.climate_entity ?? "");
-      const setpt = this._climateSetpoint(room.climate_entity ?? "");
+      const setpt = this._roomSetpoint(room);
       cards[i].style.borderLeftColor = color;
       cards[i].style.backgroundImage = `linear-gradient(90deg,${color}0e 0%,transparent 40%)`;
       cards[i].className = "room-card state-" + state;
