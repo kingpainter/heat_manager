@@ -9,6 +9,18 @@ FIX B-LOG-RESTORE-SPAM: per-room NORMAL idempotency skips redundant API calls
 FIX B11-INITIAL-PRESENCE: _check_initial_presence() reads current person
   state at startup and syncs heating accordingly, since
   async_track_state_change_event only fires on future changes.
+
+2026-09-11 restart-noise fix: HA fires a state_changed event for a person/
+  alarm entity the first time its real state becomes known again after a
+  restart or reload (old_state None/"unknown"/"unavailable"), even though
+  nothing actually changed. Before this fix, that produced false "Heating
+  resumed — welcome home" / "Heating off — alarm armed" / "Heating resumed
+  — alarm disarmed" log entries on every single HA restart. The listeners
+  now ignore transitions from an unknown/unavailable old_state; the
+  already-current state is instead synced silently (no log, no
+  notification) by _check_initial_presence() and the new
+  _check_initial_alarm(). See window_engine.py for the matching fix on the
+  window/door side.
 """
 
 from __future__ import annotations
@@ -73,6 +85,7 @@ class PresenceEngine:
         self._unsubs: list[Any] = []
         self._register_listeners()
         self._check_initial_presence()
+        self._check_initial_alarm()
 
     # ── Listener registration ─────────────────────────────────────────────────
 
@@ -160,6 +173,32 @@ class PresenceEngine:
                 name="heat_manager_initial_presence_away",
             )
 
+    def _check_initial_alarm(self) -> None:
+        """Sync heating with the alarm panel's already-current state at startup.
+
+        Mirrors _check_initial_presence() (B11) for the same reason: the
+        alarm listener below only reacts to FUTURE changes and — as of the
+        2026-09-11 restart-noise fix — now deliberately ignores the
+        artifact state_changed event HA fires when the alarm entity's
+        platform re-establishes itself after a restart (old_state None/
+        "unknown"/"unavailable"). Without this check, a house that was
+        armed-away before an HA restart would silently start heating on
+        schedule again with nobody home. Silent by design (log=False, no
+        notification) — this is a resync, not a genuine arm event.
+        """
+        alarm = self.coordinator.alarm_panel
+        if not alarm:
+            return
+        state = self.coordinator.hass.states.get(alarm)
+        if state and state.state == "armed_away":
+            _LOGGER.debug(
+                "PresenceEngine: alarm already armed-away at startup — syncing away mode"
+            )
+            self.coordinator.hass.async_create_task(
+                self._set_all_away(log=False),
+                name="heat_manager_initial_alarm_away",
+            )
+
     # ── Person state changes ──────────────────────────────────────────────────
 
     @callback
@@ -172,8 +211,19 @@ class PresenceEngine:
     @guarded
     async def _async_handle_person_change(self, event: Any) -> None:
         new_state = event.data.get("new_state")
+        old_state = event.data.get("old_state")
         if new_state is None:
             return
+
+        # 2026-09-11 restart-noise fix: same shape as WindowEngine's sensor
+        # listener — ignore the state_changed event HA fires when this
+        # person entity's platform re-establishes itself after a restart
+        # and its already-current state becomes known again. Already-home
+        # is synced silently by _check_initial_presence() instead.
+        old = old_state.state if old_state else None
+        if old in (None, "unknown", "unavailable"):
+            return
+
         entity_id = event.data.get("entity_id", "")
         _LOGGER.debug("Person change: %s → %s", entity_id, new_state.state)
 
@@ -238,7 +288,24 @@ class PresenceEngine:
     @guarded
     async def _async_handle_alarm_change(self, event: Any) -> None:
         new_state = event.data.get("new_state")
+        old_state = event.data.get("old_state")
         if new_state is None:
+            return
+
+        # 2026-09-11 restart-noise fix: ignore the state_changed event HA
+        # fires when the alarm entity's platform re-establishes itself
+        # after an HA restart/reload and its already-current state becomes
+        # known again — that isn't a real arm/disarm. Before this guard, a
+        # house that happened to be armed-away (or disarmed) across a
+        # restart got a false "Heating off — alarm armed" / "Heating
+        # resumed — alarm disarmed" log + push notification every single
+        # time. Already-armed-away is instead synced silently by
+        # _check_initial_alarm(); "someone home → restore schedule" is
+        # already covered by _check_initial_presence() regardless of alarm
+        # state. Only a genuine transition between two KNOWN states should
+        # reach the logic below.
+        old = old_state.state if old_state else None
+        if old in (None, "unknown", "unavailable"):
             return
 
         alarm_state = new_state.state
@@ -274,7 +341,7 @@ class PresenceEngine:
     # ── Climate control ───────────────────────────────────────────────────────
 
     @guarded
-    async def _set_all_away(self) -> None:
+    async def _set_all_away(self, log: bool = True) -> None:
         """
         Set all rooms to away / heating-off.
 
@@ -287,6 +354,14 @@ class PresenceEngine:
 
         A room with 2+ TRVs gets the same away command sent to every
         physical TRV it owns, each routed by its own trv_type.
+
+        log
+        ---
+        2026-09-11 restart-noise fix: when False, the per-room "Away mode —
+        <room>" event log entries below are suppressed while the actual
+        away-mode action still happens. Used by _check_initial_alarm() for
+        the silent startup resync — mirrors _restore_all_schedule()'s
+        notify=False for the equivalent presence-side case.
         """
         hass = self.coordinator.hass
         for room in self.coordinator.rooms:
@@ -313,11 +388,12 @@ class PresenceEngine:
                             needs_delay=True,
                         )
                         self.coordinator.set_room_state(room_name, RoomState.AWAY)
-                        self.coordinator.log_event(
-                            f"Away mode — {room_name} (hvac_mode: off)",
-                            "Presence",
-                            "away",
-                        )
+                        if log:
+                            self.coordinator.log_event(
+                                f"Away mode — {room_name} (hvac_mode: off)",
+                                "Presence",
+                                "away",
+                            )
                     # broad-except-rationale: one entity failing must not abort the others in this loop
                     except Exception as err:  # noqa: BLE001
                         _LOGGER.warning(
@@ -336,9 +412,10 @@ class PresenceEngine:
                             needs_delay=True,
                         )
                         self.coordinator.set_room_state(room_name, RoomState.AWAY)
-                        self.coordinator.log_event(
-                            f"Away mode — {room_name}", "Presence", "away"
-                        )
+                        if log:
+                            self.coordinator.log_event(
+                                f"Away mode — {room_name}", "Presence", "away"
+                            )
                     # broad-except-rationale: one entity failing must not abort the others in this loop
                     except Exception as err:  # noqa: BLE001
                         _LOGGER.warning("Failed to set away on %s: %s", entity_id, err)
@@ -384,6 +461,14 @@ class PresenceEngine:
         state — never pushes a notification to the phone. A genuine arrival
         (_handle_arrival) or alarm disarm still calls this with the default
         notify=True and keeps notifying as before.
+
+        2026-09-11 restart-noise fix: the "Heating resumed — welcome home"
+        EVENT LOG entry below used to fire unconditionally, even when
+        notify=False — so every single HA restart (while someone was home,
+        which is nearly always) logged a "welcome home" event that never
+        actually happened, purely from the startup resync. Now gated behind
+        `notify` too, so the silent resync path stays silent everywhere,
+        not just on the push notification.
         """
         if self._restore_lock.locked():
             _LOGGER.debug(
@@ -444,11 +529,11 @@ class PresenceEngine:
                     self.coordinator.set_room_state(room_name, RoomState.NORMAL)
                     any_restored = True
 
-            if any_restored:
+            if any_restored and notify:
                 self.coordinator.log_event(
                     "Heating resumed — welcome home", "Presence", "normal"
                 )
-                if notify and self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
+                if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
                     await self._notify(
                         title="Heat Manager", message="Heating resumed — welcome home."
                     )

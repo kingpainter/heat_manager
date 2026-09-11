@@ -10,6 +10,18 @@ v0.2.9: CO₂-aware notifications.
   and the 30-min escalation warning include the current CO₂ level and a
   brief contextual label so the user immediately understands whether the
   open window is doing useful work or just losing heat.
+
+2026-09-11 restart-noise fix: a window/door sensor's platform fires a
+  state_changed event the first time its real state becomes known again
+  after an HA restart/reload (old_state None/"unknown"/"unavailable"),
+  even when nothing physically opened or closed. Before this fix, every
+  restart produced a false "Window closed in <room> — heating resumed" log
+  line (plus a real, unnecessary climate.set_preset_mode call) for every
+  already-closed window. _handle_sensor_change() now only reacts to a
+  genuine flip between two KNOWN states; a window already open at startup
+  is instead picked up explicitly by the new _check_initial_windows(),
+  which reads the live sensor state directly. See presence_engine.py for
+  the matching fix on the person/alarm side.
 """
 
 from __future__ import annotations
@@ -74,6 +86,7 @@ class WindowEngine:
         self._unsubs: list[Any] = []
         self._build_sensor_map()
         self._register_listeners()
+        self._check_initial_windows()
 
     def _build_sensor_map(self) -> None:
         for room in self.coordinator.rooms:
@@ -105,16 +118,60 @@ class WindowEngine:
         old = old_state.state if old_state else None
         entity_id = event.data.get("entity_id", "")
 
-        if new == "on" and old != "on":
+        # 2026-09-11 restart-noise fix: when this sensor's platform
+        # re-establishes itself (HA restart, integration reload, a brief
+        # radio dropout), HA fires a state_changed event the first time its
+        # real state becomes known again — with old_state None/"unknown"/
+        # "unavailable" — even though nothing physically opened or closed.
+        # Before this guard, EVERY restart produced a false "Window closed
+        # in <room> — heating resumed" log line (and a real climate call!)
+        # for every already-closed window, because `old != "off"` is true
+        # for "unavailable" too. Only a genuine flip between two KNOWN
+        # states counts as a real event now. Windows already open at
+        # startup are instead picked up explicitly by
+        # _check_initial_windows(), which reads the live sensor state
+        # directly rather than relying on this artifact event.
+        if old not in ("on", "off") or old == new:
+            return
+
+        if new == "on":
             self.coordinator.hass.async_create_task(
                 self._schedule_open(entity_id),
                 name=f"heat_manager_window_open_{entity_id}",
             )
-        elif new == "off" and old != "off":
+        else:
             self.coordinator.hass.async_create_task(
                 self._schedule_close(entity_id),
                 name=f"heat_manager_window_close_{entity_id}",
             )
+
+    def _check_initial_windows(self) -> None:
+        """Sync room state with any window already open at startup.
+
+        Mirrors PresenceEngine._check_initial_presence() (B11): the listener
+        above only fires on FUTURE changes and — as of the restart-noise fix
+        just above — now deliberately ignores the artifact state_changed
+        event HA emits when a sensor's real state first becomes known again
+        after a restart. Without this check, a window that was already open
+        before the restart would silently go unnoticed and heating would
+        resume in a room that's supposed to stay suppressed. Goes through
+        the normal _schedule_open() path (same open-delay as any other real
+        open, same eventual log line) rather than acting immediately, so a
+        window that's genuinely still open gets exactly the same treatment
+        — and the same visible event — it would have gotten without a
+        restart in between.
+        """
+        for sensor_id, room_name in self._sensor_to_room.items():
+            state = self.coordinator.hass.states.get(sensor_id)
+            if state and state.state == "on":
+                _LOGGER.debug(
+                    "WindowEngine: '%s' already open at startup — scheduling suppression",
+                    room_name,
+                )
+                self.coordinator.hass.async_create_task(
+                    self._schedule_open(sensor_id),
+                    name=f"heat_manager_window_open_startup_{sensor_id}",
+                )
 
     async def _schedule_open(self, sensor_id: str) -> None:
         room_name = self._sensor_to_room.get(sensor_id)

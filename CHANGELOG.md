@@ -9,6 +9,50 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-09-11
+
+Fixes false events in the Historik tab caused by HA restarts. User-reported: the event log
+showed window-closed and "welcome home" events that never actually happened, clustered right
+after a restart/reload. Root cause: `async_track_state_change_event` fires a state_changed event
+the first time an entity's real state becomes known again after its platform re-establishes
+itself (HA restart, integration reload, a brief radio dropout) — with `old_state` `None`/
+`"unknown"`/`"unavailable"` — even though nothing physically changed. Several listeners treated
+that as a genuine transition.
+
+### Fixed
+
+- **`window_engine.py`**: `_handle_sensor_change()` treated ANY state landing on `"off"` as a
+  real close whenever the old state wasn't literally `"off"` — which is true for `"unavailable"`/
+  `"unknown"` too. Every restart therefore logged a false "Window closed in `<room>` — heating
+  resumed" line **for every already-closed window**, and made a real (unnecessary)
+  `climate.set_preset_mode`/`set_hvac_mode` call to "restore" a room that was never actually
+  suppressed. Now only reacts to a genuine flip between two *known* states (`"on"` ↔ `"off"`).
+- **`window_engine.py`**: added `_check_initial_windows()` (mirrors `PresenceEngine`'s existing
+  `_check_initial_presence()` / B11) — reads each window sensor's live state directly at startup
+  and schedules suppression for any that's genuinely still open, through the normal open-delay
+  path. Without this, the fix above would have silently stopped detecting a window that was
+  already open across a restart.
+- **`presence_engine.py`**: `_restore_all_schedule()`'s "Heating resumed — welcome home" event-log
+  line fired unconditionally, even when called with `notify=False` — so `_check_initial_presence()`
+  (which runs on every single startup while someone is home, i.e. almost always) logged a "welcome
+  home" event that never happened, on every restart. Now gated behind `notify` like the push
+  notification already was (B20).
+- **`presence_engine.py`**: `_async_handle_alarm_change()` reacted to ANY alarm state with no
+  regard for what it transitioned from — so a house that happened to be armed-away (or disarmed)
+  across a restart got a false "Heating off — alarm armed" / "Heating resumed — alarm disarmed"
+  log entry *and push notification* every time. Added the same known-old-state guard as the window
+  sensor fix, plus a new silent `_check_initial_alarm()` (mirrors `_check_initial_presence()`) so
+  an already-armed-away house is still correctly synced to away mode at startup — just without
+  logging a fake event for it. `_set_all_away()` gained a `log: bool = True` parameter to support
+  this silent path.
+- **`presence_engine.py`**: `_async_handle_person_change()` gained the same known-old-state guard,
+  for consistency (a person entity's own restart-time state artifact could otherwise start/cancel
+  an internal grace timer for no reason, even though idempotency elsewhere mostly absorbed the
+  visible symptom).
+
+No test files reference any of the changed functions (`tests/components/heat_manager/` contains
+only `test_select.py`), so no test updates were needed.
+
 ## [0.22.0] — 2026-09-11
 
 Removes the "Energi i dag" (waste/savings/efficiency) feature entirely, at the user's request:
