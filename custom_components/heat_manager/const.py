@@ -58,7 +58,6 @@ CONF_NOTIFY_PRESENCE = "notify_presence"
 CONF_NOTIFY_WINDOWS = "notify_windows"
 CONF_NOTIFY_PREHEAT = "notify_preheat"
 CONF_NOTIFY_WINDOW_WARNING_30 = "notify_window_warning_30"
-CONF_ENERGY_TRACKING = "energy_tracking"
 
 # ── PID controller ───────────────────────────────────────────────────────────
 
@@ -70,9 +69,6 @@ CONF_PID_ENABLED = "pid_enabled"
 
 # Per-room Netatmo HomeKit local entity (optional)
 CONF_HOMEKIT_CLIMATE_ENTITY = "homekit_climate_entity"
-
-# Per-room rated wattage for energy calculations
-CONF_ROOM_WATTAGE = "room_wattage"
 
 # Per-room TRV type
 CONF_TRV_TYPE = "trv_type"
@@ -209,11 +205,10 @@ DEFAULT_PID_KP: float = 0.5
 DEFAULT_PID_KI: float = 0.02
 DEFAULT_PID_KD: float = 0.0
 DEFAULT_TRV_MAX_TEMP: float = 28.0
-DEFAULT_ROOM_WATTAGE: int = 1000  # watts — typical panel radiator
 
 # CO₂ threshold — above this level an open window is considered intentional
 # ventilation rather than pure heat waste.  Used by WindowEngine to select
-# notification wording and by WasteCalculator to reduce waste attribution.
+# notification wording.
 # Can be overridden per room via CONF_CO2_THRESHOLD.
 DEFAULT_CO2_VENTILATION_THRESHOLD: int = 900  # ppm
 

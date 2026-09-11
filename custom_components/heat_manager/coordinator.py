@@ -9,14 +9,13 @@ Central hub that:
 
 Phase 3 additions:
 - SeasonEngine: resolves AUTO → effective WINTER/SUMMER
-- WasteCalculator: proper energy waste/savings tracking
 - PreheatEngine: travel_time based pre-heat
 - log_event(): internal event log for History tab in sidebar panel
 - effective_season property: resolved season regardless of manual/auto
 
 v0.2.9 additions:
 - CONF_OUTDOOR_TEMP_SENSOR: local sensor overrides weather entity temperature
-- CONF_CO2_SENSOR per room: get_room_co2() helper for WindowEngine/WasteCalculator
+- CONF_CO2_SENSOR per room: get_room_co2() helper for WindowEngine
 - CONF_ROOM_TEMP_SENSOR per room: get_room_current_temp() feeds PID with an
   independent probe instead of the TRV's own (radiator-biased) sensor
 
@@ -97,7 +96,6 @@ from .engine.schedule_engine import ScheduleEngine
 from .engine.season_engine import SeasonEngine
 from .engine.sync_engine import SyncEngine
 from .engine.valve_protection_engine import ValveProtectionEngine
-from .engine.waste_calculator import WasteCalculator
 from .engine.window_engine import WindowEngine
 from .migrations import migrate_room_to_trvs
 
@@ -183,9 +181,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.effective_season: EffectiveSeason = EffectiveSeason.ACTIVE
         self.outdoor_temperature: float | None = None
         self._event_log: deque[dict[str, Any]] = deque(maxlen=_MAX_EVENT_LOG)
-        # B3/B7: Persistent energy history — keyed by ISO date string.
-        self._energy_history: dict[str, dict] = self._load_energy_history()
-        self._energy_history_date: str = ""  # tracks last persist date
+        # Persist the event log once a day (on date change) and on shutdown,
+        # so it survives an unclean HA restart. See _persist_event_log_snapshot().
+        self._event_log_persist_date: str = ""
         # B18 Fase 3: per-room group toggle (RoomGroupToggleSwitch) — only
         # meaningful for a room with 2+ physical TRVs; default True (grouped).
         # Read by get_room_trvs() below, so it must exist before SyncEngine
@@ -227,7 +225,6 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.presence_engine = PresenceEngine(self)
         self.window_engine = WindowEngine(self)
         self.season_engine = SeasonEngine(self)
-        self.waste_calculator = WasteCalculator(self)
         self.preheat_engine = PreheatEngine(self)
         self.valve_protection = ValveProtectionEngine(self)
         self.calibration_engine = CalibrationEngine(self)
@@ -925,28 +922,6 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Isolated access to season_engine — avoids direct engine coupling in platforms."""
         return self.season_engine.days_above_threshold
 
-    # ── Energy helpers ────────────────────────────────────────────────────────
-
-    @property
-    def energy_wasted_today(self) -> float:
-        return self.waste_calculator.energy_wasted_today
-
-    @property
-    def energy_saved_today(self) -> float:
-        return self.waste_calculator.energy_saved_today
-
-    @property
-    def efficiency_score(self) -> int:
-        return self.waste_calculator.efficiency_score
-
-    @property
-    def last_waste_time(self) -> str | None:
-        return self.waste_calculator.last_waste_time
-
-    @property
-    def last_saved_time(self) -> str | None:
-        return self.waste_calculator.last_saved_time
-
     # ── Boost (shared by heat_manager.boost_start/stop service and
     # ── heat_manager/boost_start/stop WS command) ─────────────────────
 
@@ -1168,47 +1143,21 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         _LOGGER.debug("Event logged: %s (%s)", description, reason)
 
-    # ── Energy history persistence (B3/B7) ──────────────────────────────────
+    # ── Event log persistence ────────────────────────────────────────────────
 
-    def _load_energy_history(self) -> dict[str, dict]:
-        """Load energy history snapshot from entry.options (survives HA restarts).
+    def _persist_event_log_snapshot(self) -> None:
+        """Persist the event log snapshot into entry.options (survives HA restarts).
 
-        B13 fix: drop any "<date>_partial" keys on load. These are written by
-        async_shutdown() as a best-effort snapshot of the in-progress day and
-        are superseded by the proper midnight snapshot — left as-is they
-        would accumulate indefinitely as stale entries.
+        Called once a day (on date change) and on shutdown, so the log isn't
+        lost on an unclean restart.
         """
         import json
 
-        raw = self.entry.options.get("_energy_history", "{}")
-        try:
-            history = json.loads(raw)
-        except (ValueError, TypeError):
-            return {}
-        return {k: v for k, v in history.items() if not k.endswith("_partial")}
-
-    def _persist_energy_snapshot(self) -> None:
-        """Save yesterday's energy totals into persistent history. Called at midnight."""
-        import datetime as _dt
-        import json
-
-        from homeassistant.util.dt import now as ha_now
-
-        yesterday = (ha_now().date() - _dt.timedelta(days=1)).isoformat()
-        self._energy_history[yesterday] = {
-            "saved": round(self.energy_saved_today, 3),
-            "wasted": round(self.energy_wasted_today, 3),
-        }
-        if len(self._energy_history) > 30:
-            oldest = sorted(self._energy_history.keys())[0]
-            del self._energy_history[oldest]
-
         event_snap = list(self._event_log)[:50]
         options = dict(self.entry.options)
-        options["_energy_history"] = json.dumps(self._energy_history)
         options["_event_log_snap"] = json.dumps(event_snap)
         self.hass.config_entries.async_update_entry(self.entry, options=options)
-        _LOGGER.debug("Energy history persisted for %s", yesterday)
+        _LOGGER.debug("Event log persisted (%d entries)", len(event_snap))
 
     def _restore_event_log(self) -> None:
         """Restore event log from persisted snapshot on startup (B10)."""
@@ -1384,12 +1333,6 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("window_engine tick failed: %s", err)
 
         try:
-            await self.waste_calculator.async_tick()
-        # broad-except-rationale: isolation boundary, see async_tick docstring above
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("waste_calculator tick failed: %s", err)
-
-        try:
             await self.preheat_engine.async_tick()
         # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001
@@ -1431,13 +1374,13 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("room override expiry check failed: %s", err)
 
-        # B3/B7: persist energy snapshot at midnight
+        # Persist the event log once a day, on date change.
         from homeassistant.util.dt import now as ha_now
 
         today_str = ha_now().date().isoformat()
-        if self._energy_history_date and self._energy_history_date != today_str:
-            self._persist_energy_snapshot()
-        self._energy_history_date = today_str
+        if self._event_log_persist_date and self._event_log_persist_date != today_str:
+            self._persist_event_log_snapshot()
+        self._event_log_persist_date = today_str
 
         return {
             "controller_state": self.controller.state,
@@ -1446,9 +1389,6 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "outdoor_temperature": self.outdoor_temperature,
             "room_states": dict(self.room_states),
             "pause_remaining_minutes": self.pause_remaining_minutes,
-            "energy_wasted_today": self.energy_wasted_today,
-            "energy_saved_today": self.energy_saved_today,
-            "efficiency_score": self.efficiency_score,
         }
 
     def get_room_target_temp(self, room: dict[str, Any]) -> float:
@@ -1788,29 +1728,16 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("House Voice: failed to trigger '%s': %s", event_id, err)
 
     async def async_shutdown(self) -> None:
-        """Persist energy/event snapshot and shut down all engines cleanly."""
-        # Persist today's energy + event log so data survives HA restart.
-        # B13 fix: also stash a "<today>_partial" snapshot of the in-progress
-        # day's totals — _persist_energy_snapshot() only saves *yesterday's*
-        # totals, so without this, energy accrued since the last midnight
-        # tick is lost on an unexpected shutdown/restart.
+        """Persist the event log snapshot and shut down all engines cleanly."""
+        # Persist the event log so it survives an unexpected HA restart.
         try:
-            from homeassistant.util.dt import now as ha_now
-
-            if self._energy_history_date:
-                today_str = ha_now().date().isoformat()
-                self._energy_history[f"{today_str}_partial"] = {
-                    "saved": round(self.energy_saved_today, 3),
-                    "wasted": round(self.energy_wasted_today, 3),
-                }
-            self._persist_energy_snapshot()
+            self._persist_event_log_snapshot()
         # broad-except-rationale: best-effort; must not block the engine shutdowns that follow
         except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("Energy persist on shutdown failed: %s", err)
+            _LOGGER.debug("Event log persist on shutdown failed: %s", err)
         await self.presence_engine.async_shutdown()
         await self.window_engine.async_shutdown()
         await self.season_engine.async_shutdown()
-        await self.waste_calculator.async_shutdown()
         await self.preheat_engine.async_shutdown()
         await self.valve_protection.async_shutdown()
         await self.calibration_engine.async_shutdown()

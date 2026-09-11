@@ -4,9 +4,6 @@ Heat Manager — Sensor platform
 Entities
 --------
 sensor.heat_manager_pause_remaining          Minutes left in pause
-sensor.heat_manager_energy_wasted_today      kWh wasted today (WasteCalculator)
-sensor.heat_manager_energy_saved_today       kWh saved today (WasteCalculator)
-sensor.heat_manager_efficiency_score         Daily score 0–100 (WasteCalculator)
 sensor.heat_manager_<room>_state             Per-room state string
 sensor.heat_manager_<room>_window_duration   Minutes window open today (diagnostic)
 
@@ -79,9 +76,6 @@ async def async_setup_entry(
 
     entities: list[SensorEntity] = [
         PauseRemainingSensor(coordinator, entry),
-        EnergyWastedSensor(coordinator, entry),
-        EnergySavedSensor(coordinator, entry),
-        EfficiencyScoreSensor(coordinator, entry),
     ]
 
     for room in coordinator.rooms:
@@ -343,85 +337,6 @@ class PauseRemainingSensor(CoordinatorEntity, SensorEntity):
         return self.coordinator.pause_remaining_minutes
 
 
-class EnergyWastedSensor(CoordinatorEntity, SensorEntity):
-    """kWh wasted today — windows open while heating runs.
-
-    state_class = TOTAL_INCREASING (not MEASUREMENT — HA rejects that
-    combination outright for device_class ENERGY, which only allows None,
-    TOTAL or TOTAL_INCREASING). This resets to 0 at midnight; HA's
-    statistics engine treats a drop like that as a normal meter reset for
-    TOTAL_INCREASING sensors, which is exactly this value's shape, so no
-    last_reset bookkeeping (TOTAL's requirement) is needed.
-    """
-
-    _attr_has_entity_name = True
-    _attr_translation_key = "energy_wasted_today"
-    _attr_native_unit_of_measurement = "kWh"
-    _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
-    _attr_suggested_display_precision = 2
-    _attr_entity_registry_enabled_default = True
-
-    def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_energy_wasted_today"
-        self._attr_device_info = coordinator.global_device_info()
-
-    @property
-    def native_value(self) -> float:
-        return self.coordinator.energy_wasted_today
-
-
-class EnergySavedSensor(CoordinatorEntity, SensorEntity):
-    """kWh saved today — away mode during expected heating hours.
-
-    state_class = TOTAL_INCREASING — resets at midnight, same reasoning as
-    EnergyWastedSensor above.
-    """
-
-    _attr_has_entity_name = True
-    _attr_translation_key = "energy_saved_today"
-    _attr_native_unit_of_measurement = "kWh"
-    _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
-    _attr_suggested_display_precision = 2
-    _attr_entity_registry_enabled_default = True
-
-    def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_energy_saved_today"
-        self._attr_device_info = coordinator.global_device_info()
-
-    @property
-    def native_value(self) -> float:
-        return self.coordinator.energy_saved_today
-
-
-class EfficiencyScoreSensor(CoordinatorEntity, SensorEntity):
-    """Daily efficiency score 0–100."""
-
-    _attr_has_entity_name = True
-    _attr_translation_key = "efficiency_score"
-    _attr_native_unit_of_measurement = "%"
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_suggested_display_precision = 0
-    # 2026-09 frontend-parity fix: was off-by-default, so neither UI could
-    # show it without the user manually enabling it first. Same policy
-    # shift already applied to the v0.15.0 mirror sensors — the point of
-    # exposing this at all is to be visible without a manual step.
-    _attr_entity_registry_enabled_default = True
-
-    def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_efficiency_score"
-        self._attr_device_info = coordinator.global_device_info()
-
-    @property
-    def native_value(self) -> int:
-        return self.coordinator.efficiency_score
-
-
 # ── Per-room sensors ──────────────────────────────────────────────────────────
 
 
@@ -511,8 +426,7 @@ class RoomWindowDurationSensor(CoordinatorEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    # 2026-09 frontend-parity fix: was off-by-default (see
-    # EfficiencyScoreSensor above for the same reasoning) — now surfaced in
+    # 2026-09 frontend-parity fix: was off-by-default — now surfaced in
     # ws_get_state()/panel.js and discovered by card.js the same way the
     # v0.15.0 mirrors are, neither of which is possible while disabled.
     _attr_entity_registry_enabled_default = True
@@ -589,7 +503,7 @@ class RoomPidPowerSensor(CoordinatorEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_suggested_display_precision = 0
-    # 2026-09 frontend-parity fix: see EfficiencyScoreSensor above.
+    # 2026-09 frontend-parity fix: was off-by-default (see v0.15.0 mirrors).
     _attr_entity_registry_enabled_default = True
 
     def __init__(
@@ -643,7 +557,7 @@ class RoomCalibrationOffsetSensor(CoordinatorEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_suggested_display_precision = 1
-    # 2026-09 frontend-parity fix: see EfficiencyScoreSensor above.
+    # 2026-09 frontend-parity fix: was off-by-default (see v0.15.0 mirrors).
     _attr_entity_registry_enabled_default = True
 
     def __init__(

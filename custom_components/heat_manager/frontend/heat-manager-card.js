@@ -2,6 +2,15 @@
 // Version: 0.17.2 (comment log below is stale — see manifest.json for the
 // actual running version. See CHANGELOG.md for everything since v0.17.2.)
 //
+// v0.22.0 (2026-09-11 — "Energi i dag" removed):
+//   • The Hub-level "Energi i dag" section (added in v0.17.2) is removed
+//     entirely, at the user's request — see manifest.json/CHANGELOG.md for
+//     the full reasoning (the underlying WasteCalculator model assumes an
+//     electric radiator's rated wattage, which doesn't apply to a
+//     district-heating/fjernvarme system). Removed _hubEnergyWasted()/
+//     _hubEnergySaved()/_hubEfficiency(), _patchEnergy(), the energyHTML
+//     block in _cardHTML(), and the related CSS.
+//
 // v0.21.1 (2026-09-11 mobil-sætpunkt fix):
 //   • Fixed the "known still-open item" from v0.21.0 below: room setpoint
 //     display now prefers Heat Manager's own resolved target_temp (same
@@ -418,10 +427,6 @@ class HeatManagerCard extends HTMLElement {
     }
     return null;
   }
-  _hubEnergyWasted() { return this._hubMirrorNumeric("Energy wasted today"); }
-  _hubEnergySaved()  { return this._hubMirrorNumeric("Energy saved today"); }
-  _hubEfficiency()   { return this._hubMirrorNumeric("Efficiency score"); }
-
   // 2026-09 audit fix (UI/UX #8) mobile follow-up: minimal per-room health
   // check using only what this card's own config actually stores per room
   // — climate_entity. Unlike the panel (which gets a full
@@ -657,37 +662,6 @@ class HeatManagerCard extends HTMLElement {
     }
   }
 
-  // 2026-09 frontend-parity fix: Hub-level energy/efficiency — patches the
-  // section built by _cardHTML()'s energyHTML in place. If the section
-  // doesn't exist yet (none of the 3 hub sensors were available at the
-  // last full render — e.g. right after HA restart, before the first
-  // coordinator tick), this intentionally does nothing rather than trying
-  // to inject a whole new section-box surgically; it appears on the next
-  // full _render() (boost start/stop, tab/config changes, etc.), same as
-  // the rooms-section's own all-or-nothing rendering already works.
-  _patchEnergy() {
-    const root = this.shadowRoot;
-    const section = root?.querySelector("#energy-section");
-    if (!section) return;
-    const hubWasted = this._hubEnergyWasted();
-    const hubSaved  = this._hubEnergySaved();
-    const hubEff    = this._hubEfficiency();
-
-    const badge = section.querySelector("#energy-badge");
-    if (badge) {
-      badge.style.display = hubEff != null ? "inline-flex" : "none";
-      if (hubEff != null) badge.textContent = `${Math.round(hubEff)}% effektiv`;
-    }
-    const wastedStat = section.querySelector("#energy-wasted-stat");
-    const wastedVal  = section.querySelector("#energy-wasted-val");
-    if (wastedStat) wastedStat.style.display = hubWasted != null ? "block" : "none";
-    if (wastedVal && hubWasted != null) wastedVal.textContent = `${hubWasted.toFixed(2)} kWh`;
-    const savedStat = section.querySelector("#energy-saved-stat");
-    const savedVal  = section.querySelector("#energy-saved-val");
-    if (savedStat) savedStat.style.display = hubSaved != null ? "block" : "none";
-    if (savedVal && hubSaved != null) savedVal.textContent = `${hubSaved.toFixed(2)} kWh`;
-  }
-
   // ── CSS ───────────────────────────────────────────────────────────────────
 
   _css() {
@@ -906,21 +880,6 @@ class HeatManagerCard extends HTMLElement {
         font-family: 'DM Mono', monospace; display: none;
       }
 
-      /* ── Energy (2026-09 frontend-parity fix — Hub-level, mobile) ── */
-      .energy-row {
-        display: flex; gap: 16px;
-        padding: calc(10px * var(--hm-scale-h)) 16px calc(12px * var(--hm-scale-h));
-      }
-      .energy-stat { flex: 1; text-align: center; }
-      .energy-stat-val {
-        font-size: calc(14px * var(--hm-scale-h)); font-weight: 700;
-        font-family: 'DM Mono', monospace;
-      }
-      .energy-stat-lbl {
-        font-size: 9px; color: var(--sub); text-transform: uppercase;
-        letter-spacing: 0.4px; margin-top: 2px;
-      }
-
       /* ── Room cards ──
          2-column grid — grid-auto-flow is row-wise, so 5 rooms naturally
          land as 3 (row 1+2 left+right, row 2 left) / 2 (row 3 would-be),
@@ -1108,25 +1067,6 @@ class HeatManagerCard extends HTMLElement {
     // missing at the card level before this.
     const cloudStatus = this._netatmoCloudStatusHTML();
 
-    // 2026-09 frontend-parity fix: Hub-level energy/efficiency, discovered
-    // the same friendly-name way as the per-room mirrors — see
-    // _hubMirrorNumeric() above. Only ever configured once (global device),
-    // so no room-name/index parameter needed.
-    const hubWasted = this._hubEnergyWasted();
-    const hubSaved  = this._hubEnergySaved();
-    const hubEff    = this._hubEfficiency();
-    const energyHTML = (hubWasted != null || hubSaved != null || hubEff != null) ? `
-      <div class="section-box" id="energy-section">
-        <div class="section-header">
-          <div class="section-title">Energi i dag</div>
-          <div class="section-badge" id="energy-badge" style="background:rgba(249,115,22,0.12);color:var(--amber);display:${hubEff != null ? "inline-flex" : "none"}">${hubEff != null ? Math.round(hubEff) : 0}% effektiv</div>
-        </div>
-        <div class="energy-row" id="energy-row">
-          <div class="energy-stat" id="energy-wasted-stat" style="display:${hubWasted != null ? "block" : "none"}"><div class="energy-stat-val" id="energy-wasted-val" style="color:var(--red)">${hubWasted != null ? hubWasted.toFixed(2) : "0.00"} kWh</div><div class="energy-stat-lbl">Spildt</div></div>
-          <div class="energy-stat" id="energy-saved-stat" style="display:${hubSaved != null ? "block" : "none"}"><div class="energy-stat-val" id="energy-saved-val" style="color:var(--green)">${hubSaved != null ? hubSaved.toFixed(2) : "0.00"} kWh</div><div class="energy-stat-lbl">Sparet</div></div>
-        </div>
-      </div>` : "";
-
     return `
       <div class="card-header">
         <div class="header-icon">🔥</div>
@@ -1190,8 +1130,6 @@ class HeatManagerCard extends HTMLElement {
           <span id="boost-countdown" class="boost-countdown"></span>
         </div>
       </div>
-
-      ${energyHTML}
 
       ${rooms.length ? `
       <div class="section-box rooms-section">
@@ -1274,7 +1212,6 @@ class HeatManagerCard extends HTMLElement {
     }
 
     this._patchBoost();
-    this._patchEnergy();  // 2026-09 frontend-parity fix
 
     const rooms = this._config.rooms ?? [];
     rooms.forEach((room, i) => {

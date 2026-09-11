@@ -87,11 +87,6 @@ async def async_get_config_entry_diagnostics(
             "effective": coordinator.effective_season.value,
             "days_above_threshold": season.days_above_threshold,
         },
-        "energy": {
-            "wasted_today_kwh": coordinator.energy_wasted_today,
-            "saved_today_kwh": coordinator.energy_saved_today,
-            "efficiency_score": coordinator.efficiency_score,
-        },
         "presence": {
             "someone_home": coordinator.someone_home(),
             "any_window_open": coordinator.any_window_open(),

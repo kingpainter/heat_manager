@@ -23,7 +23,6 @@ from .const import (
     CONF_HUMIDITY_SENSOR,
     CONF_ROOM_TEMP_SENSOR,
     CONF_WINDOW_SENSORS,
-    RoomState,
 )
 from .coordinator import HeatManagerCoordinator
 
@@ -40,7 +39,6 @@ async def async_setup_entry(
     coordinator: HeatManagerCoordinator = entry.runtime_data
     entities: list[BinarySensorEntity] = [
         AnyWindowOpenSensor(coordinator, entry),
-        HeatingWastedSensor(coordinator, entry),
         CloudAvailableSensor(coordinator, entry),
     ]
     for room in coordinator.rooms:
@@ -77,37 +75,6 @@ class AnyWindowOpenSensor(CoordinatorEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         return self.coordinator.any_window_open()
-
-
-class HeatingWastedSensor(CoordinatorEntity, BinarySensorEntity):
-    """
-    True when a window is open AND the climate entity is actively heating.
-    Indicates energy waste in real time.
-    """
-
-    _attr_has_entity_name = True
-    _attr_translation_key = "heating_wasted"
-    _attr_device_class = BinarySensorDeviceClass.HEAT
-    _attr_entity_registry_enabled_default = False  # diagnostic — off by default
-
-    def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_heating_wasted"
-        self._attr_device_info = coordinator.global_device_info()
-
-    @property
-    def is_on(self) -> bool:
-        for room in self.coordinator.rooms:
-            room_name = room.get("room_name", "")
-            climate_id = self.coordinator.get_climate_entity(room_name) or ""
-            if not climate_id:
-                continue
-            if self.coordinator.get_room_state(room_name) != RoomState.WINDOW_OPEN:
-                continue
-            cs = self.coordinator.hass.states.get(climate_id)
-            if cs and cs.attributes.get("hvac_action") == "heating":
-                return True
-        return False
 
 
 class CloudAvailableSensor(CoordinatorEntity, BinarySensorEntity):

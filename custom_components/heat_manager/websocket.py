@@ -5,9 +5,7 @@ Registers WS commands used by the sidebar panel:
   heat_manager/get_state    → full state snapshot
   heat_manager/get_history  → event log for the last N days
 
-Phase 3: energy values now come directly from coordinator.waste_calculator.
-         Event log reads from coordinator._event_log (deque, newest first).
-         Daily energy chart shows live today + zeros for past days.
+Event log reads from coordinator._event_log (deque, newest first).
 
 v0.4.2: _get_entry() uses entry.runtime_data exclusively — no hass.data lookup.
 B15: room payload now includes "trv_type" (netatmo/zigbee) so the panel can
@@ -669,12 +667,7 @@ async def ws_get_state(
         # was never surfaced to the panel/card, so an open window's
         # heat-reduction effect had no visible confirmation in the UI.
         "open_windows": coordinator.window_engine.get_open_windows(),
-        "energy_saved_today": coordinator.energy_saved_today,
-        "energy_wasted_today": coordinator.energy_wasted_today,
-        "efficiency_score": coordinator.efficiency_score,
         "boost_remaining_minutes": coordinator.boost_remaining_minutes,
-        "last_waste_time": coordinator.last_waste_time,
-        "last_saved_time": coordinator.last_saved_time,
         "calendar_season": coordinator.calendar_season.value,
         "auto_off_days": coordinator.days_above_threshold,
         "auto_off_days_required": cfg.get(CONF_AUTO_OFF_TEMP_DAYS, 5),
@@ -711,7 +704,7 @@ async def ws_get_history(
     connection: websocket_api.ActiveConnection,
     msg: dict,
 ) -> None:
-    """Return event log and daily energy chart data."""
+    """Return event log data."""
     entry = _get_entry(hass)
     if entry is None:
         connection.send_error(msg["id"], "not_found", "Heat Manager is not configured")
@@ -721,13 +714,11 @@ async def ws_get_history(
     days = msg.get("days", 7)
 
     events = _get_event_log(coordinator, days)
-    daily = _build_daily_energy(coordinator, days)
 
     connection.send_result(
         msg["id"],
         {
             "events": events,
-            "days": daily,
         },
     )
 
@@ -837,38 +828,3 @@ def _get_event_log(coordinator: Any, days: int) -> list[dict]:
         except (ValueError, TypeError):
             result.append(e)
     return result[:50]
-
-
-def _build_daily_energy(coordinator: Any, days: int) -> list[dict]:
-    """B3/B7: Today from live WasteCalculator; past days from persistent snapshot.
-
-    Energy snapshots are saved to coordinator._energy_history (dict keyed by
-    ISO date string) each midnight via _persist_energy_snapshot(). This gives
-    meaningful historical bars without requiring a database.
-    """
-    from homeassistant.util.dt import now as ha_now
-
-    today = ha_now().date()
-    day_labels = ["man", "tir", "ons", "tor", "fre", "lør", "søn"]
-    history: dict = getattr(coordinator, "_energy_history", {})
-
-    result = []
-    for i in range(days - 1, -1, -1):
-        d = today - timedelta(days=i)
-        is_today = i == 0
-        if is_today:
-            saved = round(coordinator.energy_saved_today, 3)
-            wasted = round(coordinator.energy_wasted_today, 3)
-        else:
-            snap = history.get(d.isoformat(), {})
-            saved = round(float(snap.get("saved", 0.0)), 3)
-            wasted = round(float(snap.get("wasted", 0.0)), 3)
-        result.append(
-            {
-                "label": day_labels[d.weekday()],
-                "date": d.isoformat(),
-                "saved": saved,
-                "wasted": wasted,
-            }
-        )
-    return result

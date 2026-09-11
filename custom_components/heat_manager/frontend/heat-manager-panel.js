@@ -3,6 +3,28 @@
 // actual running version; panel.py reads it from there at runtime, not
 // from this comment. See CHANGELOG.md for everything since v0.17.2.)
 //
+// v0.22.0 (2026-09-11 — "Energi i dag" removed):
+//   • The waste-calculator-based "Energi i dag" section (spildt/sparet kWh,
+//     efficiency ring) and the Historik tab's "Energi — sidste 7 dage" bar
+//     chart are removed entirely, at the user's request: the whole model
+//     estimates kWh from an assumed electrical radiator wattage
+//     (CONF_ROOM_WATTAGE), which has no meaning for a district-heating
+//     (fjernvarme) system with no water/heat metering — the numbers were
+//     never real. Removed backend-side too: WasteCalculator, its 5
+//     coordinator properties/tick/shutdown hooks, the 3 sensor entities
+//     (EnergyWastedSensor/EnergySavedSensor/EfficiencyScoreSensor), the
+//     HeatingWastedSensor binary sensor, CONF_ENERGY_TRACKING/
+//     CONF_ROOM_WATTAGE config, and the ws_get_state()/get_history() fields.
+//     engine/waste_calculator.py is left in place but fully disconnected —
+//     safe to delete manually.
+//   • Fixed a third instance of the display-vs-[hidden] bug (see v0.21.0
+//     below): #remote-last-action-box (the "📡" pill) used an inline
+//     style="display:flex", which beats every stylesheet rule including the
+//     [hidden] override added in v0.21.0 — so it was PERMANENTLY visible as
+//     an empty pill whenever there was no recent remote-control action.
+//     Moved the layout into a .remote-last-action-box class covered by the
+//     same [hidden] override.
+//
 // v0.21.0 (2026-09-11 statustjek):
 //   • Fixed a real, confirmed-by-screenshot bug: #cloud-chip, #health-chip
 //     and #ws-error-chip all set `display` unconditionally in their own
@@ -346,7 +368,6 @@ class HeatManagerPanel extends HTMLElement {
       outdoor_temp: null, rooms: [], persons: [],
       auto_off_reason: "none", auto_off_days: 0,
       auto_off_threshold: 18, auto_off_days_required: 5,
-      energy_saved_today: null, energy_wasted_today: null, efficiency_score: null,
     };
   }
 
@@ -1086,11 +1107,9 @@ class HeatManagerPanel extends HTMLElement {
       const mm = String(this._historyFetchedAt.getMinutes()).padStart(2,"0");
       tsEl.textContent = `Opdateret kl. ${hh}:${mm}`;
     }
-    // v0.3.9: keep filter chip active-state and energy chart in sync.
+    // v0.3.9: keep filter chip active-state in sync.
     const filterRow = root.querySelector("#hist-filter-row");
     if (filterRow) filterRow.innerHTML = this._historyFilterChipsHTML();
-    const chartEl = root.querySelector("#hist-energy-chart");
-    if (chartEl) chartEl.innerHTML = this._energyChartHTML();
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -1278,18 +1297,6 @@ class HeatManagerPanel extends HTMLElement {
       return (Math.round(room.target_temp * 10) / 10) + "°C";
     }
     return room?.climate_entity ? this._climateSetpoint(room.climate_entity) : null;
-  }
-
-  // Format an ISO timestamp to a short Danish clock string, e.g. "kl. 14:37".
-  // Returns null if ts is falsy.
-  _fmtEventTime(ts) {
-    if (!ts) return null;
-    try {
-      const d = new Date(ts);
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mm = String(d.getMinutes()).padStart(2, "0");
-      return `kl. ${hh}:${mm}`;
-    } catch { return null; }
   }
 
   // ── CSS ───────────────────────────────────────────────────────────────────
@@ -1501,7 +1508,18 @@ class HeatManagerPanel extends HTMLElement {
          all the time, defeating the entire point of the 2026-09-07 UI/UX-2
          fix. This is the missing piece that actually lets hidden hide them
          again. See audit/heat_manager_status_check_2026-09-11.md. */
-      .cloud-chip[hidden], .ws-error-chip[hidden] { display: none; }
+      .cloud-chip[hidden], .ws-error-chip[hidden], .remote-last-action-box[hidden] { display: none; }
+
+      /* 2026-09-11 fix: same bug, third instance — this box used an inline
+         style="display:flex" instead of a stylesheet rule, which is even
+         more severe than the class-based cases above (an inline style beats
+         ALL stylesheet rules, not just less-specific ones), so it was
+         PERMANENTLY visible as an empty pill (just the 📡 icon) whenever
+         there was no recent remote-control action. Moved the layout into
+         this class so the [hidden] override above can actually hide it. */
+      .remote-last-action-box {
+        padding: 10px 16px; display: flex; align-items: center; gap: 8px;
+      }
 
       /* Manual TRV control */
       .room-manual {
@@ -1809,33 +1827,6 @@ class HeatManagerPanel extends HTMLElement {
       .qs-value { font-size: 16px; font-weight: 700; font-family: 'DM Mono', monospace; line-height: 1; }
       .qs-label { font-size: 9px; color: var(--sub); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
 
-      /* ── Energi i dag (v0.3.9) ── */
-      .energy-today-grid {
-        display: flex; align-items: center; justify-content: space-between;
-        gap: 12px; padding: 4px 16px 18px; flex-wrap: wrap;
-      }
-      .energy-stat { text-align: center; flex: 1; min-width: 90px; }
-      .energy-stat-icon { font-size: 14px; margin-bottom: 2px; }
-      .energy-stat-val {
-        font-size: 17px; font-weight: 700; font-family: 'DM Mono', monospace; line-height: 1.2;
-      }
-      .energy-stat-unit { font-size: 10px; font-weight: 500; color: var(--sub); }
-      .energy-stat-lbl { font-size: 10px; color: var(--sub); margin-top: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
-      .energy-eff-ring-wrap { position: relative; width: 64px; height: 64px; flex-shrink: 0; }
-      .eff-ring-svg { width: 64px; height: 64px; transform: rotate(-90deg); }
-      .eff-ring-bg   { fill: none; stroke: var(--div); stroke-width: 8; }
-      .eff-ring-fill {
-        fill: none; stroke-width: 8; stroke-linecap: round;
-        transition: stroke .4s, stroke-dashoffset .6s cubic-bezier(.4,0,.2,1);
-      }
-      .eff-ring-center {
-        position: absolute; inset: 0;
-        display: flex; flex-direction: column;
-        align-items: center; justify-content: center;
-      }
-      .eff-ring-val { font-size: 16px; font-weight: 700; font-family: 'DM Mono', monospace; line-height: 1; }
-      .eff-ring-lbl { font-size: 8px; color: var(--sub); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 1px; }
-
       /* ── Room cards (grid) ── */
       .rooms-grid {
         display: grid; grid-template-columns: repeat(auto-fill, minmax(240px,1fr));
@@ -1964,17 +1955,6 @@ class HeatManagerPanel extends HTMLElement {
         opacity: 0; transition: opacity 0.3s;
       }
       .cfg-save-ok.visible { opacity: 1; }
-
-      /* ── Energy chart ── */
-      .chart-area  { padding: 12px 16px 6px; }
-      .chart-bars  { display: flex; align-items: flex-end; gap: 5px; height: 72px; }
-      .bar-group   { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px; }
-      .bar-saved   { background: var(--green); border-radius: 3px 3px 0 0; width: 100%; min-height: 2px; }
-      .bar-wasted  { background: var(--amber); border-radius: 3px 3px 0 0; width: 100%; min-height: 2px; }
-      .bar-day     { font-size: 9px; color: var(--sub); margin-top: 3px; }
-      .chart-legend { display: flex; gap: 14px; margin-top: 10px; padding: 0 0 8px; }
-      .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--sub); }
-      .legend-dot  { width: 8px; height: 8px; border-radius: 2px; }
 
       /* ── Auto-off status chips ── */
       .autooff-grid {
@@ -2426,32 +2406,6 @@ class HeatManagerPanel extends HTMLElement {
     return `<div id="autooff-wrapper" class="section-box">${this._autoOffInnerHTML()}</div>`;
   }
 
-  _energyChartHTML() {
-    const days = this._history?.days ?? this._fakeDays();
-    const max  = Math.max(...days.map(d => (d.saved ?? 0) + (d.wasted ?? 0)), 0.01);
-    const bars = days.map(d => {
-      const sh = Math.round(((d.saved  ?? 0) / max) * 68);
-      const wh = Math.round(((d.wasted ?? 0) / max) * 68);
-      return `<div class="bar-group">
-        <div class="bar-saved"  style="height:${sh}px"></div>
-        <div class="bar-wasted" style="height:${wh}px"></div>
-        <div class="bar-day">${this._esc(d.label ?? "")}</div>
-      </div>`;
-    }).join("");
-    return `
-      <div class="chart-area">
-        <div class="chart-bars">${bars}</div>
-        <div class="chart-legend">
-          <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div>Sparet</div>
-          <div class="legend-item"><div class="legend-dot" style="background:var(--amber)"></div>Spildt</div>
-        </div>
-      </div>`;
-  }
-
-  _fakeDays() {
-    return ["man","tir","ons","tor","fre","lør","søn"].map(l => ({ label:l, saved:0, wasted:0 }));
-  }
-
   _historyRowsHTML() {
     const all = this._history?.events ?? [];
     const events = this._historyFilter === "all"
@@ -2512,8 +2466,7 @@ class HeatManagerPanel extends HTMLElement {
     const rlaText = this._remoteLastActionHTML();
     return `
       ${this._controllerSectionHTML()}
-      <div id="remote-last-action-box" class="section-box"
-        style="padding:10px 16px;display:flex;align-items:center;gap:8px;" ${rlaText ? "" : "hidden"}>
+      <div id="remote-last-action-box" class="section-box remote-last-action-box" ${rlaText ? "" : "hidden"}>
         <span style="font-size:16px">📡</span>
         <span class="rla-text" style="font-size:12px;color:var(--sub)">${rlaText}</span>
       </div>
@@ -2557,42 +2510,7 @@ class HeatManagerPanel extends HTMLElement {
         ${this._personsHTML()}
       </div>
 
-      ${this._energySectionHTML()}
       ${this._autoOffSectionHTML()}`;
-  }
-
-  // 2026-09 audit fix: energy_saved_today/energy_wasted_today/
-  // efficiency_score/last_waste_time/last_saved_time were already computed
-  // (same source as the real sensor.heat_manager_energy_* entities the card
-  // mirrors) and sent in every get_state payload, but the panel's own
-  // "Energi i dag" display had been removed as dead code in 0.17.2 — the
-  // data kept flowing with nothing showing it here. Restored as a compact
-  // box, mirroring the card's own simple energy-row style.
-  _energySectionHTML() {
-    const d = this._data;
-    const wasted = d?.energy_wasted_today;
-    const saved  = d?.energy_saved_today;
-    const eff    = d?.efficiency_score;
-    if (wasted == null && saved == null && eff == null) return "";
-    const lastWaste = this._fmtEventTime(d?.last_waste_time);
-    const lastSaved = this._fmtEventTime(d?.last_saved_time);
-    return `
-      <div class="section-box">
-        <div class="section-box-header">
-          <div class="section-box-title">Energi i dag</div>
-          ${eff != null ? `<div class="section-box-badge" style="background:rgba(249,115,22,0.15);color:#f97316">${Math.round(eff)}% effektiv</div>` : ""}
-        </div>
-        <div class="autooff-grid">
-          <div class="aocard">
-            <div class="aocard-lbl">Spildt${lastWaste ? ` · ${lastWaste}` : ""}</div>
-            <div class="aocard-val" style="color:var(--red)">${wasted != null ? wasted.toFixed(2) : "0.00"} kWh</div>
-          </div>
-          <div class="aocard">
-            <div class="aocard-lbl">Sparet${lastSaved ? ` · ${lastSaved}` : ""}</div>
-            <div class="aocard-val" style="color:#10b981">${saved != null ? saved.toFixed(2) : "0.00"} kWh</div>
-          </div>
-        </div>
-      </div>`;
   }
 
   _roomDetailRowHTML(room) {
@@ -2790,13 +2708,6 @@ class HeatManagerPanel extends HTMLElement {
       ? `Opdateret kl. ${String(this._historyFetchedAt.getHours()).padStart(2,"0")}:${String(this._historyFetchedAt.getMinutes()).padStart(2,"0")}`
       : "";
     return `
-      <div class="section-box">
-        <div class="section-box-header">
-          <div class="section-box-title">Energi — sidste 7 dage</div>
-        </div>
-        <div id="hist-energy-chart">${this._energyChartHTML()}</div>
-      </div>
-
       <div class="section-box">
         <div class="section-box-header">
           <div class="section-box-title">Hændelseslog</div>

@@ -37,7 +37,6 @@ from .const import (
     CONF_CO2_SENSOR,
     CONF_CO2_THRESHOLD,
     CONF_COMFORT_TEMP,
-    CONF_ENERGY_TRACKING,
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
     CONF_HOMEKIT_CLIMATE_ENTITY,
@@ -69,7 +68,6 @@ from .const import (
     CONF_PREHEAT_LEAD_TIME_MIN,
     CONF_ROOM_NAME,
     CONF_ROOM_TEMP_SENSOR,
-    CONF_ROOM_WATTAGE,
     CONF_ROOMS,
     CONF_SCHEDULE_ENTITY,
     CONF_SYNC_MODE,
@@ -98,7 +96,6 @@ from .const import (
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
     DEFAULT_PREHEAT_LEAD_TIME_MIN,
-    DEFAULT_ROOM_WATTAGE,
     DEFAULT_SYNC_MODE,
     DEFAULT_TRV_MAX_TEMP,
     DEFAULT_WAKE_SETBACK_TEMP,
@@ -462,19 +459,6 @@ def _room_schema(defaults: dict | None = None) -> vol.Schema:
                     }
                 }
             ),
-            vol.Optional(
-                CONF_ROOM_WATTAGE,
-                default=defaults.get(CONF_ROOM_WATTAGE, DEFAULT_ROOM_WATTAGE),
-            ): selector.selector(
-                {
-                    "number": {
-                        "min": 100,
-                        "max": 5000,
-                        "step": 100,
-                        "unit_of_measurement": "W",
-                    }
-                }
-            ),
             # PID target temperature — v0.19.0: authoritative for ALL room
             # types, Netatmo included (previously ignored for Netatmo rooms,
             # which used the cloud entity's own schedule setpoint instead).
@@ -579,9 +563,6 @@ def _notifications_schema(defaults: dict | None = None) -> vol.Schema:
             ): selector.selector({"boolean": {}}),
             vol.Optional(
                 CONF_NOTIFY_PREHEAT, default=defaults.get(CONF_NOTIFY_PREHEAT, True)
-            ): selector.selector({"boolean": {}}),
-            vol.Optional(
-                CONF_ENERGY_TRACKING, default=defaults.get(CONF_ENERGY_TRACKING, True)
             ): selector.selector({"boolean": {}}),
         }
     )

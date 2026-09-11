@@ -9,6 +9,55 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.22.0] — 2026-09-11
+
+Removes the "Energi i dag" (waste/savings/efficiency) feature entirely, at the user's request:
+their radiators run on district heating (fjernvarme), not electricity, and there's no way to
+meter water/heat flow — so the kWh figures this feature showed were never physically meaningful.
+Also fixes a third instance of the `display`-vs-`[hidden]` bug from 0.21.0, this time via an
+inline style.
+
+### Removed
+
+- **Backend**: `engine/waste_calculator.py`'s `WasteCalculator` is fully disconnected from the
+  coordinator (import, instantiation, the 5 delegating properties `energy_wasted_today` /
+  `energy_saved_today` / `efficiency_score` / `last_waste_time` / `last_saved_time`, the
+  `async_tick()`/`async_shutdown()` calls). The file itself is left on disk — this tooling can't
+  delete files on the live server — but it's now dead code and **safe to delete manually**.
+  `tests/` has no `test_waste_calculator.py`, so no test cleanup was needed.
+  - `sensor.py`: removed `EnergyWastedSensor`, `EnergySavedSensor`, `EfficiencyScoreSensor`.
+  - `binary_sensor.py`: removed `HeatingWastedSensor`.
+  - `const.py`: removed `CONF_ENERGY_TRACKING`, `CONF_ROOM_WATTAGE`, `DEFAULT_ROOM_WATTAGE`.
+  - `config_flow.py`: removed the per-room "Rated wattage" field and the global "Energy tracking"
+    toggle from the options flow.
+  - `coordinator.py`: `_persist_energy_snapshot()`/`_energy_history` (the 30-day rolling energy
+    history used only by the removed 7-day chart) are gone. The unrelated event-log persistence
+    that used to share that function is kept, renamed to `_persist_event_log_snapshot()` — the
+    event log (Historik tab) still survives HA restarts exactly as before.
+  - `websocket.py`: removed the 5 energy fields from `heat_manager/get_state`, and removed
+    `_build_daily_energy()` — `heat_manager/get_history` now returns only `events` (the `days`
+    field is gone; nothing reads it anymore).
+  - `diagnostics.py`: removed the `energy` block.
+  - **Note for the user**: after upgrading, `Settings → Devices & services → Entities` will show
+    the 4 removed entities (`sensor.heat_manager_energy_wasted_today`,
+    `sensor.heat_manager_energy_saved_today`, `sensor.heat_manager_efficiency_score`,
+    `binary_sensor.heat_manager_heating_wasted`) as unavailable/orphaned — safe to delete from
+    there manually, HA doesn't do this automatically for custom integrations.
+- **Frontend**: `heat-manager-panel.js` — removed the Oversigt tab's "Energi i dag" box and the
+  Historik tab's "Energi — sidste 7 dage" bar chart, plus their now-dead CSS.
+  `heat-manager-card.js` — removed the mobile card's "Energi i dag" section
+  (`_hubEnergyWasted()`/`_hubEnergySaved()`/`_hubEfficiency()`/`_patchEnergy()`) and its CSS.
+
+### Fixed
+
+- The `#remote-last-action-box` ("📡 Fjernbetjening" pill) used an inline
+  `style="display:flex"` in its template. Inline styles beat every stylesheet rule — including the
+  `[hidden]` override added in 0.21.0 for the topbar chips — so this box was **permanently visible**
+  as an empty pill (just the 📡 icon, no text) whenever there was no remote-control action in the
+  last 30 minutes. Moved the layout into a `.remote-last-action-box` CSS class, covered by the same
+  `[hidden]` override rule, so `box.hidden = true` (already set correctly by
+  `_patchRemoteLastAction()`) now actually hides it.
+
 ## [0.21.1] — 2026-09-11
 
 Fixes the mobile card's setpoint-source divergence that 0.20.0/0.21.0 both left as a known,
