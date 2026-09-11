@@ -32,7 +32,11 @@ def _make_coordinator(rooms=None) -> MagicMock:
     # that resolution here from the same flat fields these fixtures use.
     coord.get_climate_entity = MagicMock(
         side_effect=lambda name: next(
-            (r.get("climate_entity") for r in coord.rooms if r.get("room_name") == name),
+            (
+                r.get("climate_entity")
+                for r in coord.rooms
+                if r.get("room_name") == name
+            ),
             None,
         )
     )

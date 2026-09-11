@@ -1093,7 +1093,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for trv in trvs:
             trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
             if trv_type == "zigbee":
-                entity_id = self.get_trv_write_entity(trv) or trv.get(CONF_CLIMATE_ENTITY)
+                entity_id = self.get_trv_write_entity(trv) or trv.get(
+                    CONF_CLIMATE_ENTITY
+                )
                 if not entity_id:
                     continue
                 await self.async_call_climate_service(
