@@ -202,7 +202,26 @@ class WindowEngine:
         away_temp = self._sensor_to_away_temp.get(sensor_id, 10.0)
         climate_id = self.coordinator.get_climate_entity(room_name)
         if not climate_id:
-            _LOGGER.warning("No climate entity for room '%s'", room_name)
+            # 2026-09-11 (monitoring-only rooms): a room with no TRV at all
+            # (e.g. "Gang", a hallway) can still have a window/exterior-door
+            # sensor configured — Flemming's front door to the stairwell is
+            # exactly this case: opening it lets outside air into Gang just
+            # like a real window, even though there's no TRV there to turn
+            # down. Before this branch, hitting `if not climate_id` above
+            # returned immediately with only a backend warning — no
+            # set_room_state(), no log_event(), no notification — so the
+            # door opening was invisible everywhere Flemming actually looks.
+            # There's nothing to heat-suppress, so just record the state and
+            # make it visible, exactly like a real window open — no
+            # climate.set_temperature call, because there's no TRV to call it on.
+            self.coordinator.set_room_state(room_name, RoomState.WINDOW_OPEN)
+            self._window_opened_at[room_name] = utcnow()
+            self._warning_sent[room_name] = False
+            log_msg = f"Window open in {room_name} (no TRV — monitoring only)"
+            _LOGGER.info(log_msg)
+            self.coordinator.log_event(log_msg, "Window", "window_open")
+            if self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
+                await self._notify(f"Window open — {room_name}")
             return
 
         # H-1: write setpoint via preferred local entity (HomeKit if
@@ -321,6 +340,18 @@ class WindowEngine:
         # policy of this method exactly).
         trvs = self.coordinator.get_room_trvs(room_name)
         if not trvs:
+            # 2026-09-11 (monitoring-only rooms): mirror of the matching
+            # branch in _open_after_delay() — a room with no TRV at all has
+            # nothing to restore to schedule, but the door/window closing is
+            # still a real event that should be visible, not silently
+            # dropped. See that method's comment for the full rationale
+            # (Flemming's "Gang" front-door case).
+            self.coordinator.set_room_state(room_name, RoomState.NORMAL)
+            log_msg = f"Window closed in {room_name} (no TRV — monitoring only)"
+            _LOGGER.info(log_msg)
+            self.coordinator.log_event(log_msg, "Window", "normal")
+            if self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
+                await self._notify(f"Window closed — {room_name}")
             return
 
         # 2026-09 429 fix: this method runs as its own independent

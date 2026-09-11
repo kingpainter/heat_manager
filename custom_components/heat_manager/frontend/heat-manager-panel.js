@@ -2296,6 +2296,35 @@ class HeatManagerPanel extends HTMLElement {
       metaBadges.push(`<span class="room-meta-badge" title="Antal TRV'er i rummet">🔧 ${room.trv_count} TRV'er</span>`);
     }
     const metaRow = metaBadges.length ? `<div class="room-meta-row">${metaBadges.join("")}</div>` : "";
+    // 2026-09-11 (monitoring-only rooms): a room with no TRV at all (e.g.
+    // "Gang" — a hallway with only a temp sensor) always showed "Sætpunkt –"
+    // and "Trv batt –", reading as something broken/missing rather than as
+    // the deliberate, expected state of a room that has no TRV to have a
+    // setpoint or a battery for. Only render those two boxes when the room
+    // actually has one; "Rum temp" alone still applies (that's the whole
+    // point of a monitoring-only room).
+    const hasTrv = !!room.climate_entity;
+    const tempsRowHTML = hasTrv
+      ? `<div class="room-temps">
+           <div class="room-temp-box">
+             <div class="room-temp-val">${tempStr}</div>
+             <div class="room-temp-lbl">Rum temp</div>
+           </div>
+           <div class="room-temp-box">
+             <div class="room-temp-val">${setpt ?? "–"}</div>
+             <div class="room-temp-lbl">Sætpunkt</div>
+           </div>
+           <div class="room-temp-box">
+             <div class="room-temp-val" style="${battColor ? `color:${battColor}` : ""}">${battStr}</div>
+             <div class="room-temp-lbl">Trv batt</div>
+           </div>
+         </div>`
+      : `<div class="room-temps" style="grid-template-columns:1fr">
+           <div class="room-temp-box">
+             <div class="room-temp-val">${tempStr}</div>
+             <div class="room-temp-lbl">Rum temp</div>
+           </div>
+         </div>`;
     return `
       <div class="room-card state-${state}" data-room-id="${this._esc(room.name)}"
            style="background:${grad};border-left-color:${color}">
@@ -2306,20 +2335,7 @@ class HeatManagerPanel extends HTMLElement {
             <div class="room-state-pill" style="background:${color}22;color:${color}">${label}</div>
           </div>
         </div>
-        <div class="room-temps">
-          <div class="room-temp-box">
-            <div class="room-temp-val">${tempStr}</div>
-            <div class="room-temp-lbl">Rum temp</div>
-          </div>
-          <div class="room-temp-box">
-            <div class="room-temp-val">${setpt ?? "–"}</div>
-            <div class="room-temp-lbl">Sætpunkt</div>
-          </div>
-          <div class="room-temp-box">
-            <div class="room-temp-val" style="${battColor ? `color:${battColor}` : ""}">${battStr}</div>
-            <div class="room-temp-lbl">Trv batt</div>
-          </div>
-        </div>
+        ${tempsRowHTML}
         <div class="room-state-bar">
           <div class="room-state-fill" style="width:${fillPct}%;background:${color}"></div>
         </div>
@@ -2645,12 +2661,19 @@ class HeatManagerPanel extends HTMLElement {
              <div style="font-size:13px;font-weight:600;font-family:'DM Mono',monospace;color:${color ?? "var(--text)"}">${value}</div>
              <div style="font-size:9px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;margin-top:2px">${label}</div>
            </div>`;
-    const statsRowHTML = `
-         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid var(--div)">
+    // 2026-09-11 (monitoring-only rooms): Sætpunkt/Trv temp/Trv batt are all
+    // meaningless for a room with no TRV at all (e.g. "Gang") — same
+    // reasoning as the Oversigt card fix above. Only Rum temp applies.
+    const hasTrv = !!room.climate_entity;
+    const statsRowHTML = hasTrv
+      ? `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid var(--div)">
            ${statBox("Rum temp", roomTempStr)}
            ${statBox("Sætpunkt", setpt ?? "–")}
            ${statBox("Trv temp", trvTempStr)}
            ${statBox("Trv batt", batteryStr, batteryColor)}
+         </div>`
+      : `<div style="display:grid;grid-template-columns:1fr;gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid var(--div)">
+           ${statBox("Rum temp", roomTempStr)}
          </div>`;
     const extraSensorsHTML = (humidityStr || co2Str || pidPowerStr || calibStr || windowDurStr || doorStr || unavailableList.length) ? `
          <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">

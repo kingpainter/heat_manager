@@ -9,6 +9,32 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.24.2] — 2026-09-11
+
+Second follow-up to the monitoring-only-room work, from putting "Gang" into real use: its front
+door to the stairwell needed to be trackable (cold outside air, exactly like a window), and its
+overview card was showing "Sætpunkt –" / "Trv batt –" as if something was broken.
+
+### Added
+
+- **`window_engine.py`**: a monitoring-only room (no TRV) can now have a `CONF_WINDOW_SENSORS`
+  entry, for exactly Flemming's case — an exterior door to an unheated stairwell opening off a
+  hallway that itself has no heat source. Opening/closing it now sets the room's state
+  (`window_open`/`normal`) and logs a real event ("Window open/closed in `<room>` (no TRV —
+  monitoring only)"), with a notification if `CONF_NOTIFY_WINDOWS` is on — same visibility as a
+  real window, just no `climate.set_temperature`/restore calls since there's no TRV to call them
+  on. Previously, `_open_after_delay()`/`_close_after_delay()` both returned immediately on a
+  missing climate entity — no state change, no log event, only a `_LOGGER.warning()` nobody would
+  ever see — so a monitoring-only room's window/door sensor was silently invisible everywhere
+  Flemming actually looks.
+
+### Fixed
+
+- **Panel — Oversigt + Rum detaljer**: a monitoring-only room's card always showed "Sætpunkt –"
+  and "Trv batt –" (Rum detaljer also always showed "Trv temp –"), reading as something missing
+  or broken rather than the deliberate, expected state of a room with no TRV. Both views now show
+  only "Rum temp" for such a room — the one stat that actually applies to it.
+
 ## [0.24.1] — 2026-09-11
 
 Follow-up to v0.24.0's door feature, prompted by a real case: Flemming's "Gang" (hallway)
