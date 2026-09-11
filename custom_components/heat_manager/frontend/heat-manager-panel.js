@@ -800,6 +800,16 @@ class HeatManagerPanel extends HTMLElement {
       const chipIcon = chips[2].parentElement?.firstChild;
       if (chipIcon && chipIcon.nodeType === Node.TEXT_NODE) chipIcon.textContent = eff.icon + " ";
     }
+    // 2026-09-11: 4th chip only exists in the DOM when at least one room had
+    // Netatmo cloud data at last full render — see _netatmoCloudSummary().
+    if (chips[3]) {
+      const summary = this._netatmoCloudSummary();
+      if (summary) {
+        chips[3].textContent = summary.label;
+        const chipEl = chips[3].closest(".ctrl-meta-chip");
+        if (chipEl) chipEl.title = summary.title || "";
+      }
+    }
 
     // Section badge
     const badge = root.querySelector(".section-box-badge");
@@ -1028,6 +1038,88 @@ class HeatManagerPanel extends HTMLElement {
         setTimeout(() => { btn.textContent = "⚡ Tving til"; }, 1500);
       });
     });
+
+    // 2026-09-11: global Target Temp — send the slider's value to every
+    // controllable room (climate_entity set) via the same
+    // heat_manager/set_room_temp WS command the per-room "Send ↗" button
+    // uses, one room at a time (sequential await, not Promise.all — see
+    // _globalManualHTML()'s comment on why). Distinct #global-manual-send
+    // id, not the generic .room-manual-send class-based handler above (that
+    // one no-ops here since this button has no data-room).
+    const globalSendBtn = root.querySelector("#global-manual-send");
+    if (globalSendBtn) {
+      globalSendBtn.addEventListener("click", async () => {
+        const slider = root.querySelector(".global-manual-slider");
+        const durSel = root.querySelector(".global-manual-dur");
+        if (!slider) return;
+        const temp = parseFloat(slider.value);
+        const duration = parseInt(durSel?.value ?? "60", 10);
+        const rooms = (this._data?.rooms ?? []).filter(r => r.climate_entity);
+        if (!rooms.length) {
+          this._showToast("Ingen rum med TRV at sætte", "error");
+          return;
+        }
+        globalSendBtn.classList.add("sending");
+        globalSendBtn.textContent = `Sender 0/${rooms.length}…`;
+        let ok = 0;
+        const failed = [];
+        for (const room of rooms) {
+          try {
+            await this._hass.callWS({
+              type: "heat_manager/set_room_temp",
+              room_name: room.name,
+              temperature: temp,
+              duration_min: duration,
+            });
+            ok++;
+          } catch (e) {
+            failed.push(room.name);
+            console.error("[HeatManager] global set_room_temp failed for", room.name, e);
+          }
+          globalSendBtn.textContent = `Sender ${ok + failed.length}/${rooms.length}…`;
+        }
+        globalSendBtn.classList.remove("sending");
+        globalSendBtn.textContent = "Send til alle ↗";
+        if (failed.length) {
+          this._showToast(`${ok}/${rooms.length} rum sat til ${temp}°C — fejlede: ${failed.join(", ")}`, "error");
+        } else {
+          this._showToast(`${ok} rum sat til ${temp}°C`, "success");
+        }
+      });
+    }
+
+    const globalResetBtn = root.querySelector("#global-manual-reset");
+    if (globalResetBtn) {
+      globalResetBtn.addEventListener("click", async () => {
+        const rooms = (this._data?.rooms ?? []).filter(r => r.climate_entity);
+        if (!rooms.length) return;
+        globalResetBtn.classList.add("sending");
+        globalResetBtn.textContent = "↺ ...";
+        let ok = 0;
+        const failed = [];
+        for (const room of rooms) {
+          try {
+            await this._hass.callWS({
+              type: "heat_manager/set_room_temp",
+              room_name: room.name,
+              temperature: null,
+              duration_min: 0,
+            });
+            ok++;
+          } catch (e) {
+            failed.push(room.name);
+            console.error("[HeatManager] global reset_room_temp failed for", room.name, e);
+          }
+        }
+        globalResetBtn.classList.remove("sending");
+        globalResetBtn.textContent = "↺ Alle til schedule";
+        if (failed.length) {
+          this._showToast(`${ok}/${rooms.length} rum gendannet — fejlede: ${failed.join(", ")}`, "error");
+        } else {
+          this._showToast(`${ok} rum gendannet til schedule`, "success");
+        }
+      });
+    }
 
     // B18 Fase 3: per-room offset slider — live label while dragging,
     // number.set_value on release (same UX as the old global slider).
@@ -1267,6 +1359,31 @@ class HeatManagerPanel extends HTMLElement {
     })[season] ?? { label: "–", icon: "•", color: "#64748b" };
   }
 
+  // 2026-09-11: house-level rollup of the same cloud_preset_mode/
+  // cloud_selected_schedule fields _roomDetailRowHTML() already shows per
+  // room (see netatmoHTML there). null when no room has Netatmo cloud data
+  // at all (Zigbee-only setup); { label, title } otherwise — title is only
+  // set (and non-empty) when rooms disagree, so the chip can flag "Blandet"
+  // rather than silently picking one room's value and presenting it as the
+  // whole house's state.
+  _netatmoCloudSummary() {
+    const rooms = (this._data?.rooms ?? []).filter(
+      r => r.cloud_preset_mode || r.cloud_selected_schedule
+    );
+    if (!rooms.length) return null;
+    const modes  = [...new Set(rooms.map(r => r.cloud_preset_mode).filter(Boolean))];
+    const scheds = [...new Set(rooms.map(r => r.cloud_selected_schedule).filter(Boolean))];
+    if (modes.length > 1 || scheds.length > 1) {
+      const detail = rooms
+        .map(r => `${r.name}: ${r.cloud_preset_mode ?? "–"}${r.cloud_selected_schedule ? ` (${r.cloud_selected_schedule})` : ""}`)
+        .join(", ");
+      return { label: "Blandet", title: detail };
+    }
+    const mode  = modes[0] ?? "–";
+    const sched = scheds[0];
+    return { label: `${mode}${sched ? ` (${sched})` : ""}`, title: "" };
+  }
+
   // v0.3.9 (B15): small pill showing which TRV protocol a room uses.
   // room.trv_type comes from websocket.py's get_state room payload.
   _trvBadgeHTML(trvType) {
@@ -1288,8 +1405,8 @@ class HeatManagerPanel extends HTMLElement {
 
   // Fase 2 (2026-09-11): Heat Manager's own resolved target (comfort_temp +
   // schedule_override + room_offset + setback — coordinator.
-  // get_room_target_temp()) is the authoritative "Sætpunkt" value. Before
-  // this, "Sætpunkt" read the cloud climate entity's own live 'temperature'
+  // get_room_target_temp()) is the authoritative "Target Temp" value. Before
+  // this, "Target Temp" read the cloud climate entity's own live 'temperature'
   // attribute via _climateSetpoint() — after the B21 fix (PID no longer
   // writes comfort_temp to that entity for Netatmo rooms) that attribute no
   // longer reflects what Heat Manager is actually asking for, so leaving
@@ -1406,6 +1523,11 @@ class HeatManagerPanel extends HTMLElement {
         transition: all .2s;
       }
       .header-refresh:hover { color: var(--amber); border-color: var(--amber); }
+      .app-version {
+        margin-left: 10px; font-size: 10px; color: var(--sub);
+        font-family: 'DM Mono', monospace; letter-spacing: 0.3px;
+        opacity: 0.7; flex-shrink: 0;
+      }
 
       /* ── Topbar badge ── */
       .topbar-badge {
@@ -2134,6 +2256,7 @@ class HeatManagerPanel extends HTMLElement {
           ${this._ctrlTitle(ctrl)}
         </div>
         <button class="header-refresh" data-action="refresh">↻ Opdater</button>
+        <div class="app-version" title="Heat Manager integration version">v${this._esc(d?.version ?? "–")}</div>
       </div>
       <div class="tabs" role="tablist">${[
         { id:"overview", label:"Oversigt"  },
@@ -2150,6 +2273,15 @@ class HeatManagerPanel extends HTMLElement {
     const pauseLeft = this._data?.pause_remaining ?? 0;
     const showPause = ctrl === "pause" && pauseLeft > 0;
     const eff       = this._effSeasonInfo(this._data?.effective_season); // v0.3.9
+    // 2026-09-11: Flemming asked for the same "Netatmo: manual (Vinter)"
+    // info the room-detail rows already show (netatmoHTML in
+    // _roomDetailRowHTML — cloud_preset_mode + cloud_selected_schedule)
+    // surfaced once at house level too, not just per room. A Netatmo Home
+    // has exactly one active schedule, so in the normal case every Netatmo
+    // room agrees — this only disagrees mid-transition (one room's cloud
+    // state hasn't polled through yet) or if a room's preset was flipped
+    // individually via its own select.<room>_netatmo_preset_mode entity.
+    const netatmoSummary = this._netatmoCloudSummary();
 
     // Ring: fully lit = ON (amber), half = PAUSE (yellow), empty = OFF (grey)
     const r          = 38;
@@ -2202,6 +2334,11 @@ class HeatManagerPanel extends HTMLElement {
                 ${eff.icon} <span>Status</span>
                 <strong>${eff.label}</strong>
               </div>
+              ${netatmoSummary ? `
+              <div class="ctrl-meta-chip" ${netatmoSummary.title ? `title="${this._esc(netatmoSummary.title)}"` : ""}>
+                🛰️ <span>Netatmo</span>
+                <strong>${this._esc(netatmoSummary.label)}</strong>
+              </div>` : ""}
             </div>
           </div>
         </div>
@@ -2298,7 +2435,7 @@ class HeatManagerPanel extends HTMLElement {
     }
     const metaRow = metaBadges.length ? `<div class="room-meta-row">${metaBadges.join("")}</div>` : "";
     // 2026-09-11 (monitoring-only rooms): a room with no TRV at all (e.g.
-    // "Gang" — a hallway with only a temp sensor) always showed "Sætpunkt –"
+    // "Gang" — a hallway with only a temp sensor) always showed "Target Temp –"
     // and "Trv batt –", reading as something broken/missing rather than as
     // the deliberate, expected state of a room that has no TRV to have a
     // setpoint or a battery for. Only render those two boxes when the room
@@ -2313,7 +2450,7 @@ class HeatManagerPanel extends HTMLElement {
            </div>
            <div class="room-temp-box">
              <div class="room-temp-val">${setpt ?? "–"}</div>
-             <div class="room-temp-lbl">Sætpunkt</div>
+             <div class="room-temp-lbl">Target Temp</div>
            </div>
            <div class="room-temp-box">
              <div class="room-temp-val" style="${battColor ? `color:${battColor}` : ""}">${battStr}</div>
@@ -2630,7 +2767,7 @@ class HeatManagerPanel extends HTMLElement {
     const manualHTML = this._manualControlEnabled ? `
       <div class="room-manual" data-room="${this._esc(room.name)}">
         <div class="room-manual-row">
-          <span class="room-manual-lbl">Mål °C</span>
+          <span class="room-manual-lbl">Target Temp</span>
           <input class="room-manual-slider" type="range" min="10" max="28" step="0.5"
             value="${setpt ? parseFloat(setpt) : 20}"
             data-room="${this._esc(room.name)}">
@@ -2680,21 +2817,21 @@ class HeatManagerPanel extends HTMLElement {
         ${!groupEnabled ? `<div style="font-size:10px;color:var(--sub);margin-top:6px;line-height:1.5">Ekstra TRV'er styres ikke af Heat Manager lige nu — kun den primære TRV følger skemaet.</div>` : ""}
       </div>` : "";
 
-    // Rum detaljer: 4-stat row (Rum temp / Sætpunkt / Trv temp / Trv batt),
+    // Rum detaljer: 4-stat row (Rum temp / Target Temp / Trv temp / Trv batt),
     // plus humidity/CO2 chips when the room has those sensors configured.
     const statBox = (label, value, color) => `
            <div style="text-align:center">
              <div style="font-size:13px;font-weight:600;font-family:'DM Mono',monospace;color:${color ?? "var(--text)"}">${value}</div>
              <div style="font-size:9px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;margin-top:2px">${label}</div>
            </div>`;
-    // 2026-09-11 (monitoring-only rooms): Sætpunkt/Trv temp/Trv batt are all
+    // 2026-09-11 (monitoring-only rooms): Target Temp/Trv temp/Trv batt are all
     // meaningless for a room with no TRV at all (e.g. "Gang") — same
     // reasoning as the Oversigt card fix above. Only Rum temp applies.
     const hasTrv = !!room.climate_entity;
     const statsRowHTML = hasTrv
       ? `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid var(--div)">
            ${statBox("Rum temp", roomTempStr)}
-           ${statBox("Sætpunkt", setpt ?? "–")}
+           ${statBox("Target Temp", setpt ?? "–")}
            ${statBox("Trv temp", trvTempStr)}
            ${statBox("Trv batt", batteryStr, batteryColor)}
          </div>`
@@ -2713,7 +2850,7 @@ class HeatManagerPanel extends HTMLElement {
          </div>` : "";
     // Fase 2 (2026-09-11) — the user's `select.mit_hjem`-style visibility
     // request: what Netatmo's OWN cloud entity currently reports, shown
-    // side by side with Heat Manager's "Sætpunkt" above so the two can
+    // side by side with Heat Manager's "Target Temp" above so the two can
     // never be confused again the way they were before B21. Only present
     // for rooms with a Netatmo cloud climate entity (cloud_preset_mode etc.
     // are null for Zigbee/local rooms — see websocket.py ws_get_state()).
@@ -2753,10 +2890,53 @@ class HeatManagerPanel extends HTMLElement {
       </div>`;
   }
 
+  // 2026-09-11: global counterpart to the per-room manual-override slider
+  // (room-manual-*, _roomDetailRowHTML()). Reuses the exact same
+  // heat_manager/set_room_temp WS command in a loop — no backend changes —
+  // one call per controllable room, awaited sequentially (not Promise.all)
+  // so this can never burst-call Netatmo's cloud API across every room at
+  // once (see coordinator.py's asyncio.sleep(0.6)-between-rooms rationale
+  // for the same concern on the PID tick side). Skips monitoring-only rooms
+  // (no climate_entity) — there is nothing there to set a temperature on.
+  // Only rendered when "Manuel TRV-kontrol" is on, same gate as the
+  // per-room sliders it sits above.
+  _globalManualHTML() {
+    if (!this._manualControlEnabled) return "";
+    const controllable = (this._data?.rooms ?? []).filter(r => r.climate_entity).length;
+    return `
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Alle rum — Target Temp</div>
+        </div>
+        <div class="room-manual" style="padding:12px 16px">
+          <div class="room-manual-row">
+            <span class="room-manual-lbl">Target Temp</span>
+            <input class="room-manual-slider global-manual-slider" type="range" min="10" max="28" step="0.5" value="20">
+            <span class="room-manual-val global-manual-val">20°C</span>
+          </div>
+          <div class="room-manual-row" style="margin-top:6px">
+            <span class="room-manual-lbl">Varighed</span>
+            <select class="room-manual-dur global-manual-dur">
+              <option value="30">30 min</option>
+              <option value="60" selected>1 time</option>
+              <option value="120">2 timer</option>
+              <option value="0">Permanent</option>
+            </select>
+            <button class="room-manual-send global-manual-send" id="global-manual-send">Send til alle ↗</button>
+            <button class="room-manual-reset global-manual-reset" id="global-manual-reset">↺ Alle til schedule</button>
+          </div>
+          <div style="font-size:10px;color:var(--sub);margin-top:6px">
+            Sætter ${controllable} rum med TRV til samme temperatur — rum uden TRV (kun overvågning) springes over.
+          </div>
+        </div>
+      </div>`;
+  }
+
   _roomsTabHTML() {
     const rooms = this._data?.rooms ?? [];
     const heatingCount = rooms.filter(r => (r.valve_position ?? 0) > 0).length;
     return `
+      ${this._globalManualHTML()}
       <div class="section-box">
         <div class="section-box-header">
           <div class="section-box-title">Rum — detaljer</div>

@@ -52,6 +52,7 @@ from .const import (
     DOMAIN,
     RoomState,
 )
+from .panel import _get_version
 
 if TYPE_CHECKING:
     from .coordinator import HeatManagerCoordinator
@@ -335,6 +336,15 @@ async def ws_get_state(
     coordinator = entry.runtime_data
     ctrl = coordinator.controller
     cfg = coordinator.config
+
+    # 2026-09-11: panel.py already reads manifest.json (off-thread, via
+    # async_add_executor_job — it's blocking file I/O) as the cache-busting
+    # query string's version — reuse that same helper/source-of-truth here
+    # instead of a second, independently-maintained copy, so the number
+    # shown in the panel's header can never drift from the one actually
+    # bumped in manifest.json (see panel.py's _get_version docstring for
+    # the const.py drift history this already burned us on once).
+    integration_version = await hass.async_add_executor_job(_get_version, hass)
 
     # ── Rooms ─────────────────────────────────────────────────────────────────
     rooms = []
@@ -702,6 +712,7 @@ async def ws_get_state(
     }
 
     payload: dict[str, Any] = {
+        "version": integration_version,
         "controller_state": ctrl.state.value,
         "auto_off_reason": ctrl.auto_off_reason.value,
         "pause_remaining": ctrl.pause_remaining_minutes,

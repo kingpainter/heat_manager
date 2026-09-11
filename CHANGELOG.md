@@ -9,6 +9,41 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.26.0] — 2026-09-11
+
+Three panel requests from Flemming: show the running integration version somewhere visible,
+add a house-wide quick-temperature control alongside the existing per-room one, and consolidate
+every "target temperature" label onto one term instead of three ("Sætpunkt", "Mål °C", plus
+the Netatmo-specific wording).
+
+### Added
+
+- **Panel — header**: the running integration version (read from `manifest.json` via the same
+  `panel.py::_get_version()` helper the cache-busting query string already uses — no second,
+  driftable copy of the number) now shows top-right of the header, next to "↻ Opdater".
+  `websocket.py::ws_get_state()` reads it off-thread via `hass.async_add_executor_job` (blocking
+  file I/O, same discipline as `panel.py`'s own registration-time read) and includes it in the
+  payload as `version`.
+- **Panel — Oversigt**: a 4th Controller meta-chip, "🛰️ Netatmo", showing the same
+  `cloud_preset_mode (cloud_selected_schedule)` info the Rum-detaljer rows already display per
+  room (e.g. "manual (Vinter)") — rolled up once for the whole house. Only appears when at
+  least one room has Netatmo cloud data; shows "Blandet" with a per-room tooltip on the rare
+  case rooms disagree, rather than silently presenting one room's value as the house's.
+- **Panel — Rum-fanen**: a global Target Temp control ("Alle rum — Target Temp") above the
+  per-room list, visible under the same "Manuel TRV-kontrol" toggle as the existing per-room
+  sliders. Sends the chosen temperature + duration to every room that has a TRV, one
+  `heat_manager/set_room_temp` WS call per room awaited sequentially (not in parallel) — the
+  exact same command the per-room "Send ↗" button already uses, just fanned out, so no backend
+  changes were needed and Netatmo's cloud API is never burst-called across every room at once.
+  Rooms with no TRV (monitoring-only) are skipped. A matching "↺ Alle til schedule" resets every
+  controllable room back to its own schedule.
+
+### Changed
+
+- **Panel — labels**: "Sætpunkt" (Oversigt room cards, Rum-detaljer stat row) and "Mål °C"
+  (the per-room manual-override slider) are now both "Target Temp" — one term for the same
+  concept everywhere in the panel instead of three different Danish/mixed labels for it.
+
 ## [0.25.0] — 2026-09-11
 
 Panel overview tile requested by Flemming: the "Rum" quick-stats row undercounted what it
