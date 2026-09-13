@@ -223,12 +223,24 @@ class HeatManagerPanel extends HTMLElement {
     // full render) — shadowRoot persists across renders, so a listener
     // added there would accumulate one extra copy per render instead of
     // being replaced with the old DOM.
+    // v0.33.0: the same listener also drives the info-icon tooltips (point
+    // 4 — hover on PC via CSS :hover/:focus, tap on mobile via this click
+    // toggle) — one shared listener instead of a second one accumulating
+    // alongside it.
     if (!this._outsideClickBound) {
       this._outsideClickBound = true;
       root.addEventListener("click", (e) => {
         if (this._statusCenterOpen && !e.target.closest?.("#status-center")) {
           this._statusCenterOpen = false;
           this._patchStatusCenter();
+        }
+        const tappedIcon = e.target.closest?.(".info-icon");
+        root.querySelectorAll(".info-icon.open").forEach((icon) => {
+          if (icon !== tappedIcon) icon.classList.remove("open");
+        });
+        if (tappedIcon) {
+          e.stopPropagation();
+          tappedIcon.classList.toggle("open");
         }
       });
     }
@@ -2091,6 +2103,42 @@ class HeatManagerPanel extends HTMLElement {
       .cfg-k { font-size: 13px; color: var(--sub); }
       .cfg-v { font-size: 13px; font-weight: 500; font-family: 'DM Mono', monospace; }
 
+      /* ── Info tooltip icon (v0.33.0, point 4) ──
+         Hover/focus reveal the popover on desktop via CSS alone; the shared
+         outside-click listener (connectedCallback()) toggles .open for tap
+         support on mobile — see _infoIcon() for the markup. */
+      .info-icon {
+        position: relative;
+        display: inline-flex; align-items: center; justify-content: center;
+        margin-left: 5px;
+        width: 14px; height: 14px;
+        border-radius: 50%;
+        font-size: 11px; line-height: 1; font-style: normal;
+        color: var(--sub);
+        cursor: help;
+        vertical-align: middle;
+        outline: none;
+      }
+      .info-icon:hover, .info-icon:focus { color: #818cf8; }
+      .info-popover {
+        position: absolute; z-index: 30;
+        bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+        width: 220px;
+        background: var(--bg2); border: 1px solid var(--div);
+        border-radius: 8px; padding: 8px 10px;
+        font-size: 11px; font-weight: 400; line-height: 1.4;
+        color: var(--fg); text-align: left; white-space: normal;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+        visibility: hidden; opacity: 0;
+        transition: opacity .12s;
+        pointer-events: none;
+      }
+      .info-icon:hover .info-popover,
+      .info-icon:focus .info-popover,
+      .info-icon.open .info-popover {
+        visibility: visible; opacity: 1;
+      }
+
       /* ── Config edit rows ── */
       .cfg-edit-row {
         display: flex; align-items: center; gap: 8px;
@@ -2746,24 +2794,31 @@ class HeatManagerPanel extends HTMLElement {
 
     // Rum detaljer: 4-stat row (Rum temp / Target Temp / Trv temp / Trv batt),
     // plus humidity/CO2 chips when the room has those sensors configured.
-    const statBox = (label, value, color) => `
+    // v0.33.0 (point 4): desc, when given, adds an _infoIcon() next to the
+    // label — this is exactly the "hvad er hvad" confusion Flemming flagged
+    // (set point vs. target temp vs. rum temp vs. trv temp) made explicit
+    // in the UI itself instead of only in chat.
+    const statBox = (label, value, color, desc = "") => `
            <div style="text-align:center">
              <div style="font-size:13px;font-weight:600;font-family:'DM Mono',monospace;color:${color ?? "var(--text)"}">${value}</div>
-             <div style="font-size:9px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;margin-top:2px">${label}</div>
+             <div style="font-size:9px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;margin-top:2px">${label}${desc ? this._infoIcon(desc) : ""}</div>
            </div>`;
     // 2026-09-11 (monitoring-only rooms): Target Temp/Trv temp/Trv batt are all
     // meaningless for a room with no TRV at all (e.g. "Gang") — same
     // reasoning as the Oversigt card fix above. Only Rum temp applies.
     const hasTrv = !!room.climate_entity;
+    const roomTempDesc = "Rummets faktiske temperatur — fra ekstern temperatur-sensor hvis rummet har en, ellers TRV'ens egen sensor.";
+    const targetTempDesc = "Den rumtemperatur Heat Manager forsøger at opnå lige nu (\"set point\") — comfort-temp efter skema, offset og evt. nat-sænkning. Ikke nødvendigvis det tal der sendes til TRV'en: PID'en oversætter dette til en styringsværdi for ventilen, som kan ligge et stykke over eller under selve target-temperaturen.";
+    const trvTempDesc = "TRV'ens egen temperaturmåling. Den sidder på radiatoren og viser derfor typisk 1-3°C varmere end den faktiske rumtemperatur — brug Rum temp som den reelle temperatur.";
     const statsRowHTML = hasTrv
       ? `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid var(--div)">
-           ${statBox("Rum temp", roomTempStr)}
-           ${statBox("Target Temp", setpt ?? "–")}
-           ${statBox("Trv temp", trvTempStr)}
+           ${statBox("Rum temp", roomTempStr, null, roomTempDesc)}
+           ${statBox("Target Temp", setpt ?? "–", null, targetTempDesc)}
+           ${statBox("Trv temp", trvTempStr, null, trvTempDesc)}
            ${statBox("Trv batt", batteryStr, batteryColor)}
          </div>`
       : `<div style="display:grid;grid-template-columns:1fr;gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid var(--div)">
-           ${statBox("Rum temp", roomTempStr)}
+           ${statBox("Rum temp", roomTempStr, null, roomTempDesc)}
          </div>`;
     const extraSensorsHTML = (humidityStr || co2Str || pidPowerStr || calibStr || windowDurStr || doorStr || unavailableList.length) ? `
          <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
@@ -2914,10 +2969,10 @@ class HeatManagerPanel extends HTMLElement {
   // the PID/Boost/Vindue/Nat-sætpunkt/Grace/Auto-off section-boxes below.
   // One generic save-field/toggle-field click handler in _attachEvents()
   // handles every row these produce — see planning/heat_manager_fase2_spec.
-  _cfgNumberRow(label, field, value, { min, max, step, unit = "", cast = "float" } = {}) {
+  _cfgNumberRow(label, field, value, { min, max, step, unit = "", desc = "", cast = "float" } = {}) {
     return `
       <div class="cfg-edit-row">
-        <span class="cfg-edit-label" style="flex:0 0 150px">${this._esc(label)}</span>
+        <span class="cfg-edit-label" style="flex:0 0 150px">${this._esc(label)}${desc ? this._infoIcon(desc) : ""}</span>
         <input class="cfg-edit-input" type="number"
           id="cfg-${field}-input" min="${min}" max="${max}" step="${step}"
           value="${this._esc(value)}">
@@ -2925,6 +2980,15 @@ class HeatManagerPanel extends HTMLElement {
         <button class="cfg-save-btn" data-action="save-field" data-field="${field}" data-cast="${cast}">Gem</button>
         <span class="cfg-save-ok" id="cfg-${field}-ok">✔</span>
       </div>`;
+  }
+
+  // v0.33.0 (point 4 — tooltips): a small "i" mark that shows a short
+  // explanation of what a setting/column actually does. Hover/focus reveal
+  // it via CSS alone (:hover/:focus); the shared click listener bound once
+  // in connectedCallback() toggles an .open class for tap support on
+  // mobile, and closes it again on any click elsewhere.
+  _infoIcon(text) {
+    return `<span class="info-icon" tabindex="0" role="note" aria-label="${this._esc(text)}">ⓘ<span class="info-popover">${this._esc(text)}</span></span>`;
   }
 
   _cfgToggleRow(label, field, value, desc = "") {
@@ -3036,7 +3100,18 @@ class HeatManagerPanel extends HTMLElement {
         <div class="section-box-header">
           <div class="section-box-title">Vindue</div>
         </div>
-        ${this._cfgNumberRow("Advarsel efter", "window_warning_min", d.window_warning_min ?? "", { min: 5, max: 180, step: 5, unit: "min", cast: "int" })}
+        ${this._cfgNumberRow("Forsinkelse før sluk", "window_delay_default_min", d.window_delay_default_min ?? "", {
+          min: 0, max: 60, step: 1, unit: "min", cast: "int",
+          desc: "Hvor længe et vindue skal være åbent, før varmen reelt slås fra. Gælder alle rum. Sættes automatisk ned ved kraftig vind eller regn.",
+        })}
+        ${this._cfgNumberRow("Sluk-temperatur", "window_off_temp", d.window_off_temp ?? "", {
+          min: 5, max: 20, step: 0.5, unit: "°C", cast: "float",
+          desc: "Temperaturen der sendes til rummets TRV når varmen slås fra pga. åbent vindue. Uafhængig af PID'ens minimumstemperatur nedenfor.",
+        })}
+        ${this._cfgNumberRow("Advarsel efter", "window_warning_min", d.window_warning_min ?? "", {
+          min: 5, max: 180, step: 5, unit: "min", cast: "int",
+          desc: "Hvor længe et vindue skal have været åbent, før du får en ekstra påmindelse om at det stadig er åbent — påvirker ikke selve sluk-funktionen ovenfor.",
+        })}
         ${this._cfgToggleRow("Notifikation ved åbent vindue", "notify_windows", !!d.notify_windows)}
         ${this._cfgToggleRow("30-minutters-advarsel", "notify_window_warning_30", !!d.notify_window_warning_30)}
       </div>

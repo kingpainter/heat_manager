@@ -9,6 +9,71 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.33.0] — 2026-09-13
+
+Window-off temperature split from `away_temp_override`, a global window-delay
+default, and in-panel tooltips — prompted by Flemming pointing out that
+setting `away_temp_override` to a "comfortable away temp" (e.g. 18°C) would
+silently raise the PID's own idle-output floor and the night/wake-setback
+floor everywhere, not just when a window opens.
+
+### Added
+- **`const.py`**: `CONF_WINDOW_DELAY_DEFAULT_MIN` (default
+  `DEFAULT_WINDOW_DELAY_DEFAULT_MIN` = old `DEFAULT_WINDOW_DELAY_MIN`, 5 min)
+  — one global setting every room's window open-delay now actually uses.
+  `CONF_WINDOW_OFF_TEMP` (default `DEFAULT_WINDOW_OFF_TEMP` = 10.0°C) — a
+  dedicated "heat is off" temperature for the window-open write, completely
+  independent of `CONF_AWAY_TEMP_OVERRIDE` (which keeps its existing role:
+  flooring the PID's idle output and the night/wake setback — see
+  `engine/pid_controller.py`'s `power_to_setpoint()`).
+- **`config_flow.py`**: both new fields added to `_step1_schema()` (Vindue
+  section) — shared by the first-time wizard and the options-flow's
+  `async_step_global`, so both are editable from either place already.
+- **`websocket.py`**: both fields added to `config_snap`,
+  `_NUMERIC_CONFIG_FIELDS`, and `ws_update_config`'s schema — live-editable
+  from the panel, same pattern as `boost_default_temp`/`_minutes`.
+- **`heat-manager-panel.js`**: Indstillinger → Vindue now has "Forsinkelse
+  før sluk" (`window_delay_default_min`) and "Sluk-temperatur"
+  (`window_off_temp`), each with an info-icon tooltip explaining what it
+  does. New reusable `_infoIcon(text)` tooltip: hover/focus reveals it on
+  desktop via CSS, tap toggles an `.open` class on mobile (reuses the single
+  outside-click listener from v0.32.0's status center — no new listener
+  added). Also added to Rum-detaljer's "Rum temp" / "Target Temp" / "Trv
+  temp" stat labels, clarifying that Target Temp is Heat Manager's resolved
+  target (not necessarily the raw value written to the TRV — the PID
+  translates it into a control value that can sit above or below it), and
+  that Trv temp reads warm because it sits on the radiator body.
+- **`tests/components/heat_manager/test_window_engine_global_settings.py`**:
+  11 new tests — `_get_open_delay()` reads the global default and ignores
+  the (now-vestigial) per-room `window_delay_min` entirely; `_open_after_delay()`
+  writes the global `window_off_temp` and ignores `away_temp_override` even
+  when a room has one configured, independent of `pid_enabled`.
+
+### Changed
+- **`engine/window_engine.py`**: `_get_open_delay()` no longer reads the
+  per-room `CONF_WINDOW_DELAY_MIN` — reads `CONF_WINDOW_DELAY_DEFAULT_MIN`
+  unconditionally for every room (wind/rain reduction unchanged). The
+  window-open write now uses `CONF_WINDOW_OFF_TEMP` directly instead of a
+  per-sensor `away_temp_override` snapshot.
+
+### Removed
+- **`engine/window_engine.py`**: `_window_open_setpoint()` and
+  `_get_current_temp()` (its only caller) — dead code. `power_to_setpoint()`
+  always returns `trv_min` unconditionally when `power <= 0.0`, so the old
+  PID round-trip on window-open was mathematically always equivalent to
+  just using the fallback temperature directly. The now-unused
+  `PidController` import was also removed from this file.
+
+### Known limitation
+- The two new fields have no `strings.json`/translation labels yet — they
+  show as raw keys (`window_delay_default_min`, `window_off_temp`) in HA's
+  own options-flow UI. Consistent with the existing gap for
+  `boost_default_temp`/`_minutes`/`window_warning_min`; not addressed here.
+- `CONF_WINDOW_DELAY_MIN` (the old per-room field) is left in place in
+  `const.py`/`config_flow.py`, unread by `window_engine.py` — kept only in
+  case per-room editing returns in a future, larger panel round (Flemming's
+  point 3, deliberately parked).
+
 ## [0.32.0] — 2026-09-13
 
 Status center. Replaces the four scattered header/Oversigt indicators

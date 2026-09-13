@@ -64,6 +64,8 @@ from .const import (
     CONF_SYNC_MODE,
     CONF_TRV_TYPE,
     CONF_WEATHER_ENTITY,
+    CONF_WINDOW_DELAY_DEFAULT_MIN,
+    CONF_WINDOW_OFF_TEMP,
     CONF_WINDOW_SENSORS,
     CONF_WINDOW_WARNING_MIN,
     DEFAULT_AUTO_OFF_TEMP_DAYS,
@@ -80,6 +82,8 @@ from .const import (
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
+    DEFAULT_WINDOW_DELAY_DEFAULT_MIN,
+    DEFAULT_WINDOW_OFF_TEMP,
     DEFAULT_WINDOW_WARNING_MIN,
     DOMAIN,
     RoomState,
@@ -902,6 +906,14 @@ async def ws_get_state(
         "window_warning_min": cfg.get(
             CONF_WINDOW_WARNING_MIN, DEFAULT_WINDOW_WARNING_MIN
         ),
+        # v0.33.0 — the global knob every room's window open-delay actually
+        # uses now (window_engine.py no longer reads the old per-room
+        # CONF_WINDOW_DELAY_MIN), plus the dedicated window-open-off
+        # temperature, split out from CONF_AWAY_TEMP_OVERRIDE. See const.py.
+        "window_delay_default_min": cfg.get(
+            CONF_WINDOW_DELAY_DEFAULT_MIN, DEFAULT_WINDOW_DELAY_DEFAULT_MIN
+        ),
+        "window_off_temp": cfg.get(CONF_WINDOW_OFF_TEMP, DEFAULT_WINDOW_OFF_TEMP),
         "notify_windows": cfg.get(CONF_NOTIFY_WINDOWS, True),
         "notify_window_warning_30": cfg.get(CONF_NOTIFY_WINDOW_WARNING_30, True),
         "night_setback_enabled": cfg.get(
@@ -1030,6 +1042,8 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
     CONF_BOOST_DEFAULT_TEMP: (float, DEFAULT_BOOST_TEMP),
     CONF_BOOST_DEFAULT_MINUTES: (float, DEFAULT_BOOST_MINUTES),
     CONF_WINDOW_WARNING_MIN: (int, DEFAULT_WINDOW_WARNING_MIN),
+    CONF_WINDOW_DELAY_DEFAULT_MIN: (int, DEFAULT_WINDOW_DELAY_DEFAULT_MIN),
+    CONF_WINDOW_OFF_TEMP: (float, DEFAULT_WINDOW_OFF_TEMP),
     CONF_NIGHT_SETBACK_TEMP: (float, DEFAULT_NIGHT_SETBACK_TEMP),
     CONF_NIGHT_START_HOUR: (int, DEFAULT_NIGHT_START_HOUR),
     CONF_NIGHT_END_HOUR: (int, DEFAULT_NIGHT_END_HOUR),
@@ -1059,6 +1073,8 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
         vol.Optional(CONF_BOOST_DEFAULT_TEMP): vol.Any(float, int),
         vol.Optional(CONF_BOOST_DEFAULT_MINUTES): vol.Any(float, int),
         vol.Optional(CONF_WINDOW_WARNING_MIN): vol.Any(float, int),
+        vol.Optional(CONF_WINDOW_DELAY_DEFAULT_MIN): vol.Any(float, int),
+        vol.Optional(CONF_WINDOW_OFF_TEMP): vol.Any(float, int),
         vol.Optional(CONF_NIGHT_SETBACK_TEMP): vol.Any(float, int),
         vol.Optional(CONF_NIGHT_START_HOUR): vol.Any(float, int),
         vol.Optional(CONF_NIGHT_END_HOUR): vol.Any(float, int),

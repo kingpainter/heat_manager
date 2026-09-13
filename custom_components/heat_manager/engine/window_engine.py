@@ -36,19 +36,20 @@ from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util.dt import utcnow
 
 from ..const import (
-    CONF_AWAY_TEMP_OVERRIDE,
     CONF_CLIMATE_ENTITY,
     CONF_NOTIFY_SERVICE,
     CONF_NOTIFY_WINDOW_WARNING_30,
     CONF_NOTIFY_WINDOWS,
     CONF_TRV_TYPE,
-    CONF_WINDOW_DELAY_MIN,
+    CONF_WINDOW_DELAY_DEFAULT_MIN,
+    CONF_WINDOW_OFF_TEMP,
     CONF_WINDOW_SENSORS,
     CONF_WINDOW_WARNING_MIN,
     DEFAULT_CO2_VENTILATION_THRESHOLD,
     DEFAULT_WINDOW_CLOSE_DELAY_MIN,
-    DEFAULT_WINDOW_DELAY_MIN,
+    DEFAULT_WINDOW_DELAY_DEFAULT_MIN,
     DEFAULT_WINDOW_DELAY_WIND_MIN,
+    DEFAULT_WINDOW_OFF_TEMP,
     DEFAULT_WINDOW_WARNING_MIN,
     PRESET_SCHEDULE,
     TRV_TYPE_ZIGBEE,
@@ -56,7 +57,6 @@ from ..const import (
     RoomState,
 )
 from .controller import guarded
-from .pid_controller import PidController
 
 if TYPE_CHECKING:
     from ..coordinator import HeatManagerCoordinator
@@ -82,19 +82,20 @@ class WindowEngine:
         self._open_tasks: dict[str, asyncio.Task] = {}  # type: ignore[type-arg]
         self._close_tasks: dict[str, asyncio.Task] = {}  # type: ignore[type-arg]
         self._sensor_to_room: dict[str, str] = {}
-        self._sensor_to_away_temp: dict[str, float] = {}
         self._unsubs: list[Any] = []
         self._build_sensor_map()
         self._register_listeners()
         self._check_initial_windows()
 
     def _build_sensor_map(self) -> None:
+        # v0.33.0: the setpoint written on window-open is now one global
+        # value (CONF_WINDOW_OFF_TEMP, read fresh at write time in
+        # _open_after_delay()) instead of a per-sensor snapshot taken here —
+        # see that method's comment for why it's no longer per-room.
         for room in self.coordinator.rooms:
             room_name = room.get("room_name", "")
-            away_temp = float(room.get(CONF_AWAY_TEMP_OVERRIDE, 10.0))
             for sensor in room.get(CONF_WINDOW_SENSORS, []):
                 self._sensor_to_room[sensor] = room_name
-                self._sensor_to_away_temp[sensor] = away_temp
         _LOGGER.debug("Window engine tracking %d sensor(s)", len(self._sensor_to_room))
 
     def _register_listeners(self) -> None:
@@ -199,7 +200,13 @@ class WindowEngine:
         if not state or state.state != "on":
             return
 
-        away_temp = self._sensor_to_away_temp.get(sensor_id, 10.0)
+        # v0.33.0: dedicated, global "heat is off" temperature — deliberately
+        # NOT away_temp_override (that value now only floors the PID's own
+        # idle output and the night/wake setback; see const.py's
+        # CONF_WINDOW_OFF_TEMP comment for why they were split apart).
+        off_temp = self.coordinator.config.get(
+            CONF_WINDOW_OFF_TEMP, DEFAULT_WINDOW_OFF_TEMP
+        )
         climate_id = self.coordinator.get_climate_entity(room_name)
         if not climate_id:
             # 2026-09-11 (monitoring-only rooms): a room with no TRV at all
@@ -232,7 +239,12 @@ class WindowEngine:
         ]
 
         try:
-            target_temp = self._window_open_setpoint(room_name, climate_id, away_temp)
+            # v0.33.0: was routed through PidController.power_to_setpoint(
+            # power=0.0, trv_min=off_temp) — but power<=0.0 always short-
+            # circuits to trv_min unconditionally (see pid_controller.py), so
+            # that call only ever returned off_temp itself. Simplified to a
+            # direct assignment; behaviour is unchanged.
+            target_temp = off_temp
             for write_id in write_entities:
                 await self.coordinator.hass.services.async_call(
                     "climate",
@@ -518,41 +530,26 @@ class WindowEngine:
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Window notification failed: %s", err)
 
-    def _window_open_setpoint(
-        self, room_name: str, climate_id: str, fallback_temp: float
-    ) -> float:
-        if not self.coordinator.pid_enabled:
-            return fallback_temp
-        return PidController.power_to_setpoint(
-            power=0.0,
-            current_temp=self._get_current_temp(room_name, climate_id),
-            trv_max=self.coordinator.trv_max_temp,
-            trv_min=fallback_temp,
-        )
-
-    def _get_current_temp(self, room_name: str, climate_id: str) -> float:
-        """
-        Read current temperature via the coordinator's unified helper.
-        Falls back to 20 °C if all sources are unavailable.
-        """
-        temp = self.coordinator.get_room_current_temp(room_name, climate_id)
-        return temp if temp is not None else 20.0
-
     def _get_open_delay(self, sensor_id: str) -> int:
         """Return window open delay in minutes.
+
+        v0.33.0: reads the one global CONF_WINDOW_DELAY_DEFAULT_MIN setting
+        (live-editable from the panel's Indstillinger tab) instead of the
+        old per-room CONF_WINDOW_DELAY_MIN, which required a trip through
+        the config-flow room step and was never exposed anywhere the user
+        actually looks. The per-room field is left in const.py/config_flow.py
+        untouched (not read here anymore) in case per-room editing returns
+        in a future panel pass.
 
         Wind fast (> WIND_FAST_MS): reduce to DEFAULT_WINDOW_DELAY_WIND_MIN
         so heat loss is suppressed quicker.
         Rain: also reduce — nobody opens a window for ventilation in rain.
         """
-        room_name = self._sensor_to_room.get(sensor_id)
-        configured = DEFAULT_WINDOW_DELAY_MIN
-        for room in self.coordinator.rooms:
-            if room.get("room_name") == room_name:
-                configured = int(
-                    room.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)
-                )
-                break
+        configured = int(
+            self.coordinator.config.get(
+                CONF_WINDOW_DELAY_DEFAULT_MIN, DEFAULT_WINDOW_DELAY_DEFAULT_MIN
+            )
+        )
 
         wind = self.coordinator.get_wind_speed()
         if wind is not None and wind >= WIND_FAST_MS:

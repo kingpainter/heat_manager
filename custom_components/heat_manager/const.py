@@ -30,11 +30,35 @@ CONF_CLIMATE_ENTITY = "climate_entity"
 # to coordinator.py and the engines.
 CONF_TRVS = "trvs"
 CONF_WINDOW_SENSORS = "window_sensors"
+# Per-room field, set only via the options-flow room step. v0.33.0: no
+# longer read by window_engine.py — see CONF_WINDOW_DELAY_DEFAULT_MIN below.
+# Left in place (not migrated away) so nothing is lost for anyone who did
+# customize a room's value; may become a real per-room override again in a
+# future panel "edit per room" pass.
 CONF_WINDOW_DELAY_MIN = "window_delay_min"
 # 2026-09 audit fix: DEFAULT_WINDOW_WARNING_MIN existed with no matching
 # CONF_ key — window_engine.py read the magic string "window_warning_min"
 # directly, so this option had no config_flow field to set it from.
 CONF_WINDOW_WARNING_MIN = "window_warning_min"
+
+# v0.33.0: the one global knob that actually controls every room's window
+# open-delay today (window_engine.py no longer reads the per-room
+# CONF_WINDOW_DELAY_MIN above). Live-editable from the panel's Indstillinger
+# → Vindue section, same pattern as CONF_BOOST_DEFAULT_TEMP/_MINUTES below.
+CONF_WINDOW_DELAY_DEFAULT_MIN = "window_delay_default_min"
+
+# v0.33.0: dedicated "heat is now off" temperature for the window-open path,
+# deliberately separate from CONF_AWAY_TEMP_OVERRIDE. Before this, window
+# engine reused away_temp_override for its write-on-open setpoint — but that
+# same value also floors the PID's own idle (0%-demand) output and the
+# night/wake setback (coordinator.get_room_target_temp()), so setting it to
+# a "comfortable away temp" (e.g. 18°C) silently raised the PID's minimum
+# floor everywhere, not just on window-open. This field is read only by
+# window_engine.py; away_temp_override's PID/setback-floor role is
+# unchanged. See audit/heat_manager_target_temp_analysis_2026-09-11.md for
+# the original away_temp_override design and CHANGELOG [0.33.0] for this split.
+CONF_WINDOW_OFF_TEMP = "window_off_temp"
+
 CONF_AWAY_TEMP_OVERRIDE = "away_temp_override"
 
 # ── Interior doors (2026-09-11) ──────────────────────────────────────────────
@@ -186,6 +210,15 @@ DEFAULT_WINDOW_CLOSE_DELAY_MIN = 2
 DEFAULT_WINDOW_WARNING_MIN = 30
 DEFAULT_WINDOW_DELAY_WIND_MIN = 1  # reduced delay when wind > threshold
 WIND_FAST_MS: float = 6.0  # m/s — window heat loss accelerates above this
+# v0.33.0 — fallback for CONF_WINDOW_DELAY_DEFAULT_MIN when unset (fresh
+# installs, pre-upgrade config entries). Reuses the same 5 min value the
+# old per-room field defaulted to, so upgrading changes nothing until the
+# global setting is actually edited.
+DEFAULT_WINDOW_DELAY_DEFAULT_MIN = DEFAULT_WINDOW_DELAY_MIN
+# v0.33.0 — fallback for CONF_WINDOW_OFF_TEMP when unset. Same 10°C value
+# CONF_AWAY_TEMP_OVERRIDE already defaulted to, so upgrading changes
+# nothing until the new setting is actually edited.
+DEFAULT_WINDOW_OFF_TEMP: float = 10.0
 DEFAULT_GRACE_DAY_MIN = 30
 DEFAULT_GRACE_NIGHT_MIN = 15
 DEFAULT_NIGHT_START_HOUR = 23

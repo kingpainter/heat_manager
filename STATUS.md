@@ -1,7 +1,7 @@
 # Heat Manager — Project Status
 
-**Last updated:** 2026-09-13 · v0.32.0
-**Version (GitHub):** 0.32.0 (pending push/commit via GitHub Desktop)
+**Last updated:** 2026-09-13 · v0.33.0
+**Version (GitHub):** 0.33.0 (pending push/commit via GitHub Desktop)
 **Version (HA server):** not yet transferred — see CHANGELOG.md before deploying
 **Target:** Home Assistant 2025.1+
 **Language:** English primary · Danish translations included
@@ -28,7 +28,19 @@ status indicators (three topbar chips plus an Oversigt-only "last remote
 action" box) were replaced by one consolidated status center in the panel
 header — server-computed via `_build_active_issues()`, plus one thing that
 genuinely can't be server-computed (the panel's own dead websocket
-connection), injected client-side (v0.32.0).
+connection), injected client-side (v0.32.0). Most recently (v0.33.0):
+`away_temp_override` was silently doing triple duty — flooring the PID's own
+idle output, flooring the night/wake setback, *and* being the value written
+to the TRV on window-open — so setting it to a "comfortable away temp" would
+have quietly raised the PID's own minimum everywhere. A dedicated global
+`window_off_temp` now owns the window-open write path exclusively;
+`away_temp_override` keeps its PID/setback-floor role, untouched. The old
+per-room `window_delay_min` field (never exposed anywhere the user actually
+looked) was also replaced by one global, panel-editable
+`window_delay_default_min` — `window_engine.py` no longer reads the per-room
+value at all. New info-icon tooltips in both the panel's Rum-detaljer stats
+and its Indstillinger → Vindue section spell out the Rum temp / Target Temp
+/ Trv temp / Set point distinction directly in the UI.
 
 **Known deferred items (still open):** a full card.js/panel.js data-parity
 pass (surfacing every config-only field, e.g. sync-mode/schedule, on the
@@ -71,8 +83,8 @@ heat_manager/
 | File | Description |
 |------|-------------|
 | `__init__.py` | Setup, ConfigEntryNotReady, service registration, repair issues, stale device cleanup |
-| `manifest.json` | v0.32.0, config_flow: true, iot_class: local_push |
-| `const.py` | All constants. Notable recent additions: `CONF_DOORS`/`CONF_DOOR_SENSOR`/`CONF_DOOR_ROOM_A/B` (interior doors), `CONF_MANUAL_TRV_CONTROL`, `CONF_BOOST_DEFAULT_TEMP`/`CONF_BOOST_DEFAULT_MINUTES`, `CONF_NOTIFY_MOLD_RISK`. `CONF_ENERGY_TRACKING`/`CONF_ROOM_WATTAGE` were removed in v0.22.0 |
+| `manifest.json` | v0.33.0, config_flow: true, iot_class: local_push |
+| `const.py` | All constants. Notable recent additions: `CONF_WINDOW_DELAY_DEFAULT_MIN`/`CONF_WINDOW_OFF_TEMP` (v0.33.0 — see below), `CONF_DOORS`/`CONF_DOOR_SENSOR`/`CONF_DOOR_ROOM_A/B` (interior doors), `CONF_MANUAL_TRV_CONTROL`, `CONF_BOOST_DEFAULT_TEMP`/`CONF_BOOST_DEFAULT_MINUTES`, `CONF_NOTIFY_MOLD_RISK`. `CONF_ENERGY_TRACKING`/`CONF_ROOM_WATTAGE` were removed in v0.22.0. `CONF_WINDOW_DELAY_MIN` (the old per-room field) is left in place, unread, in case per-room editing returns |
 | `coordinator.py` | `DataUpdateCoordinator` — 13-step tick (season → controller → presence → window → preheat → valve-protection → calibration → schedule → PID → boost-expiry → room-override-expiry → **mold-risk check** ). Per-engine exception isolation, so one engine's exception never marks every entity unavailable. `get_room_target_temp()` is the single resolved-target helper both the PID tick and the panel/card read (v0.20.0) — Netatmo and Zigbee/local rooms are regulated identically. `async_call_climate_service()` is the one place any engine sends a `climate.*` service call, serialised behind a single coordinator-wide `asyncio.Lock` so Netatmo's rate limit is respected app-wide, not per-engine (v0.17.1). `_async_check_mold_risk()`/`_notify_mold_risk()` (v0.31.0) edge-detect a room's mold risk turning on and push a notification, mirroring `MoldRiskSensor`'s own algorithm |
 | `config_flow.py` | Multi-step setup wizard + options flow (rooms/persons/doors CRUD, PID + wake settings, boost defaults, notifications incl. mold risk) |
 | `diagnostics.py` | `async_get_config_entry_diagnostics()` — no longer includes an `energy` block (removed with the energy feature, v0.22.0) |
@@ -94,7 +106,7 @@ heat_manager/
 |------|-------------|
 | `engine/controller.py` | ON/PAUSE/OFF state machine. Auto-off driven solely by `SeasonEngine.effective_season == DORMANT` |
 | `engine/presence_engine.py` | Presence, grace periods, alarm, arrival/departure, restore-lock against concurrent Netatmo 429s. v0.23.0: known-old-state guards on alarm/person state changes so an HA restart no longer logs/notifies a false "away"/"welcome home" event; a silent `_check_initial_alarm()` still correctly syncs an already-armed-away house at startup |
-| `engine/window_engine.py` | Window/door detection, weather-aware delay (rain/wind), per-room CO₂ context, multi-sensor-per-room close guard. v0.23.0: known-old-state guard + `_check_initial_windows()` for the same restart-false-event fix as presence_engine. v0.24.2: a monitoring-only room (no TRV) can now have a window/door sensor too — state/log/notify only, no `climate.set_temperature` |
+| `engine/window_engine.py` | Window/door detection, weather-aware delay (rain/wind), per-room CO₂ context, multi-sensor-per-room close guard. v0.23.0: known-old-state guard + `_check_initial_windows()` for the same restart-false-event fix as presence_engine. v0.24.2: a monitoring-only room (no TRV) can now have a window/door sensor too — state/log/notify only, no `climate.set_temperature`. v0.33.0: `_get_open_delay()` reads the one global `CONF_WINDOW_DELAY_DEFAULT_MIN` instead of the old per-room field; the window-open write uses the dedicated global `CONF_WINDOW_OFF_TEMP` instead of a per-room `away_temp_override` snapshot. `_window_open_setpoint()`/`_get_current_temp()` (dead code — `power_to_setpoint(power<=0.0, ...)` always just returned the fallback anyway) and the `PidController` import were removed |
 | `engine/door_engine.py` | (v0.24.0, new) Purely observational — logs a real "Dør åbnet/lukket mellem X og Y" event whenever a configured interior door genuinely opens or closes. Restart-safe from day one (same known-old-state guard). Never touches heating directly |
 | `engine/season_engine.py` | AUTO → DORMANT/WAKING/ACTIVE via calendar + outdoor-temp day-counter + indoor wake threshold |
 | `engine/preheat_engine.py` | `travel_time` listener, per-person lead time, TRV routing |
@@ -110,7 +122,7 @@ heat_manager/
 
 | File | Notes |
 |------|-------|
-| `frontend/heat-manager-panel.js` | Surgical DOM patching, 4 tabs (Oversigt/Rum/Historik/Konfiguration). Konfiguration gained a full "Indstillinger" section in v0.29.0 (Fase 2 del 1): PID-regulator, Boost-standardværdier, Vindue, Nat-sætpunkt, Grace-perioder, Auto-off ved mildt vejr, plus 2 more Notifikationer toggles — all live-editable via a generic `save-field`/`toggle-field` handler pair, same save-and-confirm pattern as the older Alarmtavle/Notifikationer/Manuel TRV-kontrol fields (which itself became properly persistent in v0.27.1, no longer session-scoped). Oversigt gained a version chip, a house-wide Netatmo mode summary, 2 more quick-stat tiles (Passiv, Åbne døre — v0.25.0), and a global "Alle rum — Target Temp" control (v0.26.0). "Sætpunkt"/"Mål °C" were unified into one "Target Temp" label everywhere (v0.26.0). The Energi i dag box and Historik energy chart were removed (v0.22.0). **v0.32.0:** the old `#cloud-chip`/`#health-chip`/`#ws-error-chip` topbar chips and the Oversigt-only `#remote-last-action-box` are gone, replaced by one `#status-center` field in the header (~50% width, ~90% height, centered) that merges the server's `active_issues` with the one thing only the client can know — its own dead websocket connection — via `_activeIssues()`/`_patchStatusCenter()`. Polls every 60s |
+| `frontend/heat-manager-panel.js` | Surgical DOM patching, 4 tabs (Oversigt/Rum/Historik/Konfiguration). Konfiguration gained a full "Indstillinger" section in v0.29.0 (Fase 2 del 1): PID-regulator, Boost-standardværdier, Vindue, Nat-sætpunkt, Grace-perioder, Auto-off ved mildt vejr, plus 2 more Notifikationer toggles — all live-editable via a generic `save-field`/`toggle-field` handler pair, same save-and-confirm pattern as the older Alarmtavle/Notifikationer/Manuel TRV-kontrol fields (which itself became properly persistent in v0.27.1, no longer session-scoped). Oversigt gained a version chip, a house-wide Netatmo mode summary, 2 more quick-stat tiles (Passiv, Åbne døre — v0.25.0), and a global "Alle rum — Target Temp" control (v0.26.0). "Sætpunkt"/"Mål °C" were unified into one "Target Temp" label everywhere (v0.26.0). The Energi i dag box and Historik energy chart were removed (v0.22.0). **v0.32.0:** the old `#cloud-chip`/`#health-chip`/`#ws-error-chip` topbar chips and the Oversigt-only `#remote-last-action-box` are gone, replaced by one `#status-center` field in the header (~50% width, ~90% height, centered) that merges the server's `active_issues` with the one thing only the client can know — its own dead websocket connection — via `_activeIssues()`/`_patchStatusCenter()`. Polls every 60s. **v0.33.0:** Indstillinger → Vindue gained two new live-editable fields (`window_delay_default_min`, `window_off_temp`); new reusable `_infoIcon(text)` tooltip helper (hover/focus on desktop, tap-toggle on mobile via the same shared outside-click listener from v0.32.0 — no new listener) applied to those two fields plus Rum-detaljer's Rum temp/Target Temp/Trv temp stat labels |
 | `frontend/heat-manager-card.js` | Mobile Lovelace card. v0.30.0 (Fase 2 del 2): a 500ms press-and-hold on any room card opens a bottom-sheet with every diagnostic previously shown as an always-on chip (humidity/CO2/battery/PID power/calibration/window-duration, blocking-reason, ungrouped), plus door status + learned heat-up-rate, a manual temperature override, and a grouping toggle — all new to this card. The always-visible card view is now decluttered to name/state/temp/setpoint/valve/mold-risk/TRV-offline. `_loadTargetTemps()` (v0.21.1, extended v0.30.0) polls `heat_manager/get_state` every 60s so the card's setpoint/room-detail data can never diverge from the panel's, unlike the raw-entity reads used before. The Energi i dag section was removed (v0.22.0) |
 | `frontend/heat_manager_logo1.png` | Served at `/api/heat_manager-logo` |
 
@@ -214,6 +226,29 @@ CONF_NIGHT_SETBACK_TEMP     — °C subtracted from PID target, default 2.0°C
 Uses CONF_NIGHT_START_HOUR / CONF_NIGHT_END_HOUR (default 23/7).
 Setpoint floor: room away_temp_override. Applied before PID tick.
 Live-editable from the panel's Konfiguration tab since v0.29.0.
+away_temp_override's role here is UNCHANGED by v0.33.0 — see below, the
+window-open write path no longer shares this value.
+```
+
+### Window delay/off-temp split (v0.33.0)
+```
+Before: window_engine.py used a per-room CONF_WINDOW_DELAY_MIN (set only via
+        the options-flow room step, never exposed in the panel) for the
+        open-delay, and reused CONF_AWAY_TEMP_OVERRIDE — the same value that
+        floors the PID's idle output and the night/wake setback above — as
+        the write-on-open temperature.
+Problem: setting away_temp_override to a "comfortable away temp" (e.g. 18°C)
+        would silently raise the PID's own minimum floor in every room, all
+        the time — not just on window-open. Caught by the user reasoning
+        through the PID chain, confirmed by reading power_to_setpoint()
+        (power<=0.0 always returns trv_min unconditionally).
+After:  CONF_WINDOW_DELAY_DEFAULT_MIN (global, panel-editable) is the only
+        thing _get_open_delay() reads now. CONF_WINDOW_OFF_TEMP (global,
+        panel-editable) is the only thing the window-open write reads now.
+        away_temp_override is untouched — still PID-floor/setback-floor only.
+Old per-room CONF_WINDOW_DELAY_MIN field: left in const.py/config_flow.py,
+        unread by window_engine.py — kept only in case per-room editing
+        returns in a future, larger panel round (parked, see backlog).
 ```
 
 ### Mold risk (now also a push notification — v0.31.0)
@@ -307,6 +342,8 @@ potentially stale, not assumed current, the next time it matters.
 | Mobile card press-and-hold diagnostics sheet | — | ✅ Done (v0.30.0) |
 | Mold risk as a push notification (previously poll-only) | — | ✅ Done (v0.31.0) |
 | Consolidated status center (replacing 4 scattered indicators: 3 topbar chips + Oversigt-only remote-action box) | — | ✅ Done (v0.32.0) |
+| Split `away_temp_override` (PID/setback floor) from a dedicated window-open-off temperature; global window-delay default; Rum temp/Target Temp/Trv temp/Set point tooltips | — | ✅ Done (v0.33.0) |
+| Per-room live editing in the panel (comfort_temp, window_delay_min, away_temp_override, etc. — Flemming's parked "point 3") | Medium | Open — deliberately deferred to a future, larger round; needs a new `update_room_config`-style WS command |
 | Manual TRV control persistence (was session-scoped only) | — | ✅ Done (v0.27.1) |
 | Netatmo rooms ignoring `comfort_temp` ("B21") | — | ✅ Done (v0.19.0/v0.20.0) |
 | Netatmo 429/503 rate-limit races across engines | — | ✅ Done (v0.17.1) — single coordinator-wide lock |

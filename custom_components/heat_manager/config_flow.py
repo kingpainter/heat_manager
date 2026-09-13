@@ -84,7 +84,9 @@ from .const import (
     CONF_WAKE_SETBACK_TEMP,
     CONF_WEATHER_ENTITY,
     CONF_WIND_SPEED_SENSOR,
+    CONF_WINDOW_DELAY_DEFAULT_MIN,
     CONF_WINDOW_DELAY_MIN,
+    CONF_WINDOW_OFF_TEMP,
     CONF_WINDOW_SENSORS,
     CONF_WINDOW_WARNING_MIN,
     DEFAULT_AUTO_OFF_TEMP_DAYS,
@@ -108,7 +110,9 @@ from .const import (
     DEFAULT_SYNC_MODE,
     DEFAULT_TRV_MAX_TEMP,
     DEFAULT_WAKE_SETBACK_TEMP,
+    DEFAULT_WINDOW_DELAY_DEFAULT_MIN,
     DEFAULT_WINDOW_DELAY_MIN,
+    DEFAULT_WINDOW_OFF_TEMP,
     DEFAULT_WINDOW_WARNING_MIN,
     DOMAIN,
     SYNC_MODE_DISABLED,
@@ -175,6 +179,41 @@ def _step1_schema(defaults: dict | None = None) -> vol.Schema:
                         "max": 180,
                         "step": 5,
                         "unit_of_measurement": "min",
+                    }
+                }
+            ),
+            # ── Window delay/off-temp defaults (v0.33.0) ─────────────────
+            # window_delay_default_min is the ONE knob every room's window
+            # open-delay actually uses today (window_engine.py no longer
+            # reads the old per-room CONF_WINDOW_DELAY_MIN). window_off_temp
+            # is the setpoint written on open — deliberately separate from
+            # CONF_AWAY_TEMP_OVERRIDE below, which still floors the PID's
+            # own idle output and the night/wake setback. See const.py.
+            vol.Optional(
+                CONF_WINDOW_DELAY_DEFAULT_MIN,
+                default=defaults.get(
+                    CONF_WINDOW_DELAY_DEFAULT_MIN, DEFAULT_WINDOW_DELAY_DEFAULT_MIN
+                ),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": 0,
+                        "max": 60,
+                        "step": 1,
+                        "unit_of_measurement": "min",
+                    }
+                }
+            ),
+            vol.Optional(
+                CONF_WINDOW_OFF_TEMP,
+                default=defaults.get(CONF_WINDOW_OFF_TEMP, DEFAULT_WINDOW_OFF_TEMP),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": 5,
+                        "max": 20,
+                        "step": 0.5,
+                        "unit_of_measurement": "°C",
                     }
                 }
             ),
