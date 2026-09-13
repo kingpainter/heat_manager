@@ -1177,7 +1177,9 @@ async def test_update_config_manual_trv_control_true_persists_and_logs():
     await ws_update_config(hass, conn, _msg(manual_trv_control=True))
 
     hass.config_entries.async_update_entry.assert_called_once()
-    persisted_options = hass.config_entries.async_update_entry.call_args.kwargs["options"]
+    persisted_options = hass.config_entries.async_update_entry.call_args.kwargs[
+        "options"
+    ]
     assert persisted_options["manual_trv_control"] is True
     coord.log_event.assert_called_once()
     result = conn.send_result.call_args[0][1]
@@ -1211,7 +1213,9 @@ async def test_update_config_manual_trv_control_false_persists_when_previously_t
 
     await ws_update_config(hass, conn, _msg(manual_trv_control=False))
 
-    persisted_options = hass.config_entries.async_update_entry.call_args.kwargs["options"]
+    persisted_options = hass.config_entries.async_update_entry.call_args.kwargs[
+        "options"
+    ]
     assert persisted_options["manual_trv_control"] is False
     result = conn.send_result.call_args[0][1]
     assert result == {"updated": True, "changed": ["manual_trv_control"]}
