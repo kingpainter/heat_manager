@@ -286,6 +286,11 @@ class HeatManagerPanel extends HTMLElement {
       this._errCount = 0;
       this._wsError  = false;
       this._lastSyncTime = new Date();  // UX3
+      // 2026-09-13: "Manuel TRV-kontrol" used to be session-scoped only (this
+      // field, never read from the server) — now persisted server-side, so
+      // sync it from the authoritative config snapshot on every load instead
+      // of always starting at false after a page reload.
+      this._manualControlEnabled = !!this._data?.config?.manual_trv_control;
     } catch (e) {
       this._errCount++;
       this._wsError = true;
@@ -3253,10 +3258,24 @@ class HeatManagerPanel extends HTMLElement {
       this._patchHealthChip();
     });
 
-    // Manual TRV control toggle
-    root.querySelector("[data-action='toggle-manual-control']")?.addEventListener("click", () => {
-      this._manualControlEnabled = !this._manualControlEnabled;
+    // Manual TRV control toggle — persisted server-side since 2026-09-13
+    // (was a plain JS field, reset on every page reload).
+    root.querySelector("[data-action='toggle-manual-control']")?.addEventListener("click", async () => {
+      const newVal = !this._manualControlEnabled;
+      this._manualControlEnabled = newVal;      // optimistic — reflect immediately
       this._scheduleRender();
+      try {
+        await this._hass.callWS({
+          type: "heat_manager/update_config",
+          manual_trv_control: newVal,
+        });
+        if (this._data?.config) this._data.config.manual_trv_control = newVal;
+      } catch (e) {
+        this._manualControlEnabled = !newVal;   // revert — save failed
+        this._scheduleRender();
+        this._showToast("Kunne ikke gemme Manuel TRV-kontrol", "error");
+        console.error("Heat Manager: save manual_trv_control failed", e);
+      }
     });
 
     // Manual-control slider/send/reset + B18 Fase 3 grouping controls — see

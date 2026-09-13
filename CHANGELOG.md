@@ -9,6 +9,25 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.27.1] — 2026-09-13
+
+"Manuel TRV-kontrol" (panel Config tab) was session-scoped only — a plain
+`panel.js` field, reset to off on every page reload — despite the panel
+already presenting it as a persistent setting. Closes that roadmap item
+from `manual/heat_manager_brugermanual_2026-09-11.md` kapitel 9.
+
+### Fixed
+
+- **Panel — Config tab**: "Manuel TRV-kontrol" now persists to `entry.options`
+  via `heat_manager/update_config` (new `manual_trv_control` field), the same
+  live-save pattern already used for `alarm_panel`/`notify_service`. The
+  toggle reads its state from the server on every load/poll instead of
+  always starting at off, and reverts with a toast if the save fails.
+- **`const.py`**: new `CONF_MANUAL_TRV_CONTROL` / `DEFAULT_MANUAL_TRV_CONTROL`.
+- **`websocket.py`**: `ws_get_state` includes `manual_trv_control` in the
+  config snapshot; `ws_update_config` accepts and persists it (boolean,
+  handled separately from the existing string fields).
+
 ## [0.27.0] — 2026-09-13
 
 Closes the Fase 2 loose end flagged in `audit/heat_manager_status_check_2026-09-11.md`:

@@ -1162,6 +1162,61 @@ async def test_update_config_same_value_is_not_reported_as_changed():
     assert result == {"updated": False, "changed": []}
 
 
+# ── ws_update_config — manual_trv_control (2026-09-13) ──────────────────────
+#
+# Was session-scoped only (a plain panel.js field, reset on every reload) —
+# now persisted the same way alarm_panel/notify_service already are.
+
+
+@pytest.mark.asyncio
+async def test_update_config_manual_trv_control_true_persists_and_logs():
+    coord = _make_coordinator()
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_update_config(hass, conn, _msg(manual_trv_control=True))
+
+    hass.config_entries.async_update_entry.assert_called_once()
+    persisted_options = hass.config_entries.async_update_entry.call_args.kwargs["options"]
+    assert persisted_options["manual_trv_control"] is True
+    coord.log_event.assert_called_once()
+    result = conn.send_result.call_args[0][1]
+    assert result == {"updated": True, "changed": ["manual_trv_control"]}
+
+
+@pytest.mark.asyncio
+async def test_update_config_manual_trv_control_same_value_is_not_reported_as_changed():
+    coord = _make_coordinator()
+    hass = _make_hass_with_entry(coord)
+    hass.config_entries.async_entries.return_value[0].options = {
+        "manual_trv_control": True
+    }
+    conn = _connection()
+
+    await ws_update_config(hass, conn, _msg(manual_trv_control=True))
+
+    result = conn.send_result.call_args[0][1]
+    assert result == {"updated": False, "changed": []}
+    hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_config_manual_trv_control_false_persists_when_previously_true():
+    coord = _make_coordinator()
+    hass = _make_hass_with_entry(coord)
+    hass.config_entries.async_entries.return_value[0].options = {
+        "manual_trv_control": True
+    }
+    conn = _connection()
+
+    await ws_update_config(hass, conn, _msg(manual_trv_control=False))
+
+    persisted_options = hass.config_entries.async_update_entry.call_args.kwargs["options"]
+    assert persisted_options["manual_trv_control"] is False
+    result = conn.send_result.call_args[0][1]
+    assert result == {"updated": True, "changed": ["manual_trv_control"]}
+
+
 # ── ws_get_history ───────────────────────────────────────────────────────────
 
 

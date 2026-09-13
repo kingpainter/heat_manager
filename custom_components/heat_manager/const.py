@@ -65,6 +65,14 @@ CONF_WEATHER_ENTITY = "weather_entity"
 CONF_NOTIFY_SERVICE = "notify_service"
 CONF_PREHEAT_LEAD_TIME_MIN = "preheat_lead_time_min"
 
+# Panel Config tab — "Manuel TRV-kontrol" toggle (2026-09-13). Was
+# session-scoped only (a plain JS field, reset on every page reload) —
+# persisted to entry.options via heat_manager/update_config so it survives
+# a reload/browser restart, same live-save pattern as alarm_panel/
+# notify_service.
+CONF_MANUAL_TRV_CONTROL = "manual_trv_control"
+DEFAULT_MANUAL_TRV_CONTROL: bool = False
+
 CONF_GRACE_DAY_MIN = "grace_day_min"
 CONF_GRACE_NIGHT_MIN = "grace_night_min"
 CONF_NIGHT_START_HOUR = "night_start_hour"

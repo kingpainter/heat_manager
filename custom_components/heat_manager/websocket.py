@@ -39,6 +39,7 @@ from .const import (
     CONF_GRACE_NIGHT_MIN,
     CONF_HOUSE_VOICE_ENABLED,
     CONF_HUMIDITY_SENSOR,
+    CONF_MANUAL_TRV_CONTROL,
     CONF_NOTIFY_SERVICE,
     CONF_OUTDOOR_TEMP_SENSOR,
     CONF_PERSON_ENTITY,
@@ -709,6 +710,10 @@ async def ws_get_state(
         "alarm_panel": cfg.get(CONF_ALARM_PANEL, ""),
         "notify_service": cfg.get(CONF_NOTIFY_SERVICE, ""),
         "house_voice_enabled": cfg.get(CONF_HOUSE_VOICE_ENABLED, False),
+        # 2026-09-13: was session-scoped only (plain JS field, reset on every
+        # page reload) — now read from entry.options so the panel can
+        # initialize the toggle to its actual persisted state on load.
+        "manual_trv_control": cfg.get(CONF_MANUAL_TRV_CONTROL, False),
     }
 
     payload: dict[str, Any] = {
@@ -790,6 +795,7 @@ async def ws_get_history(
         vol.Required("type"): "heat_manager/update_config",
         vol.Optional(CONF_ALARM_PANEL): vol.Any(str, None),
         vol.Optional(CONF_NOTIFY_SERVICE): vol.Any(str, None),
+        vol.Optional(CONF_MANUAL_TRV_CONTROL): bool,
     }
 )
 @websocket_api.async_response
@@ -800,7 +806,7 @@ async def ws_update_config(
 ) -> None:
     """Update editable global config fields from the sidebar panel.
 
-    Currently supports: alarm_panel, notify_service.
+    Currently supports: alarm_panel, notify_service, manual_trv_control.
     Changes are persisted to entry.options and take effect immediately
     (no HA restart needed) because the coordinator reads config dynamically.
     """
@@ -819,6 +825,14 @@ async def ws_update_config(
             if current_options.get(key, "") != new_val:
                 current_options[key] = new_val
                 changed.append(key)
+
+    # manual_trv_control is a bool, not a string — handled separately so the
+    # .strip() string path above never sees it.
+    if CONF_MANUAL_TRV_CONTROL in msg:
+        new_bool = bool(msg[CONF_MANUAL_TRV_CONTROL])
+        if current_options.get(CONF_MANUAL_TRV_CONTROL, False) != new_bool:
+            current_options[CONF_MANUAL_TRV_CONTROL] = new_bool
+            changed.append(CONF_MANUAL_TRV_CONTROL)
 
     if not changed:
         connection.send_result(msg["id"], {"updated": False, "changed": []})
