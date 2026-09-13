@@ -26,7 +26,9 @@
           "trv_max_temp": "TRV maks. setpunkt",
           "indoor_wake_sensor": "Indendørs opvågningssensor (valgfrit)",
           "indoor_wake_threshold": "Indendørs opvågningsgrænse",
-          "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)"
+          "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)",
+          "boost_default_temp": "Boost standardtemperatur",
+          "boost_default_minutes": "Boost standardvarighed (minutter)"
         },
         "data_description": {
           "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul (fx Netatmo, Aqara). Overskriver vejr-entitetens temperatur ved beregning af fraværstemperatur og sæsondetektering. Lad feltet stå tomt for at bruge vejr-entiteten.",
@@ -40,7 +42,9 @@
           "trv_max_temp": "TRV-setpunkt der sendes når PID-effekten er 100%. Standard 28°C.",
           "indoor_wake_sensor": "Fælles indendørs temperatursensor brugt til at afgøre den bløde opvågningsfase (WAKING) om forår/efterår. Falder tilbage til fuld aktiv opvarmning, hvis ikke sat.",
           "indoor_wake_threshold": "Indendørstemperatur hvorover systemet går i opvågningsfase i stedet for fuld aktiv opvarmning. Standard 21°C.",
-          "wake_setback_temp": "Antal grader der trækkes fra alle rums setpunkt under opvågningsfasen. Standard 2°C."
+          "wake_setback_temp": "Antal grader der trækkes fra alle rums setpunkt under opvågningsfasen. Standard 2°C.",
+          "boost_default_temp": "Bruges af heat_manager.boost_start / panelets boost-knap, når ingen temperatur angives. Standard 24°C.",
+          "boost_default_minutes": "Bruges af heat_manager.boost_start / panelets boost-knap, når ingen varighed angives. Standard 30 minutter."
         }
       },
       "room": {
@@ -179,7 +183,9 @@
           "trv_max_temp": "TRV maks. setpunkt",
           "indoor_wake_sensor": "Indendørs opvågningssensor (valgfrit)",
           "indoor_wake_threshold": "Indendørs opvågningsgrænse",
-          "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)"
+          "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)",
+          "boost_default_temp": "Boost standardtemperatur",
+          "boost_default_minutes": "Boost standardvarighed (minutter)"
         },
         "data_description": {
           "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul. Overskriver vejr-entitetens temperatur. Lad feltet stå tomt for at bruge vejr-entiteten.",
@@ -193,7 +199,9 @@
           "trv_max_temp": "TRV-setpunkt der sendes når PID-effekten er 100%. Standard 28°C.",
           "indoor_wake_sensor": "Fælles indendørs temperatursensor brugt til at afgøre den bløde opvågningsfase (WAKING) om forår/efterår. Falder tilbage til fuld aktiv opvarmning, hvis ikke sat.",
           "indoor_wake_threshold": "Indendørstemperatur hvorover systemet går i opvågningsfase i stedet for fuld aktiv opvarmning. Standard 21°C.",
-          "wake_setback_temp": "Antal grader der trækkes fra alle rums setpunkt under opvågningsfasen. Standard 2°C."
+          "wake_setback_temp": "Antal grader der trækkes fra alle rums setpunkt under opvågningsfasen. Standard 2°C.",
+          "boost_default_temp": "Bruges af heat_manager.boost_start / panelets boost-knap, når ingen temperatur angives. Standard 24°C.",
+          "boost_default_minutes": "Bruges af heat_manager.boost_start / panelets boost-knap, når ingen varighed angives. Standard 30 minutter."
         }
       },
       "rooms_menu": {

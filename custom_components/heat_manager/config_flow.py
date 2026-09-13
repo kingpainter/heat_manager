@@ -29,6 +29,8 @@ from .const import (
     CONF_AUTO_OFF_TEMP_THRESHOLD,
     CONF_AWAY_TEMP_OVERRIDE,
     CONF_BATTERY_SENSOR,
+    CONF_BOOST_DEFAULT_MINUTES,
+    CONF_BOOST_DEFAULT_TEMP,
     CONF_BUTTON_MODE_TOGGLE_ENTITY,
     CONF_BUTTON_TEMP_DOWN_ENTITY,
     CONF_BUTTON_TEMP_UP_ENTITY,
@@ -86,6 +88,8 @@ from .const import (
     CONF_WINDOW_WARNING_MIN,
     DEFAULT_AUTO_OFF_TEMP_DAYS,
     DEFAULT_AUTO_OFF_TEMP_THRESHOLD,
+    DEFAULT_BOOST_MINUTES,
+    DEFAULT_BOOST_TEMP,
     DEFAULT_CO2_VENTILATION_THRESHOLD,
     DEFAULT_COMFORT_TEMP,
     DEFAULT_GRACE_DAY_MIN,
@@ -284,6 +288,39 @@ def _step1_schema(defaults: dict | None = None) -> vol.Schema:
                         "min": 15,
                         "max": 480,
                         "step": 15,
+                        "unit_of_measurement": "min",
+                    }
+                }
+            ),
+            # ── Boost defaults (2026-09-13) ─────────────────────────────
+            # Used by heat_manager.boost_start / heat_manager/boost_start
+            # whenever the caller doesn't specify its own temperature/
+            # duration_minutes — same bounds as services.yaml's own
+            # boost_start selectors.
+            vol.Optional(
+                CONF_BOOST_DEFAULT_TEMP,
+                default=defaults.get(CONF_BOOST_DEFAULT_TEMP, DEFAULT_BOOST_TEMP),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": 15,
+                        "max": 32,
+                        "step": 0.5,
+                        "unit_of_measurement": "°C",
+                    }
+                }
+            ),
+            vol.Optional(
+                CONF_BOOST_DEFAULT_MINUTES,
+                default=defaults.get(
+                    CONF_BOOST_DEFAULT_MINUTES, DEFAULT_BOOST_MINUTES
+                ),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": 1,
+                        "max": 240,
+                        "step": 1,
                         "unit_of_measurement": "min",
                     }
                 }

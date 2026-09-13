@@ -25,6 +25,8 @@ from custom_components.heat_manager.config_flow import (
 )
 from custom_components.heat_manager.const import (
     CONF_ALARM_PANEL,
+    CONF_BOOST_DEFAULT_MINUTES,
+    CONF_BOOST_DEFAULT_TEMP,
     CONF_CALIBRATION_ENTITY,
     CONF_CLIMATE_ENTITY,
     CONF_GRACE_DAY_MIN,
@@ -45,6 +47,8 @@ from custom_components.heat_manager.const import (
     CONF_TRVS,
     CONF_WEATHER_ENTITY,
     CONF_WINDOW_SENSORS,
+    DEFAULT_BOOST_MINUTES,
+    DEFAULT_BOOST_TEMP,
     DOMAIN,
 )
 
@@ -1152,6 +1156,36 @@ def test_bug_b17_global_schema_allows_weather_entity_left_empty():
     schema = _step1_schema({})
     result = schema({})
     assert CONF_WEATHER_ENTITY not in result
+
+
+# ── Boost defaults (2026-09-13) ──────────────────────────────────────────────
+#
+# Were hardcoded DEFAULT_BOOST_TEMP/DEFAULT_BOOST_MINUTES constants used
+# directly by coordinator.async_boost_start() — no way to change the "no
+# temperature/duration given" fallback without editing code. Now configurable
+# via the same _step1_schema() used by both the initial setup wizard and the
+# options-flow "global" step.
+
+
+def test_boost_defaults_fall_back_to_constants_when_not_configured():
+    """Fresh install / pre-upgrade config entry (no boost_default_* option
+    stored yet) — schema still supplies DEFAULT_BOOST_TEMP/MINUTES."""
+    schema = _step1_schema({})
+    result = schema({})
+    assert result[CONF_BOOST_DEFAULT_TEMP] == DEFAULT_BOOST_TEMP
+    assert result[CONF_BOOST_DEFAULT_MINUTES] == DEFAULT_BOOST_MINUTES
+
+
+def test_boost_defaults_reflect_previously_configured_options():
+    """Once configured, the schema's own default reflects the stored
+    value — same pattern as every other options-flow field (e.g.
+    CONF_GRACE_DAY_MIN above)."""
+    schema = _step1_schema(
+        {CONF_BOOST_DEFAULT_TEMP: 22.5, CONF_BOOST_DEFAULT_MINUTES: 45}
+    )
+    result = schema({})
+    assert result[CONF_BOOST_DEFAULT_TEMP] == 22.5
+    assert result[CONF_BOOST_DEFAULT_MINUTES] == 45
 
 
 @pytest.mark.asyncio

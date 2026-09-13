@@ -49,7 +49,7 @@ boost_start:
   fields:
     temperature:
       name: Temperature
-      description: Target boost temperature. Defaults to 24°C.
+      description: Target boost temperature. Defaults to the configured boost default temperature (24°C unless changed under Options → Season & global settings).
       required: false
       selector:
         number:
@@ -59,7 +59,7 @@ boost_start:
           unit_of_measurement: °C
     duration_minutes:
       name: Duration (minutes)
-      description: How long to hold the boost temperature before auto-restoring. Defaults to 30 minutes.
+      description: How long to hold the boost temperature before auto-restoring. Defaults to the configured boost default duration (30 minutes unless changed under Options → Season & global settings).
       required: false
       selector:
         number:

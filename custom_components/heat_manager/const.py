@@ -255,6 +255,16 @@ DEFAULT_BOOST_TEMP: float = 24.0
 # boosted room, when no "duration_minutes" is given.
 DEFAULT_BOOST_MINUTES: float = 30.0
 
+# 2026-09-13: these two used to be hardcoded constants used directly by
+# async_boost_start() — no way to change the "no temperature/duration given"
+# fallback without editing code. Now configurable via the options flow
+# ("Season & global settings", same step as PID gains / pause duration);
+# DEFAULT_BOOST_TEMP/DEFAULT_BOOST_MINUTES above remain the fallback when
+# these config keys are themselves absent (fresh installs, pre-upgrade
+# config entries).
+CONF_BOOST_DEFAULT_TEMP = "boost_default_temp"
+CONF_BOOST_DEFAULT_MINUTES = "boost_default_minutes"
+
 # ── Room offset (v0.9.0 global → B18 Fase 3 per-room) ────────────────────────
 # Non-destructive temperature shift applied on top of a room's PID target
 # every tick — see number.py RoomOffsetNumber (created per-room for rooms

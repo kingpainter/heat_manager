@@ -41,6 +41,8 @@ from homeassistant.util.dt import utcnow
 
 from .const import (
     CONF_ALARM_PANEL,
+    CONF_BOOST_DEFAULT_MINUTES,
+    CONF_BOOST_DEFAULT_TEMP,
     CONF_CALIBRATION_ENTITY,
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
@@ -989,7 +991,8 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         Rooms currently AWAY, WINDOW_OPEN or PRE_HEAT are left untouched.
         Sets boost_expires_at so the coordinator tick can auto-restore after
-        duration_minutes (default DEFAULT_BOOST_MINUTES) even if nobody ever
+        duration_minutes (default: CONF_BOOST_DEFAULT_MINUTES from options,
+        falling back to DEFAULT_BOOST_MINUTES) even if nobody ever
         calls async_boost_stop() — the Lovelace card's own boost only ever
         had a client-side countdown that stopped working the moment the
         dashboard was closed; this gives boost a real backend expiry.
@@ -1000,7 +1003,11 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         an absolute temperature that would otherwise silently stack with a
         leftover offset.
         """
-        temp = float(temperature) if temperature is not None else DEFAULT_BOOST_TEMP
+        temp = (
+            float(temperature)
+            if temperature is not None
+            else float(self.config.get(CONF_BOOST_DEFAULT_TEMP, DEFAULT_BOOST_TEMP))
+        )
         self.room_offsets = {}
         self.async_update_listeners()  # refresh every number.<room>_offset immediately
 
@@ -1042,7 +1049,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             minutes = (
                 float(duration_minutes)
                 if duration_minutes is not None
-                else DEFAULT_BOOST_MINUTES
+                else float(
+                    self.config.get(CONF_BOOST_DEFAULT_MINUTES, DEFAULT_BOOST_MINUTES)
+                )
             )
             self.boost_expires_at = utcnow() + timedelta(minutes=minutes)
         else:

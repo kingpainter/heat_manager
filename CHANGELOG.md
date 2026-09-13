@@ -9,6 +9,35 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.28.0] — 2026-09-13
+
+Boost's default temperature/duration (used whenever `heat_manager.boost_start`
+or the panel/card boost button is called without its own values) were
+hardcoded `DEFAULT_BOOST_TEMP`/`DEFAULT_BOOST_MINUTES` constants — no way to
+change them without editing code. Closes that roadmap item from
+`manual/heat_manager_brugermanual_2026-09-11.md` kapitel 9.
+
+### Added
+
+- **Options flow — "Season & global settings"**: two new fields, "Boost
+  default temperature" (15–32°C, step 0.5) and "Boost default duration"
+  (1–240 min), same bounds `services.yaml` already enforces on the service
+  call itself. Available from both the initial setup wizard and the
+  options-flow global-settings step (`_step1_schema()` powers both).
+- **`const.py`**: new `CONF_BOOST_DEFAULT_TEMP` / `CONF_BOOST_DEFAULT_MINUTES`.
+  `DEFAULT_BOOST_TEMP`/`DEFAULT_BOOST_MINUTES` remain as the fallback used
+  when a config entry predates this option (fresh installs, upgrades).
+
+### Changed
+
+- **`coordinator.py`**: `async_boost_start()` now resolves its "no
+  temperature/duration given" fallback from `self.config` first, falling
+  back to the hardcoded constants only when the option itself is absent. An
+  explicit caller-supplied value (service call field, panel/card button)
+  still always wins, unchanged.
+- **`services.yaml`**: `boost_start`'s field descriptions now point at the
+  configurable default instead of quoting the old hardcoded numbers as fact.
+
 ## [0.27.1] — 2026-09-13
 
 "Manuel TRV-kontrol" (panel Config tab) was session-scoped only — a plain

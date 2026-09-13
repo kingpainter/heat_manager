@@ -26,7 +26,9 @@
           "trv_max_temp": "TRV maximum setpoint",
           "indoor_wake_sensor": "Indoor wake sensor (optional)",
           "indoor_wake_threshold": "Indoor wake threshold",
-          "wake_setback_temp": "Wake phase setback (\u00b0C to reduce)"
+          "wake_setback_temp": "Wake phase setback (\u00b0C to reduce)",
+          "boost_default_temp": "Boost default temperature",
+          "boost_default_minutes": "Boost default duration (minutes)"
         },
         "data_description": {
           "outdoor_temp_sensor": "Local weather station or outdoor module (e.g. Netatmo, Aqara). Overrides the weather entity temperature for adaptive away setpoint and season detection. Leave blank to use the weather entity.",
@@ -40,7 +42,9 @@
           "trv_max_temp": "TRV setpoint sent when PID power is at 100%. Default 28\u00b0C.",
           "indoor_wake_sensor": "Shared indoor temperature sensor used to detect the gentler WAKING phase during spring/autumn. Falls back to full ACTIVE heating when not set.",
           "indoor_wake_threshold": "Indoor temperature above which the system enters the WAKING phase instead of full ACTIVE heating. Default 21\u00b0C.",
-          "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2\u00b0C."
+          "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2\u00b0C.",
+          "boost_default_temp": "Used by heat_manager.boost_start / the panel's boost button when no temperature is specified. Default 24\u00b0C.",
+          "boost_default_minutes": "Used by heat_manager.boost_start / the panel's boost button when no duration is specified. Default 30 minutes."
         }
       },
       "room": {
@@ -141,7 +145,9 @@
           "trv_max_temp": "TRV maximum setpoint",
           "indoor_wake_sensor": "Indoor wake sensor (optional)",
           "indoor_wake_threshold": "Indoor wake threshold",
-          "wake_setback_temp": "Wake phase setback (\u00b0C to reduce)"
+          "wake_setback_temp": "Wake phase setback (\u00b0C to reduce)",
+          "boost_default_temp": "Boost default temperature",
+          "boost_default_minutes": "Boost default duration (minutes)"
         },
         "data_description": {
           "outdoor_temp_sensor": "Local weather station or outdoor module. Overrides the weather entity temperature. Leave blank to use the weather entity.",
@@ -155,7 +161,9 @@
           "trv_max_temp": "TRV setpoint sent when PID power is at 100%. Default 28\u00b0C.",
           "indoor_wake_sensor": "Shared indoor temperature sensor used to detect the gentler WAKING phase during spring/autumn. Falls back to full ACTIVE heating when not set.",
           "indoor_wake_threshold": "Indoor temperature above which the system enters the WAKING phase instead of full ACTIVE heating. Default 21\u00b0C.",
-          "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2\u00b0C."
+          "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2\u00b0C.",
+          "boost_default_temp": "Used by heat_manager.boost_start / the panel's boost button when no temperature is specified. Default 24\u00b0C.",
+          "boost_default_minutes": "Used by heat_manager.boost_start / the panel's boost button when no duration is specified. Default 30 minutes."
         }
       },
       "rooms_menu": {
