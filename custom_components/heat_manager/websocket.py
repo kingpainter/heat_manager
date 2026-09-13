@@ -30,6 +30,8 @@ from .const import (
     CONF_AUTO_OFF_TEMP_DAYS,
     CONF_AUTO_OFF_TEMP_THRESHOLD,
     CONF_BATTERY_SENSOR,
+    CONF_BOOST_DEFAULT_MINUTES,
+    CONF_BOOST_DEFAULT_TEMP,
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
     CONF_DOOR_ROOM_A,
@@ -40,16 +42,44 @@ from .const import (
     CONF_HOUSE_VOICE_ENABLED,
     CONF_HUMIDITY_SENSOR,
     CONF_MANUAL_TRV_CONTROL,
+    CONF_NIGHT_END_HOUR,
+    CONF_NIGHT_SETBACK_ENABLED,
+    CONF_NIGHT_SETBACK_TEMP,
+    CONF_NIGHT_START_HOUR,
+    CONF_NOTIFY_PREHEAT,
+    CONF_NOTIFY_PRESENCE,
     CONF_NOTIFY_SERVICE,
+    CONF_NOTIFY_WINDOW_WARNING_30,
+    CONF_NOTIFY_WINDOWS,
     CONF_OUTDOOR_TEMP_SENSOR,
     CONF_PERSON_ENTITY,
     CONF_PERSON_TRACKING,
     CONF_PI_DEMAND_ENTITY,
+    CONF_PID_ENABLED,
+    CONF_PID_KD,
+    CONF_PID_KI,
+    CONF_PID_KP,
     CONF_SCHEDULE_ENTITY,
     CONF_SYNC_MODE,
     CONF_TRV_TYPE,
     CONF_WEATHER_ENTITY,
     CONF_WINDOW_SENSORS,
+    CONF_WINDOW_WARNING_MIN,
+    DEFAULT_AUTO_OFF_TEMP_DAYS,
+    DEFAULT_AUTO_OFF_TEMP_THRESHOLD,
+    DEFAULT_BOOST_MINUTES,
+    DEFAULT_BOOST_TEMP,
+    DEFAULT_GRACE_DAY_MIN,
+    DEFAULT_GRACE_NIGHT_MIN,
+    DEFAULT_MANUAL_TRV_CONTROL,
+    DEFAULT_NIGHT_END_HOUR,
+    DEFAULT_NIGHT_SETBACK_ENABLED,
+    DEFAULT_NIGHT_SETBACK_TEMP,
+    DEFAULT_NIGHT_START_HOUR,
+    DEFAULT_PID_KD,
+    DEFAULT_PID_KI,
+    DEFAULT_PID_KP,
+    DEFAULT_WINDOW_WARNING_MIN,
     DOMAIN,
     RoomState,
 )
@@ -714,6 +744,33 @@ async def ws_get_state(
         # page reload) — now read from entry.options so the panel can
         # initialize the toggle to its actual persisted state on load.
         "manual_trv_control": cfg.get(CONF_MANUAL_TRV_CONTROL, False),
+        # Fase 2, del 1 (2026-09-13) — panel "Indstillinger" tab: current
+        # values for every field ws_update_config() now accepts, so the tab
+        # can render live-editable fields pre-filled with the actual current
+        # config instead of only the read-only summary above.
+        "pid_enabled": cfg.get(CONF_PID_ENABLED, True),
+        "pid_kp": cfg.get(CONF_PID_KP, DEFAULT_PID_KP),
+        "pid_ki": cfg.get(CONF_PID_KI, DEFAULT_PID_KI),
+        "pid_kd": cfg.get(CONF_PID_KD, DEFAULT_PID_KD),
+        "boost_default_temp": cfg.get(CONF_BOOST_DEFAULT_TEMP, DEFAULT_BOOST_TEMP),
+        "boost_default_minutes": cfg.get(
+            CONF_BOOST_DEFAULT_MINUTES, DEFAULT_BOOST_MINUTES
+        ),
+        "window_warning_min": cfg.get(
+            CONF_WINDOW_WARNING_MIN, DEFAULT_WINDOW_WARNING_MIN
+        ),
+        "notify_windows": cfg.get(CONF_NOTIFY_WINDOWS, True),
+        "notify_window_warning_30": cfg.get(CONF_NOTIFY_WINDOW_WARNING_30, True),
+        "night_setback_enabled": cfg.get(
+            CONF_NIGHT_SETBACK_ENABLED, DEFAULT_NIGHT_SETBACK_ENABLED
+        ),
+        "night_setback_temp": cfg.get(
+            CONF_NIGHT_SETBACK_TEMP, DEFAULT_NIGHT_SETBACK_TEMP
+        ),
+        "night_start_hour": cfg.get(CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR),
+        "night_end_hour": cfg.get(CONF_NIGHT_END_HOUR, DEFAULT_NIGHT_END_HOUR),
+        "notify_presence": cfg.get(CONF_NOTIFY_PRESENCE, True),
+        "notify_preheat": cfg.get(CONF_NOTIFY_PREHEAT, True),
     }
 
     payload: dict[str, Any] = {
@@ -789,6 +846,53 @@ async def ws_get_history(
 
 # ── heat_manager/update_config ────────────────────────────────────────────────
 
+# Fase 2, del 1 (2026-09-13) — panel "Indstillinger" tab: generalizes what
+# used to be two hand-written string branches (alarm_panel/notify_service)
+# plus one hand-written bool branch (manual_trv_control) into three small
+# per-type tables, so adding a new live-editable field to the panel is a
+# one-line addition here instead of a new if-branch. See
+# planning/heat_manager_fase2_spec_2026-09-11.md, "Del 1".
+#
+# Each table's value is the field's DEFAULT_* fallback (matching const.py/
+# config_flow.py) — used both to read the field's *current* value out of
+# entry.options for change-detection, and to interpret an absent key the
+# same way the rest of the codebase already does (coordinator.config,
+# config_flow defaults). Getting this default wrong would make a field that
+# happens to already be at its "unset" value un-toggleable from the panel
+# (the "changed" check would never trigger), so keep these in sync with
+# const.py's DEFAULT_* constants.
+_STRING_CONFIG_FIELDS: tuple[str, ...] = (
+    CONF_ALARM_PANEL,
+    CONF_NOTIFY_SERVICE,
+)
+
+_BOOL_CONFIG_FIELD_DEFAULTS: dict[str, bool] = {
+    CONF_MANUAL_TRV_CONTROL: DEFAULT_MANUAL_TRV_CONTROL,
+    CONF_PID_ENABLED: True,
+    CONF_NOTIFY_WINDOWS: True,
+    CONF_NOTIFY_WINDOW_WARNING_30: True,
+    CONF_NIGHT_SETBACK_ENABLED: DEFAULT_NIGHT_SETBACK_ENABLED,
+    CONF_NOTIFY_PRESENCE: True,
+    CONF_NOTIFY_PREHEAT: True,
+}
+
+# value = (python type to cast the raw WS value to, DEFAULT_* fallback)
+_NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
+    CONF_PID_KP: (float, DEFAULT_PID_KP),
+    CONF_PID_KI: (float, DEFAULT_PID_KI),
+    CONF_PID_KD: (float, DEFAULT_PID_KD),
+    CONF_BOOST_DEFAULT_TEMP: (float, DEFAULT_BOOST_TEMP),
+    CONF_BOOST_DEFAULT_MINUTES: (float, DEFAULT_BOOST_MINUTES),
+    CONF_WINDOW_WARNING_MIN: (int, DEFAULT_WINDOW_WARNING_MIN),
+    CONF_NIGHT_SETBACK_TEMP: (float, DEFAULT_NIGHT_SETBACK_TEMP),
+    CONF_NIGHT_START_HOUR: (int, DEFAULT_NIGHT_START_HOUR),
+    CONF_NIGHT_END_HOUR: (int, DEFAULT_NIGHT_END_HOUR),
+    CONF_GRACE_DAY_MIN: (int, DEFAULT_GRACE_DAY_MIN),
+    CONF_GRACE_NIGHT_MIN: (int, DEFAULT_GRACE_NIGHT_MIN),
+    CONF_AUTO_OFF_TEMP_THRESHOLD: (float, DEFAULT_AUTO_OFF_TEMP_THRESHOLD),
+    CONF_AUTO_OFF_TEMP_DAYS: (int, DEFAULT_AUTO_OFF_TEMP_DAYS),
+}
+
 
 @websocket_api.websocket_command(
     {
@@ -796,6 +900,25 @@ async def ws_get_history(
         vol.Optional(CONF_ALARM_PANEL): vol.Any(str, None),
         vol.Optional(CONF_NOTIFY_SERVICE): vol.Any(str, None),
         vol.Optional(CONF_MANUAL_TRV_CONTROL): bool,
+        vol.Optional(CONF_PID_ENABLED): bool,
+        vol.Optional(CONF_NOTIFY_WINDOWS): bool,
+        vol.Optional(CONF_NOTIFY_WINDOW_WARNING_30): bool,
+        vol.Optional(CONF_NIGHT_SETBACK_ENABLED): bool,
+        vol.Optional(CONF_NOTIFY_PRESENCE): bool,
+        vol.Optional(CONF_NOTIFY_PREHEAT): bool,
+        vol.Optional(CONF_PID_KP): vol.Any(float, int),
+        vol.Optional(CONF_PID_KI): vol.Any(float, int),
+        vol.Optional(CONF_PID_KD): vol.Any(float, int),
+        vol.Optional(CONF_BOOST_DEFAULT_TEMP): vol.Any(float, int),
+        vol.Optional(CONF_BOOST_DEFAULT_MINUTES): vol.Any(float, int),
+        vol.Optional(CONF_WINDOW_WARNING_MIN): vol.Any(float, int),
+        vol.Optional(CONF_NIGHT_SETBACK_TEMP): vol.Any(float, int),
+        vol.Optional(CONF_NIGHT_START_HOUR): vol.Any(float, int),
+        vol.Optional(CONF_NIGHT_END_HOUR): vol.Any(float, int),
+        vol.Optional(CONF_GRACE_DAY_MIN): vol.Any(float, int),
+        vol.Optional(CONF_GRACE_NIGHT_MIN): vol.Any(float, int),
+        vol.Optional(CONF_AUTO_OFF_TEMP_THRESHOLD): vol.Any(float, int),
+        vol.Optional(CONF_AUTO_OFF_TEMP_DAYS): vol.Any(float, int),
     }
 )
 @websocket_api.async_response
@@ -806,9 +929,16 @@ async def ws_update_config(
 ) -> None:
     """Update editable global config fields from the sidebar panel.
 
-    Currently supports: alarm_panel, notify_service, manual_trv_control.
+    Fase 2, del 1 (2026-09-13): supports every field in _STRING_CONFIG_FIELDS/
+    _BOOL_CONFIG_FIELD_DEFAULTS/_NUMERIC_CONFIG_FIELDS above — string fields
+    (alarm_panel, notify_service), bool toggles (manual_trv_control, PID
+    enabled, window/presence/preheat notify toggles, night setback enabled),
+    and numeric fields (PID gains, boost defaults, window warning threshold,
+    night setback temp/hours, grace day/night, auto-off threshold/days).
     Changes are persisted to entry.options and take effect immediately
     (no HA restart needed) because the coordinator reads config dynamically.
+    An invalid numeric value returns an "invalid_value" WS error instead of
+    silently writing a wrong type to entry.options.
     """
     entry = _get_entry(hass)
     if entry is None:
@@ -819,20 +949,32 @@ async def ws_update_config(
     current_options = dict(entry.options)
     changed: list[str] = []
 
-    for key in (CONF_ALARM_PANEL, CONF_NOTIFY_SERVICE):
+    for key in _STRING_CONFIG_FIELDS:
         if key in msg:
             new_val = (msg[key] or "").strip()
             if current_options.get(key, "") != new_val:
                 current_options[key] = new_val
                 changed.append(key)
 
-    # manual_trv_control is a bool, not a string — handled separately so the
-    # .strip() string path above never sees it.
-    if CONF_MANUAL_TRV_CONTROL in msg:
-        new_bool = bool(msg[CONF_MANUAL_TRV_CONTROL])
-        if current_options.get(CONF_MANUAL_TRV_CONTROL, False) != new_bool:
-            current_options[CONF_MANUAL_TRV_CONTROL] = new_bool
-            changed.append(CONF_MANUAL_TRV_CONTROL)
+    for key, default in _BOOL_CONFIG_FIELD_DEFAULTS.items():
+        if key in msg:
+            new_bool = bool(msg[key])
+            if current_options.get(key, default) != new_bool:
+                current_options[key] = new_bool
+                changed.append(key)
+
+    for key, (cast, default) in _NUMERIC_CONFIG_FIELDS.items():
+        if key in msg:
+            try:
+                new_num = cast(msg[key])
+            except (TypeError, ValueError):
+                connection.send_error(
+                    msg["id"], "invalid_value", f"Invalid value for {key}"
+                )
+                return
+            if current_options.get(key, default) != new_num:
+                current_options[key] = new_num
+                changed.append(key)
 
     if not changed:
         connection.send_result(msg["id"], {"updated": False, "changed": []})

@@ -9,6 +9,118 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.30.0] — 2026-09-13
+
+Mobile card press-and-hold — Fase 2, del 2 (`planning/heat_manager_fase2_spec_2026-09-11.md`).
+Every room card on the mobile Lovelace card (`heat-manager-card.js`) previously
+showed up to 6 diagnostic chips (humidity/CO2/battery/PID power/calibration/
+window-duration) plus up to 3 status badges (blocking reason, ungrouped,
+alongside mold-risk and TRV-offline) simultaneously, all the time — an
+"instrument panel" density on the surface most people actually touch daily.
+That diagnostic detail moves into a bottom-sheet opened by a 500ms
+press-and-hold on a room card; the always-visible card now shows only name,
+state, current/target temperature, valve %, and the two genuine warnings
+(mold risk, TRV offline).
+
+### Added
+- **`heat-manager-card.js`**: press-and-hold (500ms) on any room card opens
+  a new bottom-sheet (`_openRoomSheet()`/`_roomSheetHTML()`) showing every
+  diagnostic previously rendered as an always-on chip (humidity, CO₂,
+  battery, PID power, calibration offset, window-open minutes today),
+  blocking-reason and ungrouped status as readable rows, plus two fields no
+  card UI has ever shown before: interior-door open/closed status and the
+  learned heat-up-rate (door open vs. closed — see v0.24.0) for rooms linked
+  to a door. The hold is cancelled on release or on enough pointer movement
+  to look like a scroll drag rather than a deliberate press.
+- **Manual temperature override from the sheet**: a temperature input +
+  duration selector + Send button, delegating to the same
+  `heat_manager/set_room_temp` WS command the sidebar panel already uses —
+  this card had no manual-override UI at all before. A "Gendan schedule"
+  button restores the room to its normal schedule.
+- **Grouping toggle from the sheet**: for any room with 2+ TRVs (via the new
+  `trv_count` field the sheet reads from the backend), a toggle button calls
+  `switch.turn_on`/`turn_off` on that room's `<room> Group` switch entity —
+  previously only available from the panel.
+- **`_loadTargetTemps()`** now also keeps the full per-room dict from each
+  60s `heat_manager/get_state` poll (`this._roomData`), not just
+  `target_temp` — the source for the sheet's door/heat-up-rate/trv_count/
+  blocking_sources/group_enabled fields, none of which this card could
+  discover any other way (its own per-instance config only ever stored
+  `climate_entity`).
+
+### Changed
+- **Room card** (`_cardHTML()`/`_updateInPlace()`): dropped the always-on
+  humidity/CO2/battery/PID/calibration/window-duration chips and the
+  blocking-reason/ungrouped badges from the primary view — moved to the new
+  sheet above. Mold-risk and TRV-offline badges stay always-visible (rare,
+  genuine warnings, not routine diagnostics — matches the spec's own
+  recommendation to keep an acute problem visible at a glance).
+- **`_attachEvents()`**: removed the now-dead tap-to-toast handler for the
+  (now-removed) blocking-reason badge; added the press-and-hold
+  pointerdown/up/cancel/leave/move wiring on `#rooms-list` instead.
+
+### Notes
+- No automated tests accompany this change — the project's test suite
+  (`tests/components/heat_manager/`) is Python/pytest against Home
+  Assistant core; there is no JS test harness for either frontend file in
+  this repo. Verified via `node --check` (syntax) and manual template/DOM
+  review (div-balance check across the edited templates) — the same
+  discipline already applied to `heat-manager-panel.js` throughout this
+  project, since neither file can be exercised in a live browser from this
+  environment.
+
+## [0.29.0] — 2026-09-13
+
+Panel "Indstillinger" — Fase 2, del 1 (`planning/heat_manager_fase2_spec_2026-09-11.md`).
+15 operational fields that could previously only be changed by clicking
+through the options-flow wizard can now be edited live from the sidebar
+panel's Config tab, with the same save-and-confirm pattern already proven by
+Alarmtavle/Notifikationer/Manuel TRV-kontrol. The options flow keeps every
+one of these fields unchanged, as the fallback for first-time setup.
+
+### Added
+- **`websocket.py`**: `ws_update_config()` generalized from two hand-written
+  string/bool branches into three declarative per-type tables
+  (`_STRING_CONFIG_FIELDS`, `_BOOL_CONFIG_FIELD_DEFAULTS`,
+  `_NUMERIC_CONFIG_FIELDS`) so a new live-editable field is a one-line
+  addition instead of a new `if`-branch. Numeric fields are cast to their
+  declared type (`float`/`int`) with an `invalid_value` WS error on a bad
+  value, instead of ever writing a wrong type to `entry.options`.
+  Change-detection compares against each field's real `DEFAULT_*` constant —
+  not a blanket `0`/`False`/`""` — so a bool field whose true default is
+  `True` (PID enabled, window/30-min-warning notify) can still be turned
+  off from a fresh install where the key has never been persisted.
+- **`ws_get_state()`**: `config_snap` now includes the current value of
+  every field the panel can save — `pid_enabled`/`pid_kp`/`pid_ki`/`pid_kd`,
+  `boost_default_temp`/`boost_default_minutes`, `window_warning_min`,
+  `notify_windows`/`notify_window_warning_30`, `night_setback_enabled`/
+  `night_setback_temp`/`night_start_hour`/`night_end_hour`,
+  `notify_presence`/`notify_preheat` — so the panel can pre-fill each new
+  field with its actual persisted value on load.
+- **Panel Config tab** (`heat-manager-panel.js`): six new section-boxes —
+  **PID-regulator** (enabled toggle, Kp/Ki/Kd), **Boost — standardværdier**
+  (default temperature/duration), **Vindue** (warning-after minutes, window/
+  30-min-warning notify toggles), **Nat-sætpunkt** (enabled toggle,
+  setback temperature, start/end hour), **Grace-perioder** (day/night
+  minutes — previously read-only in this tab), **Auto-off ved mildt vejr**
+  (threshold/days — previously read-only). The existing **Notifikationer**
+  section gained two more toggles (tilstedeværelse/forvarmning). Two new
+  shared row builders (`_cfgNumberRow()`/`_cfgToggleRow()`) and one generic
+  `save-field`/`toggle-field` click handler pair drive all of the above,
+  instead of copy-pasting a hand-written handler per field the way
+  Alarmtavle/Notifikationer's own string-field saves still do.
+- **`test_websocket.py`**: seven new tests for the generalized
+  `ws_update_config()` — numeric persistence and int/float casting, the
+  default-aware change-detection for both a numeric field and a bool field
+  defaulting to `True`, turning a `True`-default bool off from a fresh
+  install, an invalid numeric value's `invalid_value` error, and multiple
+  fields saved in one message.
+
+### Changed
+- **Config tab's "Global konfiguration" summary**: dropped Grace dag/nat and
+  Auto-off grænse/dage — now shown as live-editable fields in their own
+  section-boxes instead of duplicated as a read-only row above them.
+
 ## [0.28.0] — 2026-09-13
 
 Boost's default temperature/duration (used whenever `heat_manager.boost_start`

@@ -154,6 +154,8 @@ class HeatManagerCard extends HTMLElement {
     this._targetTemps  = null;   // 2026-09-11 mobil-sætpunkt fix — room name → target_temp
     this._targetTempPollStarted = false;
     this._targetTempInterval    = null;
+    this._roomData     = null;   // Fase 2, del 2 (2026-09-13) — room name → full get_state room dict (door status, trv_count, etc. for the press-and-hold sheet)
+    this._openSheetRoom = null;  // room name currently shown in the bottom-sheet, if any
   }
 
   setConfig(config) {
@@ -294,10 +296,19 @@ class HeatManagerCard extends HTMLElement {
     try {
       const data = await this._hass.callWS({ type: "heat_manager/get_state" });
       const map = {};
+      // Fase 2, del 2 (2026-09-13): also keep the full per-room dict, keyed
+      // the same way — the press-and-hold sheet (_roomSheetHTML()) uses it
+      // for fields this card has no other way to discover at all (door
+      // status/heat-up rate, trv_count, blocking_sources, group_enabled).
+      const roomData = {};
       for (const room of data?.rooms ?? []) {
-        if (room?.name != null && room.target_temp != null) map[room.name] = room.target_temp;
+        if (room?.name != null) {
+          roomData[room.name] = room;
+          if (room.target_temp != null) map[room.name] = room.target_temp;
+        }
       }
       this._targetTemps = map;
+      this._roomData = roomData;
     } catch (e) {
       // Backend not up yet / WS hiccup — keep whatever we last had (or
       // null) rather than throwing; _roomSetpoint() falls back gracefully.
@@ -816,32 +827,13 @@ class HeatManagerCard extends HTMLElement {
         padding: 0 16px calc(8px * var(--hm-scale-h));
         font-size: calc(11px * var(--hm-scale-h)); font-weight: 600; color: #fca5a5;
       }
-      .room-blocking-badge {
-        display: inline-flex; align-items: center; gap: 3px;
-        font-size: 9px; font-weight: 700;
-        padding: 1px 5px; border-radius: 5px; margin-top: 2px;
-        background: rgba(239,68,68,0.12); color: #fca5a5;
-        text-transform: uppercase; letter-spacing: 0.4px;
-        align-self: flex-end;
-      }
-      /* B18 Fase 3: read-only "group toggle is off" indicator */
-      .room-ungrouped-badge {
-        display: inline-flex; align-items: center; gap: 3px;
-        font-size: 9px; font-weight: 700;
-        padding: 1px 5px; border-radius: 5px; margin-top: 2px;
-        background: rgba(168,85,247,0.12); color: #c084fc;
-        text-transform: uppercase; letter-spacing: 0.4px;
-        align-self: flex-end;
-      }
-
-      /* 2026-09-07 audit fix (5.1-5.3 mobile): humidity/CO2/battery chips,
-         valve %, and mold-risk badge — mirrors the panel's Oversigt-fane
-         additions for feature parity on the card most people touch daily. */
-      .room-extra-chips {
-        display: flex; gap: 5px; margin-top: 2px;
-        font-size: 9px; color: var(--sub);
-        align-self: flex-end;
-      }
+      /* room-blocking-badge/room-ungrouped-badge/room-extra-chips (humidity/
+         CO2/battery/PID/calibration/window-duration chips) used to render
+         directly on the always-visible room card here — moved into the
+         press-and-hold detail sheet in Fase 2, del 2 (2026-09-13; see
+         .room-sheet-overlay below and planning/heat_manager_fase2_spec_
+         2026-09-11.md) along with their CSS, to declutter the primary
+         card view down to name/state/temp/setpoint/valve/mold/TRV-offline. */
       .room-valve-badge {
         font-size: 9px; font-weight: 600;
         color: var(--sub); margin-top: 2px;
@@ -937,6 +929,83 @@ class HeatManagerCard extends HTMLElement {
       .hm-toast-error   { background: rgba(239,68,68,0.92); }
       .hm-toast-success { background: rgba(34,197,94,0.92); }
       .hm-toast-info    { background: rgba(51,65,85,0.92); }
+
+      /* ── Room detail bottom-sheet (Fase 2, del 2 — 2026-09-13) ──
+         Opened by a 500ms press-and-hold on a room card — see
+         _openRoomSheet()/_roomSheetHTML(). position:fixed here is relative
+         to the viewport (nothing on :host establishes a containing block
+         for it), which is what a bottom sheet needs regardless of where
+         this card sits in the dashboard's scroll layout. */
+      .room-sheet-overlay {
+        position: fixed; inset: 0; z-index: 20;
+        background: rgba(0,0,0,0.5);
+        display: flex; align-items: flex-end; justify-content: center;
+        opacity: 0; transition: opacity .2s ease-out;
+      }
+      .room-sheet-overlay.open { opacity: 1; }
+      .room-sheet {
+        width: 100%; max-width: 480px; max-height: 80vh;
+        background: var(--bg2); border-radius: 16px 16px 0 0;
+        padding: 8px 16px 16px; overflow-y: auto;
+        transform: translateY(100%); transition: transform .25s ease-out;
+        font-family: 'DM Sans', sans-serif;
+      }
+      .room-sheet-overlay.open .room-sheet { transform: translateY(0); }
+      .sheet-handle {
+        width: 36px; height: 4px; border-radius: 2px;
+        background: var(--div); margin: 6px auto 10px;
+      }
+      .sheet-header {
+        display: flex; align-items: flex-start; justify-content: space-between;
+        gap: 10px; margin-bottom: 12px;
+      }
+      .sheet-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+      .sheet-close-btn {
+        flex-shrink: 0; background: transparent; border: none;
+        color: var(--sub); font-size: 16px; cursor: pointer; padding: 4px 8px;
+      }
+      .sheet-section {
+        border-top: 1px solid var(--div); padding: 12px 0;
+      }
+      .sheet-section:first-of-type { border-top: none; padding-top: 0; }
+      .sheet-section-title {
+        font-size: 11px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: 0.5px; color: var(--sub); margin-bottom: 8px;
+      }
+      .sheet-row {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 5px 0; font-size: 13px;
+      }
+      .sheet-row-k { color: var(--sub); }
+      .sheet-row-v { font-weight: 600; font-family: 'DM Mono', monospace; }
+      .sheet-empty { font-size: 12px; color: var(--sub); padding: 4px 0; }
+      .sheet-manual-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+      .sheet-temp-input, .sheet-dur-select {
+        background: var(--bg); border: 1px solid var(--div); border-radius: 8px;
+        color: var(--text); font-family: 'DM Mono', monospace; font-size: 13px;
+        padding: 7px 9px;
+      }
+      .sheet-temp-input { flex: 1; min-width: 0; }
+      .sheet-send-btn {
+        flex-shrink: 0; background: var(--amber); color: #1a1206;
+        border: none; border-radius: 8px; padding: 7px 14px;
+        font-size: 12px; font-weight: 700; cursor: pointer;
+      }
+      .sheet-reset-btn {
+        width: 100%; background: transparent; border: 1px solid var(--div);
+        color: var(--sub); border-radius: 8px; padding: 7px 0;
+        font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif;
+      }
+      .toggle-btn {
+        padding: 6px 14px; border-radius: 8px;
+        border: 1px solid var(--div); background: transparent;
+        color: var(--sub); font-size: 12px; font-weight: 600;
+        cursor: pointer; font-family: 'DM Sans', sans-serif;
+      }
+      .toggle-btn.active {
+        border-color: var(--amber); color: var(--amber);
+        background: rgba(249,115,22,0.12);
+      }
     `;
   }
 
@@ -991,46 +1060,17 @@ class HeatManagerCard extends HTMLElement {
     const rooms = this._config.rooms ?? [];
     const roomsHTML = rooms.length
       ? rooms.map(room => {
-          const state = this._roomState(room.room_name ?? "");
+          const roomName = room.room_name ?? "";
+          const state = this._roomState(roomName);
           const color = _hmStateColor(state);
-          const label = _hmStateLabel(state, this._roomOverrideSource(room.room_name ?? ""));
+          const label = _hmStateLabel(state, this._roomOverrideSource(roomName));
           const temp  = this._climateTemp(room.climate_entity ?? "");
           const setpt = this._roomSetpoint(room);
-          // v0.9.0: blocking-sources badge (controller_off/controller_pause
-          // only — window/presence are already shown via the state pill)
-          const extraBlocking = this._roomExtraBlocking(room.room_name ?? "", state);
-          // 2026-09-07 audit fix (UI/UX-10): title="" tooltips don't fire on
-          // touch — data-blocking-reason + a delegated tap handler in
-          // _attachEvents() shows the full reason as a toast on mobile,
-          // while the title attribute still covers desktop hover.
-          const blockingReason = extraBlocking.map(s => _hmBlockingLabel(s)).join(", ");
-          const blockingBadge = extraBlocking.length
-            ? `<div class="room-blocking-badge" title="${_hmEsc(blockingReason)}" data-blocking-reason="${_hmEsc(blockingReason)}">⛔ ${_hmEsc(_hmBlockingLabel(extraBlocking[0]))}${extraBlocking.length > 1 ? ` +${extraBlocking.length - 1}` : ""}</div>`
-            : "";
-          // B18 Fase 3: read-only indicator when a multi-TRV room's group
-          // toggle is off — full offset/toggle controls live in the panel.
-          const ungroupedBadge = !this._roomGroupEnabled(room.room_name ?? "")
-            ? `<div class="room-ungrouped-badge" title="Ekstra TRV'er frigivet til manuel styring">🔓 Ikke grupperet</div>`
-            : "";
-          // 2026-09-07 audit fix (5.1-5.3 mobile): humidity/CO2/battery via
-          // the room's mirror sensors, valve % straight off climate_entity
-          // — see the discovery helpers above for why/how.
-          const roomName  = room.room_name ?? "";
-          const humidity  = this._roomHumidity(roomName);
-          const co2       = this._roomCo2(roomName);
-          const battery   = this._roomBattery(roomName);
+          // 2026-09-07 audit fix (5.1-5.3 mobile): valve % straight off
+          // climate_entity — see the discovery helpers above for why/how.
           const valve     = this._roomValvePosition(room.climate_entity ?? "");
           const moldRisk  = this._roomMoldRisk(roomName);
-          // 2026-09 frontend-parity fix: PID power / window-open minutes
-          // today / calibration offset — same discovery pattern as
-          // humidity/CO2/battery above.
-          const pidPower  = this._roomPidPower(roomName);
-          const windowDur = this._roomWindowDurationToday(roomName);
-          const calib     = this._roomCalibrationOffset(roomName);
           const trvDown   = this._roomTrvUnavailable(room);
-          const chipsHTML = (humidity != null || co2 != null || battery != null || pidPower != null || windowDur != null || calib != null)
-            ? `<div class="room-extra-chips">${humidity != null ? `<span>💧${Math.round(humidity)}%</span>` : ""}${co2 != null ? `<span>🫧${Math.round(co2)}</span>` : ""}${battery != null ? `<span style="${battery <= 15 ? "color:var(--red)" : battery <= 30 ? "color:var(--amber)" : ""}">🔋${Math.round(battery)}%</span>` : ""}${pidPower != null ? `<span>⚙️${Math.round(pidPower)}%</span>` : ""}${calib != null ? `<span>🎯${calib >= 0 ? "+" : ""}${calib.toFixed(1)}°</span>` : ""}${windowDur != null ? `<span>🪟${Math.round(windowDur)}m</span>` : ""}</div>`
-            : "";
           const valveBadge = valve != null
             ? `<div class="room-valve-badge${valve > 0 ? " room-valve-heating" : ""}">${valve > 0 ? "🔥" : "❄"} ${Math.round(valve)}%</div>`
             : "";
@@ -1043,20 +1083,26 @@ class HeatManagerCard extends HTMLElement {
           const trvDownBadge = trvDown
             ? `<div class="room-health-badge" title="Rummets klima-/TRV-entitet er unavailable/unknown">⚠️ TRV offline</div>`
             : "";
+          // Fase 2, del 2 (2026-09-13) — humidity/CO2/battery/PID/calibration/
+          // window-duration chips and the blocking-sources/ungrouped badges
+          // moved off the always-visible card into the press-and-hold
+          // bottom-sheet (_roomSheetHTML()) — mold risk and TRV-offline stay
+          // visible here since they're rare, genuine warnings (see
+          // planning/heat_manager_fase2_spec_2026-09-11.md, "Del 2"). Only
+          // mold/valve/trvDown remain always visible; moldRisk/trvDown are
+          // still real-time (states-based), unlike the sheet's diagnostics
+          // (60s-cached from the get_state poll — see _roomSheetHTML()).
           return `
-            <div class="room-card state-${state}"
+            <div class="room-card state-${state}" data-room-name="${_hmEsc(roomName)}"
               style="border-left-color:${color};background-image:linear-gradient(90deg,${color}0e 0%,transparent 40%);">
-              <div class="room-card-name">${_hmEsc(room.room_name ?? "")}</div>
+              <div class="room-card-name">${_hmEsc(roomName)}</div>
               <div class="room-state-pill" style="background:${color}22;color:${color}">${label}</div>
               <div class="room-temps">
                 <div class="room-temp-current">${temp}</div>
                 ${setpt ? `<div class="room-temp-setpoint">→ ${setpt}</div>` : ""}
-                ${chipsHTML}
                 ${valveBadge}
                 ${moldBadge}
                 ${trvDownBadge}
-                ${blockingBadge}
-                ${ungroupedBadge}
               </div>
             </div>`;
         }).join("")
@@ -1234,29 +1280,16 @@ class HeatManagerCard extends HTMLElement {
 
       const tempsBox = cards[i].querySelector(".room-temps");
 
-      // 2026-09-07 audit fix (5.1-5.3 mobile): humidity/CO2/battery/valve/mold-risk.
+      // 2026-09-07 audit fix (5.1-5.3 mobile): valve/mold-risk — kept always
+      // visible (see the room-card template in _cardHTML() for why). The
+      // humidity/CO2/battery/PID/calibration/window-duration chips that used
+      // to also patch here moved into the press-and-hold sheet in Fase 2,
+      // del 2 (2026-09-13) — that sheet is a separate overlay element this
+      // per-card patch loop never touches, so it needs no patch logic here.
       const roomName = room.room_name ?? "";
-      const humidity = this._roomHumidity(roomName);
-      const co2      = this._roomCo2(roomName);
-      const battery  = this._roomBattery(roomName);
       const valve    = this._roomValvePosition(room.climate_entity ?? "");
       const moldRisk = this._roomMoldRisk(roomName);
-      // 2026-09 frontend-parity fix: PID power / window-open minutes today /
-      // calibration offset — same discovery pattern as humidity/CO2/battery.
-      const pidPower  = this._roomPidPower(roomName);
-      const windowDur = this._roomWindowDurationToday(roomName);
-      const calib     = this._roomCalibrationOffset(roomName);
-      const trvDown   = this._roomTrvUnavailable(room);
-
-      let chips = cards[i].querySelector(".room-extra-chips");
-      if (humidity != null || co2 != null || battery != null || pidPower != null || windowDur != null || calib != null) {
-        if (!chips) {
-          chips = document.createElement("div");
-          chips.className = "room-extra-chips";
-          tempsBox?.appendChild(chips);
-        }
-        chips.innerHTML = `${humidity != null ? `<span>💧${Math.round(humidity)}%</span>` : ""}${co2 != null ? `<span>🫧${Math.round(co2)}</span>` : ""}${battery != null ? `<span style="${battery <= 15 ? "color:var(--red)" : battery <= 30 ? "color:var(--amber)" : ""}">🔋${Math.round(battery)}%</span>` : ""}${pidPower != null ? `<span>⚙️${Math.round(pidPower)}%</span>` : ""}${calib != null ? `<span>🎯${calib >= 0 ? "+" : ""}${calib.toFixed(1)}°</span>` : ""}${windowDur != null ? `<span>🪟${Math.round(windowDur)}m</span>` : ""}`;
-      } else if (chips) { chips.remove(); }
+      const trvDown  = this._roomTrvUnavailable(room);
 
       let vb = cards[i].querySelector(".room-valve-badge");
       if (valve != null) {
@@ -1293,35 +1326,14 @@ class HeatManagerCard extends HTMLElement {
           tempsBox?.appendChild(hb);
         }
       } else if (hb) { hb.remove(); }
-
-      // v0.9.0: blocking-sources badge
-      const extraBlocking = this._roomExtraBlocking(room.room_name ?? "", state);
-      let blk = cards[i].querySelector(".room-blocking-badge");
-      if (extraBlocking.length) {
-        const title = extraBlocking.map(s => _hmBlockingLabel(s)).join(", ");
-        const txt   = "⛔ " + _hmBlockingLabel(extraBlocking[0]) + (extraBlocking.length > 1 ? ` +${extraBlocking.length - 1}` : "");
-        if (!blk) {
-          blk = document.createElement("div");
-          blk.className = "room-blocking-badge";
-          tempsBox?.appendChild(blk);
-        }
-        blk.title = title;
-        blk.textContent = txt;
-      } else if (blk) { blk.remove(); }
-
-      // B18 Fase 3: ungrouped indicator
-      let ug = cards[i].querySelector(".room-ungrouped-badge");
-      if (!this._roomGroupEnabled(room.room_name ?? "")) {
-        if (!ug) {
-          ug = document.createElement("div");
-          ug.className = "room-ungrouped-badge";
-          ug.title = "Ekstra TRV'er frigivet til manuel styring";
-          ug.textContent = "🔓 Ikke grupperet";
-          tempsBox?.appendChild(ug);
-        }
-      } else if (ug) { ug.remove(); }
     });
 
+    // Fase 2, del 2 (2026-09-13) — if a room's press-and-hold sheet is
+    // currently open, its diagnostic rows are a snapshot from the last
+    // heat_manager/get_state poll (_roomData), not live-patched here on
+    // every hass tick like the primary card above — reopening (or waiting
+    // for the next 60s poll) refreshes it. Keeps this hot path (runs on
+    // every relevant state-bus event) cheap.
   }
 
   // ── Events ────────────────────────────────────────────────────────────────
@@ -1355,14 +1367,236 @@ class HeatManagerCard extends HTMLElement {
     });
     root.querySelector("#btn-pause")?.addEventListener("click",  () => this._pause());
     root.querySelector("#boost-btn")?.addEventListener("click",  () => this._boost());
-    // 2026-09-07 audit fix (UI/UX-10): tap-friendly blocking-reason display —
-    // title="" tooltips never fire on touch, so the reason was unreachable
-    // on a phone/tablet. Delegated so it also works after _patchRooms().
-    root.querySelector("#rooms-list")?.addEventListener("click", (e) => {
-      const badge = e.target.closest(".room-blocking-badge");
-      if (!badge) return;
-      const reason = badge.dataset.blockingReason;
-      if (reason) this._showToast(reason, "info");
+
+    // Fase 2, del 2 (2026-09-13) — press-and-hold a room card to open its
+    // detail bottom-sheet (humidity/CO2/battery/PID/calibration/window-
+    // duration/door status, blocking reasons, ungrouped state, manual
+    // temperature override, grouping toggle — everything that used to be
+    // always-visible chips/badges on the card itself). 500ms hold,
+    // cancelled on release or on enough pointer movement to look like a
+    // scroll drag rather than a deliberate press — see
+    // planning/heat_manager_fase2_spec_2026-09-11.md, "Del 2".
+    let holdTimer  = null;
+    let holdStartX = 0;
+    let holdStartY = 0;
+    const roomsList = root.querySelector("#rooms-list");
+    roomsList?.addEventListener("pointerdown", (e) => {
+      const card = e.target.closest(".room-card");
+      if (!card) return;
+      holdStartX = e.clientX;
+      holdStartY = e.clientY;
+      const roomName = card.dataset.roomName;
+      holdTimer = setTimeout(() => {
+        holdTimer = null;
+        this._openRoomSheet(roomName);
+      }, 500);
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach((evt) => {
+      roomsList?.addEventListener(evt, () => {
+        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+      });
+    });
+    roomsList?.addEventListener("pointermove", (e) => {
+      if (!holdTimer) return;
+      if (Math.abs(e.clientX - holdStartX) > 10 || Math.abs(e.clientY - holdStartY) > 10) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+    });
+  }
+
+  // ── Room detail bottom-sheet (Fase 2, del 2 — 2026-09-13) ─────────────────
+  // Opened by a 500ms press-and-hold on a room card (see the pointerdown
+  // wiring in _attachEvents() above). Content is built from two sources: the
+  // card's own states-based mirror helpers (same ones the primary card view
+  // already used before this feature — still real-time), and, where richer
+  // data is available, the full per-room snapshot from the last
+  // heat_manager/get_state poll (this._roomData, refreshed every 60s by
+  // _loadTargetTemps() — see that method) for fields this card has no other
+  // way to discover at all (door status/heat-up rate, trv_count).
+
+  _openRoomSheet(roomName) {
+    if (!roomName) return;
+    this._closeRoomSheet(); // only one sheet at a time
+    this._openSheetRoom = roomName;
+    const root = this.shadowRoot;
+    const overlay = document.createElement("div");
+    overlay.className = "room-sheet-overlay";
+    overlay.id = "room-sheet-overlay";
+    overlay.innerHTML = this._roomSheetHTML(roomName);
+    root.appendChild(overlay);
+    this._attachRoomSheetEvents(overlay, roomName);
+    // Trigger the slide-up transition on the next frame rather than at
+    // insertion time, so the browser has a "before" state (opacity/transform
+    // at their initial values) to actually transition from.
+    requestAnimationFrame(() => overlay.classList.add("open"));
+  }
+
+  _closeRoomSheet() {
+    const root = this.shadowRoot;
+    const existing = root?.querySelector("#room-sheet-overlay");
+    if (existing) existing.remove();
+    this._openSheetRoom = null;
+  }
+
+  _roomGroupSwitchId(roomName) {
+    const states = this._hass?.states ?? {};
+    for (const id of Object.keys(states)) {
+      if (id.startsWith("switch.") && states[id]?.attributes?.friendly_name === `${roomName} Group`) return id;
+    }
+    return null;
+  }
+
+  _roomSheetHTML(roomName) {
+    const rd    = this._roomData?.[roomName] ?? null;
+    const state = this._roomState(roomName);
+    const color = _hmStateColor(state);
+    const label = _hmStateLabel(state, rd?.override_source ?? this._roomOverrideSource(roomName));
+
+    const humidity  = rd?.humidity ?? this._roomHumidity(roomName);
+    const co2       = rd?.co2 ?? this._roomCo2(roomName);
+    const battery   = rd?.battery_level ?? this._roomBattery(roomName);
+    const pidPower  = rd?.pid_power ?? this._roomPidPower(roomName);
+    const calib     = rd?.calibration_offset ?? this._roomCalibrationOffset(roomName);
+    const windowDur = rd?.window_duration_today ?? this._roomWindowDurationToday(roomName);
+
+    const rows = [];
+    if (humidity != null)   rows.push(["💧 Fugt", Math.round(humidity) + "%"]);
+    if (co2 != null)        rows.push(["🫧 CO₂", Math.round(co2) + " ppm"]);
+    if (battery != null)    rows.push(["🔋 Batteri", Math.round(battery) + "%"]);
+    if (pidPower != null)   rows.push(["⚙️ PID-effekt", Math.round(pidPower) + "%"]);
+    if (calib != null)      rows.push(["🎯 Kalibrering", (calib >= 0 ? "+" : "") + calib.toFixed(1) + "°C"]);
+    if (windowDur != null)  rows.push(["🪟 Vindue åbent i dag", Math.round(windowDur) + " min"]);
+
+    // Interior doors (2026-09-11) — only ever available via the backend
+    // get_state snapshot (rd); this card has no states-based way to
+    // discover door linkage or the learned heat-up-rate at all.
+    if (rd?.door_open != null) {
+      rows.push(["🚪 Dør", rd.door_open ? "Åben" : "Lukket"]);
+    }
+    if (rd?.heatup_rate_door_open != null || rd?.heatup_rate_door_closed != null) {
+      const parts = [];
+      if (rd.heatup_rate_door_open != null)   parts.push(`åben: ${rd.heatup_rate_door_open.toFixed(1)}°C/t`);
+      if (rd.heatup_rate_door_closed != null) parts.push(`lukket: ${rd.heatup_rate_door_closed.toFixed(1)}°C/t`);
+      rows.push(["📈 Opvarmningshastighed", parts.join(" · ")]);
+    }
+
+    const extraBlocking = rd?.blocking_sources
+      ? rd.blocking_sources.filter(s => !((s === "window" && state === "window_open") || (s === "presence" && state === "away")))
+      : this._roomExtraBlocking(roomName, state);
+    if (extraBlocking.length) {
+      rows.push(["⛔ Blokeret af", extraBlocking.map(s => _hmBlockingLabel(s)).join(", ")]);
+    }
+
+    const trvCount     = rd?.trv_count ?? 1;
+    const groupEnabled = rd?.group_enabled ?? this._roomGroupEnabled(roomName);
+    const showGrouping = trvCount > 1;
+
+    const rowsHTML = rows.length
+      ? rows.map(([k, v]) => `<div class="sheet-row"><span class="sheet-row-k">${_hmEsc(k)}</span><span class="sheet-row-v">${_hmEsc(v)}</span></div>`).join("")
+      : `<div class="sheet-empty">Ingen yderligere data for dette rum</div>`;
+
+    const currentSetpoint = rd?.target_temp ?? this._targetTemps?.[roomName] ?? null;
+
+    return `
+      <div class="room-sheet" data-room-name="${_hmEsc(roomName)}">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <div>
+            <div class="sheet-title">${_hmEsc(roomName)}</div>
+            <div class="room-state-pill" style="background:${color}22;color:${color}">${_hmEsc(label)}</div>
+          </div>
+          <button class="sheet-close-btn" data-action="close-sheet">✕</button>
+        </div>
+
+        <div class="sheet-section">${rowsHTML}</div>
+
+        <div class="sheet-section">
+          <div class="sheet-section-title">Manuel temperatur</div>
+          <div class="sheet-manual-row">
+            <input type="number" class="sheet-temp-input" id="sheet-temp-input" min="10" max="30" step="0.5"
+              placeholder="${currentSetpoint != null ? currentSetpoint.toFixed(1) : "—"}">
+            <select class="sheet-dur-select" id="sheet-dur-select">
+              <option value="60" selected>1 time</option>
+              <option value="120">2 timer</option>
+              <option value="240">4 timer</option>
+              <option value="0">Permanent</option>
+            </select>
+            <button class="sheet-send-btn" data-action="sheet-send-temp">Send</button>
+          </div>
+          <button class="sheet-reset-btn" data-action="sheet-reset-temp">↺ Gendan schedule</button>
+        </div>
+
+        ${showGrouping ? `
+        <div class="sheet-section">
+          <div class="sheet-section-title">Gruppering (${trvCount} TRV'er)</div>
+          <div class="sheet-manual-row" style="justify-content:space-between">
+            <span style="font-size:12px;color:var(--sub)">Ekstra TRV'er følger gruppen</span>
+            <button class="toggle-btn${groupEnabled ? " active" : ""}" data-action="sheet-toggle-group">
+              ${groupEnabled ? "Slå fra" : "Slå til"}
+            </button>
+          </div>
+        </div>` : ""}
+      </div>`;
+  }
+
+  _attachRoomSheetEvents(overlay, roomName) {
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) this._closeRoomSheet();
+    });
+    overlay.querySelector("[data-action='close-sheet']")?.addEventListener("click", () => this._closeRoomSheet());
+
+    overlay.querySelector("[data-action='sheet-send-temp']")?.addEventListener("click", async () => {
+      const input = overlay.querySelector("#sheet-temp-input");
+      const dur   = overlay.querySelector("#sheet-dur-select");
+      const temp  = parseFloat(input?.value);
+      if (Number.isNaN(temp)) {
+        this._showToast("Angiv en temperatur", "error");
+        return;
+      }
+      try {
+        await this._hass.callWS({
+          type: "heat_manager/set_room_temp",
+          room_name: roomName,
+          temperature: temp,
+          duration_min: parseInt(dur?.value ?? "60", 10),
+        });
+        this._showToast(`${roomName}: ${temp}°C sendt`, "success");
+        setTimeout(() => this._loadTargetTemps(), 300);
+      } catch (e) {
+        console.error("Heat Manager: sheet send temp failed", e);
+        this._showToast("Kunne ikke sende temperatur", "error");
+      }
+    });
+
+    overlay.querySelector("[data-action='sheet-reset-temp']")?.addEventListener("click", async () => {
+      try {
+        await this._hass.callWS({
+          type: "heat_manager/set_room_temp",
+          room_name: roomName,
+          temperature: null,
+        });
+        this._showToast(`${roomName}: schedule gendannet`, "success");
+        setTimeout(() => this._loadTargetTemps(), 300);
+      } catch (e) {
+        console.error("Heat Manager: sheet reset temp failed", e);
+        this._showToast("Kunne ikke gendanne schedule", "error");
+      }
+    });
+
+    overlay.querySelector("[data-action='sheet-toggle-group']")?.addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      const entityId = this._roomGroupSwitchId(roomName);
+      if (!entityId) return;
+      const currentlyEnabled = this._roomGroupEnabled(roomName);
+      try {
+        await this._hass.callService("switch", currentlyEnabled ? "turn_off" : "turn_on", { entity_id: entityId });
+        btn.classList.toggle("active");
+        btn.textContent = currentlyEnabled ? "Slå til" : "Slå fra";
+      } catch (e2) {
+        console.error("Heat Manager: sheet group toggle failed", e2);
+        this._showToast("Kunne ikke ændre gruppering", "error");
+      }
     });
   }
 

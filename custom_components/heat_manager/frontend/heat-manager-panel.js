@@ -2988,15 +2988,41 @@ class HeatManagerPanel extends HTMLElement {
       </div>`;
   }
 
+  // Fase 2, del 1 (2026-09-13) — "Indstillinger": shared row builders used by
+  // the PID/Boost/Vindue/Nat-sætpunkt/Grace/Auto-off section-boxes below.
+  // One generic save-field/toggle-field click handler in _attachEvents()
+  // handles every row these produce — see planning/heat_manager_fase2_spec.
+  _cfgNumberRow(label, field, value, { min, max, step, unit = "", cast = "float" } = {}) {
+    return `
+      <div class="cfg-edit-row">
+        <span class="cfg-edit-label" style="flex:0 0 150px">${this._esc(label)}</span>
+        <input class="cfg-edit-input" type="number"
+          id="cfg-${field}-input" min="${min}" max="${max}" step="${step}"
+          value="${this._esc(value)}">
+        ${unit ? `<span class="cfg-edit-label" style="flex-shrink:0">${this._esc(unit)}</span>` : ""}
+        <button class="cfg-save-btn" data-action="save-field" data-field="${field}" data-cast="${cast}">Gem</button>
+        <span class="cfg-save-ok" id="cfg-${field}-ok">✔</span>
+      </div>`;
+  }
+
+  _cfgToggleRow(label, field, value, desc = "") {
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px">
+        <div>
+          <div style="font-size:13px;font-weight:600">${this._esc(label)}</div>
+          ${desc ? `<div style="font-size:11px;color:var(--sub);margin-top:2px;line-height:1.4">${this._esc(desc)}</div>` : ""}
+        </div>
+        <button class="toggle-btn${value ? " active" : ""}" style="flex-shrink:0" data-action="toggle-field" data-field="${field}">
+          ${value ? "Slå fra" : "Slå til"}
+        </button>
+      </div>`;
+  }
+
   _configTabHTML() {
     const d   = this._data?.config ?? {};
     const cfg = [
       ["Weather entity",      d.weather_entity           ?? "–"],
       ["Outdoor temp sensor", d.outdoor_temp_sensor      ?? "–"],
-      ["Grace dag",           d.grace_day_min   != null  ? d.grace_day_min   + " min" : "–"],
-      ["Grace nat",           d.grace_night_min != null  ? d.grace_night_min + " min" : "–"],
-      ["Auto-off grænse",     d.auto_off_temp_threshold != null ? d.auto_off_temp_threshold + "°C" : "–"],
-      ["Auto-off dage",       d.auto_off_temp_days != null ? d.auto_off_temp_days + " dage" : "–"],
     ];
     return `
       <div class="section-box">
@@ -3052,6 +3078,76 @@ class HeatManagerPanel extends HTMLElement {
         </div>
       </div>
 
+      <!-- Fase 2, del 1 (2026-09-13) — "Indstillinger": driftsparametre der
+           før kun kunne ændres via options-flow'ets klik-igennem-dialog,
+           flyttet hertil med samme live-gem-mønster som Alarmtavle ovenfor.
+           Options-flow'en beholder de samme felter uændret (fallback for
+           førstegangsopsætning) — se
+           planning/heat_manager_fase2_spec_2026-09-11.md, "Del 1". -->
+
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">PID-regulator</div>
+          <div class="section-box-badge" style="background:${d.pid_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.pid_enabled ? "#818cf8" : "var(--sub)"}">
+            ${d.pid_enabled ? "Aktiv" : "Inaktiv"}
+          </div>
+        </div>
+        ${this._cfgToggleRow("PID-regulering aktiveret", "pid_enabled", !!d.pid_enabled)}
+        ${this._cfgNumberRow("Kp", "pid_kp", d.pid_kp ?? "", { min: 0, max: 5, step: 0.05, cast: "float" })}
+        ${this._cfgNumberRow("Ki", "pid_ki", d.pid_ki ?? "", { min: 0, max: 0.5, step: 0.01, cast: "float" })}
+        ${this._cfgNumberRow("Kd", "pid_kd", d.pid_kd ?? "", { min: 0, max: 2, step: 0.05, cast: "float" })}
+      </div>
+
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Boost — standardværdier</div>
+        </div>
+        <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
+          Bruges af Boost-knappen og <span style="font-family:'DM Mono',monospace">heat_manager.boost_start</span>,
+          når intet andet angives eksplicit.
+        </div>
+        ${this._cfgNumberRow("Standardtemperatur", "boost_default_temp", d.boost_default_temp ?? "", { min: 15, max: 32, step: 0.5, unit: "°C", cast: "float" })}
+        ${this._cfgNumberRow("Standardvarighed", "boost_default_minutes", d.boost_default_minutes ?? "", { min: 1, max: 240, step: 1, unit: "min", cast: "float" })}
+      </div>
+
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Vindue</div>
+        </div>
+        ${this._cfgNumberRow("Advarsel efter", "window_warning_min", d.window_warning_min ?? "", { min: 5, max: 180, step: 5, unit: "min", cast: "int" })}
+        ${this._cfgToggleRow("Notifikation ved åbent vindue", "notify_windows", !!d.notify_windows)}
+        ${this._cfgToggleRow("30-minutters-advarsel", "notify_window_warning_30", !!d.notify_window_warning_30)}
+      </div>
+
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Nat-sætpunkt</div>
+          <div class="section-box-badge" style="background:${d.night_setback_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.night_setback_enabled ? "#818cf8" : "var(--sub)"}">
+            ${d.night_setback_enabled ? "Aktiv" : "Inaktiv"}
+          </div>
+        </div>
+        ${this._cfgToggleRow("Nat-sætpunkt aktiveret", "night_setback_enabled", !!d.night_setback_enabled)}
+        ${this._cfgNumberRow("Temperatur (sænkning)", "night_setback_temp", d.night_setback_temp ?? "", { min: 0.5, max: 5.0, step: 0.5, unit: "°C", cast: "float" })}
+        ${this._cfgNumberRow("Start time", "night_start_hour", d.night_start_hour ?? "", { min: 18, max: 23, step: 1, unit: "h", cast: "int" })}
+        ${this._cfgNumberRow("Slut time", "night_end_hour", d.night_end_hour ?? "", { min: 4, max: 10, step: 1, unit: "h", cast: "int" })}
+      </div>
+
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Grace-perioder</div>
+        </div>
+        ${this._cfgNumberRow("Dag", "grace_day_min", d.grace_day_min ?? "", { min: 5, max: 120, step: 5, unit: "min", cast: "int" })}
+        ${this._cfgNumberRow("Nat", "grace_night_min", d.grace_night_min ?? "", { min: 5, max: 60, step: 5, unit: "min", cast: "int" })}
+      </div>
+
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Auto-off ved mildt vejr</div>
+        </div>
+        ${this._cfgNumberRow("Temperaturgrænse", "auto_off_temp_threshold", d.auto_off_temp_threshold ?? "", { min: 10, max: 30, step: 1, unit: "°C", cast: "float" })}
+        ${this._cfgNumberRow("Dage i træk", "auto_off_temp_days", d.auto_off_temp_days ?? "", { min: 1, max: 14, step: 1, unit: "dage", cast: "int" })}
+      </div>
+
       <div class="section-box" style="padding:0">
         <div class="section-box-header" style="padding:12px 16px 10px;border-bottom:1px solid var(--div)">
           <div class="section-box-title">Notifikationer</div>
@@ -3077,6 +3173,10 @@ class HeatManagerPanel extends HTMLElement {
                 value="${this._esc(d.notify_service ?? '')}">
               <button class="cfg-save-btn" data-action="save-notify">Gem</button>
               <span class="cfg-save-ok" id="cfg-notify-ok">✔</span>
+            </div>
+            <div style="margin-top:4px">
+              ${this._cfgToggleRow("Tilstedeværelse/fravær", "notify_presence", !!d.notify_presence)}
+              ${this._cfgToggleRow("Forvarmning", "notify_preheat", !!d.notify_preheat)}
             </div>
           </div>
 
@@ -3346,6 +3446,68 @@ class HeatManagerPanel extends HTMLElement {
         console.error("Heat Manager: save notify failed", e);
       }
       btn.disabled = false;
+    });
+
+    // ── Config tab: "Indstillinger" generic field save (Fase 2, del 1, 2026-09-13) ──
+    // One handler for every numeric field the settings sections above add
+    // (PID, Boost, Vindue, Nat-sætpunkt, Grace, Auto-off), instead of a
+    // hand-written save-* handler per field like save-alarm/save-notify
+    // above — see _cfgNumberRow()/_cfgToggleRow() and websocket.py's
+    // matching _NUMERIC_CONFIG_FIELDS/_BOOL_CONFIG_FIELD_DEFAULTS tables.
+    root.querySelectorAll("[data-action='save-field']").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const field = btn.dataset.field;
+        const cast  = btn.dataset.cast || "float";
+        const input = root.querySelector(`#cfg-${field}-input`);
+        const ok    = root.querySelector(`#cfg-${field}-ok`);
+        if (!input) return;
+        const raw   = cast === "int" ? parseInt(input.value, 10) : parseFloat(input.value);
+        if (Number.isNaN(raw)) {
+          this._showToast("Ugyldig værdi", "error");
+          return;
+        }
+        btn.disabled = true;
+        try {
+          const res = await this._hass.callWS({
+            type: "heat_manager/update_config",
+            [field]: raw,
+          });
+          if (res?.updated !== false) {
+            if (this._data?.config) this._data.config[field] = raw;
+            ok?.classList.add("visible");
+            setTimeout(() => ok?.classList.remove("visible"), 2500);
+          }
+        } catch (e) {
+          this._showToast(`Kunne ikke gemme ${field}`, "error");
+          console.error(`Heat Manager: save ${field} failed`, e);
+        }
+        btn.disabled = false;
+      });
+    });
+
+    // Generic boolean toggle save — mirrors toggle-manual-control above
+    // (optimistic update, revert + toast on failure), for every bool field
+    // added by _cfgToggleRow() (PID enabled, night setback enabled, window/
+    // presence/preheat notify toggles).
+    root.querySelectorAll("[data-action='toggle-field']").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const field   = btn.dataset.field;
+        const current = !!(this._data?.config?.[field] ?? false);
+        const newVal  = !current;
+        if (this._data?.config) this._data.config[field] = newVal; // optimistic
+        this._scheduleRender();
+        try {
+          await this._hass.callWS({
+            type: "heat_manager/update_config",
+            [field]: newVal,
+          });
+        } catch (e) {
+          if (this._data?.config) this._data.config[field] = current; // revert
+          this._scheduleRender();
+          this._showToast(`Kunne ikke gemme ${field}`, "error");
+          console.error(`Heat Manager: save ${field} failed`, e);
+        }
+      });
     });
   }
 }

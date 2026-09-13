@@ -22,6 +22,8 @@ import pytest
 from custom_components.heat_manager import websocket
 from custom_components.heat_manager.const import (
     CONF_TRVS,
+    DEFAULT_GRACE_DAY_MIN,
+    DEFAULT_PID_KP,
     AutoOffReason,
     ControllerState,
     EffectiveSeason,
@@ -1219,6 +1221,142 @@ async def test_update_config_manual_trv_control_false_persists_when_previously_t
     assert persisted_options["manual_trv_control"] is False
     result = conn.send_result.call_args[0][1]
     assert result == {"updated": True, "changed": ["manual_trv_control"]}
+
+
+# ── ws_update_config — Fase 2, del 1 (2026-09-13) ────────────────────────────
+#
+# Generalizes ws_update_config() from hand-written string/bool branches into
+# three per-type tables (_STRING_CONFIG_FIELDS/_BOOL_CONFIG_FIELD_DEFAULTS/
+# _NUMERIC_CONFIG_FIELDS) so the panel's new "Indstillinger" tab (PID, Boost
+# defaults, window warning, night setback, grace, auto-off, more notify
+# toggles) can all save live through the same command. The critical
+# correctness property these tests guard: change-detection must compare
+# against each field's real DEFAULT_* fallback, not a blanket 0/False/"" —
+# a bool field whose true default is True (e.g. pid_enabled, notify_windows)
+# must NOT be reported as "changed" when the panel sends back that same
+# default while entry.options has never stored the key at all.
+
+
+@pytest.mark.asyncio
+async def test_update_config_numeric_field_persists_as_declared_type():
+    coord = _make_coordinator()
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_update_config(hass, conn, _msg(pid_kp=0.75))
+
+    persisted_options = hass.config_entries.async_update_entry.call_args.kwargs[
+        "options"
+    ]
+    assert persisted_options["pid_kp"] == 0.75
+    assert isinstance(persisted_options["pid_kp"], float)
+    result = conn.send_result.call_args[0][1]
+    assert result == {"updated": True, "changed": ["pid_kp"]}
+
+
+@pytest.mark.asyncio
+async def test_update_config_numeric_field_casts_int_fields_to_int():
+    coord = _make_coordinator()
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    # HA's number selector can hand back a float even for a whole-number
+    # field (e.g. 45.0) — grace_day_min is declared int in
+    # _NUMERIC_CONFIG_FIELDS, so it must be stored as a real int.
+    await ws_update_config(hass, conn, _msg(grace_day_min=45.0))
+
+    persisted_options = hass.config_entries.async_update_entry.call_args.kwargs[
+        "options"
+    ]
+    assert persisted_options["grace_day_min"] == 45
+    assert isinstance(persisted_options["grace_day_min"], int)
+
+
+@pytest.mark.asyncio
+async def test_update_config_numeric_field_at_default_when_unset_is_not_changed():
+    coord = _make_coordinator()
+    hass = _make_hass_with_entry(coord)  # entry.options == {} — key never stored
+    conn = _connection()
+
+    # Sending exactly the constant's own DEFAULT_* value must NOT be reported
+    # as a change — the field's absence from entry.options already means
+    # "at default", the same value coordinator.config would resolve to.
+    await ws_update_config(
+        hass, conn, _msg(pid_kp=DEFAULT_PID_KP, grace_day_min=DEFAULT_GRACE_DAY_MIN)
+    )
+
+    result = conn.send_result.call_args[0][1]
+    assert result == {"updated": False, "changed": []}
+    hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_config_bool_field_at_true_default_when_unset_is_not_changed():
+    coord = _make_coordinator()
+    hass = _make_hass_with_entry(coord)  # entry.options == {} — key never stored
+    conn = _connection()
+
+    # pid_enabled/notify_windows/etc. default to True (not False like
+    # manual_trv_control) — sending True back with nothing persisted yet
+    # must not be treated as a change, or the panel could never turn one of
+    # these OFF from a fresh install (the very bug this table structure
+    # exists to avoid — see _BOOL_CONFIG_FIELD_DEFAULTS).
+    await ws_update_config(hass, conn, _msg(pid_enabled=True, notify_windows=True))
+
+    result = conn.send_result.call_args[0][1]
+    assert result == {"updated": False, "changed": []}
+    hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_config_bool_field_true_default_can_be_turned_off():
+    coord = _make_coordinator()
+    hass = _make_hass_with_entry(coord)  # entry.options == {} — key never stored
+    conn = _connection()
+
+    await ws_update_config(hass, conn, _msg(notify_windows=False))
+
+    persisted_options = hass.config_entries.async_update_entry.call_args.kwargs[
+        "options"
+    ]
+    assert persisted_options["notify_windows"] is False
+    result = conn.send_result.call_args[0][1]
+    assert result == {"updated": True, "changed": ["notify_windows"]}
+
+
+@pytest.mark.asyncio
+async def test_update_config_invalid_numeric_value_sends_invalid_value_error():
+    coord = _make_coordinator()
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_update_config(hass, conn, _msg(pid_kp="not-a-number"))
+
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_value"
+    hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_config_multiple_fields_in_one_message_all_persist():
+    coord = _make_coordinator()
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_update_config(
+        hass,
+        conn,
+        _msg(pid_kp=0.9, notify_windows=False, alarm_panel="alarm_control_panel.x"),
+    )
+
+    persisted_options = hass.config_entries.async_update_entry.call_args.kwargs[
+        "options"
+    ]
+    assert persisted_options["pid_kp"] == 0.9
+    assert persisted_options["notify_windows"] is False
+    assert persisted_options["alarm_panel"] == "alarm_control_panel.x"
+    result = conn.send_result.call_args[0][1]
+    assert set(result["changed"]) == {"pid_kp", "notify_windows", "alarm_panel"}
 
 
 # ── ws_get_history ───────────────────────────────────────────────────────────
