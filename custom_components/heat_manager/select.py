@@ -67,7 +67,9 @@ async def async_setup_entry(
             if not climate_entity_id:
                 continue
             entities.append(
-                NetatmoPresetModeSelect(coordinator, entry, room_name, climate_entity_id)
+                NetatmoPresetModeSelect(
+                    coordinator, entry, room_name, climate_entity_id
+                )
             )
             break  # one preset-mode select per room, on its primary Netatmo TRV
 
