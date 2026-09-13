@@ -130,6 +130,13 @@ function _hmBlockingLabel(s) {
   })[s] ?? s;
 }
 
+// Card/panel data-parity (2026-09-13) — same labels as panel.js's own
+// _syncModeLabel(), so a room configured with sync_mode shows the identical
+// Danish label on both surfaces.
+function _hmSyncModeLabel(mode) {
+  return ({ disabled: "Deaktiveret", mirror: "Spejl", lock: "Lås" })[mode] ?? mode;
+}
+
 
 
 
@@ -1479,6 +1486,20 @@ class HeatManagerCard extends HTMLElement {
       if (rd.heatup_rate_door_open != null)   parts.push(`åben: ${rd.heatup_rate_door_open.toFixed(1)}°C/t`);
       if (rd.heatup_rate_door_closed != null) parts.push(`lukket: ${rd.heatup_rate_door_closed.toFixed(1)}°C/t`);
       rows.push(["📈 Opvarmningshastighed", parts.join(" · ")]);
+    }
+
+    // Card/panel data-parity (2026-09-13) — sync_mode and schedule_entity
+    // are config-only strings this card's own instance config never stores
+    // (they live in the backend config entry), so — same as door_open/
+    // heatup_rate/trv_count above — the get_state snapshot (rd) is the only
+    // way to show them at all. Mirrors panel.js's Rum-detaljer meta-badge
+    // row (same _syncModeLabel() labels, same "schedule configured" wording
+    // rather than the raw entity_id, which the panel doesn't show either).
+    if (rd?.sync_mode && rd.sync_mode !== "disabled") {
+      rows.push(["🔄 Sync", _hmSyncModeLabel(rd.sync_mode)]);
+    }
+    if (rd?.schedule_entity) {
+      rows.push(["🗓 Schedule", "Konfigureret"]);
     }
 
     const extraBlocking = rd?.blocking_sources

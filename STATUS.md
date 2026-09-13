@@ -1,7 +1,7 @@
 # Heat Manager — Project Status
 
-**Last updated:** 2026-09-13 · v0.34.0
-**Version (GitHub):** 0.34.0 (pending push/commit via GitHub Desktop)
+**Last updated:** 2026-09-13 · v0.35.0
+**Version (GitHub):** 0.35.0 (pending push/commit via GitHub Desktop)
 **Version (HA server):** not yet transferred — see CHANGELOG.md before deploying
 **Target:** Home Assistant 2025.1+
 **Language:** English primary · Danish translations included
@@ -52,14 +52,21 @@ untranslated keys. Most recently (v0.34.0): per-room live editing —
 Flemming's parked "punkt 3" — is done, scoped to exactly the two fields he
 picked (Target temp, Away temp override), inline in the Rum-fane's room
 cards via a new `heat_manager/update_room_config` WS command; CO₂ threshold
-and everything else per-room stays options-flow-only.
+and everything else per-room stays options-flow-only. Most recently
+(v0.35.0): the mobile card's press-and-hold detail sheet now also shows
+sync-mode and schedule-configured status, sourced from the same
+`heat_manager/get_state` poll the sheet already used for door status/
+heat-up rate/TRV-count — scoped to just those two fields, per Flemming's
+choice.
 
-**Known deferred items (still open):** a full card.js/panel.js data-parity
-pass (surfacing every config-only field, e.g. sync-mode/schedule, on the
-mobile card the same way the panel shows them) remains deferred — the card's
-architecture has no live websocket connection, so this would need either
-adding one or duplicating more config into the card's own per-room setup
-(see CHANGELOG [0.17.0]'s "Deliberately still not done"). "Interne dørs
+**Known deferred items (still open):** sync-mode/schedule parity is done
+(v0.35.0, scoped to the press-and-hold sheet) — a further parity pass
+(Netatmo cloud diagnostics, Target temp/Away temp override read-out, moving
+fields onto the card's main row instead of the detail sheet) remains open.
+The card already has the `heat_manager/get_state` websocket poll needed for
+this (added v0.30.0/v0.34.0-era for the sheet), so this is scoping/effort,
+not a missing connection — see CHANGELOG [0.17.0]'s stale "Deliberately
+still not done" framing, superseded by that. "Interne dørs
 niveau C" (letting an open interior door actively influence a *neighbouring*
 room's target temperature, rather than only being visible/logged/learned) is
 explicitly parked pending a design decision from the user about
@@ -364,7 +371,8 @@ potentially stale, not assumed current, the next time it matters.
 | Rooms with no TRV ("monitoring-only") | — | ✅ Done (v0.24.1/v0.24.2) |
 | Energy tracking (waste/saved/efficiency) — not meaningful on district heating | — | ✅ Removed (v0.22.0), at the user's request |
 | "Interne dørs niveau C" — an open door actively adjusting a *neighbouring* room's target temp | Medium | Parked — needs a user decision on room-target-temperature "ownership" first |
-| Full card.js/panel.js data parity (sync-mode/schedule/TRV-count etc. on the mobile card) | Low | Open — needs either a card-side websocket connection or more duplicated per-room card config |
+| Card/panel data parity — sync-mode + schedule shown in the mobile card's press-and-hold sheet | — | ✅ Done (v0.35.0), scoped — sourced from the `get_state` poll the card already had since v0.30.0 |
+| Full card.js/panel.js data parity (Netatmo cloud diagnostics, Target temp/Away temp override read-out, moving fields onto the card's main row instead of the detail sheet) | Low | Open |
 | `strict-typing` | Low | Open — full mypy pass |
 | Per-room always-on toggle (bypass presence for bathrooms/offices) | Low | Open |
 | EKF thermal model | Future | Open — learned heat loss rate replaces fixed PID gains (the v0.24.0 heat-up-rate learning is informational groundwork toward this) |

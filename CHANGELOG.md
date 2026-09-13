@@ -9,6 +9,28 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.35.0] — 2026-09-13
+
+Card/panel data parity, scoped to `sync_mode`/`schedule_entity` in the
+mobile card's press-and-hold detail sheet.
+
+### Added
+- **`heat-manager-card.js`**: `_roomSheetHTML()` now also shows a "🔄 Sync"
+  row (same `_syncModeLabel()` labels as the panel: Deaktiveret/Spejl/Lås,
+  omitted when `disabled`) and a "🗓 Schedule" row ("Konfigureret", mirroring
+  the panel's own boolean-presence-only badge rather than the raw entity_id)
+  — sourced from the existing `heat_manager/get_state` poll (`this._roomData`)
+  already used for door status/heat-up rate/TRV-count in this same sheet,
+  same "config-only string, no states-based fallback exists" reasoning as
+  those fields. New shared `_hmSyncModeLabel()` helper.
+
+### Known limitation
+- Deliberately scoped to just these two fields — Target temp/Away temp
+  override stay panel-only (edited via v0.34.0's per-room live editing, not
+  read-only mirrored here), and Netatmo cloud diagnostics (`cloud_preset_mode`
+  etc.) remain panel-only too. Full parity (every config-only field, on the
+  card's main row rather than the detail sheet) is still open if wanted.
+
 ## [0.34.0] — 2026-09-13
 
 Per-room live editing, straight from the Rum-fane's room cards — Flemming's
