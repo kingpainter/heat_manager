@@ -15,7 +15,7 @@ touches is an explicitly-configured MagicMock attribute.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -27,7 +27,7 @@ from custom_components.heat_manager.const import (
     RoomState,
 )
 
-_NOW = datetime(2026, 9, 13, 12, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime(2026, 9, 13, 12, 0, 0, tzinfo=UTC)
 
 
 def _make_coordinator(config: dict) -> MagicMock:
