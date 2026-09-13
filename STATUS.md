@@ -1,7 +1,7 @@
 # Heat Manager — Project Status
 
-**Last updated:** 2026-09-13 · v0.33.0
-**Version (GitHub):** 0.33.0 (pending push/commit via GitHub Desktop)
+**Last updated:** 2026-09-13 · v0.34.0
+**Version (GitHub):** 0.34.0 (pending push/commit via GitHub Desktop)
 **Version (HA server):** not yet transferred — see CHANGELOG.md before deploying
 **Target:** Home Assistant 2025.1+
 **Language:** English primary · Danish translations included
@@ -40,7 +40,19 @@ looked) was also replaced by one global, panel-editable
 `window_delay_default_min` — `window_engine.py` no longer reads the per-room
 value at all. New info-icon tooltips in both the panel's Rum-detaljer stats
 and its Indstillinger → Vindue section spell out the Rum temp / Target Temp
-/ Trv temp / Set point distinction directly in the UI.
+/ Trv temp / Set point distinction directly in the UI. `strings.json` and
+`translations/{en,da}.json` also got a full rebuild against the live
+`config_flow.py` schema (folded into v0.33.0) — they'd drifted much further
+than the single known limitation first flagged suggested: missing fields
+across every step, an entirely-missing interior-doors translation block
+(v0.24.0 had never had one), and three door-validation error keys
+(`same_room`/`duplicate_door_pair`/`duplicate_door_sensor`) that were
+missing outright, meaning real users hitting those errors saw raw
+untranslated keys. Most recently (v0.34.0): per-room live editing —
+Flemming's parked "punkt 3" — is done, scoped to exactly the two fields he
+picked (Target temp, Away temp override), inline in the Rum-fane's room
+cards via a new `heat_manager/update_room_config` WS command; CO₂ threshold
+and everything else per-room stays options-flow-only.
 
 **Known deferred items (still open):** a full card.js/panel.js data-parity
 pass (surfacing every config-only field, e.g. sync-mode/schedule, on the
@@ -343,7 +355,7 @@ potentially stale, not assumed current, the next time it matters.
 | Mold risk as a push notification (previously poll-only) | — | ✅ Done (v0.31.0) |
 | Consolidated status center (replacing 4 scattered indicators: 3 topbar chips + Oversigt-only remote-action box) | — | ✅ Done (v0.32.0) |
 | Split `away_temp_override` (PID/setback floor) from a dedicated window-open-off temperature; global window-delay default; Rum temp/Target Temp/Trv temp/Set point tooltips | — | ✅ Done (v0.33.0) |
-| Per-room live editing in the panel (comfort_temp, window_delay_min, away_temp_override, etc. — Flemming's parked "point 3") | Medium | Open — deliberately deferred to a future, larger round; needs a new `update_room_config`-style WS command |
+| Per-room live editing in the panel — Target temp + Away temp override, inline in the Rum-fane's room cards (Flemming's "point 3") | — | ✅ Done (v0.34.0) — `heat_manager/update_room_config` WS command; CO₂ threshold and other per-room fields stay options-flow-only |
 | Manual TRV control persistence (was session-scoped only) | — | ✅ Done (v0.27.1) |
 | Netatmo rooms ignoring `comfort_temp` ("B21") | — | ✅ Done (v0.19.0/v0.20.0) |
 | Netatmo 429/503 rate-limit races across engines | — | ✅ Done (v0.17.1) — single coordinator-wide lock |

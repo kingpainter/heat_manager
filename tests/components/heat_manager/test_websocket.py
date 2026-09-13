@@ -21,7 +21,11 @@ import pytest
 
 from custom_components.heat_manager import websocket
 from custom_components.heat_manager.const import (
+    CONF_AWAY_TEMP_OVERRIDE,
+    CONF_COMFORT_TEMP,
+    CONF_ROOMS,
     CONF_TRVS,
+    DEFAULT_COMFORT_TEMP,
     DEFAULT_GRACE_DAY_MIN,
     DEFAULT_PID_KP,
     AutoOffReason,
@@ -39,6 +43,7 @@ ws_boost_start = websocket.ws_boost_start.__wrapped__
 ws_boost_stop = websocket.ws_boost_stop.__wrapped__
 ws_set_room_temp = websocket.ws_set_room_temp.__wrapped__
 ws_update_config = websocket.ws_update_config.__wrapped__
+ws_update_room_config = websocket.ws_update_room_config.__wrapped__
 ws_get_history = websocket.ws_get_history.__wrapped__
 
 # ── shared fixtures ──────────────────────────────────────────────────────────
@@ -1357,6 +1362,212 @@ async def test_update_config_multiple_fields_in_one_message_all_persist():
     assert persisted_options["alarm_panel"] == "alarm_control_panel.x"
     result = conn.send_result.call_args[0][1]
     assert set(result["changed"]) == {"pid_kp", "notify_windows", "alarm_panel"}
+
+
+# ── ws_update_room_config — punkt 3 (2026-09-13) ────────────────────────────
+#
+# Per-room live editing from the Rum-fane's room cards, without going through
+# the options-flow config wizard. Deliberately scoped to just comfort_temp
+# (Target temp) and away_temp_override (Away temp override) — the two fields
+# picked over CO2 threshold etc, which stays options-flow-only. Mirrors
+# ws_update_config's own change-detection-against-the-real-default property
+# (see that section's comment above), plus min/max bounds ws_update_config
+# doesn't need since its fields aren't HA-selector-range-limited the way
+# _room_schema()'s comfort_temp/away_temp_override are.
+
+
+@pytest.mark.asyncio
+async def test_update_room_config_no_entry_sends_not_found():
+    hass = _make_hass_without_entry()
+    conn = _connection()
+    await ws_update_room_config(hass, conn, _msg(room_name="Bathroom"))
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_update_room_config_unknown_room_sends_not_found():
+    coord = _make_coordinator(rooms=[_room(name="Bathroom")])
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_update_room_config(
+        hass, conn, _msg(room_name="Attic", comfort_temp=21.0)
+    )
+
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "not_found"
+    hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_room_config_no_fields_sent_reports_unchanged():
+    coord = _make_coordinator(rooms=[_room(name="Bathroom")])
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_update_room_config(hass, conn, _msg(room_name="Bathroom"))
+
+    result = conn.send_result.call_args[0][1]
+    assert result == {"updated": False, "changed": []}
+    hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_room_config_comfort_temp_persists_and_logs():
+    room = _room(name="Bathroom")
+    coord = _make_coordinator(rooms=[room])
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_update_room_config(
+        hass, conn, _msg(room_name="Bathroom", comfort_temp=22.5)
+    )
+
+    hass.config_entries.async_update_entry.assert_called_once()
+    persisted_rooms = hass.config_entries.async_update_entry.call_args.kwargs[
+        "options"
+    ][CONF_ROOMS]
+    assert persisted_rooms[0][CONF_COMFORT_TEMP] == 22.5
+    coord.log_event.assert_called_once()
+    result = conn.send_result.call_args[0][1]
+    assert result == {"updated": True, "changed": ["comfort_temp"]}
+
+
+@pytest.mark.asyncio
+async def test_update_room_config_away_temp_override_persists():
+    room = _room(name="Bathroom")
+    coord = _make_coordinator(rooms=[room])
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_update_room_config(
+        hass, conn, _msg(room_name="Bathroom", away_temp_override=15.0)
+    )
+
+    persisted_rooms = hass.config_entries.async_update_entry.call_args.kwargs[
+        "options"
+    ][CONF_ROOMS]
+    assert persisted_rooms[0][CONF_AWAY_TEMP_OVERRIDE] == 15.0
+    result = conn.send_result.call_args[0][1]
+    assert result == {"updated": True, "changed": ["away_temp_override"]}
+
+
+@pytest.mark.asyncio
+async def test_update_room_config_same_value_is_not_reported_as_changed():
+    room = _room(name="Bathroom")
+    room[CONF_COMFORT_TEMP] = 20.0
+    coord = _make_coordinator(rooms=[room])
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_update_room_config(
+        hass, conn, _msg(room_name="Bathroom", comfort_temp=20.0)
+    )
+
+    result = conn.send_result.call_args[0][1]
+    assert result == {"updated": False, "changed": []}
+    hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_room_config_default_when_unset_is_not_changed():
+    # Room dict has no comfort_temp key at all — sending exactly
+    # DEFAULT_COMFORT_TEMP back must not be treated as a change, same
+    # "absence == at default" property ws_update_config's own numeric/bool
+    # tables guard (see that section's comment above).
+    room = _room(name="Bathroom")
+    coord = _make_coordinator(rooms=[room])
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_update_room_config(
+        hass, conn, _msg(room_name="Bathroom", comfort_temp=DEFAULT_COMFORT_TEMP)
+    )
+
+    result = conn.send_result.call_args[0][1]
+    assert result == {"updated": False, "changed": []}
+    hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_room_config_out_of_range_value_sends_invalid_value_error():
+    room = _room(name="Bathroom")
+    coord = _make_coordinator(rooms=[room])
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    # _room_schema()'s comfort_temp selector caps at 26.0 — a raw WS write
+    # must enforce the same bound instead of silently writing an out-of-range
+    # value straight to entry.options.
+    await ws_update_room_config(
+        hass, conn, _msg(room_name="Bathroom", comfort_temp=30.0)
+    )
+
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_value"
+    hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_room_config_invalid_type_sends_invalid_value_error():
+    room = _room(name="Bathroom")
+    coord = _make_coordinator(rooms=[room])
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_update_room_config(
+        hass, conn, _msg(room_name="Bathroom", comfort_temp="not-a-number")
+    )
+
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_value"
+    hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_room_config_preserves_other_rooms_untouched():
+    bathroom = _room(name="Bathroom")
+    bathroom[CONF_COMFORT_TEMP] = 19.0
+    kitchen = _room(name="Kitchen")
+    kitchen[CONF_COMFORT_TEMP] = 21.0
+    coord = _make_coordinator(rooms=[bathroom, kitchen])
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_update_room_config(
+        hass, conn, _msg(room_name="Bathroom", comfort_temp=23.0)
+    )
+
+    persisted_rooms = hass.config_entries.async_update_entry.call_args.kwargs[
+        "options"
+    ][CONF_ROOMS]
+    assert persisted_rooms[0]["room_name"] == "Bathroom"
+    assert persisted_rooms[0][CONF_COMFORT_TEMP] == 23.0
+    assert persisted_rooms[1]["room_name"] == "Kitchen"
+    assert persisted_rooms[1][CONF_COMFORT_TEMP] == 21.0  # untouched
+
+
+@pytest.mark.asyncio
+async def test_update_room_config_multiple_fields_in_one_message_all_persist():
+    room = _room(name="Bathroom")
+    coord = _make_coordinator(rooms=[room])
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_update_room_config(
+        hass,
+        conn,
+        _msg(room_name="Bathroom", comfort_temp=22.0, away_temp_override=16.0),
+    )
+
+    persisted_rooms = hass.config_entries.async_update_entry.call_args.kwargs[
+        "options"
+    ][CONF_ROOMS]
+    assert persisted_rooms[0][CONF_COMFORT_TEMP] == 22.0
+    assert persisted_rooms[0][CONF_AWAY_TEMP_OVERRIDE] == 16.0
+    result = conn.send_result.call_args[0][1]
+    assert set(result["changed"]) == {"comfort_temp", "away_temp_override"}
 
 
 # ── ws_get_history ───────────────────────────────────────────────────────────

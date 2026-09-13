@@ -29,11 +29,13 @@ from .const import (
     CONF_ALARM_PANEL,
     CONF_AUTO_OFF_TEMP_DAYS,
     CONF_AUTO_OFF_TEMP_THRESHOLD,
+    CONF_AWAY_TEMP_OVERRIDE,
     CONF_BATTERY_SENSOR,
     CONF_BOOST_DEFAULT_MINUTES,
     CONF_BOOST_DEFAULT_TEMP,
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
+    CONF_COMFORT_TEMP,
     CONF_DOOR_ROOM_A,
     CONF_DOOR_ROOM_B,
     CONF_DOOR_SENSOR,
@@ -60,6 +62,8 @@ from .const import (
     CONF_PID_KD,
     CONF_PID_KI,
     CONF_PID_KP,
+    CONF_ROOM_NAME,
+    CONF_ROOMS,
     CONF_SCHEDULE_ENTITY,
     CONF_SYNC_MODE,
     CONF_TRV_TYPE,
@@ -72,6 +76,7 @@ from .const import (
     DEFAULT_AUTO_OFF_TEMP_THRESHOLD,
     DEFAULT_BOOST_MINUTES,
     DEFAULT_BOOST_TEMP,
+    DEFAULT_COMFORT_TEMP,
     DEFAULT_GRACE_DAY_MIN,
     DEFAULT_GRACE_NIGHT_MIN,
     DEFAULT_MANUAL_TRV_CONTROL,
@@ -485,6 +490,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_boost_start)
     websocket_api.async_register_command(hass, ws_boost_stop)
     websocket_api.async_register_command(hass, ws_set_room_temp)
+    websocket_api.async_register_command(hass, ws_update_room_config)
     _LOGGER.debug("WebSocket commands registered")
 
 
@@ -782,6 +788,15 @@ async def ws_get_state(
                 "calibration_entity": coordinator.get_room_calibration_entity(name),
                 "sync_mode": room.get(CONF_SYNC_MODE) or None,
                 "schedule_entity": room.get(CONF_SCHEDULE_ENTITY) or None,
+                # Punkt 3 (2026-09-13): raw config values for the two fields
+                # now inline-editable from the Rum-fane's room cards (see
+                # ws_update_room_config below) — distinct from "target_temp"
+                # above, which is the PID's fully-resolved live setpoint
+                # (offsets/night-setback/away-mode already applied). These
+                # are the plain config-flow values the edit fields need to
+                # prefill with, same as sync_mode/schedule_entity above.
+                "comfort_temp": room.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP),
+                "away_temp_override": room.get(CONF_AWAY_TEMP_OVERRIDE, 10),
                 # B18 Fase 3: per-room replacement for the old single global
                 # "group_offset" below — not yet consumed by panel.js/
                 # card.js (Fase 4), forward-compatible additions only.
@@ -1148,6 +1163,104 @@ async def ws_update_config(
 
     coordinator = entry.runtime_data
     coordinator.log_event(f"Config updated: {', '.join(changed)}", "Panel", "normal")
+
+    connection.send_result(msg["id"], {"updated": True, "changed": changed})
+
+
+# Punkt 3 (2026-09-13): per-room live editing from the Rum-fane's room cards,
+# without going through the options-flow config wizard. Deliberately scoped
+# to just the two fields the user picked — comfort_temp (Target temp) and
+# away_temp_override (Away temp override) — CO₂ threshold stays options-flow
+# -only. Bounds must mirror config_flow.py's _room_schema() selectors exactly,
+# since this bypasses that schema's own validation entirely.
+_ROOM_NUMERIC_FIELDS: dict[str, tuple[type, float, float, float]] = {
+    # key -> (cast, default, min, max)
+    CONF_COMFORT_TEMP: (float, DEFAULT_COMFORT_TEMP, 15.0, 26.0),
+    CONF_AWAY_TEMP_OVERRIDE: (float, 10, 5.0, 20.0),
+}
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "heat_manager/update_room_config",
+        vol.Required("room_name"): str,
+        vol.Optional(CONF_COMFORT_TEMP): vol.Any(float, int),
+        vol.Optional(CONF_AWAY_TEMP_OVERRIDE): vol.Any(float, int),
+    }
+)
+@websocket_api.async_response
+async def ws_update_room_config(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+) -> None:
+    """Update editable per-room config fields from the Rum-fane's room cards.
+
+    Punkt 3 (2026-09-13): supports comfort_temp (Target temp) and
+    away_temp_override (Away temp override) — the two fields chosen for
+    inline panel editing. Writes the entire updated CONF_ROOMS list back to
+    entry.options (mirroring the options-flow room-edit step's own write
+    pattern), which coordinator.rooms/coordinator.config pick up immediately
+    since they read entry.options fresh on every access — no reload needed.
+    An out-of-range or non-numeric value returns an "invalid_value" WS error
+    instead of silently writing a wrong value to entry.options.
+    """
+    entry = _get_entry(hass)
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "Heat Manager is not configured")
+        return
+
+    coordinator = entry.runtime_data
+    room_name = msg["room_name"]
+    rooms = list(coordinator.rooms)
+    room_idx = next(
+        (i for i, r in enumerate(rooms) if r.get(CONF_ROOM_NAME) == room_name), None
+    )
+    if room_idx is None:
+        connection.send_error(
+            msg["id"], "not_found", f"Room '{room_name}' not configured"
+        )
+        return
+
+    updated_room = dict(rooms[room_idx])
+    changed: list[str] = []
+
+    for key, (cast, default, min_val, max_val) in _ROOM_NUMERIC_FIELDS.items():
+        if key not in msg:
+            continue
+        try:
+            new_num = cast(msg[key])
+        except (TypeError, ValueError):
+            connection.send_error(
+                msg["id"], "invalid_value", f"Invalid value for {key}"
+            )
+            return
+        if not (min_val <= new_num <= max_val):
+            connection.send_error(
+                msg["id"],
+                "invalid_value",
+                f"{key} must be between {min_val} and {max_val}",
+            )
+            return
+        if updated_room.get(key, default) != new_num:
+            updated_room[key] = new_num
+            changed.append(key)
+
+    if not changed:
+        connection.send_result(msg["id"], {"updated": False, "changed": []})
+        return
+
+    rooms[room_idx] = updated_room
+    current_options = dict(entry.options)
+    current_options[CONF_ROOMS] = rooms
+    hass.config_entries.async_update_entry(entry, options=current_options)
+    _LOGGER.info("Room '%s' config updated via panel: %s", room_name, changed)
+
+    coordinator.log_event(
+        f"{room_name}: {', '.join(changed)} updated",
+        reason="manuel panel",
+        event_type="normal",
+    )
 
     connection.send_result(msg["id"], {"updated": True, "changed": changed})
 

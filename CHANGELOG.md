@@ -9,6 +9,48 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.34.0] — 2026-09-13
+
+Per-room live editing, straight from the Rum-fane's room cards — Flemming's
+previously-parked "punkt 3". Scoped to the two fields he picked (Target temp
+/ Away temp override); CO₂ threshold and everything else stays
+options-flow-only for now.
+
+### Added
+- **`websocket.py`**: new `heat_manager/update_room_config` WS command
+  (`ws_update_room_config()`) — takes `room_name` plus `comfort_temp` and/or
+  `away_temp_override`, validates each against `_room_schema()`'s own
+  selector bounds (comfort_temp 15.0–26.0, away_temp_override 5.0–20.0,
+  returning an `invalid_value` error otherwise), and writes the *entire*
+  updated `rooms` list back to `entry.options` — same full-list-overwrite
+  pattern the options-flow room-edit step already uses. `coordinator.rooms`/
+  `coordinator.config` read `entry.options` fresh on every access, so the
+  change takes effect immediately, no reload needed. `ws_get_state()`'s
+  per-room payload now also includes the raw `comfort_temp`/
+  `away_temp_override` config values (previously only the PID's fully
+  resolved `target_temp` was sent) so the new edit fields have something to
+  prefill with.
+- **`heat-manager-panel.js`**: Rum-fane room cards get two new inline
+  editable fields — Target temp and Away temp (with an info-icon explaining
+  it's the PID/night-setback floor, not the window-off temperature) — same
+  input+Gem-button+checkmark visual pattern as the Indstillinger tab's
+  `_cfgNumberRow()`, but scoped by `data-room`/`data-field` and the button's
+  own closest row instead of a per-field id, since (unlike Indstillinger)
+  many of these rows render at once, one set per room.
+- **`tests/components/heat_manager/test_websocket.py`**: 12 new tests for
+  `ws_update_room_config()` — entry/room lookup misses, no-op when nothing
+  sent, both fields persist and log, unchanged-when-same-value and
+  unchanged-when-at-default (mirroring `ws_update_config`'s own
+  default-aware change detection), out-of-range and non-numeric values
+  rejected with `invalid_value`, and a multi-room fixture confirming only
+  the targeted room's entry is touched in the persisted list.
+
+### Known limitation
+- CO₂ threshold and every other per-room field stay options-flow-only —
+  deliberately scoped to just the two fields Flemming picked. Interior
+  doors' "niveau C" (a neighbouring room adjusting another room's target)
+  remains separately parked — see backlog.
+
 ## [0.33.0] — 2026-09-13
 
 Window-off temperature split from `away_temp_override`, a global window-delay
@@ -64,15 +106,33 @@ floor everywhere, not just when a window opens.
   just using the fallback temperature directly. The now-unused
   `PidController` import was also removed from this file.
 
+### Fixed
+- **`strings.json` / `translations/{en,da}.json`**: full rebuild against the
+  live `config_flow.py` schema — the "no translation labels yet" limitation
+  noted below for `window_delay_default_min`/`window_off_temp` turned out to
+  be one small symptom of a much larger, pre-existing drift across all three
+  files. Added every missing field across every step (`outdoor_humidity_sensor`,
+  `precipitation_sensor`, `wind_speed_sensor`, `pause_duration_min`,
+  `humidity_sensor`, the two v0.33.0 window fields, and more); removed stale
+  fields long gone from the schema (`away_temp_mild`, `away_temp_cold`,
+  `mild_threshold`, `energy_tracking`, the dead `no_rooms` error); added the
+  entire missing interior-doors options-flow translation block
+  (`doors_menu`/`door_add`/`door_edit`, v0.24.0 — never had any translation
+  coverage at all) plus three door-validation error keys that were missing
+  entirely (`same_room`, `duplicate_door_pair`, `duplicate_door_sensor` —
+  previously shown as raw untranslated keys to a real user hitting them).
+  `translations/en.json` specifically had drifted the furthest: it still
+  reflected the pre-v0.9.0 room/TRV schema shape, was missing every TRV
+  sub-step, and had a factually wrong `comfort_temp` description
+  ("ignored for Netatmo rooms") contradicting the already-fixed v0.19.0/
+  v0.20.0 "B21" bug. `strings.json` and `translations/en.json` are now kept
+  byte-identical going forward to prevent this class of drift recurring.
+
 ### Known limitation
-- The two new fields have no `strings.json`/translation labels yet — they
-  show as raw keys (`window_delay_default_min`, `window_off_temp`) in HA's
-  own options-flow UI. Consistent with the existing gap for
-  `boost_default_temp`/`_minutes`/`window_warning_min`; not addressed here.
 - `CONF_WINDOW_DELAY_MIN` (the old per-room field) is left in place in
   `const.py`/`config_flow.py`, unread by `window_engine.py` — kept only in
   case per-room editing returns in a future, larger panel round (Flemming's
-  point 3, deliberately parked).
+  point 3). See v0.34.0 — no longer parked.
 
 ## [0.32.0] — 2026-09-13
 

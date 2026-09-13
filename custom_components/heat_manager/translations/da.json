@@ -6,10 +6,13 @@
         "data": {
           "weather_entity": "Vejr-entitet",
           "outdoor_temp_sensor": "Udendørs temperatursensor (valgfrit)",
+          "outdoor_humidity_sensor": "Udendørs fugtighedssensor (valgfrit)",
+          "precipitation_sensor": "Nedbørssensor (valgfrit)",
+          "wind_speed_sensor": "Vindhastighedssensor (valgfrit)",
           "notify_service": "Notifikationstjeneste",
-          "away_temp_mild": "Fraværstemperatur — mildt vejr",
-          "away_temp_cold": "Fraværstemperatur — koldt vejr",
-          "mild_threshold": "Grænse mildt/koldt",
+          "window_warning_min": "Advarsel om åbent vindue efter (minutter)",
+          "window_delay_default_min": "Forsinkelse ved åbent vindue (minutter)",
+          "window_off_temp": "Sluk-temperatur ved åbent vindue",
           "grace_day_min": "Nådeperiode — dag (minutter)",
           "grace_night_min": "Nådeperiode — nat (minutter)",
           "auto_off_temp_threshold": "Auto-sluk temperaturgrænse",
@@ -19,6 +22,9 @@
           "night_start_hour": "Natstart (time)",
           "night_end_hour": "Natslut (time)",
           "house_voice_enabled": "Aktiver House Voice-meddelelser",
+          "pause_duration_min": "Pausevarighed (minutter)",
+          "boost_default_temp": "Boost standardtemperatur",
+          "boost_default_minutes": "Boost standardvarighed (minutter)",
           "pid_enabled": "Aktivér PID-varmestyring",
           "pid_kp": "PID proportional forstærkning (Kp)",
           "pid_ki": "PID integral forstærkning (Ki)",
@@ -26,15 +32,21 @@
           "trv_max_temp": "TRV maks. setpunkt",
           "indoor_wake_sensor": "Indendørs opvågningssensor (valgfrit)",
           "indoor_wake_threshold": "Indendørs opvågningsgrænse",
-          "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)",
-          "boost_default_temp": "Boost standardtemperatur",
-          "boost_default_minutes": "Boost standardvarighed (minutter)"
+          "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)"
         },
         "data_description": {
           "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul (fx Netatmo, Aqara). Overskriver vejr-entitetens temperatur ved beregning af fraværstemperatur og sæsondetektering. Lad feltet stå tomt for at bruge vejr-entiteten.",
+          "outdoor_humidity_sensor": "Lokal udendørs fugtighedssensor (fx Netatmo udendørsmodul). Bruges til at vægte skimmelrisikoberegningen højere, når udendørs luftfugtighed er høj.",
+          "precipitation_sensor": "Regn-/nedbørssensor (mm eller mm/t). Når den melder regn, behandles et åbent vindue altid som rent varmespild, uanset CO₂-niveau — ingen lufter bevidst ud i regnvejr.",
+          "wind_speed_sensor": "Lokal vindhastighedssensor (m/s). Over 6 m/s afkortes vindues-forsinkelsen, så varmetab opdages hurtigere i blæsevejr.",
+          "window_delay_default_min": "Hvor længe et vindue skal være åbent, før Heat Manager reelt slukker varmen i rummet. Gælder alle rum — afkortes automatisk ved kraftig vind eller regn. Afløser det gamle pr.-rum-felt, som aldrig kunne redigeres fra panelet.",
+          "window_off_temp": "Det setpunkt der sendes til rummets TRV, når vinduets forsinkelse er udløbet. Bevidst uafhængig af “Fraværstemperatur for dette rum” (rum-trinnet), som stadig er gulvet for PID'ens egen hvile-effekt og natreduktionen.",
           "night_setback_enabled": "Når aktiveret reduceres PID-måltemperaturen med den angivne værdi i de konfigurerede nattimer. Bruger de eksisterende nat-start/slut-timer.",
-          "night_setback_temp": "Antal grader der trækkes fra Netatmos planlagte temperatur om natten. Setpointet vil aldrig gå under rummets fraværstemperatur.",
+          "night_setback_temp": "Antal grader der trækkes fra rummets måltemperatur om natten. Setpointet vil aldrig gå under rummets fraværstemperatur.",
           "house_voice_enabled": "Kræver at House Voice-integrationen er installeret. Når aktiveret annoncerer Heat Manager hændelser som boost-aktivering, sæsonskift og controllerskift.",
+          "pause_duration_min": "Hvor længe controlleren forbliver på pause efter en manuel pause, før den automatisk genoptages.",
+          "boost_default_temp": "Bruges af heat_manager.boost_start / panelets boost-knap, når ingen temperatur angives. Standard 24°C.",
+          "boost_default_minutes": "Bruges af heat_manager.boost_start / panelets boost-knap, når ingen varighed angives. Standard 30 minutter.",
           "pid_enabled": "Når deaktiveret følger TRV'erne Netatmo-/Zigbee-skemaet direkte uden proportional justering.",
           "pid_kp": "Proportional forstærkning — højere værdier reagerer kraftigere på temperaturafvigelser. Standard 0,5.",
           "pid_ki": "Integral forstærkning — retter en vedvarende afvigelse over tid. Standard 0,02. Hold værdien lav; høje værdier giver overshoot.",
@@ -42,9 +54,7 @@
           "trv_max_temp": "TRV-setpunkt der sendes når PID-effekten er 100%. Standard 28°C.",
           "indoor_wake_sensor": "Fælles indendørs temperatursensor brugt til at afgøre den bløde opvågningsfase (WAKING) om forår/efterår. Falder tilbage til fuld aktiv opvarmning, hvis ikke sat.",
           "indoor_wake_threshold": "Indendørstemperatur hvorover systemet går i opvågningsfase i stedet for fuld aktiv opvarmning. Standard 21°C.",
-          "wake_setback_temp": "Antal grader der trækkes fra alle rums setpunkt under opvågningsfasen. Standard 2°C.",
-          "boost_default_temp": "Bruges af heat_manager.boost_start / panelets boost-knap, når ingen temperatur angives. Standard 24°C.",
-          "boost_default_minutes": "Bruges af heat_manager.boost_start / panelets boost-knap, når ingen varighed angives. Standard 30 minutter."
+          "wake_setback_temp": "Antal grader der trækkes fra alle rums setpunkt under opvågningsfasen. Standard 2°C."
         }
       },
       "room": {
@@ -53,21 +63,24 @@
         "data": {
           "room_name": "Rumnavn",
           "window_sensors": "Vindue- / dørsensorer",
-          "window_delay_min": "Forsinkelse ved åbent vindue (minutter)",
+          "window_delay_min": "Forsinkelse ved åbent vindue (minutter) — bruges ikke, se globale indstillinger",
           "away_temp_override": "Fraværstemperatur for dette rum",
+          "comfort_temp": "Target-temperatur",
           "co2_sensor": "CO₂-sensor (valgfrit)",
           "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
           "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
           "battery_sensor": "Batterisensor (valgfrit)",
-          "comfort_temp": "Target-temperatur",
+          "humidity_sensor": "Fugtighedssensor (valgfrit)",
           "schedule_entity": "Skema-/kalenderentitet (valgfrit)"
         },
         "data_description": {
+          "window_delay_min": "Læses ikke længere siden v0.33.0 — alle rums vinduesforsinkelse bruger nu i stedet den ene globale indstilling (trinnet Sæson & globale indstillinger). Stående her kun så en allerede gemt værdi for dette rum ikke tabes; kan trygt ignoreres.",
           "comfort_temp": "PID-måltemperatur for dette rum — gælder for alle TRV-typer, inklusive Netatmo. Standard 20°C.",
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO₂ er høj, registreres et åbent vindue som ventilation frem for varmespild.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som bevidst ventilation. Standard er 900 ppm. Hæv for soveværelser eller sænk for sjældent benyttede rum.",
           "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering. Anbefales til Zigbee TRV'er, hvis indbyggede sensor sidder på radiatorlegemet (typisk 1–3°C for høj).",
           "battery_sensor": "TRV-batteriniveau (sensor.* der rapporterer %). Anbefales til Zigbee-TRV'er, hvor batteriet normalt er sin egen entity frem for en attribut på climate-entiteten. Lad stå tomt for at falde tilbage på climate-entitetens egen battery_level-attribut, hvis den har en.",
+          "humidity_sensor": "Relativ luftfugtighedssensor (%) for dette rum. Bruges sammen med rumtemperatursensoren til at beregne skimmelrisiko (dugpunkt vs. overfladetemperatur).",
           "schedule_entity": "En schedule.*-hjælper eller calendar.*-entitet. Mens en tidsblok eller begivenhed er aktiv, overstyrer dens temperatur rummets normale mål."
         }
       },
@@ -137,8 +150,7 @@
           "notify_windows": "Notifikation ved vindues-hændelser",
           "notify_window_warning_30": "Advar når vindue åbent 30+ min",
           "notify_preheat": "Notifikation ved forvarmning",
-          "notify_mold_risk": "Notifikation ved skimmelrisiko",
-          "energy_tracking": "Aktivér energispildsregistrering"
+          "notify_mold_risk": "Notifikation ved skimmelrisiko"
         }
       }
     },
@@ -164,10 +176,13 @@
         "data": {
           "weather_entity": "Vejr-entitet",
           "outdoor_temp_sensor": "Udendørs temperatursensor (valgfrit)",
+          "outdoor_humidity_sensor": "Udendørs fugtighedssensor (valgfrit)",
+          "precipitation_sensor": "Nedbørssensor (valgfrit)",
+          "wind_speed_sensor": "Vindhastighedssensor (valgfrit)",
           "notify_service": "Notifikationstjeneste",
-          "away_temp_mild": "Fraværstemperatur — mildt vejr",
-          "away_temp_cold": "Fraværstemperatur — koldt vejr",
-          "mild_threshold": "Grænse mildt/koldt",
+          "window_warning_min": "Advarsel om åbent vindue efter (minutter)",
+          "window_delay_default_min": "Forsinkelse ved åbent vindue (minutter)",
+          "window_off_temp": "Sluk-temperatur ved åbent vindue",
           "grace_day_min": "Nådeperiode — dag (minutter)",
           "grace_night_min": "Nådeperiode — nat (minutter)",
           "auto_off_temp_threshold": "Auto-sluk temperaturgrænse",
@@ -177,6 +192,9 @@
           "night_start_hour": "Natstart (time)",
           "night_end_hour": "Natslut (time)",
           "house_voice_enabled": "Aktiver House Voice-meddelelser",
+          "pause_duration_min": "Pausevarighed (minutter)",
+          "boost_default_temp": "Boost standardtemperatur",
+          "boost_default_minutes": "Boost standardvarighed (minutter)",
           "pid_enabled": "Aktivér PID-varmestyring",
           "pid_kp": "PID proportional forstærkning (Kp)",
           "pid_ki": "PID integral forstærkning (Ki)",
@@ -184,15 +202,21 @@
           "trv_max_temp": "TRV maks. setpunkt",
           "indoor_wake_sensor": "Indendørs opvågningssensor (valgfrit)",
           "indoor_wake_threshold": "Indendørs opvågningsgrænse",
-          "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)",
-          "boost_default_temp": "Boost standardtemperatur",
-          "boost_default_minutes": "Boost standardvarighed (minutter)"
+          "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)"
         },
         "data_description": {
-          "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul. Overskriver vejr-entitetens temperatur. Lad feltet stå tomt for at bruge vejr-entiteten.",
-          "night_setback_enabled": "Når aktiveret reduceres PID-måltemperaturen med den angivne værdi i de konfigurerede nattimer.",
-          "night_setback_temp": "Antal grader der trækkes fra Netatmos planlagte temperatur om natten. Setpointet vil aldrig gå under rummets fraværstemperatur.",
+          "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul (fx Netatmo, Aqara). Overskriver vejr-entitetens temperatur ved beregning af fraværstemperatur og sæsondetektering. Lad feltet stå tomt for at bruge vejr-entiteten.",
+          "outdoor_humidity_sensor": "Lokal udendørs fugtighedssensor (fx Netatmo udendørsmodul). Bruges til at vægte skimmelrisikoberegningen højere, når udendørs luftfugtighed er høj.",
+          "precipitation_sensor": "Regn-/nedbørssensor (mm eller mm/t). Når den melder regn, behandles et åbent vindue altid som rent varmespild, uanset CO₂-niveau — ingen lufter bevidst ud i regnvejr.",
+          "wind_speed_sensor": "Lokal vindhastighedssensor (m/s). Over 6 m/s afkortes vindues-forsinkelsen, så varmetab opdages hurtigere i blæsevejr.",
+          "window_delay_default_min": "Hvor længe et vindue skal være åbent, før Heat Manager reelt slukker varmen i rummet. Gælder alle rum — afkortes automatisk ved kraftig vind eller regn. Afløser det gamle pr.-rum-felt, som aldrig kunne redigeres fra panelet.",
+          "window_off_temp": "Det setpunkt der sendes til rummets TRV, når vinduets forsinkelse er udløbet. Bevidst uafhængig af “Fraværstemperatur for dette rum” (rum-trinnet), som stadig er gulvet for PID'ens egen hvile-effekt og natreduktionen.",
+          "night_setback_enabled": "Når aktiveret reduceres PID-måltemperaturen med den angivne værdi i de konfigurerede nattimer. Bruger de eksisterende nat-start/slut-timer.",
+          "night_setback_temp": "Antal grader der trækkes fra rummets måltemperatur om natten. Setpointet vil aldrig gå under rummets fraværstemperatur.",
           "house_voice_enabled": "Kræver at House Voice-integrationen er installeret. Når aktiveret annoncerer Heat Manager hændelser som boost-aktivering, sæsonskift og controllerskift.",
+          "pause_duration_min": "Hvor længe controlleren forbliver på pause efter en manuel pause, før den automatisk genoptages.",
+          "boost_default_temp": "Bruges af heat_manager.boost_start / panelets boost-knap, når ingen temperatur angives. Standard 24°C.",
+          "boost_default_minutes": "Bruges af heat_manager.boost_start / panelets boost-knap, når ingen varighed angives. Standard 30 minutter.",
           "pid_enabled": "Når deaktiveret følger TRV'erne Netatmo-/Zigbee-skemaet direkte uden proportional justering.",
           "pid_kp": "Proportional forstærkning — højere værdier reagerer kraftigere på temperaturafvigelser. Standard 0,5.",
           "pid_ki": "Integral forstærkning — retter en vedvarende afvigelse over tid. Standard 0,02. Hold værdien lav; høje værdier giver overshoot.",
@@ -200,9 +224,7 @@
           "trv_max_temp": "TRV-setpunkt der sendes når PID-effekten er 100%. Standard 28°C.",
           "indoor_wake_sensor": "Fælles indendørs temperatursensor brugt til at afgøre den bløde opvågningsfase (WAKING) om forår/efterår. Falder tilbage til fuld aktiv opvarmning, hvis ikke sat.",
           "indoor_wake_threshold": "Indendørstemperatur hvorover systemet går i opvågningsfase i stedet for fuld aktiv opvarmning. Standard 21°C.",
-          "wake_setback_temp": "Antal grader der trækkes fra alle rums setpunkt under opvågningsfasen. Standard 2°C.",
-          "boost_default_temp": "Bruges af heat_manager.boost_start / panelets boost-knap, når ingen temperatur angives. Standard 24°C.",
-          "boost_default_minutes": "Bruges af heat_manager.boost_start / panelets boost-knap, når ingen varighed angives. Standard 30 minutter."
+          "wake_setback_temp": "Antal grader der trækkes fra alle rums setpunkt under opvågningsfasen. Standard 2°C."
         }
       },
       "rooms_menu": {
@@ -217,21 +239,24 @@
         "data": {
           "room_name": "Rumnavn",
           "window_sensors": "Vindue- / dørsensorer",
-          "window_delay_min": "Forsinkelse ved åbent vindue (minutter)",
+          "window_delay_min": "Forsinkelse ved åbent vindue (minutter) — bruges ikke, se globale indstillinger",
           "away_temp_override": "Fraværstemperatur for dette rum",
+          "comfort_temp": "Target-temperatur",
           "co2_sensor": "CO₂-sensor (valgfrit)",
           "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
           "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
           "battery_sensor": "Batterisensor (valgfrit)",
-          "comfort_temp": "Target-temperatur",
+          "humidity_sensor": "Fugtighedssensor (valgfrit)",
           "schedule_entity": "Skema-/kalenderentitet (valgfrit)"
         },
         "data_description": {
+          "window_delay_min": "Læses ikke længere siden v0.33.0 — alle rums vinduesforsinkelse bruger nu i stedet den ene globale indstilling (trinnet Sæson & globale indstillinger). Stående her kun så en allerede gemt værdi for dette rum ikke tabes; kan trygt ignoreres.",
           "comfort_temp": "PID-måltemperatur for dette rum — gælder for alle TRV-typer, inklusive Netatmo. Standard 20°C.",
-          "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering.",
-          "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som ventilation. Standard 900 ppm.",
-          "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering.",
+          "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO₂ er høj, registreres et åbent vindue som ventilation frem for varmespild.",
+          "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som bevidst ventilation. Standard er 900 ppm. Hæv for soveværelser eller sænk for sjældent benyttede rum.",
+          "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering. Anbefales til Zigbee TRV'er, hvis indbyggede sensor sidder på radiatorlegemet (typisk 1–3°C for høj).",
           "battery_sensor": "TRV-batteriniveau (sensor.* der rapporterer %). Anbefales til Zigbee-TRV'er, hvor batteriet normalt er sin egen entity frem for en attribut på climate-entiteten. Lad stå tomt for at falde tilbage på climate-entitetens egen battery_level-attribut, hvis den har en.",
+          "humidity_sensor": "Relativ luftfugtighedssensor (%) for dette rum. Bruges sammen med rumtemperatursensoren til at beregne skimmelrisiko (dugpunkt vs. overfladetemperatur).",
           "schedule_entity": "En schedule.*-hjælper eller calendar.*-entitet. Mens en tidsblok eller begivenhed er aktiv, overstyrer dens temperatur rummets normale mål."
         }
       },
@@ -241,21 +266,24 @@
         "data": {
           "room_name": "Rumnavn",
           "window_sensors": "Vindue- / dørsensorer",
-          "window_delay_min": "Forsinkelse ved åbent vindue (minutter)",
+          "window_delay_min": "Forsinkelse ved åbent vindue (minutter) — bruges ikke, se globale indstillinger",
           "away_temp_override": "Fraværstemperatur for dette rum",
+          "comfort_temp": "Target-temperatur",
           "co2_sensor": "CO₂-sensor (valgfrit)",
           "co2_threshold": "CO₂-ventilationsgrænse (ppm)",
           "room_temp_sensor": "Rumtemperatursensor (valgfrit)",
           "battery_sensor": "Batterisensor (valgfrit)",
-          "comfort_temp": "Target-temperatur",
+          "humidity_sensor": "Fugtighedssensor (valgfrit)",
           "schedule_entity": "Skema-/kalenderentitet (valgfrit)"
         },
         "data_description": {
+          "window_delay_min": "Læses ikke længere siden v0.33.0 — alle rums vinduesforsinkelse bruger nu i stedet den ene globale indstilling (trinnet Sæson & globale indstillinger). Stående her kun så en allerede gemt værdi for dette rum ikke tabes; kan trygt ignoreres.",
           "comfort_temp": "PID-måltemperatur for dette rum — gælder for alle TRV-typer, inklusive Netatmo. Standard 20°C.",
-          "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering.",
-          "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som ventilation. Standard 900 ppm.",
-          "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering.",
+          "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO₂ er høj, registreres et åbent vindue som ventilation frem for varmespild.",
+          "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som bevidst ventilation. Standard er 900 ppm. Hæv for soveværelser eller sænk for sjældent benyttede rum.",
+          "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering. Anbefales til Zigbee TRV'er, hvis indbyggede sensor sidder på radiatorlegemet (typisk 1–3°C for høj).",
           "battery_sensor": "TRV-batteriniveau (sensor.* der rapporterer %). Anbefales til Zigbee-TRV'er, hvor batteriet normalt er sin egen entity frem for en attribut på climate-entiteten. Lad stå tomt for at falde tilbage på climate-entitetens egen battery_level-attribut, hvis den har en.",
+          "humidity_sensor": "Relativ luftfugtighedssensor (%) for dette rum. Bruges sammen med rumtemperatursensoren til at beregne skimmelrisiko (dugpunkt vs. overfladetemperatur).",
           "schedule_entity": "En schedule.*-hjælper eller calendar.*-entitet. Mens en tidsblok eller begivenhed er aktiv, overstyrer dens temperatur rummets normale mål."
         }
       },
@@ -326,6 +354,40 @@
           "preheat_lead_time_min": "Forvarmning — forspring (minutter)"
         }
       },
+      "doors_menu": {
+        "title": "Administrér interne døre",
+        "description": "Aktuelle døre: {door_count}. Vælg en dør for at redigere eller slette den, eller tilføj en ny.",
+        "data": {
+          "action": "Handling"
+        }
+      },
+      "door_add": {
+        "title": "Tilføj en intern dør",
+        "data": {
+          "door_sensor": "Dørkontaktsensor",
+          "door_room_a": "Rum A",
+          "door_room_b": "Rum B"
+        },
+        "data_description": {
+          "door_sensor": "En binary_sensor.*-kontaktsensor monteret på denne interne dør.",
+          "door_room_a": "De to rum denne dør forbinder — rækkefølgen er ligegyldig, men de skal være to forskellige rum.",
+          "door_room_b": "De to rum denne dør forbinder — rækkefølgen er ligegyldig, men de skal være to forskellige rum."
+        }
+      },
+      "door_edit": {
+        "title": "Rediger intern dør",
+        "description": "Redigerer dør på sensor: {door_sensor}.",
+        "data": {
+          "door_sensor": "Dørkontaktsensor",
+          "door_room_a": "Rum A",
+          "door_room_b": "Rum B"
+        },
+        "data_description": {
+          "door_sensor": "En binary_sensor.*-kontaktsensor monteret på denne interne dør.",
+          "door_room_a": "De to rum denne dør forbinder — rækkefølgen er ligegyldig, men de skal være to forskellige rum.",
+          "door_room_b": "De to rum denne dør forbinder — rækkefølgen er ligegyldig, men de skal være to forskellige rum."
+        }
+      },
       "notifications": {
         "title": "Notifikationspræferencer",
         "data": {
@@ -333,8 +395,7 @@
           "notify_windows": "Notifikation ved vindues-hændelser",
           "notify_window_warning_30": "Advar når vindue åbent 30+ min",
           "notify_preheat": "Notifikation ved forvarmning",
-          "notify_mold_risk": "Notifikation ved skimmelrisiko",
-          "energy_tracking": "Aktivér energispildsregistrering"
+          "notify_mold_risk": "Notifikation ved skimmelrisiko"
         }
       },
       "remote_control": {
@@ -354,7 +415,10 @@
     "error": {
       "entity_not_found": "Entitet ikke fundet — kontrollér ID.",
       "duplicate_room": "Et rum med dette navn eksisterer allerede.",
-      "duplicate_person": "Denne person er allerede tilføjet."
+      "duplicate_person": "Denne person er allerede tilføjet.",
+      "same_room": "De to rum skal være forskellige.",
+      "duplicate_door_pair": "En dør forbinder allerede disse to rum.",
+      "duplicate_door_sensor": "Denne sensor bruges allerede af en anden dør."
     }
   },
   "entity": {

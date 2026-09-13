@@ -1217,6 +1217,49 @@ class HeatManagerPanel extends HTMLElement {
         }
       });
     });
+
+    // Punkt 3 (2026-09-13): inline per-room Target temp / Away temp override
+    // save — see roomCfgHTML in _roomDetailRowHTML() and ws_update_room_config()
+    // in websocket.py. Same optimistic-checkmark pattern as the Indstillinger
+    // tab's generic save-field handler (_attachEvents()), but scoped by
+    // data-room + the button's own closest .cfg-edit-row instead of a
+    // per-field id — this tab renders one such row per room, all at once, so
+    // ids would collide across rooms the way _cfgNumberRow()'s don't need to.
+    root.querySelectorAll("[data-action='save-room-field']").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const roomName = btn.dataset.room;
+        const field    = btn.dataset.field;
+        const cast     = btn.dataset.cast || "float";
+        const row      = btn.closest(".cfg-edit-row");
+        const input    = row?.querySelector(".room-cfg-input");
+        const ok       = row?.querySelector(".room-cfg-ok");
+        if (!input || !roomName || !field) return;
+        const raw = cast === "int" ? parseInt(input.value, 10) : parseFloat(input.value);
+        if (Number.isNaN(raw)) {
+          this._showToast("Ugyldig værdi", "error");
+          return;
+        }
+        btn.disabled = true;
+        try {
+          const res = await this._hass.callWS({
+            type: "heat_manager/update_room_config",
+            room_name: roomName,
+            [field]: raw,
+          });
+          if (res?.updated !== false) {
+            const room = (this._data?.rooms ?? []).find(r => r.name === roomName);
+            if (room) room[field] = raw;
+            ok?.classList.add("visible");
+            setTimeout(() => ok?.classList.remove("visible"), 2500);
+          }
+        } catch (e) {
+          const label = field === "comfort_temp" ? "target temp" : "away temp override";
+          this._showToast(`${roomName}: kunne ikke gemme ${label}`, "error");
+          console.error(`[HeatManager] save room ${field} failed for`, roomName, e);
+        }
+        btn.disabled = false;
+      });
+    });
   }
 
   // G) History tab: patch timestamp label + re-render rows after fresh fetch
@@ -2851,6 +2894,40 @@ class HeatManagerPanel extends HTMLElement {
            ${room.cloud_temperature != null ? `<span style="font-size:10px;color:${netatmoDiverges ? "var(--amber)" : "var(--sub)"}" title="Netatmo-appens eget sidst kendte sætpunkt for denne enhed — ikke det Heat Manager beder om">${(Math.round(room.cloud_temperature * 10) / 10)}°C${netatmoDiverges ? " ⚠" : ""}</span>` : ""}
          </div>` : "";
 
+    // Punkt 3 (2026-09-13): inline live editing of Target temp/Away temp
+    // override, directly in this room card — no options-flow round-trip.
+    // Deliberately scoped to just these two fields (CO₂ threshold etc. stay
+    // options-flow-only). Reuses the exact same cfg-edit-row/cfg-edit-input/
+    // cfg-save-btn/cfg-save-ok visual pattern as the Indstillinger tab's
+    // _cfgNumberRow() — but data-room/data-field-scoped instead of
+    // id-scoped, since (unlike Indstillinger) many of these rows render at
+    // once. Only for rooms with a TRV — nothing to target-temp-edit on a
+    // monitoring-only room. See ws_update_room_config() in websocket.py.
+    const awayTempDesc = "Rummets gulvtemperatur når huset er tomt eller om natten (bruges også som bund for nat-sætpunktet). Ikke det samme som den globale vindue-sluk-temperatur.";
+    const roomCfgHTML = hasTrv ? `
+         <div class="room-cfg-edit" data-room="${this._esc(room.name)}" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--div)">
+           <div class="cfg-edit-row">
+             <span class="cfg-edit-label" style="flex:0 0 130px">Target temp</span>
+             <input class="cfg-edit-input room-cfg-input" type="number" min="15" max="26" step="0.5"
+               value="${this._esc(room.comfort_temp ?? "")}"
+               data-room="${this._esc(room.name)}" data-field="comfort_temp">
+             <span class="cfg-edit-label" style="flex-shrink:0">°C</span>
+             <button class="cfg-save-btn" data-action="save-room-field"
+               data-room="${this._esc(room.name)}" data-field="comfort_temp" data-cast="float">Gem</button>
+             <span class="cfg-save-ok room-cfg-ok" data-room="${this._esc(room.name)}" data-field="comfort_temp">✔</span>
+           </div>
+           <div class="cfg-edit-row">
+             <span class="cfg-edit-label" style="flex:0 0 130px">Away temp${this._infoIcon(awayTempDesc)}</span>
+             <input class="cfg-edit-input room-cfg-input" type="number" min="5" max="20" step="0.5"
+               value="${this._esc(room.away_temp_override ?? "")}"
+               data-room="${this._esc(room.name)}" data-field="away_temp_override">
+             <span class="cfg-edit-label" style="flex-shrink:0">°C</span>
+             <button class="cfg-save-btn" data-action="save-room-field"
+               data-room="${this._esc(room.name)}" data-field="away_temp_override" data-cast="float">Gem</button>
+             <span class="cfg-save-ok room-cfg-ok" data-room="${this._esc(room.name)}" data-field="away_temp_override">✔</span>
+           </div>
+         </div>` : "";
+
     return `
       <div class="room-detail-row" style="border-bottom:1px solid var(--div)">
         <div style="padding:12px 16px">
@@ -2866,6 +2943,7 @@ class HeatManagerPanel extends HTMLElement {
           ${extraSensorsHTML}
           ${netatmoHTML}
           ${valveBar}
+          ${roomCfgHTML}
         </div>
         ${manualHTML}
         ${groupingHTML}
