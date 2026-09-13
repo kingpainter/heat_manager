@@ -98,6 +98,7 @@
           "notify_windows": "Notify on window events",
           "notify_window_warning_30": "Warn when window open 30+ minutes",
           "notify_preheat": "Notify when pre-heat starts",
+          "notify_mold_risk": "Notify on mold risk",
           "energy_tracking": "Enable energy waste tracking"
         }
       }
@@ -257,6 +258,7 @@
           "notify_windows": "Notify on window events",
           "notify_window_warning_30": "Warn when window open 30+ minutes",
           "notify_preheat": "Notify when pre-heat starts",
+          "notify_mold_risk": "Notify on mold risk",
           "energy_tracking": "Enable energy waste tracking"
         }
       },

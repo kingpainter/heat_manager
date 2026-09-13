@@ -9,6 +9,51 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.31.0] — 2026-09-13
+
+Mold risk as a push notification. `MoldRiskSensor` (`binary_sensor.py`)
+already exposed mold risk per room as an entity, but as a passive
+`CoordinatorEntity` property it could only ever be polled — nothing pushed
+a notification the moment conditions actually turned risky, unlike the
+existing window/presence/preheat notifications. The coordinator's periodic
+tick now runs its own edge-triggered check, mirroring the sensor's own
+RH/dewpoint algorithm, and fires the configured notify service exactly once
+per risk episode.
+
+### Added
+- **`coordinator.py`**: new `_async_check_mold_risk()` tick step (step 13 of
+  `_async_update_data()`), plus `_notify_mold_risk()`. For every room with a
+  configured humidity sensor, computes RH ≥ 70% AND room temp ≤ dewpoint +
+  1°C (Magnus formula, DIN 4108-2 — duplicated from `MoldRiskSensor` rather
+  than imported, same layering rationale as `websocket.py`'s
+  `ws_get_state()`) and tracks each room's last-known risk state in the new
+  `self._mold_risk_state` dict. Sends exactly one notification on the
+  False → True edge — re-armed only once risk drops back to False — logged
+  to the History tab and dispatched via `CONF_NOTIFY_SERVICE`, the same
+  `notify.*` split-and-call pattern `engine/window_engine.py` already uses.
+- **`CONF_NOTIFY_MOLD_RISK`** (`const.py`, default `True`, matching the
+  other three notify toggles): new options-flow field in
+  `_notifications_schema()` (`config_flow.py`), and a new live-editable
+  toggle in the panel's Konfiguration → Notifikationer section
+  ("Skimmelrisiko"), wired through the existing generalized
+  `_BOOL_CONFIG_FIELD_DEFAULTS`/`config_snap` machinery in `websocket.py`
+  from Fase 2 del 1 — no new WS branch needed, just one table entry and one
+  `config_snap` key.
+- `strings.json` / `translations/{en,da}.json`: new `notify_mold_risk` label
+  in both the initial setup wizard's and the options flow's notifications
+  step.
+- `tests/components/heat_manager/test_coordinator_mold_risk_notification.py`
+  (11 tests): risk edge triggers exactly one notification; no duplicate
+  notification while risk stays on; re-arms after risk clears and fires
+  again; RH below threshold, missing humidity sensor, unavailable humidity
+  sensor and missing temperature are all silently skipped; the toggle
+  defaults to `True` when unset (same "true unless explicitly turned off"
+  contract as the panel's other notify_* toggles, and the same bug class the
+  Fase 2 del 1 `_BOOL_CONFIG_FIELD_DEFAULTS` fix was written to prevent);
+  `CONF_NOTIFY_MOLD_RISK: False` makes the whole check a no-op;
+  `_notify_mold_risk()` is a silent no-op with no `notify_service`
+  configured, and correctly splits `"notify.xxx"` into domain/service.
+
 ## [0.30.0] — 2026-09-13
 
 Mobile card press-and-hold — Fase 2, del 2 (`planning/heat_manager_fase2_spec_2026-09-11.md`).

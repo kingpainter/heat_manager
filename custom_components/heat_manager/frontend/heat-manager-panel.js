@@ -3177,6 +3177,7 @@ class HeatManagerPanel extends HTMLElement {
             <div style="margin-top:4px">
               ${this._cfgToggleRow("Tilstedeværelse/fravær", "notify_presence", !!d.notify_presence)}
               ${this._cfgToggleRow("Forvarmning", "notify_preheat", !!d.notify_preheat)}
+              ${this._cfgToggleRow("Skimmelrisiko", "notify_mold_risk", !!d.notify_mold_risk)}
             </div>
           </div>
 

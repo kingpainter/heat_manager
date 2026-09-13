@@ -46,6 +46,7 @@ from .const import (
     CONF_NIGHT_SETBACK_ENABLED,
     CONF_NIGHT_SETBACK_TEMP,
     CONF_NIGHT_START_HOUR,
+    CONF_NOTIFY_MOLD_RISK,
     CONF_NOTIFY_PREHEAT,
     CONF_NOTIFY_PRESENCE,
     CONF_NOTIFY_SERVICE,
@@ -771,6 +772,7 @@ async def ws_get_state(
         "night_end_hour": cfg.get(CONF_NIGHT_END_HOUR, DEFAULT_NIGHT_END_HOUR),
         "notify_presence": cfg.get(CONF_NOTIFY_PRESENCE, True),
         "notify_preheat": cfg.get(CONF_NOTIFY_PREHEAT, True),
+        "notify_mold_risk": cfg.get(CONF_NOTIFY_MOLD_RISK, True),
     }
 
     payload: dict[str, Any] = {
@@ -874,6 +876,7 @@ _BOOL_CONFIG_FIELD_DEFAULTS: dict[str, bool] = {
     CONF_NIGHT_SETBACK_ENABLED: DEFAULT_NIGHT_SETBACK_ENABLED,
     CONF_NOTIFY_PRESENCE: True,
     CONF_NOTIFY_PREHEAT: True,
+    CONF_NOTIFY_MOLD_RISK: True,
 }
 
 # value = (python type to cast the raw WS value to, DEFAULT_* fallback)
@@ -906,6 +909,7 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
         vol.Optional(CONF_NIGHT_SETBACK_ENABLED): bool,
         vol.Optional(CONF_NOTIFY_PRESENCE): bool,
         vol.Optional(CONF_NOTIFY_PREHEAT): bool,
+        vol.Optional(CONF_NOTIFY_MOLD_RISK): bool,
         vol.Optional(CONF_PID_KP): vol.Any(float, int),
         vol.Optional(CONF_PID_KI): vol.Any(float, int),
         vol.Optional(CONF_PID_KD): vol.Any(float, int),

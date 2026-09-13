@@ -85,6 +85,7 @@ CONF_NOTIFY_PRESENCE = "notify_presence"
 CONF_NOTIFY_WINDOWS = "notify_windows"
 CONF_NOTIFY_PREHEAT = "notify_preheat"
 CONF_NOTIFY_WINDOW_WARNING_30 = "notify_window_warning_30"
+CONF_NOTIFY_MOLD_RISK = "notify_mold_risk"
 
 # ── PID controller ───────────────────────────────────────────────────────────
 

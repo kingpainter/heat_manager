@@ -137,6 +137,7 @@
           "notify_windows": "Notifikation ved vindues-hændelser",
           "notify_window_warning_30": "Advar når vindue åbent 30+ min",
           "notify_preheat": "Notifikation ved forvarmning",
+          "notify_mold_risk": "Notifikation ved skimmelrisiko",
           "energy_tracking": "Aktivér energispildsregistrering"
         }
       }
@@ -332,6 +333,7 @@
           "notify_windows": "Notifikation ved vindues-hændelser",
           "notify_window_warning_30": "Advar når vindue åbent 30+ min",
           "notify_preheat": "Notifikation ved forvarmning",
+          "notify_mold_risk": "Notifikation ved skimmelrisiko",
           "energy_tracking": "Aktivér energispildsregistrering"
         }
       },

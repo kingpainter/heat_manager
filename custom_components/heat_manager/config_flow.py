@@ -54,6 +54,7 @@ from .const import (
     CONF_NIGHT_SETBACK_ENABLED,
     CONF_NIGHT_SETBACK_TEMP,
     CONF_NIGHT_START_HOUR,
+    CONF_NOTIFY_MOLD_RISK,
     CONF_NOTIFY_PREHEAT,
     CONF_NOTIFY_PRESENCE,
     CONF_NOTIFY_SERVICE,
@@ -312,7 +313,9 @@ def _step1_schema(defaults: dict | None = None) -> vol.Schema:
             ),
             vol.Optional(
                 CONF_BOOST_DEFAULT_MINUTES,
-                default=defaults.get(CONF_BOOST_DEFAULT_MINUTES, DEFAULT_BOOST_MINUTES),
+                default=defaults.get(
+                    CONF_BOOST_DEFAULT_MINUTES, DEFAULT_BOOST_MINUTES
+                ),
             ): selector.selector(
                 {
                     "number": {
@@ -645,6 +648,10 @@ def _notifications_schema(defaults: dict | None = None) -> vol.Schema:
             ): selector.selector({"boolean": {}}),
             vol.Optional(
                 CONF_NOTIFY_PREHEAT, default=defaults.get(CONF_NOTIFY_PREHEAT, True)
+            ): selector.selector({"boolean": {}}),
+            vol.Optional(
+                CONF_NOTIFY_MOLD_RISK,
+                default=defaults.get(CONF_NOTIFY_MOLD_RISK, True),
             ): selector.selector({"boolean": {}}),
         }
     )

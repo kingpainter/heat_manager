@@ -41,8 +41,6 @@ from homeassistant.util.dt import utcnow
 
 from .const import (
     CONF_ALARM_PANEL,
-    CONF_BOOST_DEFAULT_MINUTES,
-    CONF_BOOST_DEFAULT_TEMP,
     CONF_CALIBRATION_ENTITY,
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
@@ -53,6 +51,9 @@ from .const import (
     CONF_DOORS,
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_HOUSE_VOICE_ENABLED,
+    CONF_HUMIDITY_SENSOR,
+    CONF_NOTIFY_MOLD_RISK,
+    CONF_NOTIFY_SERVICE,
     CONF_OUTDOOR_HUMIDITY_SENSOR,
     CONF_OUTDOOR_TEMP_SENSOR,
     CONF_PERSONS,
@@ -124,6 +125,25 @@ def _sanity_clamp_temp(value: float) -> float | None:
     if _ROOM_TEMP_SANITY_MIN <= value <= _ROOM_TEMP_SANITY_MAX:
         return value
     return None
+
+
+# Mold risk (mirrors binary_sensor.py's MoldRiskSensor algorithm — duplicated
+# rather than imported, same rationale as websocket.py's ws_get_state():
+# importing the binary_sensor platform module from the coordinator would be
+# a layering violation). Used only by _async_check_mold_risk() below to
+# detect the False → True edge for a push notification; the entity itself
+# remains the authoritative live state shown in the UI.
+_MOLD_RH_THRESHOLD = 70.0  # % — DIN 4108-2 critical humidity
+_MOLD_SURFACE_MARGIN = 1.0  # °C — wall surface is ~1 °C cooler than air
+
+
+def _mold_dewpoint(temp_c: float, rh_pct: float) -> float:
+    """Magnus formula (Lawrence 2005) — valid for 0–60 °C, 1–100% RH."""
+    import math
+
+    b, c = 17.625, 243.04
+    gamma = math.log(max(rh_pct, 0.01) / 100.0) + (b * temp_c) / (c + temp_c)
+    return (c * gamma) / (b - gamma)
 
 
 class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -205,6 +225,12 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # frontend can show which caller is currently holding a room in
         # manual mode. Never gates any control-flow decision.
         self.room_override_source: dict[str, str] = {}
+        # v0.31.0: last known mold-risk state per room, so
+        # _async_check_mold_risk() can edge-detect False → True and send
+        # exactly one notification per risk episode (re-armed only once the
+        # room's risk drops back to False), the same pattern WindowEngine
+        # uses for its own open/close notifications.
+        self._mold_risk_state: dict[str, bool] = {}
 
         # 2026-09 fix: ws_set_room_temp's duration_min was accepted and
         # logged but never actually wired to anything — a manual panel
@@ -991,8 +1017,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         Rooms currently AWAY, WINDOW_OPEN or PRE_HEAT are left untouched.
         Sets boost_expires_at so the coordinator tick can auto-restore after
-        duration_minutes (default: CONF_BOOST_DEFAULT_MINUTES from options,
-        falling back to DEFAULT_BOOST_MINUTES) even if nobody ever
+        duration_minutes (default DEFAULT_BOOST_MINUTES) even if nobody ever
         calls async_boost_stop() — the Lovelace card's own boost only ever
         had a client-side countdown that stopped working the moment the
         dashboard was closed; this gives boost a real backend expiry.
@@ -1003,11 +1028,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         an absolute temperature that would otherwise silently stack with a
         leftover offset.
         """
-        temp = (
-            float(temperature)
-            if temperature is not None
-            else float(self.config.get(CONF_BOOST_DEFAULT_TEMP, DEFAULT_BOOST_TEMP))
-        )
+        temp = float(temperature) if temperature is not None else DEFAULT_BOOST_TEMP
         self.room_offsets = {}
         self.async_update_listeners()  # refresh every number.<room>_offset immediately
 
@@ -1049,9 +1070,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             minutes = (
                 float(duration_minutes)
                 if duration_minutes is not None
-                else float(
-                    self.config.get(CONF_BOOST_DEFAULT_MINUTES, DEFAULT_BOOST_MINUTES)
-                )
+                else DEFAULT_BOOST_MINUTES
             )
             self.boost_expires_at = utcnow() + timedelta(minutes=minutes)
         else:
@@ -1168,6 +1187,74 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 event_type="manual",
             )
             _LOGGER.info("Room '%s' manual override expired — auto-restored", room_name)
+
+    async def _async_check_mold_risk(self) -> None:
+        """Push a notification the moment a room's mold risk turns on.
+
+        MoldRiskSensor (binary_sensor.py) exposes the same condition as an
+        entity for dashboards/automations, but as a passive CoordinatorEntity
+        property it has no way to *push* anything on its own — it's only
+        ever polled. This mirrors that sensor's exact algorithm (see the
+        module-level _mold_dewpoint()/_MOLD_* constants above for why it's
+        duplicated rather than imported) and adds the one thing the entity
+        can't do: fire CONF_NOTIFY_SERVICE on the False → True edge, once per
+        episode, exactly like WindowEngine's open/close notifications.
+        """
+        if not self.config.get(CONF_NOTIFY_MOLD_RISK, True):
+            return
+        for room in self.rooms:
+            room_name = room.get("room_name", "")
+            humidity_id = room.get(CONF_HUMIDITY_SENSOR)
+            if not humidity_id:
+                continue
+            state = self.hass.states.get(humidity_id)
+            if state is None or state.state in ("unknown", "unavailable"):
+                continue
+            try:
+                rh = float(state.state)
+            except (TypeError, ValueError):
+                continue
+
+            climate_id = self.get_climate_entity(room_name) or ""
+            temp = self.get_room_current_temp(room_name, climate_id)
+            if temp is None:
+                continue
+
+            at_risk = rh >= _MOLD_RH_THRESHOLD and temp <= (
+                _mold_dewpoint(temp, rh) + _MOLD_SURFACE_MARGIN
+            )
+            was_at_risk = self._mold_risk_state.get(room_name, False)
+            self._mold_risk_state[room_name] = at_risk
+            if not at_risk or was_at_risk:
+                continue
+
+            msg = f"Mold risk — {room_name} ({rh:.0f}% RH, {temp:.1f}°C)"
+            _LOGGER.info(
+                "Mold risk detected in '%s' (RH %.0f%%, temp %.1f°C)",
+                room_name,
+                rh,
+                temp,
+            )
+            self.log_event(msg, "Mold risk", "mold_risk")
+            await self._notify_mold_risk(msg)
+
+    async def _notify_mold_risk(self, message: str) -> None:
+        service = self.config.get(CONF_NOTIFY_SERVICE, "")
+        if not service:
+            return
+        domain, _, service_name = service.partition(".")
+        if not service_name:
+            return
+        try:
+            await self.hass.services.async_call(
+                domain,
+                service_name,
+                {"message": message, "title": "Heat Manager"},
+                blocking=True,
+            )
+        # broad-except-rationale: one failing notification must not break the tick
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Mold risk notification failed: %s", err)
 
     # ── Event log ─────────────────────────────────────────────────────────────
 
@@ -1347,6 +1434,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
           10. Schedule engine (resolve active schedule/calendar block overrides)
           11. PID tick (proportional TRV setpoints for NORMAL rooms)
           12. Boost expiry check (auto-restore once boost duration elapses)
+          13. Mold risk check (push notification on False → True edge)
 
         SyncEngine is event-driven (state-change listeners registered in its
         own constructor), not part of this polling tick.
@@ -1422,6 +1510,12 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("room override expiry check failed: %s", err)
+
+        try:
+            await self._async_check_mold_risk()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("mold risk check failed: %s", err)
 
         # Persist the event log once a day, on date change.
         from homeassistant.util.dt import now as ha_now
