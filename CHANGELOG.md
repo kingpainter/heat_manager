@@ -9,6 +9,205 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.40.0] — 2026-09-13
+
+Weather compensation curve — fifth and final of five architecture-review
+rounds (see v0.36.0). Turns out this feedforward already existed
+(`FF_REFERENCE_OUTDOOR_TEMP`/`FF_WEIGHT`/`FF_MAX_CONTRIBUTION` — "Conservative
+defaults, not yet exposed in the UI") as a hardcoded, always-on constant; this
+round makes it configurable per-install without changing a single existing
+install's behaviour on upgrade.
+
+### Added
+- **`coordinator.py`**: new module-level pure helper
+  `_weather_compensation_feedforward(config, outdoor_temp)` — same formula as
+  before (outdoor temp below a reference contributes proactive PID power, up
+  to a cap), now reading its three tuning values from config with the exact
+  previous hardcoded constants as fallback defaults, and gated by a new
+  enabled toggle that **defaults to on** (the feedforward was always-on
+  before this setting existed — defaulting it to off would have silently
+  changed heating behaviour for every existing install on upgrade). Extracted
+  as a pure function of `(config, outdoor_temp)` specifically so it's
+  unit-testable without mocking the coordinator/hass.
+- **`const.py`**: `CONF_WEATHER_COMPENSATION_ENABLED` (default `True`) /
+  `CONF_FF_REFERENCE_OUTDOOR_TEMP` / `CONF_FF_WEIGHT` / `CONF_FF_MAX_CONTRIBUTION`
+  — the `DEFAULT_*`/bare `FF_*` fallback values are unchanged from before.
+- **`config_flow.py`**: all four fields added to the existing "Season &
+  global settings" step (`_step1_schema()`, right after the PID controller
+  fields), in both the initial config-flow and options-flow registrations.
+- **`websocket.py`**: wired into the same generic
+  `_BOOL_CONFIG_FIELD_DEFAULTS`/`_NUMERIC_CONFIG_FIELDS` live-editing tables
+  used by every other Fase 2 field, plus `config_snap` and the update schema.
+- **`frontend/heat-manager-panel.js`**: new "Vejrkompensation" section in
+  Indstillinger, right after PID-regulator — enable toggle, reference
+  outdoor temperature, weight, and max contribution, matching the existing
+  section-box/`_cfgToggleRow`/`_cfgNumberRow` pattern. Also fixed a gap from
+  v0.39.0: `notify_issue_escalation`/`issue_escalation_minutes` had been
+  wired all the way through the backend/config-flow but were never actually
+  added to the panel's Notifikationer box — added now, alongside the
+  existing per-feature notify toggles.
+- **`strings.json` / `translations/en.json` / `translations/da.json`**:
+  labels + descriptions for all four weather-compensation fields, in both
+  the config-flow and options-flow step registrations.
+- **`tests/components/heat_manager/test_weather_compensation_feedforward.py`**:
+  10 new tests — critically, that an install with no config for these
+  fields computes *identical* feedforward to the old hardcoded formula at
+  several outdoor temperatures (including right at the old cap and right at
+  the reference point), plus the toggle disabling it outright, a custom
+  reference temperature shifting the zero point, a custom weight scaling the
+  contribution, a custom max-contribution capping lower than the default,
+  a `None` outdoor temperature always being 0 regardless of config, and
+  `enabled: True` behaving identically to the unset default.
+
+## [0.39.0] — 2026-09-13
+
+Status escalation + structured HA events — fourth of five architecture-review
+rounds (see v0.36.0). A generic layer on top of the status center: any
+warning/critical category can now push one escalation notification if it
+persists, and every category's start/clear transitions are now visible on
+HA's event bus for automations — without requiring each category to build
+this itself.
+
+### Added
+- **`coordinator.py`**: new generic `_report_issue(key, active, severity,
+  message)` — fires `heat_manager_issue_started`/`heat_manager_issue_cleared`
+  on HA's event bus on each transition of a stable `key` (payload:
+  key/severity/message on start, key/message/duration_seconds on clear), and
+  escalates a still-active issue to exactly one push notification per
+  continuous episode once it's been active longer than
+  `CONF_ISSUE_ESCALATION_MINUTES` (default 60 min), gated by
+  `CONF_NOTIFY_ISSUE_ESCALATION` (default on). This is additive to/independent
+  of whatever instant notifier a category already has (mold risk, windows);
+  heat-up-rate anomaly (v0.38.0) has no notifier of its own at all, so this
+  is the only push it will ever get. Wired into three call sites in the
+  coordinator's own periodic tick (so it works even with no client watching
+  the panel): `_async_check_mold_risk()` (extended, not replaced — its own
+  instant False→True notification is unchanged), and two new methods,
+  `_async_check_window_issue_events()` (via
+  `window_engine.get_open_windows()`) and
+  `_async_check_heatup_anomaly_events()` (via
+  `calibration_engine.get_room_heatup_anomaly()`).
+- **`const.py`**: `CONF_NOTIFY_ISSUE_ESCALATION` / `CONF_ISSUE_ESCALATION_MINUTES`
+  / `DEFAULT_ISSUE_ESCALATION_MINUTES`.
+- **`config_flow.py`**: both new fields added to the existing notification
+  preferences step (`_notifications_schema()`) — no new step, no schema
+  migration needed.
+- **`websocket.py`**: both fields wired into the existing generic
+  `_BOOL_CONFIG_FIELD_DEFAULTS`/`_NUMERIC_CONFIG_FIELDS` live-editing tables
+  (Fase 2 panel "Indstillinger" tab) and into `config_snap`, and the update
+  schema — one line per table, no new code path, same pattern every field
+  since v0.35.0's Fase 2 refactor has used.
+- **`strings.json` / `translations/en.json` / `translations/da.json`**:
+  labels for both new fields, in both the initial config-flow step and the
+  options-flow step (same schema, two step registrations).
+- **`tests/components/heat_manager/test_coordinator_issue_escalation.py`**:
+  12 new tests — started/cleared event firing and payloads, no event on an
+  unchanged active/inactive state, escalation firing past threshold and not
+  before, exactly-once-per-episode dedup, respecting the notify toggle and a
+  missing notify_service, a new episode after a clear being escalatable
+  again, and both new call sites correctly deriving active/inactive per room
+  from `window_engine`/`calibration_engine`.
+
+## [0.38.0] — 2026-09-13
+
+Heat-up-rate anomaly detection — third of five architecture-review rounds
+(see v0.36.0). A cheap, room-relative "possible stuck valve" signal built
+entirely from data `CalibrationEngine` already learns for its heat-up-rate
+EMA — no new sensors, no new config.
+
+### Added
+- **`engine/calibration_engine.py`**: new tuning constants
+  `_HEATUP_ANOMALY_MIN_SAMPLES` (5), `_HEATUP_ANOMALY_STREAK_THRESHOLD` (3),
+  `_HEATUP_ANOMALY_RATIO` (0.4). `_async_update_heatup_learning()` now also
+  compares each new heat-up-rate sample against the room's own previously
+  learned EMA baseline: a sample below `_HEATUP_ANOMALY_RATIO` of that
+  baseline counts toward a per-room streak, reset on any non-underperforming
+  sample or as soon as the room stops actively heating (leaves
+  `NORMAL`/`PRE_HEAT`). The baseline itself is only trusted once backed by
+  `_HEATUP_ANOMALY_MIN_SAMPLES` prior samples, and a streak of
+  `_HEATUP_ANOMALY_STREAK_THRESHOLD` consecutive underperforming samples is
+  required before flagging — deliberately conservative, to avoid false
+  positives from a single noisy reading, an open door, or a draft. New
+  `get_room_heatup_anomaly(room_name) -> bool` getter exposes the flag.
+  Purely diagnostic — never gates any control decision, same as the
+  heat-up rate itself.
+- **`websocket.py`**: new "4b" category in `_build_active_issues()` —
+  surfaces a `warning`-severity "🐌 &lt;room&gt;: varmer langsommere end
+  normalt — muligvis fastsiddende ventil" issue in the status center for
+  any room `get_room_heatup_anomaly()` currently flags.
+- **`tests/components/heat_manager/test_calibration_engine_heatup_anomaly.py`**:
+  5 new tests — no flag before the baseline is trusted (even with a badly
+  underperforming run), flag raised after a genuine 3-sample underperforming
+  streak, flag clears on a single good-rate sample, streak resets when the
+  room leaves active heating (e.g. a window opens) rather than persisting
+  across an unrelated state change, and a sanity check on the streak
+  threshold constant itself.
+
+## [0.37.0] — 2026-09-13
+
+Calibration select-entity support — second of five architecture-review
+rounds (see v0.36.0). better_thermostat-inspired: some integrations (e.g.
+HomematicIP) expose TRV calibration as a `select` entity with a fixed set
+of discrete offset steps rather than a continuous `number` entity.
+
+### Added
+- **`engine/calibration_engine.py`**: `CONF_CALIBRATION_ENTITY` may now
+  point at either a `number.*` entity (unchanged — `number.set_value`) or a
+  `select.*` entity. For a select entity, the computed offset is snapped to
+  the nearest available option (parsed from the option strings via new
+  `_parse_offset_option()` — matches the first signed/unsigned decimal in
+  each option regardless of unit suffix, e.g. "-1.0", "+0.5K") and written
+  via `select.select_option`. The *current* calibration value (needed to
+  turn a residual into an absolute offset — see the module's existing
+  oscillation-avoidance comment) is now read via new
+  `_read_calibration_value()`, which parses the selected option for a
+  `select` entity instead of assuming a plain float. Any other entity
+  domain is unsupported and silently skipped, same as a missing entity.
+- **`tests/components/heat_manager/test_calibration_engine_select_support.py`**:
+  11 new tests — option-string parsing across several unit-suffix styles,
+  nearest-option snapping, the pre-existing `number` write path confirmed
+  unchanged, the new `select` write path (including reading current value
+  back from the selected option, not just writing), and silent skip
+  behaviour for an unsupported domain or a select entity with no
+  parseable numeric options.
+
+## [0.36.0] — 2026-09-13
+
+Restart-safety hardening — first of five rounds implementing findings from
+`audit/heat_manager_architecture_review_2026-09-13.md` (better_thermostat
+comparison, status system, ML, restart safety). This round: the one genuine
+"we lose data" finding from that review.
+
+### Added
+- **`coordinator.py`**: `_persist_override_snapshot()`/
+  `_restore_override_snapshot()` — same entry.options-snapshot pattern as
+  the existing event-log persistence (B10). A room's manual override
+  (source + expiry) and an active boost (rooms + expiry) are now persisted
+  on shutdown and restored on startup. Previously these lived in pure
+  in-memory dicts (`room_override_source`, `room_override_expires_at`,
+  `boost_active_rooms`, `boost_expires_at`) — a manual override or an
+  active boost was silently forgotten on any HA restart, with the room
+  quietly falling back to its normal schedule with no warning at all. Only
+  the *bookkeeping* is restored — the physical TRV is never re-commanded,
+  since the device already holds whatever setpoint was last written to it;
+  restoring the bookkeeping just stops Heat Manager's own next PID tick
+  from silently overwriting that still-active manual choice. A saved
+  override/boost whose expiry already passed while HA was down is
+  deliberately NOT restored — the room just comes back NORMAL, exactly as
+  if the expiry had fired normally.
+- **`tests/components/heat_manager/test_coordinator_override_boost_persistence.py`**:
+  11 new tests covering persist/restore round-trips, permanent (no-expiry)
+  overrides, expired-while-down skip behaviour for both overrides and
+  boost, and malformed-JSON safety.
+
+### Fixed
+- **`__init__.py`**: `_async_update_listener`'s docstring incorrectly
+  claimed "WindowEngine has no startup re-sync equivalent to
+  PresenceEngine's B11 fix" — that gap was actually closed by the
+  2026-09-11 restart-noise fix (`WindowEngine._check_initial_windows()`),
+  the docstring was just never updated. Documentation-only fix; window
+  restart-safety itself was already correct.
+
 ## [0.35.0] — 2026-09-13
 
 Card/panel data parity, scoped to `sync_mode`/`schedule_entity` in the

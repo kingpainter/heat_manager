@@ -30,11 +30,19 @@
           "pid_ki": "PID integral forstærkning (Ki)",
           "pid_kd": "PID derivativ forstærkning (Kd)",
           "trv_max_temp": "TRV maks. setpunkt",
+          "weather_compensation_enabled": "Aktivér vejrkompensationskurve",
+          "ff_reference_outdoor_temp": "Vejrkompensation — referenceudetemperatur",
+          "ff_weight": "Vejrkompensation — vægt",
+          "ff_max_contribution": "Vejrkompensation — maksimalt bidrag",
           "indoor_wake_sensor": "Indendørs opvågningssensor (valgfrit)",
           "indoor_wake_threshold": "Indendørs opvågningsgrænse",
           "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)"
         },
         "data_description": {
+          "weather_compensation_enabled": "Tilføjer et proaktivt effektbidrag baseret på udetemperaturen, oven i PID'ens reaktive korrektion (en klassisk “varmekurve”) — var altid slået til før denne indstilling fandtes, så den er som standard aktiveret.",
+          "ff_reference_outdoor_temp": "Udetemperatur ved/over hvilken vejrkompensationen bidrager med 0. Standard 15°C.",
+          "ff_weight": "Ekstra effektandel tilføjet pr. °C udetemperaturen er under referencen. Standard 0,02.",
+          "ff_max_contribution": "Loft — vejrkompensation alene tilføjer aldrig mere end denne andel af effekten. Standard 0,3 (30%).",
           "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul (fx Netatmo, Aqara). Overskriver vejr-entitetens temperatur ved beregning af fraværstemperatur og sæsondetektering. Lad feltet stå tomt for at bruge vejr-entiteten.",
           "outdoor_humidity_sensor": "Lokal udendørs fugtighedssensor (fx Netatmo udendørsmodul). Bruges til at vægte skimmelrisikoberegningen højere, når udendørs luftfugtighed er høj.",
           "precipitation_sensor": "Regn-/nedbørssensor (mm eller mm/t). Når den melder regn, behandles et åbent vindue altid som rent varmespild, uanset CO₂-niveau — ingen lufter bevidst ud i regnvejr.",
@@ -150,7 +158,9 @@
           "notify_windows": "Notifikation ved vindues-hændelser",
           "notify_window_warning_30": "Advar når vindue åbent 30+ min",
           "notify_preheat": "Notifikation ved forvarmning",
-          "notify_mold_risk": "Notifikation ved skimmelrisiko"
+          "notify_mold_risk": "Notifikation ved skimmelrisiko",
+          "notify_issue_escalation": "Eskalér langvarige problemer til en notifikation",
+          "issue_escalation_minutes": "Eskalér efter (minutter)"
         }
       }
     },
@@ -200,11 +210,19 @@
           "pid_ki": "PID integral forstærkning (Ki)",
           "pid_kd": "PID derivativ forstærkning (Kd)",
           "trv_max_temp": "TRV maks. setpunkt",
+          "weather_compensation_enabled": "Aktivér vejrkompensationskurve",
+          "ff_reference_outdoor_temp": "Vejrkompensation — referenceudetemperatur",
+          "ff_weight": "Vejrkompensation — vægt",
+          "ff_max_contribution": "Vejrkompensation — maksimalt bidrag",
           "indoor_wake_sensor": "Indendørs opvågningssensor (valgfrit)",
           "indoor_wake_threshold": "Indendørs opvågningsgrænse",
           "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)"
         },
         "data_description": {
+          "weather_compensation_enabled": "Tilføjer et proaktivt effektbidrag baseret på udetemperaturen, oven i PID'ens reaktive korrektion (en klassisk “varmekurve”) — var altid slået til før denne indstilling fandtes, så den er som standard aktiveret.",
+          "ff_reference_outdoor_temp": "Udetemperatur ved/over hvilken vejrkompensationen bidrager med 0. Standard 15°C.",
+          "ff_weight": "Ekstra effektandel tilføjet pr. °C udetemperaturen er under referencen. Standard 0,02.",
+          "ff_max_contribution": "Loft — vejrkompensation alene tilføjer aldrig mere end denne andel af effekten. Standard 0,3 (30%).",
           "outdoor_temp_sensor": "Lokal vejrstation eller udendørs modul (fx Netatmo, Aqara). Overskriver vejr-entitetens temperatur ved beregning af fraværstemperatur og sæsondetektering. Lad feltet stå tomt for at bruge vejr-entiteten.",
           "outdoor_humidity_sensor": "Lokal udendørs fugtighedssensor (fx Netatmo udendørsmodul). Bruges til at vægte skimmelrisikoberegningen højere, når udendørs luftfugtighed er høj.",
           "precipitation_sensor": "Regn-/nedbørssensor (mm eller mm/t). Når den melder regn, behandles et åbent vindue altid som rent varmespild, uanset CO₂-niveau — ingen lufter bevidst ud i regnvejr.",
@@ -395,7 +413,9 @@
           "notify_windows": "Notifikation ved vindues-hændelser",
           "notify_window_warning_30": "Advar når vindue åbent 30+ min",
           "notify_preheat": "Notifikation ved forvarmning",
-          "notify_mold_risk": "Notifikation ved skimmelrisiko"
+          "notify_mold_risk": "Notifikation ved skimmelrisiko",
+          "notify_issue_escalation": "Eskalér langvarige problemer til en notifikation",
+          "issue_escalation_minutes": "Eskalér efter (minutter)"
         }
       },
       "remote_control": {

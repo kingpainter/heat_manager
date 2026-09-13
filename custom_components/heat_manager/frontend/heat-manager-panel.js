@@ -3162,6 +3162,38 @@ class HeatManagerPanel extends HTMLElement {
         ${this._cfgNumberRow("Kd", "pid_kd", d.pid_kd ?? "", { min: 0, max: 2, step: 0.05, cast: "float" })}
       </div>
 
+      <!-- 2026-09-13 (architekturgennemgang #5) — vejrkompensationskurven
+           (udetemperatur → proaktivt effektbidrag oven i PID'en) fandtes
+           allerede som en fast, altid-aktiv konstant. Nu konfigurerbar, med
+           default = de tidligere hardkodede værdier, så eksisterende
+           installationer opfører sig uændret indtil felterne rent faktisk
+           redigeres her. -->
+      <div class="section-box">
+        <div class="section-box-header">
+          <div class="section-box-title">Vejrkompensation</div>
+          <div class="section-box-badge" style="background:${d.weather_compensation_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.weather_compensation_enabled ? "#818cf8" : "var(--sub)"}">
+            ${d.weather_compensation_enabled ? "Aktiv" : "Inaktiv"}
+          </div>
+        </div>
+        <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
+          Tilføjer et proaktivt effektbidrag baseret på udetemperaturen, oven i PID'ens
+          reaktive korrektion — en klassisk "varmekurve".
+        </div>
+        ${this._cfgToggleRow("Vejrkompensation aktiveret", "weather_compensation_enabled", !!d.weather_compensation_enabled)}
+        ${this._cfgNumberRow("Referenceudetemperatur", "ff_reference_outdoor_temp", d.ff_reference_outdoor_temp ?? "", {
+          min: -10, max: 22, step: 0.5, unit: "°C", cast: "float",
+          desc: "Udetemperatur ved/over hvilken vejrkompensationen bidrager med 0.",
+        })}
+        ${this._cfgNumberRow("Vægt", "ff_weight", d.ff_weight ?? "", {
+          min: 0, max: 0.1, step: 0.005, cast: "float",
+          desc: "Ekstra effektandel tilføjet pr. °C udetemperaturen er under referencen.",
+        })}
+        ${this._cfgNumberRow("Maksimalt bidrag", "ff_max_contribution", d.ff_max_contribution ?? "", {
+          min: 0, max: 0.6, step: 0.05, cast: "float",
+          desc: "Loft — vejrkompensation alene tilføjer aldrig mere end denne andel af effekten.",
+        })}
+      </div>
+
       <div class="section-box">
         <div class="section-box-header">
           <div class="section-box-title">Boost — standardværdier</div>
@@ -3253,6 +3285,11 @@ class HeatManagerPanel extends HTMLElement {
               ${this._cfgToggleRow("Tilstedeværelse/fravær", "notify_presence", !!d.notify_presence)}
               ${this._cfgToggleRow("Forvarmning", "notify_preheat", !!d.notify_preheat)}
               ${this._cfgToggleRow("Skimmelrisiko", "notify_mold_risk", !!d.notify_mold_risk)}
+              ${this._cfgToggleRow("Eskalér langvarige problemer", "notify_issue_escalation", !!d.notify_issue_escalation)}
+              ${this._cfgNumberRow("Eskalér efter", "issue_escalation_minutes", d.issue_escalation_minutes ?? "", {
+                min: 10, max: 360, step: 10, unit: "min", cast: "int",
+                desc: "Et statuscenter-problem (skimmel, åbent vindue, langsom opvarmning m.fl.) der har stået på uafbrudt i så mange minutter, sender én push-notifikation.",
+              })}
             </div>
           </div>
 

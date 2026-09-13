@@ -49,9 +49,14 @@ from .const import (
     CONF_DOOR_ROOM_B,
     CONF_DOOR_SENSOR,
     CONF_DOORS,
+    CONF_FF_MAX_CONTRIBUTION,
+    CONF_FF_REFERENCE_OUTDOOR_TEMP,
+    CONF_FF_WEIGHT,
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_HOUSE_VOICE_ENABLED,
     CONF_HUMIDITY_SENSOR,
+    CONF_ISSUE_ESCALATION_MINUTES,
+    CONF_NOTIFY_ISSUE_ESCALATION,
     CONF_NOTIFY_MOLD_RISK,
     CONF_NOTIFY_SERVICE,
     CONF_OUTDOOR_HUMIDITY_SENSOR,
@@ -67,16 +72,19 @@ from .const import (
     CONF_TRV_MAX_TEMP,
     CONF_TRV_TYPE,
     CONF_TRVS,
+    CONF_WEATHER_COMPENSATION_ENABLED,
     CONF_WEATHER_ENTITY,
     CONF_WIND_SPEED_SENSOR,
     CONF_WINDOW_SENSORS,
     DEFAULT_BOOST_MINUTES,
     DEFAULT_BOOST_TEMP,
     DEFAULT_COMFORT_TEMP,
+    DEFAULT_ISSUE_ESCALATION_MINUTES,
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
     DEFAULT_TRV_MAX_TEMP,
+    DEFAULT_WEATHER_COMPENSATION_ENABLED,
     DOMAIN,
     FF_MAX_CONTRIBUTION,
     FF_REFERENCE_OUTDOOR_TEMP,
@@ -125,6 +133,33 @@ def _sanity_clamp_temp(value: float) -> float | None:
     if _ROOM_TEMP_SANITY_MIN <= value <= _ROOM_TEMP_SANITY_MAX:
         return value
     return None
+
+
+def _weather_compensation_feedforward(
+    config: dict, outdoor_temp: float | None
+) -> float:
+    """Outdoor-temperature PID feedforward (weather compensation curve) —
+    2026-09-13, architecture review #5. A proactive power contribution added
+    on top of PID's reactive correction, classic "heating curve" style. This
+    existed already as a hardcoded, always-on constant ("Conservative
+    defaults, not yet exposed in the UI" — see const.py's FF_* comment); it's
+    now configurable via CONF_WEATHER_COMPENSATION_ENABLED/CONF_FF_*, with
+    the exact previous hardcoded values as fallback defaults so an existing
+    install's behaviour is unchanged until these are actually edited from
+    Indstillinger/options-flow. A pure function of (config, outdoor_temp) —
+    no coordinator/hass access needed — so it's unit-testable in isolation;
+    see _async_pid_tick()'s call site above.
+    """
+    if outdoor_temp is None:
+        return 0.0
+    if not config.get(
+        CONF_WEATHER_COMPENSATION_ENABLED, DEFAULT_WEATHER_COMPENSATION_ENABLED
+    ):
+        return 0.0
+    ff_reference = config.get(CONF_FF_REFERENCE_OUTDOOR_TEMP, FF_REFERENCE_OUTDOOR_TEMP)
+    ff_weight = config.get(CONF_FF_WEIGHT, FF_WEIGHT)
+    ff_max = config.get(CONF_FF_MAX_CONTRIBUTION, FF_MAX_CONTRIBUTION)
+    return min(ff_max, max(0.0, (ff_reference - outdoor_temp) * ff_weight))
 
 
 # Mold risk (mirrors binary_sensor.py's MoldRiskSensor algorithm — duplicated
@@ -232,6 +267,16 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # uses for its own open/close notifications.
         self._mold_risk_state: dict[str, bool] = {}
 
+        # 2026-09-13 (architecture review #4) — generic status-center issue
+        # tracker backing _report_issue(): key -> UTC time the issue started
+        # being continuously active, and the set of keys already escalated to
+        # a push notification this episode (so escalation fires once per
+        # episode, not once per tick). See _report_issue() below for the
+        # full mechanism and its three call sites (mold risk, window open,
+        # heat-up-rate anomaly).
+        self._issue_started_at: dict[str, datetime] = {}
+        self._issue_escalated: set[str] = set()
+
         # 2026-09 fix: ws_set_room_temp's duration_min was accepted and
         # logged but never actually wired to anything — a manual panel
         # temperature stayed in effect forever regardless of the requested
@@ -290,6 +335,10 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.schedule_override: dict[str, float] = {}
         # B10: restore persisted event log on startup
         self._restore_event_log()
+        # 2026-09-13 restart-safety hardening: restore any room override or
+        # active boost that was still in effect when HA last shut down — see
+        # _restore_override_snapshot()/_persist_override_snapshot() below.
+        self._restore_override_snapshot()
 
         # Snapshot of rooms/persons at last successful setup — used by
         # __init__.py's _async_update_listener to decide whether an
@@ -1225,10 +1274,16 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             was_at_risk = self._mold_risk_state.get(room_name, False)
             self._mold_risk_state[room_name] = at_risk
+
+            msg = f"Mold risk — {room_name} ({rh:.0f}% RH, {temp:.1f}°C)"
+            # 2026-09-13 (architecture review #4): feed the generic
+            # status-center issue tracker regardless of the transition —
+            # _report_issue() itself figures out started/cleared/escalate.
+            await self._report_issue(f"mold_risk:{room_name}", at_risk, "warning", msg)
+
             if not at_risk or was_at_risk:
                 continue
 
-            msg = f"Mold risk — {room_name} ({rh:.0f}% RH, {temp:.1f}°C)"
             _LOGGER.info(
                 "Mold risk detected in '%s' (RH %.0f%%, temp %.1f°C)",
                 room_name,
@@ -1255,6 +1310,122 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # broad-except-rationale: one failing notification must not break the tick
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Mold risk notification failed: %s", err)
+
+    # ── Generic issue escalation + structured events (2026-09-13) ───────────
+    # Architecture review #4: a status-center issue category (mold risk,
+    # window open, heat-up-rate anomaly — see the three call sites below)
+    # feeds its per-tick active/inactive boolean through this one tracker,
+    # under a stable `key` (e.g. "mold_risk:Stue"). It gives every category
+    # two things none of them had to build for itself: a
+    # `heat_manager_issue_started`/`heat_manager_issue_cleared` HA bus event
+    # on each transition (for automations — see also diagnostics.py/the
+    # architecture review doc), and — for a category still active past
+    # CONF_ISSUE_ESCALATION_MINUTES — exactly one push notification per
+    # continuous episode via CONF_NOTIFY_SERVICE, gated by
+    # CONF_NOTIFY_ISSUE_ESCALATION. This is on top of / independent of
+    # whatever instant notifier a category already has of its own (mold
+    # risk, windows); some categories (heat-up anomaly) have no notifier of
+    # their own at all, so this is the only push they will ever get.
+
+    async def _report_issue(
+        self, key: str, active: bool, severity: str, message: str
+    ) -> None:
+        was_active = key in self._issue_started_at
+        if active and not was_active:
+            self._issue_started_at[key] = utcnow()
+            self.hass.bus.async_fire(
+                f"{DOMAIN}_issue_started",
+                {"key": key, "severity": severity, "message": message},
+            )
+            return
+
+        if not active:
+            if was_active:
+                started_at = self._issue_started_at.pop(key, None)
+                self._issue_escalated.discard(key)
+                duration_s = (
+                    (utcnow() - started_at).total_seconds() if started_at else None
+                )
+                self.hass.bus.async_fire(
+                    f"{DOMAIN}_issue_cleared",
+                    {"key": key, "message": message, "duration_seconds": duration_s},
+                )
+            return
+
+        # Still active from a previous tick — only escalation work remains.
+        if key in self._issue_escalated:
+            return
+        if not self.config.get(CONF_NOTIFY_ISSUE_ESCALATION, True):
+            return
+        started_at = self._issue_started_at.get(key)
+        if started_at is None:
+            return
+        threshold_min = self.config.get(
+            CONF_ISSUE_ESCALATION_MINUTES, DEFAULT_ISSUE_ESCALATION_MINUTES
+        )
+        if (utcnow() - started_at).total_seconds() < threshold_min * 60:
+            return
+        self._issue_escalated.add(key)
+        await self._notify_issue_escalation(message, threshold_min)
+
+    async def _notify_issue_escalation(self, message: str, threshold_min: float) -> None:
+        service = self.config.get(CONF_NOTIFY_SERVICE, "")
+        if not service:
+            return
+        domain, _, service_name = service.partition(".")
+        if not service_name:
+            return
+        full_message = f"{message} (aktiv i {int(threshold_min)}+ min)"
+        try:
+            await self.hass.services.async_call(
+                domain,
+                service_name,
+                {"message": full_message, "title": "Heat Manager"},
+                blocking=True,
+            )
+        # broad-except-rationale: one failing notification must not break the tick
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Issue escalation notification failed: %s", err)
+
+    async def _async_check_window_issue_events(self) -> None:
+        """Feed each room's window-open state into the generic issue
+        tracker. WindowEngine already has its own instant open/close
+        notification and its own 30-min warning (CONF_NOTIFY_WINDOW_WARNING_30)
+        — this is the separate, category-agnostic "still open after N
+        minutes" safety net that every category gets via _report_issue(),
+        independent of and in addition to that existing warning.
+        """
+        open_rooms = set(self.window_engine.get_open_windows())
+        for room in self.rooms:
+            room_name = room.get("room_name", "")
+            if not room_name:
+                continue
+            is_open = room_name in open_rooms
+            await self._report_issue(
+                f"window_open:{room_name}",
+                is_open,
+                "warning",
+                f"Vindue åbent — {room_name}",
+            )
+
+    async def _async_check_heatup_anomaly_events(self) -> None:
+        """Feed each room's heat-up-rate anomaly flag (v0.38.0) into the
+        generic issue tracker. This category has no dedicated notifier of
+        its own — the escalation path in _report_issue() is the only push
+        notification it will ever get.
+        """
+        for room in self.rooms:
+            room_name = room.get("room_name", "")
+            if not room_name:
+                continue
+            anomaly = self.calibration_engine.get_room_heatup_anomaly(room_name)
+            await self._report_issue(
+                f"heatup_anomaly:{room_name}",
+                anomaly,
+                "warning",
+                f"{room_name}: varmer langsommere end normalt — muligvis"
+                " fastsiddende ventil",
+            )
 
     # ── Event log ─────────────────────────────────────────────────────────────
 
@@ -1307,6 +1478,102 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Event log restored: %d entries", len(events))
         except (ValueError, TypeError):
             pass
+
+    # ── Override/boost persistence (2026-09-13 restart-safety hardening) ────
+    #
+    # Before this, room_override_source/room_override_expires_at/
+    # boost_active_rooms/boost_expires_at were pure in-memory dicts — a
+    # manual override set from the panel, or an active boost, was silently
+    # forgotten on any HA restart (update, power blip, container restart):
+    # the room just quietly fell back to its normal schedule with no
+    # warning at all. Same snapshot-into-entry.options pattern as the event
+    # log above. Only the *bookkeeping* is restored on the other end — the
+    # physical TRV is never re-commanded, since the device already holds
+    # whatever setpoint was last written to it; restoring the bookkeeping
+    # only stops Heat Manager's own next PID tick from silently overwriting
+    # that still-active manual choice.
+
+    def _persist_override_snapshot(self) -> None:
+        """Persist active room overrides + boost state — called from
+        async_shutdown(), same trigger as _persist_event_log_snapshot()."""
+        import json
+
+        overrides = {
+            room_name: {
+                "source": self.room_override_source.get(room_name, "switch"),
+                "expires_at": self.room_override_expires_at[room_name].isoformat()
+                if room_name in self.room_override_expires_at
+                else None,
+            }
+            for room_name, state in self.room_states.items()
+            if state == RoomState.OVERRIDE
+        }
+        snap = {
+            "overrides": overrides,
+            "boost_active_rooms": {
+                k: v for k, v in self.boost_active_rooms.items() if v
+            },
+            "boost_expires_at": self.boost_expires_at.isoformat()
+            if self.boost_expires_at
+            else None,
+        }
+        options = dict(self.entry.options)
+        options["_override_snap"] = json.dumps(snap)
+        self.hass.config_entries.async_update_entry(self.entry, options=options)
+        _LOGGER.debug(
+            "Override/boost snapshot persisted (%d override(s), boost=%s)",
+            len(overrides),
+            bool(snap["boost_active_rooms"]),
+        )
+
+    def _restore_override_snapshot(self) -> None:
+        """Restore room overrides + boost bookkeeping from a persisted
+        snapshot on startup. A saved override/boost whose expiry already
+        passed while HA was down is deliberately NOT restored — the room
+        just starts NORMAL, exactly as if it had expired and auto-restored
+        normally instead of HA being down at the time."""
+        import json
+
+        raw = self.entry.options.get("_override_snap")
+        if not raw:
+            return
+        try:
+            snap = json.loads(raw)
+        except (ValueError, TypeError):
+            return
+
+        now = utcnow()
+        restored = 0
+        for room_name, info in (snap.get("overrides") or {}).items():
+            expires_raw = info.get("expires_at")
+            if expires_raw:
+                try:
+                    expires_at = datetime.fromisoformat(expires_raw)
+                except (TypeError, ValueError):
+                    continue
+                if now >= expires_at:
+                    continue  # expired while HA was down — stays NORMAL
+                self.room_override_expires_at[room_name] = expires_at
+            self.room_states[room_name] = RoomState.OVERRIDE
+            self.room_override_source[room_name] = info.get("source", "switch")
+            restored += 1
+
+        boost_expires_raw = snap.get("boost_expires_at")
+        if boost_expires_raw:
+            try:
+                boost_expires_at = datetime.fromisoformat(boost_expires_raw)
+            except (TypeError, ValueError):
+                boost_expires_at = None
+            if boost_expires_at and now < boost_expires_at:
+                self.boost_expires_at = boost_expires_at
+                self.boost_active_rooms = dict(snap.get("boost_active_rooms") or {})
+
+        if restored or self.boost_expires_at:
+            _LOGGER.info(
+                "Restored %d room override(s)%s from before restart",
+                restored,
+                " + active boost" if self.boost_expires_at else "",
+            )
 
     # ── Outdoor temperature ───────────────────────────────────────────────────
 
@@ -1517,6 +1784,18 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("mold risk check failed: %s", err)
 
+        try:
+            await self._async_check_window_issue_events()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("window issue-event check failed: %s", err)
+
+        try:
+            await self._async_check_heatup_anomaly_events()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("heat-up anomaly issue-event check failed: %s", err)
+
         # Persist the event log once a day, on date change.
         from homeassistant.util.dt import now as ha_now
 
@@ -1719,17 +1998,14 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # ── Outdoor feedforward (weather compensation) ──────────────
                 # Proactive contribution added on top of PID's reactive term.
                 # Applies to both room types — independent of write target.
-                if self.outdoor_temperature is not None:
-                    feedforward = min(
-                        FF_MAX_CONTRIBUTION,
-                        max(
-                            0.0,
-                            (FF_REFERENCE_OUTDOOR_TEMP - self.outdoor_temperature)
-                            * FF_WEIGHT,
-                        ),
-                    )
-                    if feedforward > 0.0:
-                        power = min(1.0, power + feedforward)
+                # 2026-09-13 (architecture review #5): now configurable — see
+                # _weather_compensation_feedforward() below, a pure helper so
+                # it's unit-testable without mocking the whole coordinator.
+                feedforward = _weather_compensation_feedforward(
+                    self.config, self.outdoor_temperature
+                )
+                if feedforward > 0.0:
+                    power = min(1.0, power + feedforward)
 
                 trv_setpoint = PidController.power_to_setpoint(
                     power=power,
@@ -1878,6 +2154,11 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # broad-except-rationale: best-effort; must not block the engine shutdowns that follow
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Event log persist on shutdown failed: %s", err)
+        try:
+            self._persist_override_snapshot()
+        # broad-except-rationale: best-effort; must not block the engine shutdowns that follow
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Override/boost snapshot persist on shutdown failed: %s", err)
         await self.presence_engine.async_shutdown()
         await self.window_engine.async_shutdown()
         await self.door_engine.async_shutdown()

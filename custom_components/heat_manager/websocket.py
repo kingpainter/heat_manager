@@ -39,15 +39,20 @@ from .const import (
     CONF_DOOR_ROOM_A,
     CONF_DOOR_ROOM_B,
     CONF_DOOR_SENSOR,
+    CONF_FF_MAX_CONTRIBUTION,
+    CONF_FF_REFERENCE_OUTDOOR_TEMP,
+    CONF_FF_WEIGHT,
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
     CONF_HOUSE_VOICE_ENABLED,
     CONF_HUMIDITY_SENSOR,
+    CONF_ISSUE_ESCALATION_MINUTES,
     CONF_MANUAL_TRV_CONTROL,
     CONF_NIGHT_END_HOUR,
     CONF_NIGHT_SETBACK_ENABLED,
     CONF_NIGHT_SETBACK_TEMP,
     CONF_NIGHT_START_HOUR,
+    CONF_NOTIFY_ISSUE_ESCALATION,
     CONF_NOTIFY_MOLD_RISK,
     CONF_NOTIFY_PREHEAT,
     CONF_NOTIFY_PRESENCE,
@@ -67,6 +72,7 @@ from .const import (
     CONF_SCHEDULE_ENTITY,
     CONF_SYNC_MODE,
     CONF_TRV_TYPE,
+    CONF_WEATHER_COMPENSATION_ENABLED,
     CONF_WEATHER_ENTITY,
     CONF_WINDOW_DELAY_DEFAULT_MIN,
     CONF_WINDOW_OFF_TEMP,
@@ -79,6 +85,7 @@ from .const import (
     DEFAULT_COMFORT_TEMP,
     DEFAULT_GRACE_DAY_MIN,
     DEFAULT_GRACE_NIGHT_MIN,
+    DEFAULT_ISSUE_ESCALATION_MINUTES,
     DEFAULT_MANUAL_TRV_CONTROL,
     DEFAULT_NIGHT_END_HOUR,
     DEFAULT_NIGHT_SETBACK_ENABLED,
@@ -87,10 +94,14 @@ from .const import (
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
+    DEFAULT_WEATHER_COMPENSATION_ENABLED,
     DEFAULT_WINDOW_DELAY_DEFAULT_MIN,
     DEFAULT_WINDOW_OFF_TEMP,
     DEFAULT_WINDOW_WARNING_MIN,
     DOMAIN,
+    FF_MAX_CONTRIBUTION,
+    FF_REFERENCE_OUTDOOR_TEMP,
+    FF_WEIGHT,
     RoomState,
 )
 from .panel import _get_version
@@ -224,6 +235,21 @@ def _build_active_issues(
         if room.get("windows_open"):
             issues.append(
                 {"severity": "warning", "icon": "🪟", "message": f"Vindue åbent — {room['name']}"}
+            )
+
+    # 4b. Heat-up-rate anomaly (2026-09-13, architecture review #3) — a room
+    # heating markedly slower than its OWN learned baseline for several
+    # samples in a row. See CalibrationEngine.get_room_heatup_anomaly().
+    for room in coordinator.rooms:
+        room_name = room.get("room_name", "")
+        if room_name and coordinator.calibration_engine.get_room_heatup_anomaly(room_name):
+            issues.append(
+                {
+                    "severity": "warning",
+                    "icon": "🐌",
+                    "message": f"{room_name}: varmer langsommere end normalt — muligvis"
+                    " fastsiddende ventil",
+                }
             )
 
     # 5. Boost active (info — not a problem, just currently-notable state)
@@ -942,6 +968,18 @@ async def ws_get_state(
         "notify_presence": cfg.get(CONF_NOTIFY_PRESENCE, True),
         "notify_preheat": cfg.get(CONF_NOTIFY_PREHEAT, True),
         "notify_mold_risk": cfg.get(CONF_NOTIFY_MOLD_RISK, True),
+        "notify_issue_escalation": cfg.get(CONF_NOTIFY_ISSUE_ESCALATION, True),
+        "issue_escalation_minutes": cfg.get(
+            CONF_ISSUE_ESCALATION_MINUTES, DEFAULT_ISSUE_ESCALATION_MINUTES
+        ),
+        "weather_compensation_enabled": cfg.get(
+            CONF_WEATHER_COMPENSATION_ENABLED, DEFAULT_WEATHER_COMPENSATION_ENABLED
+        ),
+        "ff_reference_outdoor_temp": cfg.get(
+            CONF_FF_REFERENCE_OUTDOOR_TEMP, FF_REFERENCE_OUTDOOR_TEMP
+        ),
+        "ff_weight": cfg.get(CONF_FF_WEIGHT, FF_WEIGHT),
+        "ff_max_contribution": cfg.get(CONF_FF_MAX_CONTRIBUTION, FF_MAX_CONTRIBUTION),
     }
 
     payload: dict[str, Any] = {
@@ -1047,6 +1085,8 @@ _BOOL_CONFIG_FIELD_DEFAULTS: dict[str, bool] = {
     CONF_NOTIFY_PRESENCE: True,
     CONF_NOTIFY_PREHEAT: True,
     CONF_NOTIFY_MOLD_RISK: True,
+    CONF_NOTIFY_ISSUE_ESCALATION: True,
+    CONF_WEATHER_COMPENSATION_ENABLED: DEFAULT_WEATHER_COMPENSATION_ENABLED,
 }
 
 # value = (python type to cast the raw WS value to, DEFAULT_* fallback)
@@ -1066,6 +1106,10 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
     CONF_GRACE_NIGHT_MIN: (int, DEFAULT_GRACE_NIGHT_MIN),
     CONF_AUTO_OFF_TEMP_THRESHOLD: (float, DEFAULT_AUTO_OFF_TEMP_THRESHOLD),
     CONF_AUTO_OFF_TEMP_DAYS: (int, DEFAULT_AUTO_OFF_TEMP_DAYS),
+    CONF_ISSUE_ESCALATION_MINUTES: (int, DEFAULT_ISSUE_ESCALATION_MINUTES),
+    CONF_FF_REFERENCE_OUTDOOR_TEMP: (float, FF_REFERENCE_OUTDOOR_TEMP),
+    CONF_FF_WEIGHT: (float, FF_WEIGHT),
+    CONF_FF_MAX_CONTRIBUTION: (float, FF_MAX_CONTRIBUTION),
 }
 
 
@@ -1082,6 +1126,11 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
         vol.Optional(CONF_NOTIFY_PRESENCE): bool,
         vol.Optional(CONF_NOTIFY_PREHEAT): bool,
         vol.Optional(CONF_NOTIFY_MOLD_RISK): bool,
+        vol.Optional(CONF_NOTIFY_ISSUE_ESCALATION): bool,
+        vol.Optional(CONF_WEATHER_COMPENSATION_ENABLED): bool,
+        vol.Optional(CONF_FF_REFERENCE_OUTDOOR_TEMP): vol.Any(float, int),
+        vol.Optional(CONF_FF_WEIGHT): vol.Any(float, int),
+        vol.Optional(CONF_FF_MAX_CONTRIBUTION): vol.Any(float, int),
         vol.Optional(CONF_PID_KP): vol.Any(float, int),
         vol.Optional(CONF_PID_KI): vol.Any(float, int),
         vol.Optional(CONF_PID_KD): vol.Any(float, int),
@@ -1097,6 +1146,7 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
         vol.Optional(CONF_GRACE_NIGHT_MIN): vol.Any(float, int),
         vol.Optional(CONF_AUTO_OFF_TEMP_THRESHOLD): vol.Any(float, int),
         vol.Optional(CONF_AUTO_OFF_TEMP_DAYS): vol.Any(float, int),
+        vol.Optional(CONF_ISSUE_ESCALATION_MINUTES): vol.Any(float, int),
     }
 )
 @websocket_api.async_response

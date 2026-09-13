@@ -43,6 +43,9 @@ from .const import (
     CONF_DOOR_ROOM_B,
     CONF_DOOR_SENSOR,
     CONF_DOORS,
+    CONF_FF_MAX_CONTRIBUTION,
+    CONF_FF_REFERENCE_OUTDOOR_TEMP,
+    CONF_FF_WEIGHT,
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
     CONF_HOMEKIT_CLIMATE_ENTITY,
@@ -50,10 +53,12 @@ from .const import (
     CONF_HUMIDITY_SENSOR,
     CONF_INDOOR_WAKE_SENSOR,
     CONF_INDOOR_WAKE_THRESHOLD,
+    CONF_ISSUE_ESCALATION_MINUTES,
     CONF_NIGHT_END_HOUR,
     CONF_NIGHT_SETBACK_ENABLED,
     CONF_NIGHT_SETBACK_TEMP,
     CONF_NIGHT_START_HOUR,
+    CONF_NOTIFY_ISSUE_ESCALATION,
     CONF_NOTIFY_MOLD_RISK,
     CONF_NOTIFY_PREHEAT,
     CONF_NOTIFY_PRESENCE,
@@ -82,6 +87,7 @@ from .const import (
     CONF_TRV_TYPE,
     CONF_TRVS,
     CONF_WAKE_SETBACK_TEMP,
+    CONF_WEATHER_COMPENSATION_ENABLED,
     CONF_WEATHER_ENTITY,
     CONF_WIND_SPEED_SENSOR,
     CONF_WINDOW_DELAY_DEFAULT_MIN,
@@ -98,6 +104,7 @@ from .const import (
     DEFAULT_GRACE_DAY_MIN,
     DEFAULT_GRACE_NIGHT_MIN,
     DEFAULT_INDOOR_WAKE_THRESHOLD,
+    DEFAULT_ISSUE_ESCALATION_MINUTES,
     DEFAULT_NIGHT_END_HOUR,
     DEFAULT_NIGHT_SETBACK_ENABLED,
     DEFAULT_NIGHT_SETBACK_TEMP,
@@ -110,11 +117,15 @@ from .const import (
     DEFAULT_SYNC_MODE,
     DEFAULT_TRV_MAX_TEMP,
     DEFAULT_WAKE_SETBACK_TEMP,
+    DEFAULT_WEATHER_COMPENSATION_ENABLED,
     DEFAULT_WINDOW_DELAY_DEFAULT_MIN,
     DEFAULT_WINDOW_DELAY_MIN,
     DEFAULT_WINDOW_OFF_TEMP,
     DEFAULT_WINDOW_WARNING_MIN,
     DOMAIN,
+    FF_MAX_CONTRIBUTION,
+    FF_REFERENCE_OUTDOOR_TEMP,
+    FF_WEIGHT,
     SYNC_MODE_DISABLED,
     SYNC_MODE_LOCK,
     SYNC_MODE_MIRROR,
@@ -395,6 +406,44 @@ def _step1_schema(defaults: dict | None = None) -> vol.Schema:
                     }
                 }
             ),
+            # ── Weather compensation curve (2026-09-13, architecture review
+            # #5) — the outdoor-temperature PID feedforward existed already
+            # (const.py's FF_REFERENCE_OUTDOOR_TEMP/FF_WEIGHT/FF_MAX_CONTRIBUTION,
+            # "Conservative defaults, not yet exposed in the UI") but was a
+            # hardcoded, always-on constant with no toggle and no per-install
+            # tuning. Defaults below match those exact hardcoded values, so an
+            # existing install's behaviour is unchanged until it's actually
+            # edited — only "exposed", nothing silently switched off.
+            vol.Optional(
+                CONF_WEATHER_COMPENSATION_ENABLED,
+                default=defaults.get(
+                    CONF_WEATHER_COMPENSATION_ENABLED,
+                    DEFAULT_WEATHER_COMPENSATION_ENABLED,
+                ),
+            ): selector.selector({"boolean": {}}),
+            vol.Optional(
+                CONF_FF_REFERENCE_OUTDOOR_TEMP,
+                default=defaults.get(
+                    CONF_FF_REFERENCE_OUTDOOR_TEMP, FF_REFERENCE_OUTDOOR_TEMP
+                ),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": -10,
+                        "max": 22,
+                        "step": 0.5,
+                        "unit_of_measurement": "°C",
+                    }
+                }
+            ),
+            vol.Optional(
+                CONF_FF_WEIGHT,
+                default=defaults.get(CONF_FF_WEIGHT, FF_WEIGHT),
+            ): selector.selector({"number": {"min": 0, "max": 0.1, "step": 0.005}}),
+            vol.Optional(
+                CONF_FF_MAX_CONTRIBUTION,
+                default=defaults.get(CONF_FF_MAX_CONTRIBUTION, FF_MAX_CONTRIBUTION),
+            ): selector.selector({"number": {"min": 0, "max": 0.6, "step": 0.05}}),
             # ── Wake / WAKING phase ────────────────────────────────────
             vol.Optional(
                 CONF_INDOOR_WAKE_SENSOR,
@@ -692,6 +741,30 @@ def _notifications_schema(defaults: dict | None = None) -> vol.Schema:
                 CONF_NOTIFY_MOLD_RISK,
                 default=defaults.get(CONF_NOTIFY_MOLD_RISK, True),
             ): selector.selector({"boolean": {}}),
+            # 2026-09-13 (architecture review #4) — generic escalation net on
+            # top of every category above (plus categories with no dedicated
+            # notifier of their own, e.g. heat-up-rate anomaly): one push once
+            # an issue's been continuously active this many minutes. See
+            # coordinator.py's _report_issue().
+            vol.Optional(
+                CONF_NOTIFY_ISSUE_ESCALATION,
+                default=defaults.get(CONF_NOTIFY_ISSUE_ESCALATION, True),
+            ): selector.selector({"boolean": {}}),
+            vol.Optional(
+                CONF_ISSUE_ESCALATION_MINUTES,
+                default=defaults.get(
+                    CONF_ISSUE_ESCALATION_MINUTES, DEFAULT_ISSUE_ESCALATION_MINUTES
+                ),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": 10,
+                        "max": 360,
+                        "step": 10,
+                        "unit_of_measurement": "min",
+                    }
+                }
+            ),
         }
     )
 

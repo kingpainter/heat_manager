@@ -30,11 +30,19 @@
           "pid_ki": "PID integral gain (Ki)",
           "pid_kd": "PID derivative gain (Kd)",
           "trv_max_temp": "TRV maximum setpoint",
+          "weather_compensation_enabled": "Enable weather compensation curve",
+          "ff_reference_outdoor_temp": "Weather compensation \u2014 reference outdoor temperature",
+          "ff_weight": "Weather compensation \u2014 weight",
+          "ff_max_contribution": "Weather compensation \u2014 maximum contribution",
           "indoor_wake_sensor": "Indoor wake sensor (optional)",
           "indoor_wake_threshold": "Indoor wake threshold",
           "wake_setback_temp": "Wake phase setback (\u00b0C to reduce)"
         },
         "data_description": {
+          "weather_compensation_enabled": "Adds a proactive power contribution based on outdoor temperature, on top of PID's reactive correction (a classic \u201cheating curve\u201d) \u2014 was always on before this setting existed, so it defaults to enabled.",
+          "ff_reference_outdoor_temp": "Outdoor temperature at/above which weather compensation contributes nothing. Default 15\u00b0C.",
+          "ff_weight": "Extra power fraction added per \u00b0C the outdoor temperature is below the reference. Default 0.02.",
+          "ff_max_contribution": "Cap \u2014 weather compensation alone never adds more than this fraction of power. Default 0.3 (30%).",
           "outdoor_temp_sensor": "Local weather station or outdoor module (e.g. Netatmo, Aqara). Overrides the weather entity temperature for adaptive away setpoint and season detection. Leave blank to use the weather entity.",
           "outdoor_humidity_sensor": "Local outdoor humidity sensor (e.g. Netatmo outdoor module). Used to weight mold-risk calculations more heavily when outdoor humidity is high.",
           "precipitation_sensor": "Rain/precipitation sensor (mm or mm/h). When it reports rain, an open window is always treated as pure heat loss regardless of CO\u2082 level \u2014 nobody ventilates on purpose in the rain.",
@@ -150,7 +158,9 @@
           "notify_windows": "Notify on window events",
           "notify_window_warning_30": "Warn when window open 30+ minutes",
           "notify_preheat": "Notify when pre-heat starts",
-          "notify_mold_risk": "Notify on mold risk"
+          "notify_mold_risk": "Notify on mold risk",
+          "notify_issue_escalation": "Escalate long-running issues to a notification",
+          "issue_escalation_minutes": "Escalate after (minutes)"
         }
       }
     },
@@ -200,11 +210,19 @@
           "pid_ki": "PID integral gain (Ki)",
           "pid_kd": "PID derivative gain (Kd)",
           "trv_max_temp": "TRV maximum setpoint",
+          "weather_compensation_enabled": "Enable weather compensation curve",
+          "ff_reference_outdoor_temp": "Weather compensation \u2014 reference outdoor temperature",
+          "ff_weight": "Weather compensation \u2014 weight",
+          "ff_max_contribution": "Weather compensation \u2014 maximum contribution",
           "indoor_wake_sensor": "Indoor wake sensor (optional)",
           "indoor_wake_threshold": "Indoor wake threshold",
           "wake_setback_temp": "Wake phase setback (\u00b0C to reduce)"
         },
         "data_description": {
+          "weather_compensation_enabled": "Adds a proactive power contribution based on outdoor temperature, on top of PID's reactive correction (a classic \u201cheating curve\u201d) \u2014 was always on before this setting existed, so it defaults to enabled.",
+          "ff_reference_outdoor_temp": "Outdoor temperature at/above which weather compensation contributes nothing. Default 15\u00b0C.",
+          "ff_weight": "Extra power fraction added per \u00b0C the outdoor temperature is below the reference. Default 0.02.",
+          "ff_max_contribution": "Cap \u2014 weather compensation alone never adds more than this fraction of power. Default 0.3 (30%).",
           "outdoor_temp_sensor": "Local weather station or outdoor module (e.g. Netatmo, Aqara). Overrides the weather entity temperature for adaptive away setpoint and season detection. Leave blank to use the weather entity.",
           "outdoor_humidity_sensor": "Local outdoor humidity sensor (e.g. Netatmo outdoor module). Used to weight mold-risk calculations more heavily when outdoor humidity is high.",
           "precipitation_sensor": "Rain/precipitation sensor (mm or mm/h). When it reports rain, an open window is always treated as pure heat loss regardless of CO\u2082 level \u2014 nobody ventilates on purpose in the rain.",
@@ -395,7 +413,9 @@
           "notify_windows": "Notify on window events",
           "notify_window_warning_30": "Warn when window open 30+ minutes",
           "notify_preheat": "Notify when pre-heat starts",
-          "notify_mold_risk": "Notify on mold risk"
+          "notify_mold_risk": "Notify on mold risk",
+          "notify_issue_escalation": "Escalate long-running issues to a notification",
+          "issue_escalation_minutes": "Escalate after (minutes)"
         }
       },
       "remote_control": {

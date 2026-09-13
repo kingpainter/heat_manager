@@ -111,6 +111,16 @@ CONF_NOTIFY_PREHEAT = "notify_preheat"
 CONF_NOTIFY_WINDOW_WARNING_30 = "notify_window_warning_30"
 CONF_NOTIFY_MOLD_RISK = "notify_mold_risk"
 
+# 2026-09-13 (architecture review #4) — generic status-center issue
+# escalation: a warning/critical issue (mold risk, an open window, a
+# heat-up-rate anomaly) still active after this many minutes gets ONE push
+# notification, on top of/instead of that category's own instant notifier
+# (some categories, like heat-up anomaly, have none of their own at all).
+# See coordinator.py's _report_issue().
+CONF_NOTIFY_ISSUE_ESCALATION = "notify_issue_escalation"
+CONF_ISSUE_ESCALATION_MINUTES = "issue_escalation_minutes"
+DEFAULT_ISSUE_ESCALATION_MINUTES: int = 60
+
 # ── PID controller ───────────────────────────────────────────────────────────
 
 CONF_PID_KP = "pid_kp"
@@ -260,6 +270,19 @@ FF_REFERENCE_OUTDOOR_TEMP: float = (
 )
 FF_WEIGHT: float = 0.02  # power fraction added per °C outdoor temp is below reference
 FF_MAX_CONTRIBUTION: float = 0.3  # cap — feedforward alone never exceeds 30% power
+
+# 2026-09-13 (architecture review #5) — the three constants above are now
+# also readable/writable as per-install config (config_flow.py's "Season &
+# global settings" step + websocket.py's live panel editing), with these
+# same values as their DEFAULT_* fallback so an upgrading install's behaviour
+# is unchanged until the fields are actually edited. CONF_WEATHER_COMPENSATION_ENABLED
+# defaults to True for the same reason — the feedforward was always-on
+# before this, so "exposing" it must not silently turn it off.
+CONF_WEATHER_COMPENSATION_ENABLED = "weather_compensation_enabled"
+DEFAULT_WEATHER_COMPENSATION_ENABLED: bool = True
+CONF_FF_REFERENCE_OUTDOOR_TEMP = "ff_reference_outdoor_temp"
+CONF_FF_WEIGHT = "ff_weight"
+CONF_FF_MAX_CONTRIBUTION = "ff_max_contribution"
 
 # PID defaults
 DEFAULT_PID_KP: float = 0.5

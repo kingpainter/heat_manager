@@ -1,7 +1,7 @@
 # Heat Manager — Project Status
 
-**Last updated:** 2026-09-13 · v0.35.0
-**Version (GitHub):** 0.35.0 (pending push/commit via GitHub Desktop)
+**Last updated:** 2026-09-13 · v0.40.0
+**Version (GitHub):** 0.40.0 (pending push/commit via GitHub Desktop)
 **Version (HA server):** not yet transferred — see CHANGELOG.md before deploying
 **Target:** Home Assistant 2025.1+
 **Language:** English primary · Danish translations included
@@ -59,6 +59,64 @@ sync-mode and schedule-configured status, sourced from the same
 heat-up rate/TRV-count — scoped to just those two fields, per Flemming's
 choice.
 
+**v0.36.0–v0.40.0 (2026-09-13): five rounds implementing
+`audit/heat_manager_architecture_review_2026-09-13.md`.** Flemming asked five
+questions — what can we learn from `better_thermostat`, can the status/error
+system be smarter, can we add better ML, is the system restart-safe (do we
+lose data), and for our own ideas — answered in that review doc, then asked
+to implement "the well-defined, low-risk items" plus the weather compensation
+curve. In order:
+- **v0.36.0 — Restart-safety hardening**: the one genuine "we lose data" find
+  from the review. A manual room override or an active boost used to be pure
+  in-memory state — silently forgotten on any HA restart, the room quietly
+  falling back to its schedule with no warning. `coordinator._persist_override_snapshot()`/
+  `_restore_override_snapshot()` now persist/restore it via the same
+  `entry.options`-snapshot pattern the event log already used (B10). Only the
+  *bookkeeping* is restored, never the physical TRV — and an override/boost
+  whose expiry already passed while HA was down is deliberately not
+  resurrected. Also fixed a stale `__init__.py` docstring incorrectly
+  claiming `WindowEngine` had no startup re-sync (it does, since the
+  2026-09-11 restart-noise fix).
+- **v0.37.0 — Calibration select-entity support**: `CalibrationEngine`'s
+  `CONF_CALIBRATION_ENTITY` could only write to a `number.*` entity. Some
+  integrations (e.g. HomematicIP) expose calibration as a `select.*` entity
+  with discrete option strings instead — now supported too, via a new
+  `_parse_offset_option()` regex parser and nearest-option snapping.
+  better_thermostat-inspired (review question 1).
+- **v0.38.0 — Heat-up-rate anomaly detection**: a cheap, room-relative
+  "possible stuck valve" signal built entirely from `CalibrationEngine`'s
+  already-running heat-up-rate EMA (v0.24.0) — no new sensors. A room's
+  current sample is compared against its OWN learned baseline (never a fixed
+  global threshold); flagged only once the baseline is trusted (5+ prior
+  samples) and only after 3 consecutive underperforming samples. New
+  `get_room_heatup_anomaly()`, surfaced as a new "4b" category in
+  `_build_active_issues()`. Answers review question 3 (better ML).
+- **v0.39.0 — Status escalation + structured HA events**: the status center
+  was pure "pull" (only existed while a client had the panel open) with no
+  general "this has been active for N minutes → notify" logic (only the
+  window 30-min warning was hardcoded like that). New generic
+  `coordinator._report_issue(key, active, severity, message)` fires
+  `heat_manager_issue_started`/`heat_manager_issue_cleared` HA bus events on
+  every transition (for external automations) and escalates a still-active
+  issue to one push notification per episode past
+  `CONF_ISSUE_ESCALATION_MINUTES` (default 60 min, gated by
+  `CONF_NOTIFY_ISSUE_ESCALATION`) — wired into the coordinator's own tick
+  (mold risk, window-open, heat-up anomaly), so it works even with no client
+  watching the panel. Answers review question 2 (smarter status system).
+- **v0.40.0 — Weather compensation curve**: turned out this already existed
+  as a hardcoded, always-on PID feedforward
+  (`FF_REFERENCE_OUTDOOR_TEMP`/`FF_WEIGHT`/`FF_MAX_CONTRIBUTION` — "not yet
+  exposed in the UI"). Now configurable
+  (`CONF_WEATHER_COMPENSATION_ENABLED`/`CONF_FF_*`) via the "Season & global
+  settings" step and the panel's Indstillinger tab, with the exact old
+  hardcoded values as fallback defaults and the enable toggle defaulting to
+  **on** — so no existing install's heating behaviour changes on upgrade,
+  only becomes tunable/disable-able. Answers review question 3's item 3.
+
+Explicitly out of scope for this round, per Flemming's own choice: window
+open-detection via temperature-drop fallback (no contact sensor), and PID
+auto-tuning — both remain parked, not started.
+
 **Known deferred items (still open):** sync-mode/schedule parity is done
 (v0.35.0, scoped to the press-and-hold sheet) — a further parity pass
 (Netatmo cloud diagnostics, Target temp/Away temp override read-out, moving
@@ -101,14 +159,14 @@ heat_manager/
 
 | File | Description |
 |------|-------------|
-| `__init__.py` | Setup, ConfigEntryNotReady, service registration, repair issues, stale device cleanup |
-| `manifest.json` | v0.33.0, config_flow: true, iot_class: local_push |
-| `const.py` | All constants. Notable recent additions: `CONF_WINDOW_DELAY_DEFAULT_MIN`/`CONF_WINDOW_OFF_TEMP` (v0.33.0 — see below), `CONF_DOORS`/`CONF_DOOR_SENSOR`/`CONF_DOOR_ROOM_A/B` (interior doors), `CONF_MANUAL_TRV_CONTROL`, `CONF_BOOST_DEFAULT_TEMP`/`CONF_BOOST_DEFAULT_MINUTES`, `CONF_NOTIFY_MOLD_RISK`. `CONF_ENERGY_TRACKING`/`CONF_ROOM_WATTAGE` were removed in v0.22.0. `CONF_WINDOW_DELAY_MIN` (the old per-room field) is left in place, unread, in case per-room editing returns |
-| `coordinator.py` | `DataUpdateCoordinator` — 13-step tick (season → controller → presence → window → preheat → valve-protection → calibration → schedule → PID → boost-expiry → room-override-expiry → **mold-risk check** ). Per-engine exception isolation, so one engine's exception never marks every entity unavailable. `get_room_target_temp()` is the single resolved-target helper both the PID tick and the panel/card read (v0.20.0) — Netatmo and Zigbee/local rooms are regulated identically. `async_call_climate_service()` is the one place any engine sends a `climate.*` service call, serialised behind a single coordinator-wide `asyncio.Lock` so Netatmo's rate limit is respected app-wide, not per-engine (v0.17.1). `_async_check_mold_risk()`/`_notify_mold_risk()` (v0.31.0) edge-detect a room's mold risk turning on and push a notification, mirroring `MoldRiskSensor`'s own algorithm |
-| `config_flow.py` | Multi-step setup wizard + options flow (rooms/persons/doors CRUD, PID + wake settings, boost defaults, notifications incl. mold risk) |
+| `__init__.py` | Setup, ConfigEntryNotReady, service registration, repair issues, stale device cleanup. v0.36.0: fixed a stale `_async_update_listener` docstring that incorrectly claimed `WindowEngine` had no startup re-sync (the 2026-09-11 restart-noise fix actually closed that gap already) |
+| `manifest.json` | v0.40.0, config_flow: true, iot_class: local_push |
+| `const.py` | All constants. Notable recent additions: `CONF_WINDOW_DELAY_DEFAULT_MIN`/`CONF_WINDOW_OFF_TEMP` (v0.33.0 — see below), `CONF_DOORS`/`CONF_DOOR_SENSOR`/`CONF_DOOR_ROOM_A/B` (interior doors), `CONF_MANUAL_TRV_CONTROL`, `CONF_BOOST_DEFAULT_TEMP`/`CONF_BOOST_DEFAULT_MINUTES`, `CONF_NOTIFY_MOLD_RISK`. v0.39.0: `CONF_NOTIFY_ISSUE_ESCALATION`/`CONF_ISSUE_ESCALATION_MINUTES`. v0.40.0: `CONF_WEATHER_COMPENSATION_ENABLED`/`CONF_FF_REFERENCE_OUTDOOR_TEMP`/`CONF_FF_WEIGHT`/`CONF_FF_MAX_CONTRIBUTION` (make the pre-existing hardcoded `FF_*` feedforward constants configurable, same values as fallback defaults). `CONF_ENERGY_TRACKING`/`CONF_ROOM_WATTAGE` were removed in v0.22.0. `CONF_WINDOW_DELAY_MIN` (the old per-room field) is left in place, unread, in case per-room editing returns |
+| `coordinator.py` | `DataUpdateCoordinator` — 13-step tick (season → controller → presence → window → preheat → valve-protection → calibration → schedule → PID → boost-expiry → room-override-expiry → mold-risk check → **window/heat-up-anomaly issue-event checks**, v0.39.0). Per-engine exception isolation, so one engine's exception never marks every entity unavailable. `get_room_target_temp()` is the single resolved-target helper both the PID tick and the panel/card read (v0.20.0) — Netatmo and Zigbee/local rooms are regulated identically. `async_call_climate_service()` is the one place any engine sends a `climate.*` service call, serialised behind a single coordinator-wide `asyncio.Lock` so Netatmo's rate limit is respected app-wide, not per-engine (v0.17.1). `_async_check_mold_risk()`/`_notify_mold_risk()` (v0.31.0) edge-detect a room's mold risk turning on and push a notification, mirroring `MoldRiskSensor`'s own algorithm. **v0.36.0:** `_persist_override_snapshot()`/`_restore_override_snapshot()` — a room override/active boost now survives an HA restart (same `entry.options`-snapshot pattern as the event log). **v0.39.0:** generic `_report_issue()` — HA bus events (`heat_manager_issue_started`/`_cleared`) + escalation-to-push-notification for any status-center category, independent of the panel being open. **v0.40.0:** module-level pure `_weather_compensation_feedforward(config, outdoor_temp)` — the outdoor-temp PID feedforward, now config-driven instead of hardcoded, unit-testable in isolation |
+| `config_flow.py` | Multi-step setup wizard + options flow (rooms/persons/doors CRUD, PID + wake settings, boost defaults, notifications incl. mold risk + issue escalation (v0.39.0) + weather compensation curve (v0.40.0)) |
 | `diagnostics.py` | `async_get_config_entry_diagnostics()` — no longer includes an `energy` block (removed with the energy feature, v0.22.0) |
 | `panel.py` | Static paths (process-level `async_setup`). Sidebar panel (`async_setup_entry`). Reads the running version from `manifest.json` off-thread (`hass.async_add_executor_job`) — no more separate `const.VERSION` copy to drift (v0.18.0/v0.18.1/v0.18.2) |
-| `websocket.py` | `get_state`, `get_history`, `update_config`, `boost_start`/`boost_stop`, `set_room_temp`. `ws_update_config()` (v0.29.0) is table-driven — `_STRING_CONFIG_FIELDS`/`_BOOL_CONFIG_FIELD_DEFAULTS`/`_NUMERIC_CONFIG_FIELDS` — so a new panel-editable field is a one-line table addition, not a new branch; change-detection always compares against the field's real `DEFAULT_*` value, never a blanket `0`/`False`/`""`. No more energy fields in `get_state`/`get_history` (v0.22.0). `_build_active_issues()` (v0.32.0) computes the panel's consolidated `active_issues` list — cloud/gateway health, other unavailable entities, mold risk, open windows, active boost, and recent remote actions, severity-sorted — included in every `get_state` payload |
+| `websocket.py` | `get_state`, `get_history`, `update_config`, `boost_start`/`boost_stop`, `set_room_temp`. `ws_update_config()` (v0.29.0) is table-driven — `_STRING_CONFIG_FIELDS`/`_BOOL_CONFIG_FIELD_DEFAULTS`/`_NUMERIC_CONFIG_FIELDS` — so a new panel-editable field is a one-line table addition, not a new branch (v0.39.0/v0.40.0's 6 new fields all went in this way); change-detection always compares against the field's real `DEFAULT_*` value, never a blanket `0`/`False`/`""`. No more energy fields in `get_state`/`get_history` (v0.22.0). `_build_active_issues()` (v0.32.0) computes the panel's consolidated `active_issues` list — cloud/gateway health, other unavailable entities, mold risk, open windows, heat-up-rate anomaly per room (v0.38.0), active boost, and recent remote actions, severity-sorted — included in every `get_state` payload |
 | `select.py` | `controller_state`, `season_mode` (global), plus per-room `NetatmoPresetModeSelect` (`select.<room>_netatmo_preset_mode`, one per room with a Netatmo/cloud TRV — v0.20.0/v0.27.0) |
 | `number.py` | `group_offset` — RestoreNumber, ±5 °C, global |
 | `sensor.py` | `pause_remaining`, per-room state/window-duration/pid_power/calibration-offset sensors. The energy sensors (`energy_wasted`/`energy_saved`/`efficiency_score`) were removed in v0.22.0 |
@@ -116,7 +174,7 @@ heat_manager/
 | `switch.py` | Per-room override switches + per-room group-enable switches. Assigned to room devices |
 | `icons.json` | Entity icon overrides — Gold IQS |
 | `services.yaml` | `set_controller_state`, `pause`, `resume`, `force_room_on`, `boost_start`, `boost_stop` |
-| `strings.json` / `translations/{en,da}.json` | Config + options + entity + issues + exceptions. Notifications step now has 5 toggles (presence/windows/30-min-warning/preheat/mold-risk) |
+| `strings.json` / `translations/{en,da}.json` | Config + options + entity + issues + exceptions. Notifications step now has 6 toggles (presence/windows/30-min-warning/preheat/mold-risk/issue-escalation, v0.39.0) plus an escalation-minutes field; "Season & global settings" step gained 4 weather-compensation-curve fields (v0.40.0) |
 | `quality_scale.yaml` | IQS rule tracking — all Gold rules done or exempt, Platinum `strict-typing` still todo |
 
 ### Engine layer (13 engines + PID)
@@ -131,7 +189,7 @@ heat_manager/
 | `engine/preheat_engine.py` | `travel_time` listener, per-person lead time, TRV routing |
 | `engine/pid_controller.py` | Discrete-time PI(D), `power_to_setpoint()`, anti-windup — HA-independent, fully unit-testable |
 | `engine/valve_protection_engine.py` | Weekly valve exercise 02–03, controller OFF only, routed through the shared Netatmo call lock (v0.17.1) |
-| `engine/calibration_engine.py` | Writes `room_temp_sensor − TRV raw` delta to a room's `calibration_entity` + 30 min heartbeat. v0.24.0: also learns per-room heat-up rate (°C/hour), split by whether the room's interior door was open or closed while heating was called for (`get_room_heatup_rate()`) — informational only, in-memory, resets on restart; nothing acts on it yet |
+| `engine/calibration_engine.py` | Writes `room_temp_sensor − TRV raw` delta to a room's `calibration_entity` + 30 min heartbeat — now supports both `number.*` (original) and `select.*` (v0.37.0, HomematicIP-style discrete steps) calibration entities, via `_parse_offset_option()`/`_nearest_select_option()`. v0.24.0: also learns per-room heat-up rate (°C/hour), split by whether the room's interior door was open or closed while heating was called for (`get_room_heatup_rate()`) — informational only, in-memory, resets on restart; nothing acts on it to control heating yet, but v0.38.0 added `get_room_heatup_anomaly()` — a room's current sample compared against its own learned baseline, flagged after a 3-sample underperforming streak once the baseline has 5+ prior samples — surfaced in the status center as a "possible stuck valve" warning |
 | `engine/sync_engine.py` | Per-room `sync_mode` (disabled/mirror/lock) — reacts to manual/external changes on the write entity |
 | `engine/schedule_engine.py` | Per-room `schedule_entity` (`schedule.*`/`calendar.*`) — active block/event `temperature` overrides the room's normal target |
 | `engine/remote_button_engine.py` | Global physical remote (e.g. Aqara W100) — 3 configurable `event.*` entities act on every eligible room via `coordinator.async_set_room_override()` |
@@ -141,7 +199,7 @@ heat_manager/
 
 | File | Notes |
 |------|-------|
-| `frontend/heat-manager-panel.js` | Surgical DOM patching, 4 tabs (Oversigt/Rum/Historik/Konfiguration). Konfiguration gained a full "Indstillinger" section in v0.29.0 (Fase 2 del 1): PID-regulator, Boost-standardværdier, Vindue, Nat-sætpunkt, Grace-perioder, Auto-off ved mildt vejr, plus 2 more Notifikationer toggles — all live-editable via a generic `save-field`/`toggle-field` handler pair, same save-and-confirm pattern as the older Alarmtavle/Notifikationer/Manuel TRV-kontrol fields (which itself became properly persistent in v0.27.1, no longer session-scoped). Oversigt gained a version chip, a house-wide Netatmo mode summary, 2 more quick-stat tiles (Passiv, Åbne døre — v0.25.0), and a global "Alle rum — Target Temp" control (v0.26.0). "Sætpunkt"/"Mål °C" were unified into one "Target Temp" label everywhere (v0.26.0). The Energi i dag box and Historik energy chart were removed (v0.22.0). **v0.32.0:** the old `#cloud-chip`/`#health-chip`/`#ws-error-chip` topbar chips and the Oversigt-only `#remote-last-action-box` are gone, replaced by one `#status-center` field in the header (~50% width, ~90% height, centered) that merges the server's `active_issues` with the one thing only the client can know — its own dead websocket connection — via `_activeIssues()`/`_patchStatusCenter()`. Polls every 60s. **v0.33.0:** Indstillinger → Vindue gained two new live-editable fields (`window_delay_default_min`, `window_off_temp`); new reusable `_infoIcon(text)` tooltip helper (hover/focus on desktop, tap-toggle on mobile via the same shared outside-click listener from v0.32.0 — no new listener) applied to those two fields plus Rum-detaljer's Rum temp/Target Temp/Trv temp stat labels |
+| `frontend/heat-manager-panel.js` | Surgical DOM patching, 4 tabs (Oversigt/Rum/Historik/Konfiguration). Konfiguration gained a full "Indstillinger" section in v0.29.0 (Fase 2 del 1): PID-regulator, Boost-standardværdier, Vindue, Nat-sætpunkt, Grace-perioder, Auto-off ved mildt vejr, plus 2 more Notifikationer toggles — all live-editable via a generic `save-field`/`toggle-field` handler pair, same save-and-confirm pattern as the older Alarmtavle/Notifikationer/Manuel TRV-kontrol fields (which itself became properly persistent in v0.27.1, no longer session-scoped). Oversigt gained a version chip, a house-wide Netatmo mode summary, 2 more quick-stat tiles (Passiv, Åbne døre — v0.25.0), and a global "Alle rum — Target Temp" control (v0.26.0). "Sætpunkt"/"Mål °C" were unified into one "Target Temp" label everywhere (v0.26.0). The Energi i dag box and Historik energy chart were removed (v0.22.0). **v0.32.0:** the old `#cloud-chip`/`#health-chip`/`#ws-error-chip` topbar chips and the Oversigt-only `#remote-last-action-box` are gone, replaced by one `#status-center` field in the header (~50% width, ~90% height, centered) that merges the server's `active_issues` with the one thing only the client can know — its own dead websocket connection — via `_activeIssues()`/`_patchStatusCenter()`. Polls every 60s. **v0.33.0:** Indstillinger → Vindue gained two new live-editable fields (`window_delay_default_min`, `window_off_temp`); new reusable `_infoIcon(text)` tooltip helper (hover/focus on desktop, tap-toggle on mobile via the same shared outside-click listener from v0.32.0 — no new listener) applied to those two fields plus Rum-detaljer's Rum temp/Target Temp/Trv temp stat labels. **v0.39.0/v0.40.0:** Notifikationer gained an "Eskalér langvarige problemer" toggle + minutes field; new "Vejrkompensation" section box right after PID-regulator (enable toggle + reference outdoor temp + weight + max contribution), matching the existing section-box/`_cfgToggleRow`/`_cfgNumberRow` pattern |
 | `frontend/heat-manager-card.js` | Mobile Lovelace card. v0.30.0 (Fase 2 del 2): a 500ms press-and-hold on any room card opens a bottom-sheet with every diagnostic previously shown as an always-on chip (humidity/CO2/battery/PID power/calibration/window-duration, blocking-reason, ungrouped), plus door status + learned heat-up-rate, a manual temperature override, and a grouping toggle — all new to this card. The always-visible card view is now decluttered to name/state/temp/setpoint/valve/mold-risk/TRV-offline. `_loadTargetTemps()` (v0.21.1, extended v0.30.0) polls `heat_manager/get_state` every 60s so the card's setpoint/room-detail data can never diverge from the panel's, unlike the raw-entity reads used before. The Energi i dag section was removed (v0.22.0) |
 | `frontend/heat_manager_logo1.png` | Served at `/api/heat_manager-logo` |
 
@@ -307,6 +365,54 @@ websocket connection (_wsError/_lastSyncTime) — before rendering the single
 #ws-error-chip topbar trio and the #remote-last-action-box entirely.
 ```
 
+### Override/boost restart persistence (v0.36.0)
+```
+coordinator._persist_override_snapshot() — called from async_shutdown(),
+  same trigger + entry.options-snapshot pattern as the event log (B10).
+  Captures: which rooms are in OVERRIDE (+ source, + expiry), which rooms
+  are boosted (+ boost's shared expiry).
+coordinator._restore_override_snapshot() — called from __init__, right
+  after _restore_event_log(). Restores the BOOKKEEPING only — never
+  re-commands the physical TRV (it already holds its last setpoint
+  independently). An override/boost whose expiry already passed while HA
+  was down is deliberately NOT restored — room just comes back NORMAL,
+  same as normal auto-expiry.
+```
+
+### Generic issue tracker — HA events + escalation (v0.39.0)
+```
+coordinator._report_issue(key, active, severity, message)
+  key must be stable across ticks for the same condition, e.g.
+  "mold_risk:Stue", "window_open:Bad", "heatup_anomaly:Køkken".
+  - False -> True: fires heat_manager_issue_started on hass.bus
+  - True -> False: fires heat_manager_issue_cleared (+ duration_seconds)
+  - still True, past CONF_ISSUE_ESCALATION_MINUTES (default 60):
+    exactly one push notification per continuous episode, gated by
+    CONF_NOTIFY_ISSUE_ESCALATION (default True)
+Wired into the coordinator's own tick (not the panel poll) via 3 call
+sites: _async_check_mold_risk() (extended), _async_check_window_issue_events()
+(via window_engine.get_open_windows()), _async_check_heatup_anomaly_events()
+(via calibration_engine.get_room_heatup_anomaly()) — works even with no
+client watching the panel. Additive to each category's own existing instant
+notifier (mold risk, windows); heat-up anomaly has none of its own, so this
+is its only push.
+```
+
+### Weather compensation curve (v0.40.0, formalizing a pre-existing feedforward)
+```
+coordinator._weather_compensation_feedforward(config, outdoor_temp) — pure
+  module-level function, called from _async_pid_tick(). Same formula as
+  before v0.40.0 (a proactive power contribution when outdoor temp is below
+  a reference, capped), now reading its 3 tuning values + an enable toggle
+  from config instead of 3 hardcoded constants:
+    CONF_WEATHER_COMPENSATION_ENABLED  (default True — was always-on before)
+    CONF_FF_REFERENCE_OUTDOOR_TEMP     (default 15.0°C, was FF_REFERENCE_OUTDOOR_TEMP)
+    CONF_FF_WEIGHT                     (default 0.02, was FF_WEIGHT)
+    CONF_FF_MAX_CONTRIBUTION           (default 0.3, was FF_MAX_CONTRIBUTION)
+Defaults exactly match the old hardcoded constants — an existing install's
+heating behaviour is unchanged on upgrade until these are actually edited.
+```
+
 ### Energy tracking — removed (v0.22.0)
 ```
 The user's radiators run on district heating (fjernvarme), not electricity
@@ -373,6 +479,13 @@ potentially stale, not assumed current, the next time it matters.
 | "Interne dørs niveau C" — an open door actively adjusting a *neighbouring* room's target temp | Medium | Parked — needs a user decision on room-target-temperature "ownership" first |
 | Card/panel data parity — sync-mode + schedule shown in the mobile card's press-and-hold sheet | — | ✅ Done (v0.35.0), scoped — sourced from the `get_state` poll the card already had since v0.30.0 |
 | Full card.js/panel.js data parity (Netatmo cloud diagnostics, Target temp/Away temp override read-out, moving fields onto the card's main row instead of the detail sheet) | Low | Open |
+| Restart-safety: room override/boost survive an HA restart | — | ✅ Done (v0.36.0) — the one genuine "we lose data" find from the architecture review |
+| Calibration entity as `select.*` in addition to `number.*` | — | ✅ Done (v0.37.0) — HomematicIP-style discrete steps, better_thermostat-inspired |
+| Heat-up-rate anomaly detection ("possible stuck valve") | — | ✅ Done (v0.38.0) — room-relative, from data already learned since v0.24.0 |
+| Status escalation (duration → push) + structured `heat_manager_issue_started`/`_cleared` HA events | — | ✅ Done (v0.39.0) — generic, works even with no client watching the panel |
+| Weather compensation curve, made configurable | — | ✅ Done (v0.40.0) — existed already as a hardcoded always-on constant; now tunable, defaults preserve prior behaviour |
+| Window open-detection via temperature-drop fallback (no contact sensor) | Medium | Parked — explicitly out of scope for the 2026-09-13 architecture-review round, per Flemming's own choice |
+| PID auto-tuning | Medium | Parked — explicitly out of scope for the 2026-09-13 architecture-review round (not recommended yet, per the review) |
 | `strict-typing` | Low | Open — full mypy pass |
 | Per-room always-on toggle (bypass presence for bathrooms/offices) | Low | Open |
 | EKF thermal model | Future | Open — learned heat loss rate replaces fixed PID gains (the v0.24.0 heat-up-rate learning is informational groundwork toward this) |

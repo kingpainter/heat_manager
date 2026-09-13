@@ -213,10 +213,13 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
     The unconditional reload cost more than a moment of "unavailable" on
     every entity: it reset every engine's in-memory state (PID integrators,
-    ValveProtectionEngine's weekly exercise tracker), and — worst case —
-    WindowEngine has no startup re-sync equivalent to PresenceEngine's B11
-    fix, so a reload while a window was open could silently drop the
-    knowledge that it was open, letting heating resume in that room.
+    ValveProtectionEngine's weekly exercise tracker). (Stale note removed
+    2026-09-13: this docstring used to also warn that WindowEngine had no
+    startup re-sync equivalent to PresenceEngine's B11 fix — that gap was
+    closed by the 2026-09-11 restart-noise fix, which added
+    WindowEngine._check_initial_windows(). Left this history here so a
+    future session doesn't waste time re-"discovering" a fix that's already
+    shipped — see custom_components/heat_manager/engine/window_engine.py.)
 
     Only `rooms`/`persons` genuinely require a reload: adding, removing, or
     editing a room can add/remove optional entities (mold_risk, pid_power,
