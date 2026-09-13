@@ -120,6 +120,145 @@ def _coerce_float(value: Any) -> float | None:
         return None
 
 
+# ── Status center (v0.32.0) ───────────────────────────────────────────────────
+# Consolidates what used to be three independently-computed, client-side-only
+# indicators — heat-manager-panel.js's #cloud-chip/#health-chip/#ws-error-chip,
+# each re-deriving its own "is something wrong" heuristic straight from
+# hass.states (see CHANGELOG [0.21.0]) — plus the separate Oversigt-only
+# remote-last-action strip (CHANGELOG [0.17.0]-era), into one server-computed,
+# ordered list. The panel's header status field renders this directly instead
+# of duplicating any of these heuristics itself. One thing deliberately stays
+# client-side: a dead websocket connection can't be reported *by* the server
+# whose connection is dead — the panel still injects its own "Ingen
+# forbindelse" entry into the same list locally when polling fails.
+def _build_active_issues(
+    coordinator: Any, rooms: list[dict[str, Any]]
+) -> list[dict[str, str]]:
+    """Return every currently-active status/warning/error as
+    {"severity": "critical"|"warning"|"info", "icon": str, "message": str},
+    ordered critical -> warning -> info (stable within each severity)."""
+    hass = coordinator.hass
+    issues: list[dict[str, str]] = []
+
+    # 1. Netatmo/cloud TRV connectivity — mirrors binary_sensor.py's
+    # CloudAvailableSensor algorithm (kept independent rather than imported,
+    # same cross-platform-import rationale as _mold_dewpoint() above). A
+    # room's HomeKit-local twin is excluded — that one being briefly
+    # unavailable isn't a cloud/gateway problem.
+    unavailable_rooms: list[str] = []
+    stale_rooms: list[str] = []
+    total = 0
+    for room in coordinator.rooms:
+        room_name = room.get("room_name", "")
+        climate_id = coordinator.get_climate_entity(room_name) or ""
+        hk_id = coordinator.get_homekit_climate_entity(room_name) or ""
+        if not climate_id or climate_id == hk_id:
+            continue
+        total += 1
+        state = hass.states.get(climate_id)
+        if state is None or state.state in ("unavailable", "unknown"):
+            unavailable_rooms.append(room_name)
+            continue
+        if state.last_updated and (utcnow() - state.last_updated).total_seconds() >= 600:
+            stale_rooms.append(room_name)
+
+    if total and unavailable_rooms and len(unavailable_rooms) == total:
+        issues.append(
+            {
+                "severity": "critical",
+                "icon": "☁️",
+                "message": "Netatmo cloud/gateway nede — alle rum utilgængelige",
+            }
+        )
+    elif unavailable_rooms:
+        issues.append(
+            {
+                "severity": "warning",
+                "icon": "☁️",
+                "message": f"Netatmo utilgængelig: {', '.join(unavailable_rooms)}",
+            }
+        )
+    elif stale_rooms:
+        issues.append(
+            {
+                "severity": "warning",
+                "icon": "☁️",
+                "message": f"Netatmo-data ikke opdateret i 10+ min: {', '.join(stale_rooms)}",
+            }
+        )
+
+    # 2. Other unavailable entities per room (window/humidity/CO2/battery/
+    # secondary TRVs) — reuses each room's own "unavailable_entities" already
+    # computed above in this same payload, just filtered to non-climate.
+    for room in rooms:
+        others = [
+            e for e in room.get("unavailable_entities", []) if not e.startswith("climate.")
+        ]
+        if others:
+            issues.append(
+                {
+                    "severity": "warning",
+                    "icon": "⚠️",
+                    "message": f"{room['name']}: {len(others)} sensor(er)/enhed(er) utilgængelig(e)",
+                }
+            )
+
+    # 3. Mold risk (already computed per room above)
+    for room in rooms:
+        if room.get("mold_risk"):
+            issues.append(
+                {"severity": "warning", "icon": "💧", "message": f"Skimmelrisiko — {room['name']}"}
+            )
+
+    # 4. Windows currently open (already computed per room above)
+    for room in rooms:
+        if room.get("windows_open"):
+            issues.append(
+                {"severity": "warning", "icon": "🪟", "message": f"Vindue åbent — {room['name']}"}
+            )
+
+    # 5. Boost active (info — not a problem, just currently-notable state)
+    remaining = coordinator.boost_remaining_minutes
+    if remaining and remaining > 0:
+        active_rooms = sorted(
+            name for name, active in coordinator.boost_active_rooms.items() if active
+        )
+        rooms_str = f" ({', '.join(active_rooms)})" if active_rooms else ""
+        issues.append(
+            {
+                "severity": "info",
+                "icon": "🔥",
+                "message": f"Boost aktivt{rooms_str} — {remaining} min tilbage",
+            }
+        )
+
+    # 6. Remote last action (info, < 30 min old) — folds the removed
+    # Oversigt-only #remote-last-action-box into the header so it's visible
+    # from every tab, not just Oversigt (same 30-min freshness window the
+    # old box used).
+    rla = coordinator.remote_last_action
+    if rla and rla.get("timestamp"):
+        age_min: float | None = None
+        try:
+            age_min = (utcnow() - datetime.fromisoformat(rla["timestamp"])).total_seconds() / 60
+        except (TypeError, ValueError):
+            pass
+        if age_min is not None and 0 <= age_min < 30:
+            rla_rooms = ", ".join(rla.get("rooms") or [])
+            issues.append(
+                {
+                    "severity": "info",
+                    "icon": "📡",
+                    "message": f"Fjernbetjening: {rla.get('description', '')}"
+                    + (f" — {rla_rooms}" if rla_rooms else ""),
+                }
+            )
+
+    order = {"critical": 0, "warning": 1, "info": 2}
+    issues.sort(key=lambda i: order.get(i["severity"], 3))
+    return issues
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "heat_manager/boost_start",
@@ -720,6 +859,9 @@ async def ws_get_state(
             }
         )
 
+    # ── Status center (v0.32.0) ───────────────────────────────────────────────
+    active_issues = _build_active_issues(coordinator, rooms)
+
     # ── Outdoor temperature ───────────────────────────────────────────────────
     outdoor_temp: float | None = coordinator.outdoor_temperature
 
@@ -807,6 +949,7 @@ async def ws_get_state(
         "remote_last_action": coordinator.remote_last_action,
         "wind_speed": coordinator.get_wind_speed(),
         "precipitation": coordinator.get_precipitation(),
+        "active_issues": active_issues,  # v0.32.0 — status center, see _build_active_issues()
     }
 
     connection.send_result(msg["id"], payload)

@@ -9,6 +9,63 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.32.0] — 2026-09-13
+
+Status center. Replaces the four scattered header/Oversigt indicators
+(cloud-chip, health-chip, ws-error-chip, and the Oversigt-only
+remote-last-action pill) with a single consolidated status field, centered
+in the header, that shows every currently-active issue — critical, warning,
+or info — in one place, on every tab.
+
+### Added
+- **`websocket.py`**: new `_build_active_issues(coordinator, rooms)`,
+  called from `ws_get_state()` and included in the payload as
+  `active_issues`. Computes, in order: (1) Netatmo cloud/gateway health
+  (mirrors `binary_sensor.py`'s `CloudAvailableSensor` — all rooms down is
+  critical, some rooms down or stale (10+ min) is warning), (2) other
+  unavailable entities per room (window/humidity/CO2/battery/secondary
+  TRVs), (3) mold risk per room, (4) open windows per room, (5) active
+  boost (info), (6) the last remote-control action if under 30 minutes old
+  (info — this is what used to be the Oversigt-only remote-last-action
+  box, now visible from every tab instead of just one). Each issue is
+  `{"severity": "critical"|"warning"|"info", "icon": str, "message": str}`;
+  the list is sorted critical → warning → info.
+- **`heat-manager-panel.js`**: new `#status-center` header field —
+  `flex: 1 1 0%; max-width: 50%` of the header, stretched to ~90% of its
+  height, centered between the logo/title and the controller-state badge.
+  Shows the single highest-severity issue inline plus a `+N` badge when
+  there's more than one; click or tap opens a dropdown listing every active
+  issue. Border/background color reflects the worst severity present
+  (green when clear, grey for info-only, amber for warning, red for
+  critical). `_activeIssues()` merges the server's `active_issues` with one
+  thing the server cannot report about itself — its own dead WebSocket
+  connection — computed client-side from the existing `_wsError`/
+  `_lastSyncTime` fields, exactly as the old `ws-error-chip` did, and
+  injected into the same sorted list before render.
+
+### Changed
+- Removed `#cloud-chip`, `#health-chip`, `#ws-error-chip` (all three
+  topbar chips) and the Oversigt tab's `#remote-last-action-box` — their
+  logic now lives in `_build_active_issues()` / `_activeIssues()` /
+  `_patchStatusCenter()`. One `_patchStatusCenter()` call replaces the four
+  separate patch calls that used to run on every render.
+- Removed the now-dead `.cloud-chip*`/`.ws-error-chip*`/
+  `.remote-last-action-box` CSS, the `chip-pulse` keyframe, and the
+  `[hidden]` override rule those three classes needed (see
+  `audit/heat_manager_status_check_2026-09-11.md` for why that rule existed
+  in the first place). The new `.status-center*`/`.status-issue-row*`
+  classes deliberately avoid the same bug: no element that's also toggled
+  via `[hidden]` gets its own unconditional `display` declaration.
+
+### Fixed
+- The outside-click handler that closes the status-center dropdown is
+  bound once in `connectedCallback()` (guarded by `_outsideClickBound`),
+  not inside `_attachEvents()` — the latter reruns on every full render but
+  `shadowRoot` itself is never recreated (only the inner `.panel` subtree
+  is replaced), so a listener attached directly to `shadowRoot` there would
+  have accumulated one duplicate copy per render. Caught during review,
+  before ever running on-device.
+
 ## [0.31.0] — 2026-09-13
 
 Mold risk as a push notification. `MoldRiskSensor` (`binary_sensor.py`)

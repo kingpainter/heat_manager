@@ -181,11 +181,10 @@ class HeatManagerPanel extends HTMLElement {
     this._loadInFlight    = false;
     this._renderPending   = false;
     this._lastCtrlState   = null;
-    this._showCloudBanner = true;  // can be toggled off in config tab
-    // 2026-09 audit fix (UI/UX #8): separate dismiss state from the cloud
-    // chip — a user dismissing "Netatmo cloud down" shouldn't also hide an
-    // unrelated "window sensor battery dead" warning, and vice versa.
-    this._showHealthBanner = true;
+    // v0.32.0: whether the header status center's detail dropdown is
+    // expanded — replaces the old per-chip _showCloudBanner/_showHealthBanner
+    // dismiss flags now that all three chips are one consolidated field.
+    this._statusCenterOpen = false;
     this._pauseTimer      = null;  // local countdown interval
     this._boostTimer      = null;  // local boost countdown interval
     this._historyLoading  = false; // skeleton guard
@@ -218,6 +217,20 @@ class HeatManagerPanel extends HTMLElement {
       const st = document.createElement("style");
       st.textContent = this._css();
       root.appendChild(st);
+    }
+    // v0.32.0: close the status-center detail dropdown on any click outside
+    // it. Bound once here (not in _attachEvents(), which re-runs on every
+    // full render) — shadowRoot persists across renders, so a listener
+    // added there would accumulate one extra copy per render instead of
+    // being replaced with the old DOM.
+    if (!this._outsideClickBound) {
+      this._outsideClickBound = true;
+      root.addEventListener("click", (e) => {
+        if (this._statusCenterOpen && !e.target.closest?.("#status-center")) {
+          this._statusCenterOpen = false;
+          this._patchStatusCenter();
+        }
+      });
     }
     if (!root.querySelector(".panel")) {
       this._srAppendHTML(`<div class="panel"><div class="loading-wrap"><div class="loading-icon">🔥</div><div class="loading-text">Indlæser Heat Manager…</div></div></div>`);
@@ -448,37 +461,95 @@ class HeatManagerPanel extends HTMLElement {
     this._patchRooms();
     this._patchPersons();
     this._patchAutoOff();
-    this._patchCloudChip();   // replaces _patchCloudBanner (now in topbar)
-    this._patchHealthChip();  // 2026-09 audit fix (UI/UX #8)
-    this._patchWsErrorChip(); // 2026-09-07 audit UI/UX-2
-    this._patchRemoteLastAction(); // 2026-09-07 audit 5.4
+    this._patchStatusCenter(); // v0.32.0 — replaces cloud/health/ws-error chips + remote-last-action box
     this._patchHistoryTab();
     this._patchRoomsTab();    // UX2
     this._patchRefreshBtn();  // UX3
   }
 
-  // 2026-09-07 audit fix (UI/UX-2, 4.1): visible, persistent indicator that
-  // the panel's own WS calls to Heat Manager are failing — previously an
-  // empty rooms list from a failed heat_manager/get_state was visually
-  // identical to "no rooms configured", and after 4 failures the panel
-  // simply stopped polling with no indication anything was wrong at all.
-  _patchWsErrorChip() {
-    const chip = this.shadowRoot.querySelector("#ws-error-chip");
-    if (!chip) return;
-    chip.hidden = !this._wsError;
-    if (!this._wsError) return;
-    // 2026-09-11 statustjek: was a static "Ingen forbindelse" with no way to
-    // tell how long ago the panel last actually heard from the backend —
-    // add the last-known-good timestamp so this reads as "since when",
-    // not just "right now, maybe".
-    const label = chip.querySelector(".ws-error-label");
-    if (!label) return;
-    if (this._lastSyncTime) {
-      const hh = String(this._lastSyncTime.getHours()).padStart(2, "0");
-      const mm = String(this._lastSyncTime.getMinutes()).padStart(2, "0");
-      label.textContent = `Ingen forbindelse — sidst OK kl. ${hh}:${mm}`;
+  // ── Status center (v0.32.0) ──────────────────────────────────────────────
+  //
+  // Replaces #cloud-chip/#health-chip/#ws-error-chip (each independently
+  // dismissible, each re-deriving its own "is something wrong" heuristic
+  // from raw hass.states — see the 2026-09-11 statustjek history that used
+  // to live here) plus the Oversigt-only #remote-last-action-box, with one
+  // header field that renders the server-computed `active_issues` list
+  // (websocket.py's _build_active_issues()) directly. The one thing that
+  // still can't come from the server: a dead websocket connection can't be
+  // reported *by* the server whose connection is dead, so _activeIssues()
+  // injects a synthetic "Ingen forbindelse" entry client-side when
+  // this._wsError is set, ahead of everything else (it's the most actionable
+  // fact when true — everything else in the list is stale by definition).
+  _activeIssues() {
+    const issues = (this._data?.active_issues ?? []).slice();
+    if (this._wsError) {
+      const since = this._lastSyncTime
+        ? ` — sidst OK kl. ${String(this._lastSyncTime.getHours()).padStart(2, "0")}:${String(this._lastSyncTime.getMinutes()).padStart(2, "0")}`
+        : " — intet svar modtaget endnu";
+      issues.unshift({
+        severity: "critical",
+        icon: "🔌",
+        message: `Ingen forbindelse til Heat Manager${since}`,
+      });
+    }
+    const order = { critical: 0, warning: 1, info: 2 };
+    return issues.sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3));
+  }
+
+  _statusCenterHTML() {
+    return `
+      <div id="status-center" class="status-center ok" data-action="toggle-status-center"
+        role="button" tabindex="0" aria-expanded="false" aria-label="Status, advarsler og fejl">
+        <div class="status-center-main">
+          <span class="status-center-icon">✓</span>
+          <span class="status-center-text">Alt kører normalt</span>
+          <span class="status-center-count" hidden></span>
+        </div>
+        <div id="status-center-detail" class="status-center-detail" hidden></div>
+      </div>`;
+  }
+
+  _statusIssueRowHTML(issue) {
+    return `
+      <div class="status-issue-row sev-${issue.severity}">
+        <span class="status-issue-icon">${issue.icon ?? "•"}</span>
+        <span class="status-issue-text">${this._esc(issue.message)}</span>
+      </div>`;
+  }
+
+  _patchStatusCenter() {
+    const box = this.shadowRoot.querySelector("#status-center");
+    if (!box) return;
+    const issues = this._activeIssues();
+    const hasCritical = issues.some(i => i.severity === "critical");
+    const hasWarning  = issues.some(i => i.severity === "warning");
+
+    box.classList.toggle("ok", issues.length === 0);
+    box.classList.toggle("has-critical", hasCritical);
+    box.classList.toggle("has-warning", !hasCritical && hasWarning);
+    box.classList.toggle("has-info-only", !hasCritical && !hasWarning && issues.length > 0);
+    box.setAttribute("aria-expanded", String(this._statusCenterOpen && issues.length > 0));
+
+    const iconEl  = box.querySelector(".status-center-icon");
+    const textEl  = box.querySelector(".status-center-text");
+    const countEl = box.querySelector(".status-center-count");
+    if (!issues.length) {
+      iconEl.textContent  = "✓";
+      textEl.textContent  = "Alt kører normalt";
+      countEl.hidden = true;
     } else {
-      label.textContent = "Ingen forbindelse — intet svar modtaget endnu";
+      iconEl.textContent = issues[0].icon ?? "•";
+      textEl.textContent = issues[0].message;
+      countEl.hidden = issues.length <= 1;
+      if (issues.length > 1) countEl.textContent = `+${issues.length - 1}`;
+    }
+
+    const detail = box.querySelector("#status-center-detail");
+    if (detail) {
+      detail.hidden = !(this._statusCenterOpen && issues.length > 0);
+      if (!detail.hidden) {
+        detail.innerHTML = issues.map(i => this._statusIssueRowHTML(i)).join("");
+      }
     }
   }
 
@@ -688,61 +759,6 @@ class HeatManagerPanel extends HTMLElement {
     const wrapper = root.querySelector("#autooff-wrapper");
     if (!wrapper) return;
     wrapper.innerHTML = this._autoOffInnerHTML();
-  }
-
-  // Update compact cloud status chip in the topbar (replaces full-width banner).
-  //
-  // 2026-09-11 statustjek: now three distinct, separately-worded states
-  // instead of two — see _cloudStatus()'s docstring for why "all down" vs
-  // "some down" is the closest thing to a cloud-vs-gateway-vs-single-device
-  // signal HA's own Netatmo integration exposes.
-  _patchCloudChip() {
-    const root  = this.shadowRoot;
-    const chip  = root.querySelector("#cloud-chip");
-    if (!chip) return;
-    const { ok, allUnavailable, unavailableCount, totalCount, staleMinutes } = this._cloudStatus();
-    if (!ok && this._showCloudBanner) {
-      chip.hidden = false;
-      const dot   = chip.querySelector(".cloud-chip-dot");
-      const label = chip.querySelector(".cloud-chip-label");
-      if (allUnavailable) {
-        chip.title = "Alle Netatmo-rum er utilgængelige samtidig — tyder på Netatmo cloud eller selve gateway'en/relæet, ikke én enkelt enhed (HA's Netatmo-integration skelner ikke de to for TRV'er/termostater)";
-        dot.style.background = "#ef4444";
-        label.textContent = "Netatmo cloud/gateway nede";
-      } else if (unavailableCount > 0) {
-        chip.title = `${unavailableCount} af ${totalCount} rums Netatmo-enhed er utilgængelig, resten svarer fint — tyder på batteri/RF for netop det/de rum, ikke cloud eller gateway`;
-        dot.style.background = "#f97316";
-        label.textContent = `Netatmo: ${unavailableCount}/${totalCount} rum nede`;
-      } else {
-        chip.title = `Netatmo svarer, men data er ${staleMinutes} min gammel`;
-        dot.style.background = "#f97316";
-        label.textContent = `⏱ Netatmo ${staleMinutes} min forsinket`;
-      }
-    } else {
-      chip.hidden = true;
-    }
-  }
-
-  // 2026-09 audit fix (UI/UX #8): companion chip for non-Netatmo entity
-  // health — a dead window-sensor battery or missing humidity sensor never
-  // trips the cloud chip above (it only ever looks at climate entities),
-  // so it would otherwise stay completely invisible in both frontends.
-  // Same compact/dismissible pattern, own dismiss state (_showHealthBanner)
-  // so dismissing one chip never hides the other.
-  _patchHealthChip() {
-    const root = this.shadowRoot;
-    const chip = root.querySelector("#health-chip");
-    if (!chip) return;
-    const { otherIssues } = this._cloudStatus();
-    if (otherIssues.length && this._showHealthBanner) {
-      chip.hidden = false;
-      chip.title  = otherIssues.map(i => `${i.room}: ${i.entity}`).join("\n");
-      chip.querySelector(".cloud-chip-dot").style.background = "#f97316";
-      chip.querySelector(".cloud-chip-label").textContent =
-        `⚠ ${otherIssues.length} entitet${otherIssues.length > 1 ? "er" : ""}`;
-    } else {
-      chip.hidden = true;
-    }
   }
 
   // ── Additional surgical patches ──────────────────────────────────────────
@@ -1591,68 +1607,84 @@ class HeatManagerPanel extends HTMLElement {
       }
       .section-box-body { padding: 14px 16px; }
 
-      /* ── Cloud status banner ── */
-      /* Cloud status chip — compact, lives in topbar */
-      .cloud-chip {
-        display: inline-flex; align-items: center; gap: 5px;
-        padding: 3px 8px 3px 6px;
-        border-radius: 20px;
-        background: rgba(239,68,68,0.15);
-        border: 1px solid rgba(239,68,68,0.35);
+      /* ── Status center (v0.32.0) ──
+         Replaces the old cloud-chip / health-chip / ws-error-chip /
+         remote-last-action-box quartet with one consolidated header field.
+         Server computes almost everything into active_issues (see
+         _build_active_issues() in websocket.py); the one thing the server
+         genuinely cannot report on itself is its own dead connection, so
+         that one issue is injected client-side in _activeIssues() and
+         merged into the same sorted list before rendering here.
+
+         Deliberately no unconditional display declaration on any element
+         that also gets toggled via [hidden] below (#status-center-count,
+         #status-center-detail) — an earlier generation of these chips had
+         exactly that bug (own display rule always beats the browser's
+         default [hidden] { display:none }, regardless of specificity),
+         which permanently showed empty pills. See
+         audit/heat_manager_status_check_2026-09-11.md for the history;
+         not repeating it here. */
+      .status-center {
+        flex: 1 1 0%; max-width: 50%; min-width: 0;
+        align-self: stretch; min-height: 90%;
+        position: relative;
+        display: flex; flex-direction: column; justify-content: center;
+        padding: 6px 14px;
+        border-radius: 12px;
+        border: 1px solid var(--div);
+        background: var(--bg2);
         cursor: pointer; font-family: 'DM Sans', sans-serif;
-        transition: background .15s;
+        transition: background .15s, border-color .15s;
       }
-      .cloud-chip:hover { background: rgba(239,68,68,0.25); }
-      .cloud-chip-dot {
-        width: 6px; height: 6px; border-radius: 50%;
-        flex-shrink: 0; animation: chip-pulse 2s ease-in-out infinite;
+      .status-center.ok {
+        border-color: rgba(34,197,94,0.3);
+        background: rgba(34,197,94,0.08);
       }
-      @keyframes chip-pulse {
-        0%,100% { opacity: 1; } 50% { opacity: 0.4; }
+      .status-center.has-info-only {
+        border-color: rgba(148,163,184,0.35);
+        background: rgba(148,163,184,0.08);
       }
-      .cloud-chip-label { font-size: 11px; font-weight: 600; color: #fca5a5; }
-      .cloud-chip-x { font-size: 10px; color: rgba(252,165,165,0.5); margin-left:2px; }
-
-      /* Backend connection error chip — distinct from cloud-chip (that's about
-         Netatmo cloud staleness; this is about the panel's own WS calls to
-         Heat Manager failing, see UI/UX-2 in the 2026-09-07 audit) */
-      .ws-error-chip {
-        display: inline-flex; align-items: center; gap: 5px;
-        padding: 3px 8px; border-radius: 20px;
+      .status-center.has-warning {
+        border-color: rgba(234,179,8,0.4);
+        background: rgba(234,179,8,0.12);
+      }
+      .status-center.has-critical {
+        border-color: rgba(239,68,68,0.45);
         background: rgba(239,68,68,0.15);
-        border: 1px solid rgba(239,68,68,0.35);
-        font-family: 'DM Sans', sans-serif;
       }
-      .ws-error-dot {
-        width: 6px; height: 6px; border-radius: 50%; background: #ef4444;
-        flex-shrink: 0; animation: chip-pulse 2s ease-in-out infinite;
+      .status-center:hover { filter: brightness(1.15); }
+      .status-center-main {
+        display: flex; align-items: center; gap: 8px; min-width: 0;
       }
-      .ws-error-label { font-size: 11px; font-weight: 600; color: #fca5a5; }
-
-      /* 2026-09-11 statustjek fix: the three chips above all have their own
-         unconditional display declaration, which — because author CSS
-         always wins over the browser's default [hidden] display:none rule
-         regardless of selector specificity — completely neutralised
-         chip.hidden = true/false in the JS below. Net effect, confirmed
-         against a live screenshot: #cloud-chip and #health-chip were
-         PERMANENTLY visible (as empty pills showing only their close icon,
-         since no issue meant their label was never populated) and
-         #ws-error-chip's "Ingen forbindelse" was almost certainly showing
-         all the time, defeating the entire point of the 2026-09-07 UI/UX-2
-         fix. This is the missing piece that actually lets hidden hide them
-         again. See audit/heat_manager_status_check_2026-09-11.md. */
-      .cloud-chip[hidden], .ws-error-chip[hidden], .remote-last-action-box[hidden] { display: none; }
-
-      /* 2026-09-11 fix: same bug, third instance — this box used an inline
-         style="display:flex" instead of a stylesheet rule, which is even
-         more severe than the class-based cases above (an inline style beats
-         ALL stylesheet rules, not just less-specific ones), so it was
-         PERMANENTLY visible as an empty pill (just the 📡 icon) whenever
-         there was no recent remote-control action. Moved the layout into
-         this class so the [hidden] override above can actually hide it. */
-      .remote-last-action-box {
-        padding: 10px 16px; display: flex; align-items: center; gap: 8px;
+      .status-center-icon { font-size: 14px; flex-shrink: 0; }
+      .status-center-text {
+        font-size: 12px; font-weight: 600; color: var(--fg);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        flex: 1 1 auto; min-width: 0;
       }
+      .status-center-count {
+        font-size: 10px; font-weight: 700; color: var(--sub);
+        background: rgba(148,163,184,0.15);
+        border-radius: 10px; padding: 1px 6px; flex-shrink: 0;
+      }
+      .status-center-detail {
+        position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+        z-index: 20; max-height: 260px; overflow-y: auto;
+        background: var(--bg2); border: 1px solid var(--div);
+        border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        padding: 6px;
+      }
+      .status-issue-row {
+        display: flex; align-items: flex-start; gap: 8px;
+        padding: 7px 8px; border-radius: 8px; font-size: 12px;
+        cursor: default; text-align: left;
+      }
+      .status-issue-row + .status-issue-row { margin-top: 2px; }
+      .status-issue-icon { flex-shrink: 0; }
+      .status-issue-text { color: var(--fg); line-height: 1.35; }
+      .status-issue-row.sev-critical { background: rgba(239,68,68,0.12); }
+      .status-issue-row.sev-warning  { background: rgba(234,179,8,0.1); }
+      .status-issue-row.sev-info     { background: rgba(148,163,184,0.08); }
 
       /* Manual TRV control */
       .room-manual {
@@ -2133,83 +2165,13 @@ class HeatManagerPanel extends HTMLElement {
 
   // ── HTML components ───────────────────────────────────────────────────────
 
-  // ── Cloud status banner ──────────────────────────────────────────────────
-
-  _cloudStatus() {
-    // Detect Netatmo cloud/gateway issues from HA entity state — no external
-    // fetch needed. Returns: { ok, allUnavailable, unavailableCount,
-    // totalCount, staleMinutes, otherIssues }.
-    //
-    // 2026-09-11 statustjek: previously `ok` was only ever false when EVERY
-    // configured Netatmo room was unavailable at once — a partial outage
-    // (say 2 of 5 rooms down) silently reported `ok: true` and the chip
-    // never showed at all. Now surfaces three distinct states instead of
-    // two:
-    //   1. allUnavailable  — every room down together. HA's own Netatmo
-    //      integration exposes no separate "reachable"/connectivity signal
-    //      for thermostat/valve devices (confirmed against home-assistant/
-    //      core's netatmo/climate.py + binary_sensor.py — only weather/
-    //      air-care/opening categories get a connectivity binary_sensor;
-    //      THERM does not), so a climate entity's own state already folds
-    //      cloud + gateway/relay + device into one. Everything going down
-    //      at the same instant is the strongest signal available without
-    //      new configuration that the shared cloud API or the physical
-    //      gateway/relay is the problem, not one device.
-    //   2. unavailableCount > 0 but < totalCount — only some rooms down.
-    //      Far more likely a single device's battery/RF link to the
-    //      gateway than the cloud or gateway itself (those would take
-    //      every room with them).
-    //   3. isStale — every entity technically available, but data hasn't
-    //      moved in 10+ minutes (cloud responding but not updating).
-    // See audit/heat_manager_status_check_2026-09-11.md.
-    const empty = {
-      ok: true, allUnavailable: false, unavailableCount: 0, totalCount: 0,
-      staleMinutes: 0, otherIssues: [],
-    };
-    if (!this._hass || !this._data) return empty;
-    const rooms = this._data?.rooms ?? [];
-    if (!rooms.length) return empty;
-
-    const otherIssues = [];
-    for (const room of rooms) {
-      for (const id of room.unavailable_entities ?? []) {
-        if (!id.startsWith("climate.")) otherIssues.push({ room: room.name, entity: id });
-      }
-    }
-
-    const climateIds = rooms.map(r => r.climate_entity).filter(Boolean);
-    if (!climateIds.length) return { ...empty, otherIssues };
-
-    const states = this._hass.states ?? {};
-    const now = Date.now();
-    let unavailableCount = 0;
-    let maxStaleMs = 0;
-
-    for (const id of climateIds) {
-      const s = states[id];
-      if (!s) { unavailableCount++; continue; }
-      if (s.state === "unavailable" || s.state === "unknown") { unavailableCount++; continue; }
-      // Check staleness via last_updated
-      if (s.last_updated) {
-        const staleMs = now - new Date(s.last_updated).getTime();
-        if (staleMs > maxStaleMs) maxStaleMs = staleMs;
-      }
-    }
-
-    const totalCount     = climateIds.length;
-    const allUnavailable = unavailableCount === totalCount;
-    const staleMinutes   = Math.floor(maxStaleMs / 60000);
-    const isStale        = staleMinutes >= 10;
-    return {
-      ok: unavailableCount === 0 && !isStale,
-      allUnavailable, unavailableCount, totalCount, staleMinutes, otherIssues,
-    };
-  }
-
-  // NB: a full-width _cloudBannerHTML() used to live here — dead code,
-  // superseded by the compact topbar chip (_patchCloudChip()/#cloud-chip)
-  // and never actually called. Removed 2026-09 (kode-polish pass); see
-  // _patchCloudChip()/_patchHealthChip() for the live equivalent.
+  // NB: a client-side _cloudStatus() used to live here, re-deriving Netatmo
+  // cloud/gateway health from raw hass.states for #cloud-chip/#health-chip.
+  // Removed in v0.32.0 — the same algorithm now runs once, server-side, in
+  // websocket.py's _build_active_issues(), which the new status center
+  // reads via `active_issues` (see _activeIssues()/_patchStatusCenter()
+  // above). A full-width _cloudBannerHTML() was already removed here
+  // earlier (2026-09, superseded by the topbar chips this removes in turn).
 
   _topbarHTML() {
     const d      = this._data;
@@ -2238,23 +2200,7 @@ class HeatManagerPanel extends HTMLElement {
           <h1>Heat Manager</h1>
           <div class="version">${otemp}${season}${wxIcons ? " · " + wxIcons : ""}</div>
         </div>
-        <button id="cloud-chip" class="cloud-chip" hidden
-          data-action="dismiss-cloud-banner" title="" aria-label="Skjul cloud-status besked">
-          <span class="cloud-chip-dot"></span>
-          <span class="cloud-chip-label"></span>
-          <span class="cloud-chip-x">✕</span>
-        </button>
-        <button id="health-chip" class="cloud-chip" hidden
-          data-action="dismiss-health-banner" title="" aria-label="Skjul entitets-status besked">
-          <span class="cloud-chip-dot"></span>
-          <span class="cloud-chip-label"></span>
-          <span class="cloud-chip-x">✕</span>
-        </button>
-        <div id="ws-error-chip" class="ws-error-chip" hidden role="status"
-          title="Kunne ikke hente status fra Heat Manager — viser sidst kendte data">
-          <span class="ws-error-dot"></span>
-          <span class="ws-error-label">Ingen forbindelse</span>
-        </div>
+        ${this._statusCenterHTML()}
         <div id="topbar-badge" class="topbar-badge"
           style="background:${bc.bg};color:${bc.color};border-color:${bc.border}">
           <div class="badge-dot" style="background:${bc.color}"></div>
@@ -2590,31 +2536,12 @@ class HeatManagerPanel extends HTMLElement {
 
   // ── Tab builders ──────────────────────────────────────────────────────────
 
-  // 2026-09-07 audit fix (5.4): coordinator.remote_last_action was already
-  // tracked (v0.14.0's global remote buttons, exposed as a Hub sensor via
-  // the v0.15.0 mirror layer) but never shown anywhere in the panel/card
-  // UI itself — only visible by hunting for the sensor entity. Shown here
-  // only while recent (< 30 min) so it doesn't linger as stale info.
-  _remoteLastActionHTML() {
-    const a = this._data?.remote_last_action;
-    if (!a?.timestamp) return "";
-    const ageMin = (Date.now() - new Date(a.timestamp).getTime()) / 60000;
-    if (!(ageMin >= 0 && ageMin < 30)) return "";
-    const roomsStr = (a.rooms ?? []).join(", ");
-    return `Fjernbetjening: ${this._esc(a.description ?? "")}${roomsStr ? ` — ${this._esc(roomsStr)}` : ""}`;
-  }
-
-  // Keeps the remote-last-action strip in sync on every poll (unlike a
-  // plain _overviewHTML() string, which only renders once — see _load()'s
-  // _patchAll()-vs-_scheduleRender() split). Hides itself once the action
-  // is more than 30 min old, or none has ever happened.
-  _patchRemoteLastAction() {
-    const box = this.shadowRoot.querySelector("#remote-last-action-box");
-    if (!box) return;
-    const text = this._remoteLastActionHTML();
-    box.hidden = !text;
-    if (text) box.querySelector(".rla-text").textContent = text;
-  }
+  // NB: _remoteLastActionHTML()/_patchRemoteLastAction() and the Oversigt-
+  // only #remote-last-action-box they drove used to live here (2026-09-07
+  // audit fix 5.4). Removed in v0.32.0 — coordinator.remote_last_action is
+  // now one of the entries websocket.py's _build_active_issues() folds into
+  // `active_issues` (same 30-min freshness window), so it shows in the
+  // header status center from every tab instead of only Oversigt.
 
   _overviewHTML() {
     const rooms  = this._data?.rooms ?? [];
@@ -2643,13 +2570,8 @@ class HeatManagerPanel extends HTMLElement {
     const doorsList = this._data?.doors ?? [];
     const openDoors = doorsList.filter(d => d.is_open);
     const doorsOpenTitle = openDoors.map(d => `${d.room_a} ↔ ${d.room_b}`).join(", ");
-    const rlaText = this._remoteLastActionHTML();
     return `
       ${this._controllerSectionHTML()}
-      <div id="remote-last-action-box" class="section-box remote-last-action-box" ${rlaText ? "" : "hidden"}>
-        <span style="font-size:16px">📡</span>
-        <span class="rla-text" style="font-size:12px;color:var(--sub)">${rlaText}</span>
-      </div>
 
       <div class="section-box">
         <div class="section-box-header">
@@ -3264,17 +3186,12 @@ class HeatManagerPanel extends HTMLElement {
 
     this._patchController();
     this._patchControllerHero();
-    this._patchCloudChip();
-    this._patchHealthChip();  // 2026-09 audit fix (UI/UX #8)
-    // 2026-09-11 statustjek fix: this full-render path built the topbar with
-    // #ws-error-chip and #remote-last-action-box always in their hidden/
-    // empty template state, but never called the two patches that actually
-    // sync them to live data — cloud-chip/health-chip got that treatment
-    // here, these two didn't. On a fresh page load, that left both stuck at
-    // "hidden" for up to a full 60s poll cycle even when there already was
-    // something to show (e.g. a WS error on the very first load).
-    this._patchWsErrorChip();
-    this._patchRemoteLastAction();
+    // v0.32.0: status center replaces cloud-chip/health-chip/ws-error-chip/
+    // remote-last-action-box — one patch call instead of four, and (per the
+    // 2026-09-11 statustjek lesson this comment used to document) it's
+    // called from BOTH the full-render path here and _patchAll(), so a fresh
+    // page load never sits stuck on stale/hidden status for up to a 60s poll.
+    this._patchStatusCenter();
     this._startPauseCountdown();
     this._startBoostCountdown();
     this._attachEvents();
@@ -3350,14 +3267,26 @@ class HeatManagerPanel extends HTMLElement {
         console.info("[HeatManager] boost WS failed:", e);
       }
     });
-    root.querySelector("[data-action='dismiss-cloud-banner']")?.addEventListener("click", () => {
-      this._showCloudBanner = false;
-      this._patchCloudChip();
-    });
-    root.querySelector("[data-action='dismiss-health-banner']")?.addEventListener("click", () => {
-      this._showHealthBanner = false;
-      this._patchHealthChip();
-    });
+    // v0.32.0: status center — click/Enter toggles the detail dropdown.
+    // Replaces the old per-chip dismiss-cloud-banner/dismiss-health-banner
+    // handlers (no per-issue dismissal now — consolidating three chips into
+    // one field already removes most of the reason to hide it). The
+    // "click elsewhere closes it" listener is attached once from
+    // connectedCallback() instead of here — this method runs on every full
+    // render (see _scheduleRender()/_render()), and shadowRoot itself is
+    // NOT recreated on a re-render, so a root-level listener added here
+    // would stack up one extra copy per render instead of replacing itself.
+    const statusCenter = root.querySelector("#status-center");
+    if (statusCenter) {
+      const toggle = () => {
+        this._statusCenterOpen = !this._statusCenterOpen;
+        this._patchStatusCenter();
+      };
+      statusCenter.addEventListener("click", toggle);
+      statusCenter.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+      });
+    }
 
     // Manual TRV control toggle — persisted server-side since 2026-09-13
     // (was a plain JS field, reset on every page reload).
