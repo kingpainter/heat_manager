@@ -9,6 +9,32 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.27.0] — 2026-09-13
+
+Closes the Fase 2 loose end flagged in `audit/heat_manager_status_check_2026-09-11.md`:
+`select.<room>_netatmo_preset_mode` was already documented in the v0.20.0 CHANGELOG entry and
+imported by `test_select.py`, but the entity itself was never written to `select.py` because
+the file was locked (Windows access denial) on Flemming's machine.
+
+### Added
+
+- **`select.py`**: new `NetatmoPresetModeSelect` entity, one per room with a configured
+  Netatmo TRV (`<entry_id>_<room>_netatmo_preset_mode`). Read/write passthrough to the room's
+  Netatmo climate entity's own `preset_mode` — options are read live from that entity's
+  `preset_modes` attribute, falling back to `NETATMO_PRESET_MODE_FALLBACK_OPTIONS`
+  (`schedule`/`away`/`frost_guard`/`boost`) only when that attribute is unavailable.
+  `async_select_option()` calls `coordinator.async_call_climate_service("set_preset_mode", ...)`
+  with `needs_delay=True` — the same serialised Netatmo-call path every other engine already
+  uses, so this can't race another room's cloud call. `async_setup_entry()` fans this out per
+  room from `coordinator.get_all_room_trvs()`, adding at most one entity per room (its primary
+  Netatmo TRV) so the unique_id (per-room, not per-TRV) can never collide.
+- **`const.py`**: new `NETATMO_PRESET_MODE_FALLBACK_OPTIONS` list constant.
+
+Not touched in this pass (see `manual/heat_manager_brugermanual_2026-09-11.md` kapitel 9 for the
+rest of the Fase 2 backlog): no dropdown was added inside the custom panel itself — the new
+entity is already usable from any standard HA dashboard, which was the original scope decision
+from Fase 2 (`audit/heat_manager_fixes_2026-09-11_fase2.md`).
+
 ## [0.26.0] — 2026-09-11
 
 Three panel requests from Flemming: show the running integration version somewhere visible,

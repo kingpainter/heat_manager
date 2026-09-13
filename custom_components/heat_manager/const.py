@@ -438,6 +438,17 @@ PRESET_BOOST = "boost"
 PRESET_FROST_GUARD = "frost_guard"
 HVAC_OFF = "off"
 
+# Fallback option list for NetatmoPresetModeSelect when the live climate
+# entity's own 'preset_modes' attribute is unavailable. Order matches the
+# entity's own reported order in the common case (schedule/away/frost_guard/
+# boost) so the UI doesn't visibly reorder once the real attribute appears.
+NETATMO_PRESET_MODE_FALLBACK_OPTIONS = [
+    PRESET_SCHEDULE,
+    PRESET_AWAY,
+    PRESET_FROST_GUARD,
+    PRESET_BOOST,
+]
+
 # ── Notification action identifiers ───────────────────────────────────────────
 
 ACTION_FORCE_HEATING_ON = "HM_FORCE_HEATING_ON"

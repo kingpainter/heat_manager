@@ -209,6 +209,7 @@ data:
 |--------|------|---------|-------------|
 | `select.heat_manager_controller_state` | Select | **on** | On / Pause / Off — main control |
 | `select.heat_manager_season_mode` | Select | disabled | Auto / Winter / Spring / Summer / Autumn — persists across restarts |
+| `select.heat_manager_<room>_netatmo_preset_mode` | Select | **on** | Netatmo away/frost_guard/boost/schedule — one per room with a Netatmo TRV *(v0.27.0)* |
 | `sensor.heat_manager_pause_remaining` | Sensor | disabled | Minutes left in pause (DIAGNOSTIC) |
 | `sensor.heat_manager_energy_wasted_today` | Sensor | **on** | kWh wasted today (CO₂ + rain weighted) |
 | `sensor.heat_manager_energy_saved_today` | Sensor | **on** | kWh saved today from away mode |
