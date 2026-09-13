@@ -312,9 +312,7 @@ def _step1_schema(defaults: dict | None = None) -> vol.Schema:
             ),
             vol.Optional(
                 CONF_BOOST_DEFAULT_MINUTES,
-                default=defaults.get(
-                    CONF_BOOST_DEFAULT_MINUTES, DEFAULT_BOOST_MINUTES
-                ),
+                default=defaults.get(CONF_BOOST_DEFAULT_MINUTES, DEFAULT_BOOST_MINUTES),
             ): selector.selector(
                 {
                     "number": {
