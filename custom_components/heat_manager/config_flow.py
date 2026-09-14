@@ -54,6 +54,7 @@ from .const import (
     CONF_INDOOR_WAKE_SENSOR,
     CONF_INDOOR_WAKE_THRESHOLD,
     CONF_ISSUE_ESCALATION_MINUTES,
+    CONF_LUX_SENSOR,
     CONF_NIGHT_END_HOUR,
     CONF_NIGHT_SETBACK_ENABLED,
     CONF_NIGHT_SETBACK_TEMP,
@@ -82,6 +83,10 @@ from .const import (
     CONF_ROOM_TEMP_SENSOR,
     CONF_ROOMS,
     CONF_SCHEDULE_ENTITY,
+    CONF_SOLAR_GAIN_ENABLED,
+    CONF_SOLAR_GAIN_LUX_THRESHOLD,
+    CONF_SOLAR_GAIN_MAX_REDUCTION,
+    CONF_SOLAR_GAIN_WEIGHT,
     CONF_SYNC_MODE,
     CONF_TRV_MAX_TEMP,
     CONF_TRV_TYPE,
@@ -126,6 +131,9 @@ from .const import (
     FF_MAX_CONTRIBUTION,
     FF_REFERENCE_OUTDOOR_TEMP,
     FF_WEIGHT,
+    SOLAR_GAIN_LUX_THRESHOLD,
+    SOLAR_GAIN_MAX_REDUCTION,
+    SOLAR_GAIN_WEIGHT,
     SYNC_MODE_DISABLED,
     SYNC_MODE_LOCK,
     SYNC_MODE_MIRROR,
@@ -444,6 +452,44 @@ def _step1_schema(defaults: dict | None = None) -> vol.Schema:
                 CONF_FF_MAX_CONTRIBUTION,
                 default=defaults.get(CONF_FF_MAX_CONTRIBUTION, FF_MAX_CONTRIBUTION),
             ): selector.selector({"number": {"min": 0, "max": 0.6, "step": 0.05}}),
+            # ── Solar gain (2026-09-14, punkt 7) ────────────────────
+            # Per-room lux sensor (CONF_LUX_SENSOR, set on the room itself —
+            # see _room_schema below) reduces PID power while the sun is up
+            # and the room reads bright. Off by default — unlike weather
+            # compensation above, there is no prior always-on behaviour to
+            # preserve, so an upgrading install sees no change until this is
+            # turned on AND at least one room has a lux sensor configured.
+            vol.Optional(
+                CONF_SOLAR_GAIN_ENABLED,
+                default=defaults.get(
+                    CONF_SOLAR_GAIN_ENABLED, DEFAULT_SOLAR_GAIN_ENABLED
+                ),
+            ): selector.selector({"boolean": {}}),
+            vol.Optional(
+                CONF_SOLAR_GAIN_LUX_THRESHOLD,
+                default=defaults.get(
+                    CONF_SOLAR_GAIN_LUX_THRESHOLD, SOLAR_GAIN_LUX_THRESHOLD
+                ),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": 500,
+                        "max": 30000,
+                        "step": 500,
+                        "unit_of_measurement": "lux",
+                    }
+                }
+            ),
+            vol.Optional(
+                CONF_SOLAR_GAIN_WEIGHT,
+                default=defaults.get(CONF_SOLAR_GAIN_WEIGHT, SOLAR_GAIN_WEIGHT),
+            ): selector.selector({"number": {"min": 0, "max": 0.5, "step": 0.01}}),
+            vol.Optional(
+                CONF_SOLAR_GAIN_MAX_REDUCTION,
+                default=defaults.get(
+                    CONF_SOLAR_GAIN_MAX_REDUCTION, SOLAR_GAIN_MAX_REDUCTION
+                ),
+            ): selector.selector({"number": {"min": 0, "max": 0.8, "step": 0.05}}),
             # ── Wake / WAKING phase ────────────────────────────────────
             vol.Optional(
                 CONF_INDOOR_WAKE_SENSOR,

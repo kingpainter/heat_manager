@@ -182,6 +182,23 @@ CONF_CO2_SENSOR = "co2_sensor"
 # humidity level (DIN 4108-2 simplified: RH > 70% AND T_surface < T_dewpoint).
 CONF_HUMIDITY_SENSOR = "humidity_sensor"
 
+# Lux/illuminance sensor (2026-09-14, punkt 7 — solar gain) — optional,
+# per-room. When set, PID's proactive power is reduced while the sun is up
+# (sun.sun's elevation > 0) and this room's measured lux exceeds
+# CONF_SOLAR_GAIN_LUX_THRESHOLD — a room getting direct/bright sun through
+# its windows needs less TRV-delivered heat right now than the schedule
+# alone would call for. Deliberately a MEASURED signal rather than a
+# computed sun-position/window-orientation model: a lux reading already
+# reflects cloud cover, curtains, and the season automatically, without
+# needing the user to configure a room's compass orientation or Heat
+# Manager to model shading. Only ever REDUCES power, never adds any — see
+# coordinator._solar_gain_reduction(). Not every room needs one: only
+# rooms with a lux sensor configured are affected, exactly like
+# CONF_HUMIDITY_SENSOR/CONF_CO2_SENSOR above; a room without one is
+# entirely unaffected, same today-and-forever fallback the rest of this
+# codebase's optional per-room sensors already follow.
+CONF_LUX_SENSOR = "lux_sensor"
+
 # Room temperature sensor — external, independent of the TRV's own probe.
 # When set, the PID controller reads current_temperature from here instead
 # of from the climate entity.  Improves accuracy for Zigbee TRVs whose
@@ -283,6 +300,38 @@ DEFAULT_WEATHER_COMPENSATION_ENABLED: bool = True
 CONF_FF_REFERENCE_OUTDOOR_TEMP = "ff_reference_outdoor_temp"
 CONF_FF_WEIGHT = "ff_weight"
 CONF_FF_MAX_CONTRIBUTION = "ff_max_contribution"
+
+# ── Solar gain (2026-09-14, punkt 7) ─────────────────────────────────────────
+# A per-room, lux-sensor-driven REDUCTION of PID power while the sun is up —
+# see CONF_LUX_SENSOR above for the "why a lux sensor instead of a geometric
+# sun-position model" rationale, and coordinator._solar_gain_reduction() for
+# the formula. Off by default (unlike weather compensation, which was
+# always-on before it became configurable) since it's a genuinely new
+# behaviour with no prior always-on equivalent to preserve — an install
+# upgrading to this version sees no change until both this is turned on AND
+# at least one room has a CONF_LUX_SENSOR configured (currently: Stuen,
+# Køkken, Gang).
+CONF_SOLAR_GAIN_ENABLED = "solar_gain_enabled"
+DEFAULT_SOLAR_GAIN_ENABLED: bool = False
+# Lux level (indoor, at the sensor) above which a room is considered to be
+# getting meaningful solar gain right now. Indoor lux near a window on an
+# overcast day is typically a few hundred to ~1500 lux; direct or
+# bright-but-hazy sun through glass commonly reads several thousand to
+# 10 000+ lux depending on sensor placement/angle — 5000 is a conservative
+# "this is real sun, not just daylight" line to start from.
+CONF_SOLAR_GAIN_LUX_THRESHOLD = "solar_gain_lux_threshold"
+SOLAR_GAIN_LUX_THRESHOLD: float = 5000.0
+# Power-fraction reduction per full multiple of the threshold the room's lux
+# exceeds it by — e.g. at the default 0.15, a room reading exactly 2×
+# threshold (excess == threshold) loses 0.15 (15%) of PID's commanded power.
+CONF_SOLAR_GAIN_WEIGHT = "solar_gain_weight"
+SOLAR_GAIN_WEIGHT: float = 0.15
+# Cap — solar gain alone never removes more than this fraction of PID's
+# commanded power, regardless of how bright the room reads. Deliberately
+# conservative: this is a comfort/efficiency nudge, not a licence to let a
+# room drift cold on a bright-but-freezing day just because the sun is out.
+CONF_SOLAR_GAIN_MAX_REDUCTION = "solar_gain_max_reduction"
+SOLAR_GAIN_MAX_REDUCTION: float = 0.4
 
 # PID defaults
 DEFAULT_PID_KP: float = 0.5
@@ -410,6 +459,17 @@ SCHEDULE_TEMP_MAX: float = 30.0
 # Raised when a configured climate entity does not exist in HA at startup.
 # Cleared automatically when the entity becomes available on next reload.
 REPAIR_ISSUE_MISSING_CLIMATE = "missing_climate_entity"
+
+# 2026-09-14 (implementeringsplan punkt 2, gruppe B) — generic repair issue
+# for a status-center category (see coordinator.py's _report_issue()) that
+# has stayed continuously active past CONF_ISSUE_ESCALATION_MINUTES. One
+# shared translation key with {message}/{duration_min} placeholders, used
+# for every repair-worthy category (cloud down, persistent mold risk, a
+# room stuck in manual override) instead of a separate translation key per
+# category — keeps strings.json/translations from growing one block per
+# future category. Cleared automatically the moment the category's own
+# active/inactive check reports it inactive again.
+REPAIR_ISSUE_PERSISTENT = "persistent_issue"
 
 # ── Effective season (resolved — three-tier) ─────────────────────────────────
 

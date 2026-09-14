@@ -36,6 +36,11 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.issue_registry import (
+    IssueSeverity,
+    async_create_issue,
+    async_delete_issue,
+)
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util.dt import utcnow
 
@@ -56,6 +61,7 @@ from .const import (
     CONF_HOUSE_VOICE_ENABLED,
     CONF_HUMIDITY_SENSOR,
     CONF_ISSUE_ESCALATION_MINUTES,
+    CONF_LUX_SENSOR,
     CONF_NOTIFY_ISSUE_ESCALATION,
     CONF_NOTIFY_MOLD_RISK,
     CONF_NOTIFY_SERVICE,
@@ -69,6 +75,10 @@ from .const import (
     CONF_PRECIPITATION_SENSOR,
     CONF_ROOM_TEMP_SENSOR,
     CONF_ROOMS,
+    CONF_SOLAR_GAIN_ENABLED,
+    CONF_SOLAR_GAIN_LUX_THRESHOLD,
+    CONF_SOLAR_GAIN_MAX_REDUCTION,
+    CONF_SOLAR_GAIN_WEIGHT,
     CONF_TRV_MAX_TEMP,
     CONF_TRV_TYPE,
     CONF_TRVS,
@@ -83,6 +93,7 @@ from .const import (
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
+    DEFAULT_SOLAR_GAIN_ENABLED,
     DEFAULT_TRV_MAX_TEMP,
     DEFAULT_WEATHER_COMPENSATION_ENABLED,
     DOMAIN,
@@ -93,7 +104,11 @@ from .const import (
     HOUSE_VOICE_SERVICE_SAY,
     NETATMO_API_CALL_DELAY_SEC,
     PRESET_SCHEDULE,
+    REPAIR_ISSUE_PERSISTENT,
     SCAN_INTERVAL_SECONDS,
+    SOLAR_GAIN_LUX_THRESHOLD,
+    SOLAR_GAIN_MAX_REDUCTION,
+    SOLAR_GAIN_WEIGHT,
     TRV_TYPE_ZIGBEE,
     AutoOffReason,
     ControllerState,
@@ -135,6 +150,20 @@ def _sanity_clamp_temp(value: float) -> float | None:
     return None
 
 
+# 2026-09-14 (implementeringsplan punkt 2, gruppe B) — which status-center
+# issue keys (see HeatManagerCoordinator._report_issue()) are worth raising
+# as a real HA Repair issue once persistent, versus categories that stay
+# panel-only (e.g. a single open window, a single unavailable sensor — too
+# routine/frequent to belong in Settings -> Repairs). Matched by exact key
+# or by prefix for the per-room categories.
+def _issue_is_repair_worthy(key: str) -> bool:
+    return (
+        key == "cloud_down"
+        or key.startswith("mold_risk:")
+        or key.startswith("room_override_stuck:")
+    )
+
+
 def _weather_compensation_feedforward(
     config: dict, outdoor_temp: float | None
 ) -> float:
@@ -160,6 +189,42 @@ def _weather_compensation_feedforward(
     ff_weight = config.get(CONF_FF_WEIGHT, FF_WEIGHT)
     ff_max = config.get(CONF_FF_MAX_CONTRIBUTION, FF_MAX_CONTRIBUTION)
     return min(ff_max, max(0.0, (ff_reference - outdoor_temp) * ff_weight))
+
+
+def _solar_gain_reduction(
+    config: dict, lux: float | None, sun_elevation: float | None
+) -> float:
+    """Solar-gain PID power REDUCTION (2026-09-14, punkt 7) — a room reading
+    bright sunlight right now needs less TRV-delivered heat than the
+    schedule alone would call for. Deliberately the mirror image of
+    _weather_compensation_feedforward() above: that one only ever ADDS
+    power (colder outside → more proactive heat); this one only ever
+    SUBTRACTS it (brighter inside → less needed) — the two are meant to
+    partially cancel on a cold-but-sunny day, which is exactly the case a
+    lux-based signal is good at catching and a pure outdoor-temperature
+    curve is not.
+
+    Returns 0.0 (no effect) unless ALL of: the feature is enabled, this
+    room has a lux reading, sun.sun reports the sun above the horizon
+    (elevation > 0 — a negative/zero elevation is dusk/night, where no lux
+    reading should physically be able to exceed the threshold anyway, but
+    checking explicitly avoids ever trusting a lux sensor's own glitch
+    after dark), and the lux reading exceeds CONF_SOLAR_GAIN_LUX_THRESHOLD.
+    A pure function of (config, lux, sun_elevation) — no coordinator/hass
+    access needed — same testability rationale as the feedforward helper
+    above; see _async_pid_tick()'s call site for how lux/elevation are read.
+    """
+    if lux is None or sun_elevation is None or sun_elevation <= 0:
+        return 0.0
+    if not config.get(CONF_SOLAR_GAIN_ENABLED, DEFAULT_SOLAR_GAIN_ENABLED):
+        return 0.0
+    threshold = config.get(CONF_SOLAR_GAIN_LUX_THRESHOLD, SOLAR_GAIN_LUX_THRESHOLD)
+    if lux <= threshold or threshold <= 0:
+        return 0.0
+    weight = config.get(CONF_SOLAR_GAIN_WEIGHT, SOLAR_GAIN_WEIGHT)
+    max_reduction = config.get(CONF_SOLAR_GAIN_MAX_REDUCTION, SOLAR_GAIN_MAX_REDUCTION)
+    excess_ratio = (lux - threshold) / threshold
+    return min(max_reduction, excess_ratio * weight)
 
 
 # Mold risk (mirrors binary_sensor.py's MoldRiskSensor algorithm — duplicated
@@ -276,6 +341,12 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # heat-up-rate anomaly).
         self._issue_started_at: dict[str, datetime] = {}
         self._issue_escalated: set[str] = set()
+        # 2026-09-14 (implementeringsplan punkt 2) — tracks which issue keys
+        # currently have an open HA Repair issue (see REPAIR_WORTHY_ISSUE_
+        # PREFIXES / _issue_is_repair_worthy() below), so a repair issue is
+        # created exactly once per episode instead of every tick, and
+        # deleted the moment the category clears.
+        self._repair_issue_active: set[str] = set()
 
         # 2026-09 fix: ws_set_room_temp's duration_min was accepted and
         # logged but never actually wired to anything — a manual panel
@@ -901,6 +972,47 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except (TypeError, ValueError):
             return None
 
+    def get_room_lux(self, room_name: str) -> float | None:
+        """Return current illuminance (lux) for a room, or None (2026-09-14,
+        punkt 7 — solar gain). Same optional-per-room pattern as
+        get_room_co2() above — only rooms with CONF_LUX_SENSOR configured
+        return a value; every other room is simply unaffected by solar gain.
+        """
+        for room in self.rooms:
+            if room.get("room_name") != room_name:
+                continue
+            entity_id = room.get(CONF_LUX_SENSOR) or None
+            if not entity_id:
+                return None
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in ("unknown", "unavailable"):
+                return None
+            try:
+                return float(state.state)
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def get_sun_elevation(self) -> float | None:
+        """Return sun.sun's current elevation (degrees above/below the
+        horizon), or None if that entity doesn't exist (2026-09-14, punkt
+        7). sun.sun is a built-in HA entity, always present on a normal HA
+        install with no configuration needed — the None case only covers a
+        genuinely broken/disabled core integration, not a missing setup
+        step on the user's part, unlike every other optional sensor this
+        coordinator reads.
+        """
+        state = self.hass.states.get("sun.sun")
+        if state is None:
+            return None
+        raw = state.attributes.get("elevation")
+        if raw is None:
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
     def get_precipitation(self) -> float | None:
         """Return current precipitation (mm or mm/h) from CONF_PRECIPITATION_SENSOR."""
         entity_id = self.config.get(CONF_PRECIPITATION_SENSOR) or None
@@ -1350,23 +1462,70 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     f"{DOMAIN}_issue_cleared",
                     {"key": key, "message": message, "duration_seconds": duration_s},
                 )
+                # 2026-09-14 (punkt 2): clear any repair issue this category
+                # had open — same edge (active -> inactive) that already
+                # clears the escalation notification gate above.
+                if key in self._repair_issue_active:
+                    self._repair_issue_active.discard(key)
+                    async_delete_issue(self.hass, DOMAIN, self._repair_issue_id(key))
             return
 
-        # Still active from a previous tick — only escalation work remains.
+        # Still active from a previous tick.
+        started_at = self._issue_started_at.get(key)
+        threshold_min = self.config.get(
+            CONF_ISSUE_ESCALATION_MINUTES, DEFAULT_ISSUE_ESCALATION_MINUTES
+        )
+        persistent = started_at is not None and (
+            utcnow() - started_at
+        ).total_seconds() >= threshold_min * 60
+
+        # 2026-09-14 (punkt 2, gruppe B — "Udvid HA Repairs-integrationen"):
+        # once a repair-worthy category has been continuously active past
+        # the same escalation threshold the push notification uses, also
+        # raise a real HA Repair issue — visible in Settings -> Repairs and
+        # the HA mobile app's badge, not only in Heat Manager's own panel.
+        # Independent of CONF_NOTIFY_ISSUE_ESCALATION (that gate is only for
+        # the push notification) and created at most once per episode via
+        # _repair_issue_active.
+        if (
+            persistent
+            and _issue_is_repair_worthy(key)
+            and key not in self._repair_issue_active
+        ):
+            self._repair_issue_active.add(key)
+            async_create_issue(
+                self.hass,
+                DOMAIN,
+                self._repair_issue_id(key),
+                is_fixable=False,
+                severity=(
+                    IssueSeverity.CRITICAL
+                    if severity == "critical"
+                    else IssueSeverity.WARNING
+                ),
+                translation_key=REPAIR_ISSUE_PERSISTENT,
+                translation_placeholders={
+                    "message": message,
+                    "duration_min": str(int(threshold_min)),
+                },
+            )
+
+        # Escalation-notification path (unchanged) — only escalation work
+        # remains once the repair-issue check above has run.
         if key in self._issue_escalated:
             return
         if not self.config.get(CONF_NOTIFY_ISSUE_ESCALATION, True):
             return
-        started_at = self._issue_started_at.get(key)
-        if started_at is None:
-            return
-        threshold_min = self.config.get(
-            CONF_ISSUE_ESCALATION_MINUTES, DEFAULT_ISSUE_ESCALATION_MINUTES
-        )
-        if (utcnow() - started_at).total_seconds() < threshold_min * 60:
+        if started_at is None or not persistent:
             return
         self._issue_escalated.add(key)
         await self._notify_issue_escalation(message, threshold_min)
+
+    def _repair_issue_id(self, key: str) -> str:
+        """Stable, registry-safe issue_id for a status-center key, scoped to
+        this config entry so two Heat Manager entries never collide."""
+        safe_key = key.lower().replace(":", "_").replace(" ", "_")
+        return f"persistent_{safe_key}_{self.entry.entry_id[:8]}"
 
     async def _notify_issue_escalation(self, message: str, threshold_min: float) -> None:
         service = self.config.get(CONF_NOTIFY_SERVICE, "")
@@ -1406,6 +1565,57 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 is_open,
                 "warning",
                 f"Vindue åbent — {room_name}",
+            )
+
+    async def _async_check_cloud_issue_events(self) -> None:
+        """Feed whole-house Netatmo cloud/gateway availability into the
+        generic issue tracker (2026-09-14, implementeringsplan punkt 2).
+        Mirrors websocket.py's _build_active_issues() cloud check (kept
+        independent rather than imported, same cross-module rationale used
+        elsewhere in this file) — only the "every Netatmo room unreachable"
+        case counts as the whole-house cloud_down category; a single room
+        being unavailable stays panel-only via the existing per-room
+        unavailable_entities status line, not a repair-worthy outage.
+        """
+        total = 0
+        unavailable = 0
+        for room in self.rooms:
+            room_name = room.get("room_name", "")
+            climate_id = self.get_climate_entity(room_name) or ""
+            hk_id = self.get_homekit_climate_entity(room_name) or ""
+            if not climate_id or climate_id == hk_id:
+                continue
+            total += 1
+            state = self.hass.states.get(climate_id)
+            if state is None or state.state in ("unavailable", "unknown"):
+                unavailable += 1
+        active = total > 0 and unavailable == total
+        await self._report_issue(
+            "cloud_down",
+            active,
+            "critical",
+            "Netatmo cloud/gateway nede — alle rum utilgængelige",
+        )
+
+    async def _async_check_room_override_stuck_events(self) -> None:
+        """Feed each room's manual-override state into the generic issue
+        tracker (2026-09-14, implementeringsplan punkt 2). A room left in
+        OVERRIDE for a long time is often simply forgotten — boosted or
+        manually adjusted once and never switched back — rather than a
+        deliberate long-term choice, so it becomes a real Repair issue once
+        persistent, the same threshold every other repair-worthy category
+        uses (CONF_ISSUE_ESCALATION_MINUTES).
+        """
+        for room in self.rooms:
+            room_name = room.get("room_name", "")
+            if not room_name:
+                continue
+            is_override = self.get_room_state(room_name) == RoomState.OVERRIDE
+            await self._report_issue(
+                f"room_override_stuck:{room_name}",
+                is_override,
+                "warning",
+                f"{room_name}: har stået i manuel override i lang tid",
             )
 
     async def _async_check_heatup_anomaly_events(self) -> None:
@@ -1791,6 +2001,18 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("window issue-event check failed: %s", err)
 
         try:
+            await self._async_check_cloud_issue_events()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("cloud issue-event check failed: %s", err)
+
+        try:
+            await self._async_check_room_override_stuck_events()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("room override-stuck issue-event check failed: %s", err)
+
+        try:
             await self._async_check_heatup_anomaly_events()
         # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001
@@ -2006,6 +2228,28 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 if feedforward > 0.0:
                     power = min(1.0, power + feedforward)
+
+                # ── Solar gain (2026-09-14, punkt 7) ─────────────────────────
+                # A room currently reading bright sun (per its optional lux
+                # sensor) needs less TRV-delivered heat than the schedule
+                # alone calls for — subtracted AFTER the weather-compensation
+                # feedforward above so the two can partially cancel on a
+                # cold-but-sunny day (proactive cold-weather boost, offset by
+                # the room actually getting warmed by the sun through its own
+                # windows). See _solar_gain_reduction()'s docstring for why
+                # this is lux-driven rather than a geometric sun-position
+                # model, and const.py's CONF_LUX_SENSOR for the per-room
+                # opt-in. No effect at all for a room with no lux sensor
+                # configured, or while CONF_SOLAR_GAIN_ENABLED is off
+                # (default off — unlike weather compensation, this has no
+                # prior always-on behaviour to preserve).
+                solar_reduction = _solar_gain_reduction(
+                    self.config,
+                    self.get_room_lux(room_name),
+                    self.get_sun_elevation(),
+                )
+                if solar_reduction > 0.0:
+                    power = max(0.0, power - solar_reduction)
 
                 trv_setpoint = PidController.power_to_setpoint(
                     power=power,

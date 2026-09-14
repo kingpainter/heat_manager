@@ -186,6 +186,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     DOMAIN,
                     f"{REPAIR_ISSUE_MISSING_CLIMATE}_{safe}_{entry.entry_id[:8]}",
                 )
+        # 2026-09-14 (punkt 2): also clear any "persistent issue" repair
+        # issue that was still open (cloud down, sustained mold risk, a
+        # room stuck in override) — tracked on the coordinator itself since
+        # its issue_id is derived from a dynamic key, not a fixed per-room
+        # pattern like the climate-entity one above.
+        for key in list(coordinator._repair_issue_active):
+            async_delete_issue(hass, DOMAIN, coordinator._repair_issue_id(key))
         # Only remove the domain-wide services once no config entry is left
         # to back them — otherwise a still-loaded entry would lose its
         # services after this one unloads.

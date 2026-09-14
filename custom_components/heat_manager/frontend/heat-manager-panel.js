@@ -734,6 +734,20 @@ class HeatManagerPanel extends HTMLElement {
         }
       } else if (moldBadge) { moldBadge.remove(); }
 
+      // 2026-09-14 (punkt 4): combined per-room health score badge.
+      let healthBadge = card.querySelector(".room-health-badge");
+      if (room.health_score != null && room.health_score < 100) {
+        const healthColor = room.health_label === "dårlig" ? "var(--red)" : room.health_label === "ok" ? "var(--amber)" : "var(--sub)";
+        if (!healthBadge) {
+          healthBadge = document.createElement("div");
+          healthBadge.className = "room-health-badge";
+          healthBadge.title = "Sundhedsscore — kombinerer batteri, skimmelrisiko, utilgængelige enheder og opvarmningsafvigelse";
+          card.appendChild(healthBadge);
+        }
+        healthBadge.style.color = healthColor;
+        healthBadge.textContent = `🩺 ${Math.round(room.health_score)}%`;
+      } else if (healthBadge) { healthBadge.remove(); }
+
       // 2026-09-07 audit fix (5.6/5.9): sync-mode / schedule / TRV-count.
       const metaBadges = [];
       if (room.sync_mode && room.sync_mode !== "disabled") {
@@ -1650,6 +1664,19 @@ class HeatManagerPanel extends HTMLElement {
         border-bottom: 1px solid rgba(148,163,184,0.12);
         background: rgba(0,0,0,0.18);
       }
+      /* Punkt 5 (2026-09-14) — sammenklappelige sektioner (Konfiguration-fanen).
+         Collapsed state lives purely as a .collapsed class on the .section-box
+         itself, toggled by clicking a .collapsible header — no per-section id
+         or persisted state needed; resets on next full render of the tab. */
+      .section-box-header.collapsible { cursor: pointer; user-select: none; }
+      .section-box-header.collapsible:hover { background: rgba(0,0,0,0.28); }
+      .section-box-header.collapsible::after {
+        content: "▾"; margin-left: auto; flex-shrink: 0;
+        color: var(--sub); font-size: 11px;
+        transition: transform .2s;
+      }
+      .section-box.collapsed .section-box-header.collapsible::after { transform: rotate(-90deg); }
+      .section-box.collapsed > *:not(.section-box-header) { display: none; }
       .section-box-title {
         font-size: 11px; font-weight: 600;
         text-transform: uppercase; letter-spacing: 1px;
@@ -1937,6 +1964,14 @@ class HeatManagerPanel extends HTMLElement {
         font-family: 'DM Mono', monospace;
       }
       .room-valve-heating { color: #f97316; }
+      /* Punkt 4 (2026-09-14) — combined per-room health score badge, only
+         shown when below 100 (a fully healthy room adds no extra badge). */
+      .room-health-badge {
+        display: inline-flex; align-items: center; gap: 3px;
+        font-size: 9px; font-weight: 700;
+        padding: 2px 6px; border-radius: 5px; margin-top: 5px;
+        background: rgba(148,163,184,0.12);
+      }
       .room-boost-badge {
         display: inline-flex; align-items: center; gap: 3px;
         font-size: 9px; font-weight: 700;
@@ -2461,6 +2496,12 @@ class HeatManagerPanel extends HTMLElement {
     const moldBadge = room.mold_risk
       ? `<div class="room-mold-badge" title="Høj fugt tæt på dugpunktet — risiko for skimmelvækst">⚠️ Skimmelrisiko</div>`
       : "";
+    // 2026-09-14 (punkt 4) — combined per-room health score, only shown
+    // when it's below 100 so a fully healthy room stays badge-free.
+    const healthColor = room.health_label === "dårlig" ? "var(--red)" : room.health_label === "ok" ? "var(--amber)" : "var(--sub)";
+    const healthBadge = (room.health_score != null && room.health_score < 100)
+      ? `<div class="room-health-badge" style="color:${healthColor}" title="Sundhedsscore — kombinerer batteri, skimmelrisiko, utilgængelige enheder og opvarmningsafvigelse">🩺 ${Math.round(room.health_score)}%</div>`
+      : "";
     // 2026-09-07 audit fix (5.6/5.9): sync-mode, schedule and multi-TRV were
     // already in the payload (Rum-detaljer tab, config-only fields) but
     // absent from Oversigt — grouped into one compact meta row so they
@@ -2522,6 +2563,7 @@ class HeatManagerPanel extends HTMLElement {
         ${extraChips}
         ${valveBadge}
         ${moldBadge}
+        ${healthBadge}
         ${blockingBadge}
         ${windowPendingBadge}
         ${metaRow}
@@ -3090,7 +3132,7 @@ class HeatManagerPanel extends HTMLElement {
     ];
     return `
       <div class="section-box">
-        <div class="section-box-header">
+        <div class="section-box-header collapsible" data-action="toggle-section">
           <div class="section-box-title">Global konfiguration</div>
         </div>
         ${cfg.map(([k,v]) =>
@@ -3099,7 +3141,7 @@ class HeatManagerPanel extends HTMLElement {
       </div>
 
       <div class="section-box">
-        <div class="section-box-header">
+        <div class="section-box-header collapsible" data-action="toggle-section">
           <div class="section-box-title">Alarmtavle</div>
           <div class="section-box-badge" style="background:rgba(249,115,22,0.12);color:var(--amber)">
             ${d.alarm_panel ? 'Konfigureret' : 'Ikke sat'}
@@ -3120,7 +3162,7 @@ class HeatManagerPanel extends HTMLElement {
       </div>
 
       <div class="section-box">
-        <div class="section-box-header">
+        <div class="section-box-header collapsible" data-action="toggle-section">
           <div class="section-box-title">Manuel TRV-kontrol</div>
           <div class="section-box-badge" style="background:${this._manualControlEnabled?'rgba(99,102,241,0.15)':'rgba(71,85,105,0.15)'};color:${this._manualControlEnabled?'#818cf8':'var(--sub)'}">
             ${this._manualControlEnabled ? 'Aktiv' : 'Inaktiv'}
@@ -3150,7 +3192,7 @@ class HeatManagerPanel extends HTMLElement {
            planning/heat_manager_fase2_spec_2026-09-11.md, "Del 1". -->
 
       <div class="section-box">
-        <div class="section-box-header">
+        <div class="section-box-header collapsible" data-action="toggle-section">
           <div class="section-box-title">PID-regulator</div>
           <div class="section-box-badge" style="background:${d.pid_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.pid_enabled ? "#818cf8" : "var(--sub)"}">
             ${d.pid_enabled ? "Aktiv" : "Inaktiv"}
@@ -3169,7 +3211,7 @@ class HeatManagerPanel extends HTMLElement {
            installationer opfører sig uændret indtil felterne rent faktisk
            redigeres her. -->
       <div class="section-box">
-        <div class="section-box-header">
+        <div class="section-box-header collapsible" data-action="toggle-section">
           <div class="section-box-title">Vejrkompensation</div>
           <div class="section-box-badge" style="background:${d.weather_compensation_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.weather_compensation_enabled ? "#818cf8" : "var(--sub)"}">
             ${d.weather_compensation_enabled ? "Aktiv" : "Inaktiv"}
@@ -3195,7 +3237,7 @@ class HeatManagerPanel extends HTMLElement {
       </div>
 
       <div class="section-box">
-        <div class="section-box-header">
+        <div class="section-box-header collapsible" data-action="toggle-section">
           <div class="section-box-title">Boost — standardværdier</div>
         </div>
         <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
@@ -3207,7 +3249,7 @@ class HeatManagerPanel extends HTMLElement {
       </div>
 
       <div class="section-box">
-        <div class="section-box-header">
+        <div class="section-box-header collapsible" data-action="toggle-section">
           <div class="section-box-title">Vindue</div>
         </div>
         ${this._cfgNumberRow("Forsinkelse før sluk", "window_delay_default_min", d.window_delay_default_min ?? "", {
@@ -3227,7 +3269,7 @@ class HeatManagerPanel extends HTMLElement {
       </div>
 
       <div class="section-box">
-        <div class="section-box-header">
+        <div class="section-box-header collapsible" data-action="toggle-section">
           <div class="section-box-title">Nat-sætpunkt</div>
           <div class="section-box-badge" style="background:${d.night_setback_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.night_setback_enabled ? "#818cf8" : "var(--sub)"}">
             ${d.night_setback_enabled ? "Aktiv" : "Inaktiv"}
@@ -3240,7 +3282,7 @@ class HeatManagerPanel extends HTMLElement {
       </div>
 
       <div class="section-box">
-        <div class="section-box-header">
+        <div class="section-box-header collapsible" data-action="toggle-section">
           <div class="section-box-title">Grace-perioder</div>
         </div>
         ${this._cfgNumberRow("Dag", "grace_day_min", d.grace_day_min ?? "", { min: 5, max: 120, step: 5, unit: "min", cast: "int" })}
@@ -3248,7 +3290,7 @@ class HeatManagerPanel extends HTMLElement {
       </div>
 
       <div class="section-box">
-        <div class="section-box-header">
+        <div class="section-box-header collapsible" data-action="toggle-section">
           <div class="section-box-title">Auto-off ved mildt vejr</div>
         </div>
         ${this._cfgNumberRow("Temperaturgrænse", "auto_off_temp_threshold", d.auto_off_temp_threshold ?? "", { min: 10, max: 30, step: 1, unit: "°C", cast: "float" })}
@@ -3256,7 +3298,7 @@ class HeatManagerPanel extends HTMLElement {
       </div>
 
       <div class="section-box" style="padding:0">
-        <div class="section-box-header" style="padding:12px 16px 10px;border-bottom:1px solid var(--div)">
+        <div class="section-box-header collapsible" data-action="toggle-section" style="padding:12px 16px 10px;border-bottom:1px solid var(--div)">
           <div class="section-box-title">Notifikationer</div>
         </div>
         <div style="display:grid;grid-template-columns:1fr${d.house_voice_enabled ? ' 1fr' : ''};gap:0">
@@ -3319,7 +3361,7 @@ class HeatManagerPanel extends HTMLElement {
       </div>
 
       <div class="section-box">
-        <div class="section-box-header">
+        <div class="section-box-header collapsible" data-action="toggle-section">
           <div class="section-box-title">Rum &amp; klimaentiteter</div>
         </div>
         ${(this._data?.rooms ?? []).map(r => {
@@ -3503,6 +3545,17 @@ class HeatManagerPanel extends HTMLElement {
     // them too, since it rebuilds .rooms-detail-container's innerHTML on
     // every poll (losing whatever listeners were attached here otherwise).
     this._attachRoomDetailEvents();
+
+    // Punkt 5 (2026-09-14) — sammenklappelige sektioner i Konfiguration-
+    // fanen. Collapsed state is purely a .collapsed class on the closest
+    // .section-box, toggled per header click — no per-section id needed,
+    // resets on the next full render (tab switch, or any action that calls
+    // _scheduleRender()). See _css() for the matching collapse rule.
+    root.querySelectorAll(".section-box-header.collapsible").forEach((header) => {
+      header.addEventListener("click", () => {
+        header.closest(".section-box")?.classList.toggle("collapsed");
+      });
+    });
 
     // G) History manual refresh
     root.querySelector("[data-action='refresh-history']")?.addEventListener("click", async () => {

@@ -9,6 +9,140 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.42.0] — 2026-09-14
+
+Implementerer punkt 5 og 12 af den prioriterede implementeringsplan
+(gruppe B): udetemperatur som covariate i opvarmningsrate-læringen, og
+card/panel data-parity for Lovelace-kortets press-and-hold-sheet.
+
+### Changed
+- **Punkt 5 — Opvarmningsrate-læring: udetemperatur som covariate**
+  (`engine/calibration_engine.py`): den lærte opvarmningsrate pr.
+  (rum, dør-tilstand) var én flad EMA, uafhængig af udetemperatur —
+  erstattet med en eksponentielt vægtet lineær regression
+  (`rate ≈ intercept + slope × udetemp`), samme fysiske intuition som
+  PID'ens eksisterende vejrkompensations-feedforward. `get_room_heatup_rate()`
+  beregner nu en forudsigelse for den AKTUELLE udetemperatur i stedet for
+  ét gennemsnit på tværs af alle tidligere observerede udetemperaturer.
+  Falder automatisk tilbage til den gamle flade middelværdi, indtil der er
+  observeret nok spredning i udetemperaturen til at fitte en pålidelig
+  hældning (eller hvis intet udetemperatur-sensor/vejr-entity er
+  konfigureret) — ingen adfærdsændring for en frisk installation før det.
+  Anomali-detektionen (`get_room_heatup_anomaly`) sammenligner nu også mod
+  den forudsagte rate for dagens udetemperatur i stedet for et fladt
+  gennemsnit — et rum der varmer langsommere udelukkende fordi det er
+  markant koldere udenfor lige nu, fejlmærkes ikke længere som anomalt.
+  Metodesignaturen `get_room_heatup_rate(room, door_open, outdoor_temp=None)`
+  er bagudkompatibel — eksisterende kald uden det nye argument får
+  automatisk `coordinator.outdoor_temperature` indsat. Explicit forarbejde
+  til punkt 6 (EKF-model), som planen selv anbefaler skal vente til denne
+  regression har kørt en fuld opvarmningssæson.
+
+### Added
+- **Punkt 12 — Card/panel data-parity** (`frontend/heat-manager-card.js`,
+  press-and-hold-sheeten): tilføjet de felter, kortet manglede i forhold
+  til panelets Rum-detaljer — Mål-temp (`target_temp`) og Away-temp
+  (`away_temp_override`) som egne linjer, Netatmo cloud-diagnostik
+  (preset mode, schedule, cloud-sætpunkt, hvac-action) for Netatmo-rum,
+  og — som bonus, da backend allerede leverer det efter punkt 4 —
+  sundhedsscore-badgen. Alle er rene læsninger fra det eksisterende
+  `_roomData`-snapshot (opdateret hvert 60. sekund via `get_state`-poll),
+  ingen ny backend- eller pollinglogik. "Flyt felter fra bottom-sheet til
+  hovedlinje" (samme punkt i planen) er bevidst ikke lavet i denne omgang —
+  ren layout-omrokering med lav prioritet, jf. planens egen vurdering af
+  punkt 12 som "lav prioritet — poler, ikke funktion".
+
+## [0.41.1] — 2026-09-14 (hotfix)
+
+Critical bugfix for v0.41.0: the entire integration frontend broke after
+upgrade — panel showed "Ingen forbindelse til Heat Manager" and "0 rum
+konfigureret" on every tab, immediately after a full HA restart.
+
+### Fixed
+- **`websocket.py` (`ws_get_state`)**: v0.41.0's new per-room health-score
+  computation referenced `unavailable_entities` several dozen lines before
+  that variable was actually assigned later in the same loop iteration — a
+  plain `NameError` on every single call, which crashed `ws_get_state()`
+  entirely before it could return anything. The panel's WS call therefore
+  always failed, falling back to its empty client-side snapshot (0 rooms,
+  "Ingen forbindelse"). Fixed by moving the health-score block to after
+  `unavailable_entities` is populated — no behavioural change to the score
+  itself, purely an ordering fix. Caught immediately by the user after
+  deploying v0.41.0; not caught beforehand since this repo has no automated
+  test coverage for `ws_get_state()` and the bug only manifests at runtime
+  (a `python3 -m py_compile` pass, which was run, cannot catch a NameError
+  that only fires when the function actually executes).
+
+## [0.41.0] — 2026-09-14
+
+Implementer trin 2–5 af den prioriterede implementeringsplan
+(`planning/heat_manager_prioriteret_implementeringsplan_2026-09-13.md`,
+gruppe A/B): statuscenter-dedup, per-rum sundhedsscore, en udvidet HA
+Repairs-integration, og sammenklappelige sektioner i panelets
+Konfiguration-fane.
+
+### Added
+- **Punkt 4 — Sundhedsscore pr. rum** (`websocket.py`, `heat-manager-panel.js`):
+  nyt `health_score` (0–100) og `health_label` ("god"/"ok"/"dårlig") felt pr.
+  rum i `ws_get_state()`-payloaden — en simpel, additiv vægtning af allerede
+  eksisterende signaler (lavt batteri, skimmelrisiko, utilgængelige enheder,
+  opvarmningsrate-afvigelse). Vist som et nyt 🩺-badge på Oversigt-rumkortene,
+  kun når scoren er under 100 (et fuldt sundt rum får intet ekstra badge).
+- **Punkt 2 — Udvidet HA Repairs-integration** (`coordinator.py`, `__init__.py`,
+  `const.py`, `strings.json`/`translations/da.json`): `_report_issue()`’s
+  eksisterende statuscenter-tracker rejser nu også en rigtig HA Repair-issue
+  (synlig i Indstillinger → Reparationer og HA-mobilappens badge) for tre
+  kategorier, når de har været uafbrudt aktive forbi `issue_escalation_minutes`
+  (samme tærskel push-notifikationen allerede bruger): `cloud_down` (hele
+  huset — alle Netatmo-rum utilgængelige), `mold_risk:<rum>` (vedvarende
+  skimmelrisiko, genbruger den eksisterende kategori), og det nye
+  `room_override_stuck:<rum>` (et rum der har stået i manuel override længe —
+  ofte bare glemt boost/manuel justering). Én delt oversat streng
+  (`persistent_issue`, med `{message}`/`{duration_min}`-placeholders) i stedet
+  for en per-kategori oversat streng. Ryddes automatisk når kategorien igen
+  bliver inaktiv, og ved entry-unload.
+- **Punkt 5 — Sammenklappelige sektioner** (`heat-manager-panel.js`,
+  Konfiguration-fanen): hver `.section-box`-header i fanen kan nu klappes
+  sammen/ud ved klik — tilstanden ligger udelukkende som en `.collapsed`-klasse
+  på selve `.section-box`, uden per-sektion-id eller persisteret state (nulstilles
+  ved næste fulde render af fanen, fx faneskift). Reducerer scroll-mængden
+  på særligt mobil, hvor Konfiguration-fanen har 12 sektioner.
+
+### Changed
+- **Punkt 3 — Dedup/gruppering af statuscenter-issues** (`websocket.py`
+  `_build_active_issues()`): kategorierne “utilgængelige entiteter”,
+  “skimmelrisiko”, “åbent vindue” og “opvarmningsanomali” viser nu én samlet
+  linje (fx “5 rum har utilgængelige sensorer/enheder”) i stedet for én linje
+  pr. ramt rum, når mere end ét rum er ramt samtidig — uddrag af sidste sæsons
+støjende statuscenter. Et enkelt ramt rum viser stadig den samme,
+rum-specifikke besked som før.
+
+## [0.40.1] — 2026-09-14
+
+Bugfix — Netatmo rooms' displayed heating-power/valve % (🔥 in the panel's
+room cards) was misleading: it echoed Netatmo's own self-reported
+`heating_power_request` cloud attribute, which can lag several minutes
+behind Heat Manager's actual commanded setpoint (cloud/valve lag). A room
+Heat Manager had already brought back to target could still show 70-100%
+"demand" purely from Netatmo's side, looking like a stuck/overheating PID
+when the PID itself had already correctly dropped to 0% (confirmed via
+anti-windup check in `engine/pid_controller.py` — clamp and math both
+correct). Root cause investigated 2026-09-14 after a user report of rooms
+holding at 23-25°C against a 19°C target with the panel showing 72-100%
+heating power.
+
+### Fixed
+- **`websocket.py` (`ws_get_state`)**: a Netatmo/HomeKit-split room's
+  `valve_position` (the field the panel displays as 🔥/valve %) is now set
+  from Heat Manager's own `pid_power` (the PID controller's last computed
+  output) instead of the cloud entity's `heating_power_request` attribute.
+  Zigbee rooms with a configured `pi_demand_entity` (an actual physical
+  valve-position sensor) are unaffected — that override still applies, since
+  those rooms have no HomeKit entity and the new Netatmo-only condition is
+  never true for them. The raw `heating_power_request` value is still read
+  into a local variable for potential future diagnostics use, just no longer
+  echoed to the frontend as the room's valve %.
+
 ## [0.40.0] — 2026-09-13
 
 Weather compensation curve — fifth and final of five architecture-review

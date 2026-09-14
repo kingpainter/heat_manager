@@ -1502,6 +1502,48 @@ class HeatManagerCard extends HTMLElement {
       rows.push(["🗓 Schedule", "Konfigureret"]);
     }
 
+    // Punkt 12 (2026-09-14, card/panel data-parity) — target_temp/away_temp
+    // read-out, mirroring the panel's Rum-fane inline room-cfg rows
+    // (target_temp is already used as the manual-temp input's placeholder
+    // below, but wasn't shown as its own labelled row anywhere on this
+    // card until now — same gap for away_temp_override, which the card
+    // never surfaced at all). Both are plain rd reads, only present once
+    // the 60s get_state poll has completed.
+    if (rd?.target_temp != null) {
+      rows.push(["🎯 Mål-temp", rd.target_temp.toFixed(1) + "°C"]);
+    }
+    if (rd?.away_temp_override != null) {
+      rows.push(["🚀 Away-temp", rd.away_temp_override.toFixed(1) + "°C"]);
+    }
+
+    // Punkt 12 — Netatmo cloud-diagnostik, mirroring the panel's
+    // Rum-detaljer "🛰️ Netatmo:" row (_roomDetailRowHTML's netatmoHTML) — only
+    // present for rooms with a Netatmo cloud climate entity (None for
+    // Zigbee/local rooms, same as the panel). Shows what Netatmo's OWN
+    // cloud entity currently reports, separate from Heat Manager's
+    // resolved Mål-temp above — the exact distinction the B21 target-temp
+    // bug (2026-09-11) made worth surfacing on both surfaces, not just the
+    // panel.
+    if (rd?.cloud_preset_mode || rd?.cloud_selected_schedule || rd?.cloud_temperature != null) {
+      const parts = [];
+      if (rd.cloud_preset_mode) parts.push(rd.cloud_preset_mode);
+      if (rd.cloud_selected_schedule) parts.push(`(${rd.cloud_selected_schedule})`);
+      if (parts.length) rows.push(["🛰️ Netatmo", parts.join(" ")]);
+      if (rd.cloud_temperature != null) {
+        rows.push(["🛰️ Netatmo sætpunkt", (Math.round(rd.cloud_temperature * 10) / 10) + "°C"]);
+      }
+      if (rd.cloud_hvac_action) {
+        rows.push(["🛰️ Netatmo hvac", rd.cloud_hvac_action]);
+      }
+    }
+
+    // Punkt 4/12 — combined per-room health score, same weighting as the
+    // panel's 🩺 badge (websocket.py's health_score/health_label) — only
+    // shown when below 100, same threshold the panel badge uses.
+    if (rd?.health_score != null && rd.health_score < 100) {
+      rows.push(["🩺 Sundhed", `${Math.round(rd.health_score)}% (${rd.health_label ?? "–"})`]);
+    }
+
     const extraBlocking = rd?.blocking_sources
       ? rd.blocking_sources.filter(s => !((s === "window" && state === "window_open") || (s === "presence" && state === "away")))
       : this._roomExtraBlocking(roomName, state);

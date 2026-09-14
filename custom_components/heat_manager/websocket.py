@@ -210,47 +210,97 @@ def _build_active_issues(
     # 2. Other unavailable entities per room (window/humidity/CO2/battery/
     # secondary TRVs) — reuses each room's own "unavailable_entities" already
     # computed above in this same payload, just filtered to non-climate.
+    # 2026-09-14 (punkt 3, dedup): collapsed into ONE grouped line once more
+    # than one room is affected, instead of one separate line per room — "5
+    # rum har utilgængelige sensorer" reads far better than 5 near-identical
+    # lines drowning out the rest of the status center.
+    unavailable_entity_rooms: list[tuple[str, int]] = []
     for room in rooms:
         others = [
             e for e in room.get("unavailable_entities", []) if not e.startswith("climate.")
         ]
         if others:
-            issues.append(
-                {
-                    "severity": "warning",
-                    "icon": "⚠️",
-                    "message": f"{room['name']}: {len(others)} sensor(er)/enhed(er) utilgængelig(e)",
-                }
-            )
+            unavailable_entity_rooms.append((room["name"], len(others)))
+    if len(unavailable_entity_rooms) == 1:
+        room_name, count = unavailable_entity_rooms[0]
+        issues.append(
+            {
+                "severity": "warning",
+                "icon": "⚠️",
+                "message": f"{room_name}: {count} sensor(er)/enhed(er) utilgængelig(e)",
+            }
+        )
+    elif unavailable_entity_rooms:
+        total_entities = sum(c for _, c in unavailable_entity_rooms)
+        names = ", ".join(n for n, _ in unavailable_entity_rooms)
+        issues.append(
+            {
+                "severity": "warning",
+                "icon": "⚠️",
+                "message": f"{len(unavailable_entity_rooms)} rum har utilgængelige"
+                f" sensorer/enheder ({total_entities} i alt): {names}",
+            }
+        )
 
-    # 3. Mold risk (already computed per room above)
-    for room in rooms:
-        if room.get("mold_risk"):
-            issues.append(
-                {"severity": "warning", "icon": "💧", "message": f"Skimmelrisiko — {room['name']}"}
-            )
+    # 3. Mold risk (already computed per room above) — grouped, see punkt 3
+    # above: one line total once more than one room is at risk.
+    mold_rooms = [room["name"] for room in rooms if room.get("mold_risk")]
+    if len(mold_rooms) == 1:
+        issues.append(
+            {"severity": "warning", "icon": "💧", "message": f"Skimmelrisiko — {mold_rooms[0]}"}
+        )
+    elif mold_rooms:
+        issues.append(
+            {
+                "severity": "warning",
+                "icon": "💧",
+                "message": f"Skimmelrisiko ({len(mold_rooms)} rum): {', '.join(mold_rooms)}",
+            }
+        )
 
-    # 4. Windows currently open (already computed per room above)
-    for room in rooms:
-        if room.get("windows_open"):
-            issues.append(
-                {"severity": "warning", "icon": "🪟", "message": f"Vindue åbent — {room['name']}"}
-            )
+    # 4. Windows currently open (already computed per room above) — grouped.
+    window_rooms = [room["name"] for room in rooms if room.get("windows_open")]
+    if len(window_rooms) == 1:
+        issues.append(
+            {"severity": "warning", "icon": "🪟", "message": f"Vindue åbent — {window_rooms[0]}"}
+        )
+    elif window_rooms:
+        issues.append(
+            {
+                "severity": "warning",
+                "icon": "🪟",
+                "message": f"Vindue åbent ({len(window_rooms)} rum): {', '.join(window_rooms)}",
+            }
+        )
 
     # 4b. Heat-up-rate anomaly (2026-09-13, architecture review #3) — a room
     # heating markedly slower than its OWN learned baseline for several
     # samples in a row. See CalibrationEngine.get_room_heatup_anomaly().
-    for room in coordinator.rooms:
-        room_name = room.get("room_name", "")
-        if room_name and coordinator.calibration_engine.get_room_heatup_anomaly(room_name):
-            issues.append(
-                {
-                    "severity": "warning",
-                    "icon": "🐌",
-                    "message": f"{room_name}: varmer langsommere end normalt — muligvis"
-                    " fastsiddende ventil",
-                }
-            )
+    # Grouped the same way as 3/4 above.
+    anomaly_rooms = [
+        room.get("room_name", "")
+        for room in coordinator.rooms
+        if room.get("room_name")
+        and coordinator.calibration_engine.get_room_heatup_anomaly(room.get("room_name", ""))
+    ]
+    if len(anomaly_rooms) == 1:
+        issues.append(
+            {
+                "severity": "warning",
+                "icon": "🐌",
+                "message": f"{anomaly_rooms[0]}: varmer langsommere end normalt — muligvis"
+                " fastsiddende ventil",
+            }
+        )
+    elif anomaly_rooms:
+        issues.append(
+            {
+                "severity": "warning",
+                "icon": "🐌",
+                "message": f"{len(anomaly_rooms)} rum varmer langsommere end normalt —"
+                f" muligvis fastsiddende ventil: {', '.join(anomaly_rooms)}",
+            }
+        )
 
     # 5. Boost active (info — not a problem, just currently-notable state)
     remaining = coordinator.boost_remaining_minutes
@@ -619,9 +669,19 @@ async def ws_get_state(
                 if raw is not None:
                     with contextlib.suppress(TypeError, ValueError):
                         heating_power = float(raw)
-                        valve_position = (
-                            heating_power  # Netatmo: heating_power_request IS valve %
-                        )
+                        # 2026-09-14 fix: valve_position used to be set
+                        # straight from Netatmo's own self-reported
+                        # heating_power_request here. That value can lag
+                        # several minutes behind what Heat Manager has
+                        # actually just commanded (cloud/valve lag) — a room
+                        # already back at target could still show 70-100%
+                        # "demand" from Netatmo's side, looking like a stuck
+                        # PID when the PID itself had already dropped to 0.
+                        # valve_position for Netatmo rooms is now set from
+                        # Heat Manager's own pid_power further down instead
+                        # (once it's computed) — heating_power is kept only
+                        # as a raw value, no longer echoed to the frontend
+                        # as the room's displayed 🔥/valve %.
                 cloud_temperature = _coerce_float(cs.attributes.get("temperature"))
                 cloud_hvac_action = cs.attributes.get("hvac_action")
                 cloud_preset_mode = cs.attributes.get("preset_mode")
@@ -723,6 +783,17 @@ async def ws_get_state(
             if raw_pid is not None:
                 pid_power = round(raw_pid * 100.0, 1)
 
+        # 2026-09-14 fix: Netatmo rooms' valve_position now reflects Heat
+        # Manager's own commanded power (pid_power) rather than Netatmo's
+        # self-reported heating_power_request — see the comment above where
+        # heating_power is read for why. Only applies to Netatmo/HomeKit-
+        # split rooms; a Zigbee room's pi_demand_entity override above (an
+        # actual physical valve-position sensor) is untouched by this and
+        # still takes precedence when configured, since Zigbee rooms have
+        # no HomeKit entity and this condition is False for them.
+        if coordinator.get_homekit_climate_entity(name) and pid_power is not None:
+            valve_position = pid_power
+
         calibration_offset = coordinator.calibration_engine._last_written.get(name)
 
         window_duration_today: int | None = None
@@ -767,6 +838,39 @@ async def ws_get_state(
                     "unavailable",
                 ):
                     unavailable_entities.append(extra_id)
+
+        # 2026-09-14 (punkt 4) — per-room health score: combines signals that
+        # already exist individually (battery, mold risk, unavailable
+        # entities, heat-up-rate anomaly) into one weighted 0-100 indicator,
+        # instead of the user mentally combining several separate badges
+        # themselves. Weights are deliberately simple/additive, not a real
+        # statistical model — easy to reason about and to retune later.
+        # Moved here (after unavailable_entities is populated, 2026-09-14
+        # hotfix) — an earlier revision referenced it before this point,
+        # which raised NameError and took down ws_get_state() entirely (see
+        # CHANGELOG [0.41.1]).
+        heatup_anomaly = bool(
+            coordinator.calibration_engine.get_room_heatup_anomaly(name)
+        ) if name else False
+        _health_penalty = 0
+        if battery_level is not None:
+            if battery_level < 20:
+                _health_penalty += 30
+            elif battery_level < 40:
+                _health_penalty += 10
+        if mold_risk:
+            _health_penalty += 25
+        if unavailable_entities:
+            _health_penalty += min(30, 10 * len(unavailable_entities))
+        if heatup_anomaly:
+            _health_penalty += 20
+        health_score = max(0, 100 - _health_penalty)
+        if health_score >= 80:
+            health_label = "god"
+        elif health_score >= 50:
+            health_label = "ok"
+        else:
+            health_label = "dårlig"
 
         rooms.append(
             {
@@ -858,6 +962,10 @@ async def ws_get_state(
                 "heatup_rate_door_closed": coordinator.calibration_engine.get_room_heatup_rate(
                     name, False
                 ),
+                # 2026-09-14 (punkt 4) — combined per-room health indicator,
+                # see computation above.
+                "health_score": health_score,
+                "health_label": health_label,
             }
         )
 
