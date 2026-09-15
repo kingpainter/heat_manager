@@ -698,6 +698,15 @@ def _room_schema(defaults: dict | None = None) -> vol.Schema:
             ): selector.selector(
                 {"entity": {"domain": "sensor"}}
             ),  # relative humidity %
+            # Lux/illuminance sensor (2026-09-14, punkt 7 — solar gain) —
+            # optional. See const.py's CONF_LUX_SENSOR for the full
+            # rationale. Has no effect at all unless the global
+            # CONF_SOLAR_GAIN_ENABLED toggle (Season & global settings) is
+            # also on.
+            vol.Optional(
+                CONF_LUX_SENSOR,
+                default=defaults.get(CONF_LUX_SENSOR) or vol.UNDEFINED,
+            ): selector.selector({"entity": {"domain": "sensor"}}),  # illuminance, lux
             # ── Schedule / calendar override (v0.9.0, Fase D) ───────────────────
             # schedule.* or calendar.* entity — see engine/schedule_engine.py.
             # While a block/event is active, its temperature overrides this

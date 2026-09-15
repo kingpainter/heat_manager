@@ -712,14 +712,15 @@ class HeatManagerPanel extends HTMLElement {
       // 2026-09-07 audit fix (5.2 follow-up): humidity/CO2 chip line.
       const humidityStr = room.humidity != null ? `${Math.round(room.humidity * 10) / 10}%` : null;
       const co2Str      = room.co2 != null ? `${Math.round(room.co2)} ppm` : null;
+      const luxStr      = room.lux != null ? `${Math.round(room.lux)} lux` : null;
       let chips = card.querySelector(".room-extra-chips");
-      if (humidityStr || co2Str) {
+      if (humidityStr || co2Str || luxStr) {
         if (!chips) {
           chips = document.createElement("div");
           chips.className = "room-extra-chips";
           card.querySelector(".room-state-bar")?.insertAdjacentElement("afterend", chips);
         }
-        chips.innerHTML = `${humidityStr ? `<span>💧 ${humidityStr}</span>` : ""}${co2Str ? `<span>🫧 ${co2Str}</span>` : ""}`;
+        chips.innerHTML = `${humidityStr ? `<span>💧 ${humidityStr}</span>` : ""}${co2Str ? `<span>🫧 ${co2Str}</span>` : ""}${luxStr ? `<span>☀️ ${luxStr}</span>` : ""}`;
       } else if (chips) { chips.remove(); }
 
       // 2026-09-07 audit fix (5.3): mold-risk badge.
@@ -2488,8 +2489,9 @@ class HeatManagerPanel extends HTMLElement {
     // Oversigt cards — same slim chip line, just here too.
     const humidityStr = room.humidity != null ? `${Math.round(room.humidity * 10) / 10}%` : null;
     const co2Str      = room.co2 != null ? `${Math.round(room.co2)} ppm` : null;
-    const extraChips  = (humidityStr || co2Str)
-      ? `<div class="room-extra-chips">${humidityStr ? `<span>💧 ${humidityStr}</span>` : ""}${co2Str ? `<span>🫧 ${co2Str}</span>` : ""}</div>`
+    const luxStr      = room.lux != null ? `${Math.round(room.lux)} lux` : null;
+    const extraChips  = (humidityStr || co2Str || luxStr)
+      ? `<div class="room-extra-chips">${humidityStr ? `<span>💧 ${humidityStr}</span>` : ""}${co2Str ? `<span>🫧 ${co2Str}</span>` : ""}${luxStr ? `<span>☀️ ${luxStr}</span>` : ""}</div>`
       : "";
     // 2026-09-07 audit fix (5.3): mold-risk badge (see websocket.py comment
     // at the mold_risk field for the algorithm).
@@ -2775,6 +2777,7 @@ class HeatManagerPanel extends HTMLElement {
     const batteryStr  = battery != null ? `${battery}%` : "–";
     const humidityStr = room.humidity != null ? `${Math.round(room.humidity * 10) / 10}%` : null;
     const co2Str      = room.co2 != null ? `${Math.round(room.co2)} ppm` : null;
+    const luxStr      = room.lux != null ? `${Math.round(room.lux)} lux` : null;
     // 2026-09 frontend-parity fix: these were computed by the backend
     // (PID's own power output, calibration_engine's last written offset,
     // RoomWindowDurationSensor's running total) but only ever visible via
@@ -2905,10 +2908,11 @@ class HeatManagerPanel extends HTMLElement {
       : `<div style="display:grid;grid-template-columns:1fr;gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid var(--div)">
            ${statBox("Rum temp", roomTempStr, null, roomTempDesc)}
          </div>`;
-    const extraSensorsHTML = (humidityStr || co2Str || pidPowerStr || calibStr || windowDurStr || doorStr || unavailableList.length) ? `
+    const extraSensorsHTML = (humidityStr || co2Str || luxStr || pidPowerStr || calibStr || windowDurStr || doorStr || unavailableList.length) ? `
          <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
            ${humidityStr ? `<span style="font-size:10px;color:var(--sub)">💧 ${humidityStr}</span>` : ""}
            ${co2Str ? `<span style="font-size:10px;color:var(--sub)">🫧 CO₂ ${co2Str}</span>` : ""}
+           ${luxStr ? `<span style="font-size:10px;color:var(--sub)">☀️ ${luxStr}</span>` : ""}
            ${pidPowerStr ? `<span style="font-size:10px;color:var(--sub)">⚙️ PID ${pidPowerStr}</span>` : ""}
            ${calibStr ? `<span style="font-size:10px;color:var(--sub)">🎯 ${calibStr}</span>` : ""}
            ${windowDurStr ? `<span style="font-size:10px;color:var(--sub)">🪟 ${windowDurStr} i dag</span>` : ""}
@@ -3233,6 +3237,39 @@ class HeatManagerPanel extends HTMLElement {
         ${this._cfgNumberRow("Maksimalt bidrag", "ff_max_contribution", d.ff_max_contribution ?? "", {
           min: 0, max: 0.6, step: 0.05, cast: "float",
           desc: "Loft — vejrkompensation alene tilføjer aldrig mere end denne andel af effekten.",
+        })}
+      </div>
+
+      <!-- 2026-09-14 (punkt 7) — solindfald: reducerer PID-effekten pr. rum
+           når sol.sol (sun.sun) er over horisonten og rummets lux-sensor
+           (konfigureres pr. rum under "Rum & klimaentiteter"/rediger rum)
+           viser lys. Genbruger de samme generiske toggle/number-rækker
+           (og dermed den samme gem-logik) som Vejrkompensation ovenfor. -->
+      <div class="section-box">
+        <div class="section-box-header collapsible" data-action="toggle-section">
+          <div class="section-box-title">Solindfald</div>
+          <div class="section-box-badge" style="background:${d.solar_gain_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.solar_gain_enabled ? "#818cf8" : "var(--sub)"}">
+            ${d.solar_gain_enabled ? "Aktiv" : "Inaktiv"}
+          </div>
+        </div>
+        <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
+          Reducerer PID-effekten i et rum, mens solen er oppe og rummets lux-sensor
+          (sat pr. rum) viser lys — direkte sol gennem vinduerne kræver mindre varme
+          fra TRV'en lige nu. Kun rum med en lux-sensor konfigureret påvirkes;
+          nuværende: Stuen, Køkken, Gang.
+        </div>
+        ${this._cfgToggleRow("Solindfald aktiveret", "solar_gain_enabled", !!d.solar_gain_enabled)}
+        ${this._cfgNumberRow("Lux-grænse", "solar_gain_lux_threshold", d.solar_gain_lux_threshold ?? "", {
+          min: 500, max: 30000, step: 500, unit: "lux", cast: "float",
+          desc: "Lux-niveau, hvorover rummet regnes for at få reel sol lige nu.",
+        })}
+        ${this._cfgNumberRow("Vægt", "solar_gain_weight", d.solar_gain_weight ?? "", {
+          min: 0, max: 0.5, step: 0.01, cast: "float",
+          desc: "Hvor meget effekten reduceres pr. gang rummets lux overstiger grænsen.",
+        })}
+        ${this._cfgNumberRow("Maksimal reduktion", "solar_gain_max_reduction", d.solar_gain_max_reduction ?? "", {
+          min: 0, max: 0.8, step: 0.05, cast: "float",
+          desc: "Loft — solindfald alene fjerner aldrig mere end denne andel af effekten.",
         })}
       </div>
 

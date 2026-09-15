@@ -9,6 +9,29 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.43.0] — 2026-09-14
+
+Implementerer punkt 7 (gruppe C) af den prioriterede implementeringsplan:
+solindfald via `sun.sun` + valgfri per-rum lux-sensor.
+
+### Added
+- **Punkt 7 — Solindfald** (`const.py`, `coordinator.py`, `config_flow.py`,
+  `websocket.py`, `heat-manager-panel.js`): nyt `CONF_LUX_SENSOR` — en
+  valgfri lux-sensor pr. rum (i dag: Stuen, Køkken, Gang — tilføjes for
+  flere rum når der købes sensorer, uden kodeændringer). Ny
+  `coordinator._solar_gain_reduction()`: når `sun.sun`'s elevation er over
+  horisonten OG rummets lux overstiger en konfigurerbar grænse, reduceres
+  PID'ens beregnede effekt — aldrig øges, kun trækkes fra, anvendt EFTER
+  vejrkompensations-feedforward'en så de to kan modvirke hinanden på en
+  kold-men-solrig dag. Bevidst målt (lux) frem for beregnet (sol-position +
+  husorientering) — en lux-af læsning fanger automatisk skydække, gardiner
+  og årstid uden at nogen skal konfigurere en vinkel. Ny global sektion
+  "Solindfald" i Konfiguration-fanen (lux-grænse/vægt/maks-reduktion, samme
+  mønster som Vejrkompensation) — **off by default**, ingen
+  adfærdsændring for nogen installation før både dette slås til OG mindst
+  ét rum har en lux-sensor sat. Lux vist som ny chip på rumkort (Oversigt)
+  og i Rum-detaljer, side om side med fugt/CO₂.
+
 ## [0.42.0] — 2026-09-14
 
 Implementerer punkt 5 og 12 af den prioriterede implementeringsplan

@@ -47,6 +47,7 @@ from .const import (
     CONF_HOUSE_VOICE_ENABLED,
     CONF_HUMIDITY_SENSOR,
     CONF_ISSUE_ESCALATION_MINUTES,
+    CONF_LUX_SENSOR,
     CONF_MANUAL_TRV_CONTROL,
     CONF_NIGHT_END_HOUR,
     CONF_NIGHT_SETBACK_ENABLED,
@@ -70,6 +71,10 @@ from .const import (
     CONF_ROOM_NAME,
     CONF_ROOMS,
     CONF_SCHEDULE_ENTITY,
+    CONF_SOLAR_GAIN_ENABLED,
+    CONF_SOLAR_GAIN_LUX_THRESHOLD,
+    CONF_SOLAR_GAIN_MAX_REDUCTION,
+    CONF_SOLAR_GAIN_WEIGHT,
     CONF_SYNC_MODE,
     CONF_TRV_TYPE,
     CONF_WEATHER_COMPENSATION_ENABLED,
@@ -94,6 +99,7 @@ from .const import (
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
+    DEFAULT_SOLAR_GAIN_ENABLED,
     DEFAULT_WEATHER_COMPENSATION_ENABLED,
     DEFAULT_WINDOW_DELAY_DEFAULT_MIN,
     DEFAULT_WINDOW_OFF_TEMP,
@@ -102,6 +108,9 @@ from .const import (
     FF_MAX_CONTRIBUTION,
     FF_REFERENCE_OUTDOOR_TEMP,
     FF_WEIGHT,
+    SOLAR_GAIN_LUX_THRESHOLD,
+    SOLAR_GAIN_MAX_REDUCTION,
+    SOLAR_GAIN_WEIGHT,
     RoomState,
 )
 from .panel import _get_version
@@ -746,6 +755,20 @@ async def ws_get_state(
                 with contextlib.suppress(TypeError, ValueError):
                     co2 = float(c2s.state)
 
+        # Lux/illuminance (2026-09-14, punkt 7 — solar gain) — same optional
+        # per-room pattern as humidity/co2 above. Purely a diagnostic read
+        # here (the actual PID power reduction is computed independently in
+        # coordinator._solar_gain_reduction() during the PID tick); shown so
+        # the panel/card can display what the room is currently reading,
+        # not just whether solar gain is configured.
+        lux: float | None = None
+        lux_entity = room.get(CONF_LUX_SENSOR) or None
+        if lux_entity:
+            lxs = hass.states.get(lux_entity)
+            if lxs and lxs.state not in ("unknown", "unavailable"):
+                with contextlib.suppress(TypeError, ValueError):
+                    lux = float(lxs.state)
+
         # 2026-09-07 audit fix (5.3): MoldRiskSensor (binary_sensor.py)
         # computes this per room but it was never surfaced in either
         # frontend — a real, quietly-computed safety signal invisible to
@@ -900,6 +923,7 @@ async def ws_get_state(
                 "battery_level": battery_level,  # % — Rum-detaljer/oversigt
                 "humidity": humidity,  # % — only set when humidity_sensor is configured
                 "co2": co2,  # ppm — only set when co2_sensor is configured
+                "lux": lux,  # 2026-09-14 (punkt 7) — only set when lux_sensor is configured
                 "mold_risk": mold_risk,  # 2026-09-07 audit fix (5.3)
                 "pid_power": pid_power,  # 2026-09 frontend-parity fix
                 "calibration_offset": calibration_offset,  # 2026-09 frontend-parity fix
@@ -1088,6 +1112,18 @@ async def ws_get_state(
         ),
         "ff_weight": cfg.get(CONF_FF_WEIGHT, FF_WEIGHT),
         "ff_max_contribution": cfg.get(CONF_FF_MAX_CONTRIBUTION, FF_MAX_CONTRIBUTION),
+        # 2026-09-14 (punkt 7) — solar gain, same panel-editable pattern as
+        # weather compensation above.
+        "solar_gain_enabled": cfg.get(
+            CONF_SOLAR_GAIN_ENABLED, DEFAULT_SOLAR_GAIN_ENABLED
+        ),
+        "solar_gain_lux_threshold": cfg.get(
+            CONF_SOLAR_GAIN_LUX_THRESHOLD, SOLAR_GAIN_LUX_THRESHOLD
+        ),
+        "solar_gain_weight": cfg.get(CONF_SOLAR_GAIN_WEIGHT, SOLAR_GAIN_WEIGHT),
+        "solar_gain_max_reduction": cfg.get(
+            CONF_SOLAR_GAIN_MAX_REDUCTION, SOLAR_GAIN_MAX_REDUCTION
+        ),
     }
 
     payload: dict[str, Any] = {
@@ -1195,6 +1231,7 @@ _BOOL_CONFIG_FIELD_DEFAULTS: dict[str, bool] = {
     CONF_NOTIFY_MOLD_RISK: True,
     CONF_NOTIFY_ISSUE_ESCALATION: True,
     CONF_WEATHER_COMPENSATION_ENABLED: DEFAULT_WEATHER_COMPENSATION_ENABLED,
+    CONF_SOLAR_GAIN_ENABLED: DEFAULT_SOLAR_GAIN_ENABLED,
 }
 
 # value = (python type to cast the raw WS value to, DEFAULT_* fallback)
@@ -1218,6 +1255,9 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
     CONF_FF_REFERENCE_OUTDOOR_TEMP: (float, FF_REFERENCE_OUTDOOR_TEMP),
     CONF_FF_WEIGHT: (float, FF_WEIGHT),
     CONF_FF_MAX_CONTRIBUTION: (float, FF_MAX_CONTRIBUTION),
+    CONF_SOLAR_GAIN_LUX_THRESHOLD: (float, SOLAR_GAIN_LUX_THRESHOLD),
+    CONF_SOLAR_GAIN_WEIGHT: (float, SOLAR_GAIN_WEIGHT),
+    CONF_SOLAR_GAIN_MAX_REDUCTION: (float, SOLAR_GAIN_MAX_REDUCTION),
 }
 
 
@@ -1236,9 +1276,13 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
         vol.Optional(CONF_NOTIFY_MOLD_RISK): bool,
         vol.Optional(CONF_NOTIFY_ISSUE_ESCALATION): bool,
         vol.Optional(CONF_WEATHER_COMPENSATION_ENABLED): bool,
+        vol.Optional(CONF_SOLAR_GAIN_ENABLED): bool,
         vol.Optional(CONF_FF_REFERENCE_OUTDOOR_TEMP): vol.Any(float, int),
         vol.Optional(CONF_FF_WEIGHT): vol.Any(float, int),
         vol.Optional(CONF_FF_MAX_CONTRIBUTION): vol.Any(float, int),
+        vol.Optional(CONF_SOLAR_GAIN_LUX_THRESHOLD): vol.Any(float, int),
+        vol.Optional(CONF_SOLAR_GAIN_WEIGHT): vol.Any(float, int),
+        vol.Optional(CONF_SOLAR_GAIN_MAX_REDUCTION): vol.Any(float, int),
         vol.Optional(CONF_PID_KP): vol.Any(float, int),
         vol.Optional(CONF_PID_KI): vol.Any(float, int),
         vol.Optional(CONF_PID_KD): vol.Any(float, int),
