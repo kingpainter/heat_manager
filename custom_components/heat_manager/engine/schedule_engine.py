@@ -36,7 +36,7 @@ _async_pid_tick() falls through to its normal target unchanged.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -111,7 +111,7 @@ class ScheduleEngine:
         # block's "Additional data" onto the entity's own attributes.
         return self._coerce_float(state.attributes.get("temperature"))
 
-    def _parse_calendar_description(self, entity_id: str, state) -> float | None:
+    def _parse_calendar_description(self, entity_id: str, state: Any) -> float | None:
         description = state.attributes.get("description")
         if not description or not isinstance(description, str):
             return None
@@ -129,7 +129,7 @@ class ScheduleEngine:
         return self._coerce_float(data.get("temperature"))
 
     @staticmethod
-    def _coerce_float(value) -> float | None:
+    def _coerce_float(value: Any) -> float | None:
         if value is None:
             return None
         try:

@@ -89,7 +89,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.util.dt import utcnow
 
@@ -512,9 +512,12 @@ class CalibrationEngine:
                     room_name,
                 )
                 return
-            write_value = option["value"]
+            option_label, write_value = option
             service_domain, service_name = "select", "select_option"
-            service_data = {"entity_id": calibration_entity, "option": option["label"]}
+            service_data: dict[str, Any] = {
+                "entity_id": calibration_entity,
+                "option": option_label,
+            }
         else:
             write_value = round(desired_offset, 1)
             service_domain, service_name = "number", "set_value"
@@ -578,10 +581,21 @@ class CalibrationEngine:
 
     def _nearest_select_option(
         self, entity_id: str, desired_offset: float
-    ) -> dict[str, float | str] | None:
-        """Return {"label": <option string>, "value": <parsed float>} for
-        the select entity's own option closest to `desired_offset`, or None
-        if the entity is missing or none of its options parse as a number."""
+    ) -> tuple[str, float] | None:
+        """Return (label, value) — the select entity's own option string and
+        its parsed numeric value — for whichever option is closest to
+        `desired_offset`, or None if the entity is missing or none of its
+        options parse as a number.
+
+        2026-09-14 (punkt 1, strict typing): was a `dict[str, float | str]`
+        (label: str, value: float) mixed into one dict, which meant mypy
+        --strict could never narrow `option["value"]` back to a plain
+        float at the call site — it stayed `float | str` all the way to an
+        arithmetic comparison against another float (`abs(write_value -
+        last_value)`), a real type error mypy correctly caught. A 2-tuple
+        with a fixed (str, float) shape carries the same information with
+        no such ambiguity.
+        """
         state = self.coordinator.hass.states.get(entity_id)
         if state is None:
             return None
@@ -594,7 +608,7 @@ class CalibrationEngine:
         if not parsed:
             return None
         label, value = min(parsed, key=lambda p: abs(p[1] - desired_offset))
-        return {"label": label, "value": value}
+        return (label, value)
 
     def _read_float(self, entity_id: str) -> float | None:
         state = self.coordinator.hass.states.get(entity_id)

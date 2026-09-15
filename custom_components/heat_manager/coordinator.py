@@ -72,6 +72,7 @@ from .const import (
     CONF_PID_KD,
     CONF_PID_KI,
     CONF_PID_KP,
+    CONF_PID_SETPOINT_MARGIN,
     CONF_PRECIPITATION_SENSOR,
     CONF_ROOM_TEMP_SENSOR,
     CONF_ROOMS,
@@ -103,6 +104,7 @@ from .const import (
     HOUSE_VOICE_DOMAIN,
     HOUSE_VOICE_SERVICE_SAY,
     NETATMO_API_CALL_DELAY_SEC,
+    PID_SETPOINT_MARGIN,
     PRESET_SCHEDULE,
     REPAIR_ISSUE_PERSISTENT,
     SCAN_INTERVAL_SECONDS,
@@ -2257,6 +2259,28 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     trv_max=self.trv_max_temp,
                     trv_min=float(room.get("away_temp_override", 10.0)),
                 )
+
+                # ── Setpoint margin (2026-09-15, overshoot investigation) ───
+                # power_to_setpoint() alone caps at the single, global
+                # trv_max — which, on a normal call-for-heat, is reached at
+                # 100% power well before the room is actually close to
+                # target (Kp alone saturates power within a couple of
+                # degrees' error). With trv_max sitting only a few degrees
+                # above a room's own target_temp, that meant an everyday
+                # heat call sent the TRV close to trv_max outright (e.g.
+                # target 21°C, trv_max 24°C → setpoint jumps to 24°C), which
+                # combined with district-heating/TRV thermal lag produced
+                # the 22-25°C overshoot the user reported (2026-09-15).
+                # Cap the ACTUAL written setpoint at this room's own target
+                # plus a small, tunable margin instead — full power still
+                # drives the TRV hard while genuinely far from target, but
+                # never past a controlled overshoot allowance once close.
+                # trv_max above remains the absolute hardware ceiling; this
+                # is a second, tighter, per-room-relative cap on top of it.
+                setpoint_margin = self.config.get(
+                    CONF_PID_SETPOINT_MARGIN, PID_SETPOINT_MARGIN
+                )
+                trv_setpoint = min(trv_setpoint, target_temp + setpoint_margin)
 
                 # Record the setpoint this tick computed as "correct" for this
                 # room — regardless of whether the suppress-check below actually

@@ -77,6 +77,7 @@ from .const import (
     CONF_PID_KD,
     CONF_PID_KI,
     CONF_PID_KP,
+    CONF_PID_SETPOINT_MARGIN,
     CONF_PRECIPITATION_SENSOR,
     CONF_PREHEAT_LEAD_TIME_MIN,
     CONF_ROOM_NAME,
@@ -131,6 +132,7 @@ from .const import (
     FF_MAX_CONTRIBUTION,
     FF_REFERENCE_OUTDOOR_TEMP,
     FF_WEIGHT,
+    PID_SETPOINT_MARGIN,
     SOLAR_GAIN_LUX_THRESHOLD,
     SOLAR_GAIN_MAX_REDUCTION,
     SOLAR_GAIN_WEIGHT,
@@ -409,6 +411,25 @@ def _step1_schema(defaults: dict | None = None) -> vol.Schema:
                     "number": {
                         "min": 20,
                         "max": 32,
+                        "step": 0.5,
+                        "unit_of_measurement": "°C",
+                    }
+                }
+            ),
+            # 2026-09-15 (overshoot investigation) — see const.py's
+            # CONF_PID_SETPOINT_MARGIN for the full rationale: caps the
+            # setpoint actually written to a TRV at target_temp + this
+            # margin, per room, rather than letting 100% PID power jump
+            # straight to the single global trv_max above regardless of
+            # how close that sits to the room's own target.
+            vol.Optional(
+                CONF_PID_SETPOINT_MARGIN,
+                default=defaults.get(CONF_PID_SETPOINT_MARGIN, PID_SETPOINT_MARGIN),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": 0.5,
+                        "max": 6.0,
                         "step": 0.5,
                         "unit_of_measurement": "°C",
                     }

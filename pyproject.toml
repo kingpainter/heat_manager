@@ -37,3 +37,42 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["BLE001"]
+
+# ── Strict typing (2026-09-14, implementeringsplan punkt 1, gruppe C) ────────
+# Scoped to engine/ only for this round — that's the layer where a typing
+# bug does the most damage (core control logic: PID, calibration, window,
+# door, sync, schedule, season, presence, preheat, controller, remote
+# button, valve protection) and where it was cleanest to retrofit in one
+# pass. coordinator.py and the platform files (sensor/binary_sensor/number/
+# select/config_flow/websocket) are NOT yet covered — a follow-up round
+# ("B" in the plan) retrofits those, split into smaller pieces rather than
+# attempted in one sitting. `waste_calculator.py` is deliberately excluded:
+# it's disconnected/dead code since the "Energi i dag" removal (see
+# CHANGELOG), not worth typing.
+[tool.mypy]
+python_version = "3.12"
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = "custom_components.heat_manager.engine.*"
+strict = true
+# Third-party (homeassistant.*) and first-party siblings outside engine/
+# (coordinator, const) aren't type-checked themselves under this override —
+# only that every call INTO them from engine/ code is used consistently.
+# Install `homeassistant-stubs` locally (or in CI) for the most accurate
+# checking; without it mypy falls back to treating homeassistant.* imports
+# as Any rather than failing outright, so this override still runs even on
+# a machine that only has `homeassistant` (not the stubs package) installed.
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "custom_components.heat_manager.engine.waste_calculator"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+# schedule_engine.py's calendar-description parsing uses PyYAML, which ships
+# no bundled type stubs. `types-PyYAML` (pip) covers this properly; this
+# override is a no-dependency fallback so the engine/ strict check still
+# passes on a machine that only has `pyyaml` itself installed.
+module = "yaml"
+ignore_missing_imports = true

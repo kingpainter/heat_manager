@@ -9,6 +9,78 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.45.0] — 2026-09-15
+
+Overshoot-undersøgelse: rum med 21°C mål holdt sig konsekvent på 22-25°C.
+Rodfundet: `PidController.power_to_setpoint()` sender straks `trv_max`
+(24°C i brugerens config) ved 100% PID-effekt — og Kp=0,5 mætter effekten
+allerede ved ≈ 2°C fejl, længe før rummet reelt er tæt på sit mål. Kombineret
+med fjernvarme/TRV-termisk træghed forårsagede det gentaget overskydning.
+Alle 7 rum bekræftet allerede at bruge en dedikeret Indeklima
+rumtemperatur-sensor (`room_temp_sensor`) — sensorpræcision var IKKE rodfundet.
+
+### Added
+- **Ny `CONF_PID_SETPOINT_MARGIN`** (`const.py`, `coordinator.py`,
+  `config_flow.py`, `websocket.py`, `heat-manager-panel.js`): caps det
+  faktiske TRV-setpoint ved `target_temp + margin` (standard 2,0°C) —
+  relativt til HVERT rums eget mål, ikke det globale `trv_max`. Fuld
+  PID-effekt driver stadig TRV'en hårdt mens rummet reelt er langt fra målet,
+  men rammer nu et kontrolleret, indstilleligt loft i stedet for at hoppe
+  direkte til `trv_max`, når effekten mætter tidligt. `trv_max` er stadig
+  den absolutte hardware-grænse; margin-loftet lægges oven i, i
+  `_async_pid_tick()` lige efter `power_to_setpoint()`. Redigerbart fra
+  Konfiguration → PID-regulator, med samme live-gem-mønster som Kp/Ki/Kd.
+  Standardværdien (2°C) er bevidst rummelig — sænk den gradvist når
+  effekten er bekræftet i praksis.
+
+## [0.44.0] — 2026-09-14/15
+
+Implementerer punkt 1 (gruppe C), niveau "C" af den prioriterede
+implementeringsplan: `mypy --strict` på hele `engine/`-laget (de 12
+motor-filer — PID, kalibrering, vindue, dør, sync, schedule, sæson,
+tilstedeværelse, preheat, controller, fjernbetjening,
+ventilbeskyttelse). `coordinator.py` og platform-filerne
+(sensor/binary_sensor/number/select/config_flow/websocket) er bevidst
+**ikke** dækket endnu — det er niveau "B", som tages senere i mindre bider.
+
+### Added
+- **`pyproject.toml`**: ny `[tool.mypy]`-sektion + `[[tool.mypy.overrides]]`
+  scoped til `custom_components.heat_manager.engine.*` med `strict = true`.
+  Kan køres med `mypy -p custom_components.heat_manager.engine` (eller
+  tilføjes CI). `waste_calculator.py` er eksplicit undtaget
+  (`ignore_errors = true`) — den er afkoblet død kode siden "Energi i
+  dag"-fjernelsen og ikke værd at type-annotere. En separat override for
+  `yaml`-modulet gør tjekket uafhængigt af, om `types-PyYAML` er
+  installeret lokalt.
+
+### Fixed
+- **9 reelle `mypy --strict`-fejl rettet på tværs af 6 filer** — fundet
+  ved at køre mypy mod hele `engine/`-pakken og rette hver fejl konkret,
+  ikke blot undertrykke dem:
+  - **`calibration_engine.py`** (reel latent bug, ikke kun kosmetik):
+    `_nearest_select_option()` returnerede en `dict[str, float | str]`
+    (label + værdi blandet i ét dict), så mypy aldrig kunne garantere at
+    den udlæste værdi rent faktisk var et tal på kaldestedet, hvor den
+    indgår i en `abs(a - b)`-sammenligning mod et andet flydende tal.
+    Erstattet med en typet `tuple[str, float]`.
+  - **`controller.py`**: `guarded`-dekoratorens `Callable` manglede
+    typeparametre (`Callable[..., Any]` via en `TypeVar`, så dekoratorens
+    returtype forbliver bundet til den dekorerede funktions egen type);
+    `getattr(self, "coordinator", None)` blev tildelt en
+    ikke-Optional-annoteret variabel.
+  - **`schedule_engine.py`**: to hjælpefunktioner manglede
+    parametertyper (`state: Any`, `value: Any`).
+  - **`sync_engine.py`**: `_make_confirm_callback()` manglede returtype
+    (`Callable[[Any], None]`).
+  - **`window_engine.py`**: `_cancel_task()`'s `task_dict`-parameter var en
+    utypet `dict` — nu `dict[str, asyncio.Task[Any]]`.
+  - **`presence_engine.py`**: `_notify()`'s `actions`-parameter var en
+    utypet `dict` — nu `list[dict[str, str]] | None`.
+  - De øvrige 6 engine-filer (`pid_controller.py`, `door_engine.py`,
+    `preheat_engine.py`, `season_engine.py`, `remote_button_engine.py`,
+    `valve_protection_engine.py`) bestod allerede `mypy --strict` uden
+    ændringer.
+
 ## [0.43.0] — 2026-09-14
 
 Implementerer punkt 7 (gruppe C) af den prioriterede implementeringsplan:

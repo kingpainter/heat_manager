@@ -337,6 +337,29 @@ SOLAR_GAIN_MAX_REDUCTION: float = 0.4
 DEFAULT_PID_KP: float = 0.5
 DEFAULT_PID_KI: float = 0.02
 DEFAULT_PID_KD: float = 0.0
+
+# ── PID setpoint margin (2026-09-15, overshoot investigation) ───────────
+# PidController.power_to_setpoint() maps a power fraction straight onto the
+# range [trv_min, trv_max] — at 100% power (which Kp alone reaches at just
+# a couple of degrees' error, well before the room is actually close to
+# target) it commands trv_max outright, regardless of how close trv_max
+# happens to sit to the room's own target_temp. With a small gap between
+# target and trv_max (e.g. target 21°C, trv_max 24°C) this means an
+# everyday few-degree call-for-heat sends the TRV to 24°C, not 21°C —
+# combined with district-heating/TRV thermal lag, this is what caused the
+# 21°C-target rooms to be observed holding at 22-25°C (2026-09-15
+# overshoot investigation). CONF_PID_SETPOINT_MARGIN caps the setpoint
+# actually written to a TRV at `target_temp + margin` — relative to each
+# room's OWN target, not the single global trv_max — so full PID power
+# still drives the TRV hard while genuinely far from target, but never past
+# a controlled, tunable overshoot allowance once close. trv_max remains the
+# absolute hardware ceiling (still applied via power_to_setpoint's own
+# clamp); this margin is a second, tighter cap applied on top in
+# coordinator._async_pid_tick(). Default 2.0°C is deliberately generous
+# enough to still drive normal proportional heating response — tune down
+# per install once behaviour is confirmed.
+CONF_PID_SETPOINT_MARGIN = "pid_setpoint_margin"
+PID_SETPOINT_MARGIN: float = 2.0
 DEFAULT_TRV_MAX_TEMP: float = 28.0
 
 # CO₂ threshold — above this level an open window is considered intentional

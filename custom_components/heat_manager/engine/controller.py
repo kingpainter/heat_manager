@@ -21,7 +21,7 @@ import functools
 import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from homeassistant.util.dt import utcnow
 
@@ -43,28 +43,47 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# 2026-09-14 (punkt 1, strict typing): `Callable` on its own (no type
+# arguments) is disallowed under mypy --strict ("Missing type arguments for
+# generic type"). Every guarded method has a different (self, *args,
+# **kwargs) -> Awaitable[Any] shape, so `Callable[..., Any]` (ellipsis =
+# "any argument list") is the accurate signature here — a TypeVar so the
+# decorator's return type stays tied to its input type instead of widening
+# every guarded method to the same generic Callable.
+_F = TypeVar("_F", bound=Callable[..., Any])
 
-def guarded(func: Callable) -> Callable:
+
+def guarded(func: _F) -> _F:
     """
     Decorator for engine handler methods.
     Skips execution silently when the controller is OFF or PAUSED.
     """
 
     @functools.wraps(func)
-    async def wrapper(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-        coordinator: HeatManagerCoordinator = getattr(self, "coordinator", None)
+    async def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+        # 2026-09-14 (punkt 1, strict typing): getattr's own 3-arg overload
+        # returns `Any` (it can't know the attribute exists or its type),
+        # so assigning it directly to a `HeatManagerCoordinator`-annotated
+        # variable previously typechecked only by accident — mypy --strict
+        # correctly flagged it ("Any | None" narrowed from the default,
+        # assigned to a non-Optional annotation). Keeping the variable as
+        # `Any` here reflects what this genuinely is (an engine instance's
+        # optional `coordinator` attribute, read reflectively since
+        # `guarded` decorates methods on several different engine classes);
+        # the None-check right below is the real runtime type-narrowing.
+        coordinator: Any = getattr(self, "coordinator", None)
         if coordinator is None:
             return await func(self, *args, **kwargs)
         state = coordinator.controller.state
         if state == ControllerState.OFF:
             _LOGGER.debug("Guard blocked %s — controller is OFF", func.__name__)
-            return
+            return None
         if state == ControllerState.PAUSE:
             _LOGGER.debug("Guard blocked %s — controller is PAUSED", func.__name__)
-            return
+            return None
         return await func(self, *args, **kwargs)
 
-    return wrapper
+    return wrapper  # type: ignore[return-value]
 
 
 class ControllerEngine:

@@ -68,6 +68,7 @@ from .const import (
     CONF_PID_KD,
     CONF_PID_KI,
     CONF_PID_KP,
+    CONF_PID_SETPOINT_MARGIN,
     CONF_ROOM_NAME,
     CONF_ROOMS,
     CONF_SCHEDULE_ENTITY,
@@ -108,6 +109,7 @@ from .const import (
     FF_MAX_CONTRIBUTION,
     FF_REFERENCE_OUTDOOR_TEMP,
     FF_WEIGHT,
+    PID_SETPOINT_MARGIN,
     SOLAR_GAIN_LUX_THRESHOLD,
     SOLAR_GAIN_MAX_REDUCTION,
     SOLAR_GAIN_WEIGHT,
@@ -1072,6 +1074,9 @@ async def ws_get_state(
         "pid_kp": cfg.get(CONF_PID_KP, DEFAULT_PID_KP),
         "pid_ki": cfg.get(CONF_PID_KI, DEFAULT_PID_KI),
         "pid_kd": cfg.get(CONF_PID_KD, DEFAULT_PID_KD),
+        "pid_setpoint_margin": cfg.get(
+            CONF_PID_SETPOINT_MARGIN, PID_SETPOINT_MARGIN
+        ),
         "boost_default_temp": cfg.get(CONF_BOOST_DEFAULT_TEMP, DEFAULT_BOOST_TEMP),
         "boost_default_minutes": cfg.get(
             CONF_BOOST_DEFAULT_MINUTES, DEFAULT_BOOST_MINUTES
@@ -1239,6 +1244,7 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
     CONF_PID_KP: (float, DEFAULT_PID_KP),
     CONF_PID_KI: (float, DEFAULT_PID_KI),
     CONF_PID_KD: (float, DEFAULT_PID_KD),
+    CONF_PID_SETPOINT_MARGIN: (float, PID_SETPOINT_MARGIN),
     CONF_BOOST_DEFAULT_TEMP: (float, DEFAULT_BOOST_TEMP),
     CONF_BOOST_DEFAULT_MINUTES: (float, DEFAULT_BOOST_MINUTES),
     CONF_WINDOW_WARNING_MIN: (int, DEFAULT_WINDOW_WARNING_MIN),
@@ -1286,6 +1292,7 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
         vol.Optional(CONF_PID_KP): vol.Any(float, int),
         vol.Optional(CONF_PID_KI): vol.Any(float, int),
         vol.Optional(CONF_PID_KD): vol.Any(float, int),
+        vol.Optional(CONF_PID_SETPOINT_MARGIN): vol.Any(float, int),
         vol.Optional(CONF_BOOST_DEFAULT_TEMP): vol.Any(float, int),
         vol.Optional(CONF_BOOST_DEFAULT_MINUTES): vol.Any(float, int),
         vol.Optional(CONF_WINDOW_WARNING_MIN): vol.Any(float, int),

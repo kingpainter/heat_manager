@@ -569,7 +569,7 @@ class WindowEngine:
 
         return configured
 
-    def _cancel_task(self, task_dict: dict, key: str) -> None:
+    def _cancel_task(self, task_dict: dict[str, asyncio.Task[Any]], key: str) -> None:
         task = task_dict.pop(key, None)
         if task and not task.done():
             task.cancel()

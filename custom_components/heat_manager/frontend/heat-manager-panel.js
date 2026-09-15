@@ -3206,6 +3206,10 @@ class HeatManagerPanel extends HTMLElement {
         ${this._cfgNumberRow("Kp", "pid_kp", d.pid_kp ?? "", { min: 0, max: 5, step: 0.05, cast: "float" })}
         ${this._cfgNumberRow("Ki", "pid_ki", d.pid_ki ?? "", { min: 0, max: 0.5, step: 0.01, cast: "float" })}
         ${this._cfgNumberRow("Kd", "pid_kd", d.pid_kd ?? "", { min: 0, max: 2, step: 0.05, cast: "float" })}
+        ${this._cfgNumberRow("Setpoint-margin", "pid_setpoint_margin", d.pid_setpoint_margin ?? "", {
+          min: 0.5, max: 6.0, step: 0.5, unit: "°C", cast: "float",
+          desc: "2026-09-15: loft for hvor mange grader OVER rummets eget mål en TRV må blive bedt om at gå — uanset trv_max. Ved 100% PID-effekt sendte systemet før et setpoint helt op mod trv_max (fx 24°C ved et 21°C-mål), hvilket var årsagen til den observerede overskydning til 22-25°C. Sænk denne for tættere styring, hæv den hvis opvarmningen føles for langsom.",
+        })}
       </div>
 
       <!-- 2026-09-13 (architekturgennemgang #5) — vejrkompensationskurven

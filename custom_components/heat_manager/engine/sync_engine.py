@@ -38,6 +38,7 @@ rooms, so a mismatch there is not evidence of anything.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import callback
@@ -176,7 +177,7 @@ class SyncEngine:
             self._make_confirm_callback(room_name, entity_id),
         )
 
-    def _make_confirm_callback(self, room_name: str, entity_id: str):
+    def _make_confirm_callback(self, room_name: str, entity_id: str) -> Callable[[Any], None]:
         @callback
         def _confirm(_now: Any) -> None:
             self._pending_confirm.pop(room_name, None)

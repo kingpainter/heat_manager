@@ -612,7 +612,7 @@ class PresenceEngine:
         )
 
     async def _notify(
-        self, title: str, message: str, actions: list[dict] | None = None
+        self, title: str, message: str, actions: list[dict[str, str]] | None = None
     ) -> None:
         service = self.coordinator.config.get(CONF_NOTIFY_SERVICE, "")
         if not service:
