@@ -150,7 +150,7 @@ _LOGGER = logging.getLogger(__name__)
 # ── Shared schemas ────────────────────────────────────────────────────────────
 
 
-def _step1_schema(defaults: dict | None = None) -> vol.Schema:
+def _step1_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     defaults = defaults or {}
     return vol.Schema(
         {
@@ -551,7 +551,7 @@ def _step1_schema(defaults: dict | None = None) -> vol.Schema:
     )
 
 
-def _trv_schema(defaults: dict | None = None) -> vol.Schema:
+def _trv_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     """Schema for a single physical TRV within a room — see CONF_TRVS."""
     defaults = defaults or {}
     return vol.Schema(
@@ -623,7 +623,7 @@ def _trv_schema(defaults: dict | None = None) -> vol.Schema:
     )
 
 
-def _room_schema(defaults: dict | None = None) -> vol.Schema:
+def _room_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     """Schema for a room's own fields — its TRVs are managed separately
     through the room-TRV sub-flow (see _trv_schema and CONF_TRVS)."""
     defaults = defaults or {}
@@ -744,7 +744,7 @@ def _room_schema(defaults: dict | None = None) -> vol.Schema:
     )
 
 
-def _person_schema(defaults: dict | None = None) -> vol.Schema:
+def _person_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     defaults = defaults or {}
     return vol.Schema(
         {
@@ -774,7 +774,7 @@ def _person_schema(defaults: dict | None = None) -> vol.Schema:
 
 
 def _door_schema(
-    defaults: dict | None = None, room_names: list[str] | None = None
+    defaults: dict[str, Any] | None = None, room_names: list[str] | None = None
 ) -> vol.Schema:
     """Schema for one interior door — a contact sensor plus the two rooms it
     connects (see CONF_DOORS in const.py for the modeling rationale: unlike
@@ -797,7 +797,7 @@ def _door_schema(
     )
 
 
-def _notifications_schema(defaults: dict | None = None) -> vol.Schema:
+def _notifications_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     defaults = defaults or {}
     return vol.Schema(
         {
@@ -846,7 +846,7 @@ def _notifications_schema(defaults: dict | None = None) -> vol.Schema:
     )
 
 
-def _remote_control_schema(defaults: dict | None = None) -> vol.Schema:
+def _remote_control_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     """Global physical remote (e.g. Aqara Climate Sensor W100) — see
     const.py's "Remote button control" section and engine/remote_button_engine.py.
     All 3 fields are optional `event.*` entities, independently configurable
@@ -881,10 +881,10 @@ class HeatManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
-        self._rooms: list[dict] = []
-        self._persons: list[dict] = []
+        self._rooms: list[dict[str, Any]] = []
+        self._persons: list[dict[str, Any]] = []
         self._room_draft: dict[str, Any] | None = None
-        self._trv_draft: list[dict] = []
+        self._trv_draft: list[dict[str, Any]] = []
         self._editing_trv_index: int | None = None
 
     async def async_step_user(
@@ -1172,17 +1172,17 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self._config_entry = config_entry
-        self._rooms: list[dict] = []
-        self._persons: list[dict] = []
-        self._doors: list[dict] = []
+        self._rooms: list[dict[str, Any]] = []
+        self._persons: list[dict[str, Any]] = []
+        self._doors: list[dict[str, Any]] = []
         self._editing_room_name: str | None = None
         self._editing_person_entity: str | None = None
         self._editing_door_sensor: str | None = None
         self._room_draft: dict[str, Any] | None = None
-        self._trv_draft: list[dict] = []
+        self._trv_draft: list[dict[str, Any]] = []
         self._editing_trv_index: int | None = None
 
-    def _current(self) -> dict:
+    def _current(self) -> dict[str, Any]:
         return {**self._config_entry.data, **self._config_entry.options}
 
     async def async_step_init(
@@ -1343,7 +1343,7 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
             data_schema=_room_schema(current_room),
             errors=errors,
             description_placeholders={
-                "room_name": original_name,
+                "room_name": original_name or "",
                 "trv_summary": trv_summary,
             },
         )
@@ -1586,7 +1586,7 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
             step_id="person_edit",
             data_schema=_person_schema(current_person),
             errors=errors,
-            description_placeholders={"person_entity": original_entity},
+            description_placeholders={"person_entity": original_entity or ""},
         )
 
     async def async_step_person_add(
@@ -1613,11 +1613,11 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
             errors=errors,
         )
 
-    def _door_room_pair(self, door: dict[str, Any]) -> frozenset:
-        return frozenset({door.get(CONF_DOOR_ROOM_A), door.get(CONF_DOOR_ROOM_B)})
+    def _door_room_pair(self, door: dict[str, Any]) -> frozenset[str]:
+        return frozenset({str(door.get(CONF_DOOR_ROOM_A, "")), str(door.get(CONF_DOOR_ROOM_B, ""))})
 
     def _validate_door(
-        self, user_input: dict[str, Any], other_doors: list[dict]
+        self, user_input: dict[str, Any], other_doors: list[dict[str, Any]]
     ) -> dict[str, str]:
         """Shared validation for door add/edit. Returns an errors dict (empty
         if valid). Room-pair uniqueness and room_a != room_b are hard errors —
@@ -1744,7 +1744,7 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
             step_id="door_edit",
             data_schema=_door_schema(current_door, room_names),
             errors=errors,
-            description_placeholders={"door_sensor": original_sensor},
+            description_placeholders={"door_sensor": original_sensor or ""},
         )
 
     async def async_step_door_add(

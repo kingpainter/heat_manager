@@ -8,6 +8,7 @@ and disabled by default (power users only).
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
@@ -42,7 +43,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
+class RoomOverrideSwitch(CoordinatorEntity[HeatManagerCoordinator], SwitchEntity):
     """
     Manual override for a single room.
 
@@ -59,9 +60,18 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
         self,
         coordinator: HeatManagerCoordinator,
         entry: ConfigEntry,
-        room: dict,
+        room: dict[str, Any],
     ) -> None:
         super().__init__(coordinator)
+        # 2026-09-15 (punkt 1B, strict typing): homeassistant-stubs'
+        # BaseCoordinatorEntity declares `coordinator: Incomplete` at
+        # the class level, which shadows the generic TypeVar-based
+        # inference from CoordinatorEntity[HeatManagerCoordinator] —
+        # every self.coordinator.xxx access below would otherwise type
+        # as Any regardless of the class's own generic parameter. This
+        # explicit re-annotation narrows it back for mypy's benefit;
+        # purely a typing fix, coordinator is the same object either way.
+        self.coordinator: HeatManagerCoordinator = coordinator
         self._room_name = room["room_name"]
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_override"
@@ -80,7 +90,7 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
     def is_on(self) -> bool:
         return self.coordinator.get_room_state(self._room_name) == RoomState.OVERRIDE
 
-    async def async_turn_on(self, **kwargs) -> None:  # type: ignore[override]
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """B18/v0.14.0: TRV-command routing lives in
         coordinator.async_set_room_override() — shared with
         RemoteButtonEngine so the per-TRV logic (zigbee prefers the write
@@ -95,7 +105,7 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
                 f"Override ON — {self._room_name}", "Override", "override"
             )
 
-    async def async_turn_off(self, **kwargs) -> None:  # type: ignore[override]
+    async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_room_override(self._room_name, False)
         self.coordinator.log_event(
             f"Override OFF — {self._room_name} returning to normal",
@@ -105,7 +115,7 @@ class RoomOverrideSwitch(CoordinatorEntity, SwitchEntity):
         _LOGGER.info("Override OFF: %s — returning to normal", self._room_name)
 
 
-class RoomGroupToggleSwitch(CoordinatorEntity, SwitchEntity):
+class RoomGroupToggleSwitch(CoordinatorEntity[HeatManagerCoordinator], SwitchEntity):
     """B18 Fase 3 — per-room "keep TRVs grouped" toggle.
 
     Only created for rooms with 2+ physical TRVs (a single-TRV room has
@@ -133,6 +143,15 @@ class RoomGroupToggleSwitch(CoordinatorEntity, SwitchEntity):
         room_name: str,
     ) -> None:
         super().__init__(coordinator)
+        # 2026-09-15 (punkt 1B, strict typing): homeassistant-stubs'
+        # BaseCoordinatorEntity declares `coordinator: Incomplete` at
+        # the class level, which shadows the generic TypeVar-based
+        # inference from CoordinatorEntity[HeatManagerCoordinator] —
+        # every self.coordinator.xxx access below would otherwise type
+        # as Any regardless of the class's own generic parameter. This
+        # explicit re-annotation narrows it back for mypy's benefit;
+        # purely a typing fix, coordinator is the same object either way.
+        self.coordinator: HeatManagerCoordinator = coordinator
         self._room_name = room_name
         safe_name = room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_group_toggle"
@@ -147,7 +166,7 @@ class RoomGroupToggleSwitch(CoordinatorEntity, SwitchEntity):
     def is_on(self) -> bool:
         return self.coordinator.room_group_enabled.get(self._room_name, True)
 
-    async def async_turn_on(self, **kwargs) -> None:  # type: ignore[override]
+    async def async_turn_on(self, **kwargs: Any) -> None:
         self.coordinator.set_room_group_enabled(self._room_name, True)
         self.coordinator.log_event(
             f"Gruppe TIL — {self._room_name} (alle TRV'er styres igen)",
@@ -156,7 +175,7 @@ class RoomGroupToggleSwitch(CoordinatorEntity, SwitchEntity):
         )
         _LOGGER.info("Group toggle ON: %s — all TRVs grouped again", self._room_name)
 
-    async def async_turn_off(self, **kwargs) -> None:  # type: ignore[override]
+    async def async_turn_off(self, **kwargs: Any) -> None:
         self.coordinator.set_room_group_enabled(self._room_name, False)
         self.coordinator.log_event(
             f"Gruppe FRA — {self._room_name} (ekstra TRV'er frigivet)",

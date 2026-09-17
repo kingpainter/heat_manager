@@ -102,7 +102,18 @@ class RoomOffsetNumber(RestoreNumber):
         last_data = await self.async_get_last_number_data()
         if last_data is not None and last_data.native_value is not None:
             self._attr_native_value = last_data.native_value
-        self.coordinator.room_offsets[self._room_name] = float(self._attr_native_value)
+        # 2026-09-15 (punkt 1B, strict typing): NumberEntity's own
+        # `_attr_native_value` is declared `float | None` — restored above
+        # only inside the `if`, so mypy still sees `float | None` here
+        # regardless of the branch taken. Falls back to DEFAULT_GROUP_OFFSET
+        # (never actually None in practice, since __init__ always sets it),
+        # same fallback constant already used there.
+        restored = (
+            self._attr_native_value
+            if self._attr_native_value is not None
+            else DEFAULT_GROUP_OFFSET
+        )
+        self.coordinator.room_offsets[self._room_name] = float(restored)
 
     async def async_set_native_value(self, value: float) -> None:
         self._attr_native_value = value

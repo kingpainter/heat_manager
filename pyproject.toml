@@ -38,17 +38,16 @@ ignore = ["E501"]
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["BLE001"]
 
-# ── Strict typing (2026-09-14, implementeringsplan punkt 1, gruppe C) ────────
-# Scoped to engine/ only for this round — that's the layer where a typing
-# bug does the most damage (core control logic: PID, calibration, window,
-# door, sync, schedule, season, presence, preheat, controller, remote
-# button, valve protection) and where it was cleanest to retrofit in one
-# pass. coordinator.py and the platform files (sensor/binary_sensor/number/
-# select/config_flow/websocket) are NOT yet covered — a follow-up round
-# ("B" in the plan) retrofits those, split into smaller pieces rather than
-# attempted in one sitting. `waste_calculator.py` is deliberately excluded:
-# it's disconnected/dead code since the "Energi i dag" removal (see
-# CHANGELOG), not worth typing.
+# ── Strict typing (2026-09-14/15, implementeringsplan punkt 1, gruppe C/B) ────
+# Round 1 (2026-09-14): engine/. Round 2 (2026-09-15): coordinator.py.
+# Round 3 (2026-09-15, this one): every remaining platform file — switch.py,
+# sensor.py, binary_sensor.py, select.py, number.py, websocket.py,
+# config_flow.py. Punkt 1(B) is now COMPLETE: every first-party .py file in
+# this integration except __init__.py, diagnostics.py, migrations.py, and
+# panel.py is covered (those four were never in scope — small, low-risk
+# glue files; can be added later if desired). `waste_calculator.py` remains
+# deliberately excluded: it's disconnected/dead code since the "Energi i
+# dag" removal (see CHANGELOG), not worth typing.
 [tool.mypy]
 python_version = "3.12"
 warn_unused_configs = true
@@ -56,13 +55,47 @@ warn_unused_configs = true
 [[tool.mypy.overrides]]
 module = "custom_components.heat_manager.engine.*"
 strict = true
-# Third-party (homeassistant.*) and first-party siblings outside engine/
-# (coordinator, const) aren't type-checked themselves under this override —
-# only that every call INTO them from engine/ code is used consistently.
-# Install `homeassistant-stubs` locally (or in CI) for the most accurate
-# checking; without it mypy falls back to treating homeassistant.* imports
-# as Any rather than failing outright, so this override still runs even on
-# a machine that only has `homeassistant` (not the stubs package) installed.
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# 2026-09-15: coordinator.py joins the strict set. Third-party
+# (homeassistant.*) modules aren't type-checked themselves under this
+# override, only that every call INTO them from coordinator.py is used
+# consistently — same ignore_missing_imports rationale as the engine
+# override above; install `homeassistant-stubs` locally/in CI for the most
+# accurate checking.
+module = "custom_components.heat_manager.coordinator"
+strict = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# 2026-09-15 (round 3, punkt 1B complete): every remaining platform file.
+# Two structural fixes worth knowing about if this override ever starts
+# failing again after an update:
+# 1. homeassistant-stubs' BaseCoordinatorEntity declares `coordinator:
+#    Incomplete` at the CLASS level, which shadows CoordinatorEntity's own
+#    generic TypeVar — parameterizing as CoordinatorEntity[HeatManagerCoordinator]
+#    alone does NOT narrow self.coordinator's type. Every entity class's
+#    __init__ also re-annotates explicitly (`self.coordinator:
+#    HeatManagerCoordinator = coordinator`, right after super().__init__())
+#    to work around this stub limitation — see any entity class in
+#    switch.py/sensor.py/binary_sensor.py/select.py for the pattern.
+# 2. Reusing a loop/local variable name across two unrelated loops in the
+#    same function (e.g. two "for key, default in ...items():" loops with
+#    different value types) can make mypy lock the name to the FIRST type
+#    it saw — rename rather than reuse if this resurfaces (see
+#    ws_update_config's numeric_default vs. the earlier default, and
+#    coordinator.py's controller_off_pid/dormant_pid CHANGELOG entry).
+module = [
+    "custom_components.heat_manager.switch",
+    "custom_components.heat_manager.sensor",
+    "custom_components.heat_manager.binary_sensor",
+    "custom_components.heat_manager.select",
+    "custom_components.heat_manager.number",
+    "custom_components.heat_manager.websocket",
+    "custom_components.heat_manager.config_flow",
+]
+strict = true
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

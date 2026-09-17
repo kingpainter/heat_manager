@@ -31,11 +31,11 @@ import asyncio
 import logging
 from collections import deque
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.issue_registry import (
     IssueSeverity,
     async_create_issue,
@@ -167,7 +167,7 @@ def _issue_is_repair_worthy(key: str) -> bool:
 
 
 def _weather_compensation_feedforward(
-    config: dict, outdoor_temp: float | None
+    config: dict[str, Any], outdoor_temp: float | None
 ) -> float:
     """Outdoor-temperature PID feedforward (weather compensation curve) —
     2026-09-13, architecture review #5. A proactive power contribution added
@@ -187,14 +187,16 @@ def _weather_compensation_feedforward(
         CONF_WEATHER_COMPENSATION_ENABLED, DEFAULT_WEATHER_COMPENSATION_ENABLED
     ):
         return 0.0
-    ff_reference = config.get(CONF_FF_REFERENCE_OUTDOOR_TEMP, FF_REFERENCE_OUTDOOR_TEMP)
-    ff_weight = config.get(CONF_FF_WEIGHT, FF_WEIGHT)
-    ff_max = config.get(CONF_FF_MAX_CONTRIBUTION, FF_MAX_CONTRIBUTION)
+    ff_reference = float(
+        config.get(CONF_FF_REFERENCE_OUTDOOR_TEMP, FF_REFERENCE_OUTDOOR_TEMP)
+    )
+    ff_weight = float(config.get(CONF_FF_WEIGHT, FF_WEIGHT))
+    ff_max = float(config.get(CONF_FF_MAX_CONTRIBUTION, FF_MAX_CONTRIBUTION))
     return min(ff_max, max(0.0, (ff_reference - outdoor_temp) * ff_weight))
 
 
 def _solar_gain_reduction(
-    config: dict, lux: float | None, sun_elevation: float | None
+    config: dict[str, Any], lux: float | None, sun_elevation: float | None
 ) -> float:
     """Solar-gain PID power REDUCTION (2026-09-14, punkt 7) — a room reading
     bright sunlight right now needs less TRV-delivered heat than the
@@ -220,11 +222,15 @@ def _solar_gain_reduction(
         return 0.0
     if not config.get(CONF_SOLAR_GAIN_ENABLED, DEFAULT_SOLAR_GAIN_ENABLED):
         return 0.0
-    threshold = config.get(CONF_SOLAR_GAIN_LUX_THRESHOLD, SOLAR_GAIN_LUX_THRESHOLD)
+    threshold = float(
+        config.get(CONF_SOLAR_GAIN_LUX_THRESHOLD, SOLAR_GAIN_LUX_THRESHOLD)
+    )
     if lux <= threshold or threshold <= 0:
         return 0.0
-    weight = config.get(CONF_SOLAR_GAIN_WEIGHT, SOLAR_GAIN_WEIGHT)
-    max_reduction = config.get(CONF_SOLAR_GAIN_MAX_REDUCTION, SOLAR_GAIN_MAX_REDUCTION)
+    weight = float(config.get(CONF_SOLAR_GAIN_WEIGHT, SOLAR_GAIN_WEIGHT))
+    max_reduction = float(
+        config.get(CONF_SOLAR_GAIN_MAX_REDUCTION, SOLAR_GAIN_MAX_REDUCTION)
+    )
     excess_ratio = (lux - threshold) / threshold
     return min(max_reduction, excess_ratio * weight)
 
@@ -436,15 +442,15 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @property
     def rooms(self) -> list[dict[str, Any]]:
-        return self.config.get(CONF_ROOMS, [])
+        return cast("list[dict[str, Any]]", self.config.get(CONF_ROOMS, []))
 
     @property
     def persons(self) -> list[dict[str, Any]]:
-        return self.config.get(CONF_PERSONS, [])
+        return cast("list[dict[str, Any]]", self.config.get(CONF_PERSONS, []))
 
     @property
     def doors(self) -> list[dict[str, Any]]:
-        return self.config.get(CONF_DOORS, [])
+        return cast("list[dict[str, Any]]", self.config.get(CONF_DOORS, []))
 
     def get_room_doors(self, room_name: str) -> list[dict[str, Any]]:
         """Every configured interior door touching this room, either side."""
@@ -458,8 +464,8 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def get_door_other_room(self, door: dict[str, Any], room_name: str) -> str:
         """Given a door dict and one of its two rooms, return the other one."""
         if door.get(CONF_DOOR_ROOM_A) == room_name:
-            return door.get(CONF_DOOR_ROOM_B, "")
-        return door.get(CONF_DOOR_ROOM_A, "")
+            return str(door.get(CONF_DOOR_ROOM_B, ""))
+        return str(door.get(CONF_DOOR_ROOM_A, ""))
 
     def is_room_door_open(self, room_name: str) -> bool:
         """True if ANY interior door connected to this room is currently open.
@@ -493,7 +499,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             name="Heat Manager",
             manufacturer="Heat Manager",
             model="Multi-room heating controller",
-            entry_type="service",  # type: ignore[arg-type]
+            entry_type=DeviceEntryType.SERVICE,
         )
 
     def room_device_info(self, room_name: str) -> DeviceInfo:
@@ -520,7 +526,18 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             name=room_name,
             manufacturer="Heat Manager",
             model="Room",
-            via_device_id=self.global_device_id,
+            # 2026-09-15 (punkt 1B, strict typing): mypy (via the
+            # `homeassistant-stubs` PyPI package used for local/CI type
+            # checking) does not know `via_device_id` as a DeviceInfo key —
+            # only the older `via_device: tuple[str, str]` form. This was a
+            # deliberate choice (see this method's own docstring above) once
+            # `via_device`'s tuple form stopped reliably resolving a parent
+            # across config entries; behaviour is unchanged by this ignore,
+            # it only silences a stub/runtime version mismatch. Re-verify
+            # against whichever HA core version is actually running
+            # (`grep via_device_id` in that install's own device_registry.py)
+            # if `homeassistant-stubs` is ever upgraded and this still fires.
+            via_device_id=self.global_device_id,  # type: ignore[typeddict-unknown-key]
         )
 
     @property
@@ -2140,14 +2157,14 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.pid_enabled:
             return
         if self.controller_state != ControllerState.ON:
-            for pid in self.pid_controllers.values():
-                pid.reset()
+            for controller_off_pid in self.pid_controllers.values():
+                controller_off_pid.reset()
             return
         # PID runs in both ACTIVE and WAKING phases.
         # WAKING uses a reduced setpoint via wake_setback_delta().
         if self.effective_season == EffectiveSeason.DORMANT:
-            for pid in self.pid_controllers.values():
-                pid.reset()
+            for dormant_pid in self.pid_controllers.values():
+                dormant_pid.reset()
             return
 
         # 2026-09 performance fix: activate the per-tick TRV cache (see

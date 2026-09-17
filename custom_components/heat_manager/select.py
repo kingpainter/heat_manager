@@ -76,7 +76,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class ControllerStateSelect(CoordinatorEntity, SelectEntity):
+class ControllerStateSelect(CoordinatorEntity[HeatManagerCoordinator], SelectEntity):
     """ON / PAUSE / OFF — primary user control. Always enabled."""
 
     _attr_has_entity_name = True
@@ -91,7 +91,7 @@ class ControllerStateSelect(CoordinatorEntity, SelectEntity):
 
     @property
     def current_option(self) -> str:
-        return self.coordinator.controller.state.value
+        return str(self.coordinator.controller.state.value)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -111,7 +111,7 @@ class ControllerStateSelect(CoordinatorEntity, SelectEntity):
         await self.coordinator.controller.set_state(new_state)
 
 
-class SeasonModeSelect(CoordinatorEntity, SelectEntity):
+class SeasonModeSelect(CoordinatorEntity[HeatManagerCoordinator], SelectEntity):
     """
     Auto / Winter / Summer.
 
@@ -133,7 +133,7 @@ class SeasonModeSelect(CoordinatorEntity, SelectEntity):
 
     @property
     def current_option(self) -> str:
-        return self.coordinator.season_mode.value
+        return str(self.coordinator.season_mode.value)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -162,7 +162,7 @@ class SeasonModeSelect(CoordinatorEntity, SelectEntity):
         _LOGGER.info("Season mode set to: %s (persisted)", new_mode.value)
 
 
-class NetatmoPresetModeSelect(CoordinatorEntity, SelectEntity):
+class NetatmoPresetModeSelect(CoordinatorEntity[HeatManagerCoordinator], SelectEntity):
     """Read/write a Netatmo room's own cloud preset mode
     (away/frost_guard/boost/schedule) — Fase 2 (2026-09-11).
 
@@ -212,7 +212,12 @@ class NetatmoPresetModeSelect(CoordinatorEntity, SelectEntity):
         state = self.coordinator.hass.states.get(self._climate_entity_id)
         if state is None:
             return None
-        return state.attributes.get("preset_mode")
+        # 2026-09-15 (punkt 1B, strict typing): attributes is a
+        # dict[str, Any] — .get() returns Any regardless of the actual
+        # runtime value; str(...) makes the None-vs-str distinction
+        # explicit instead of returning Any where str | None is promised.
+        preset_mode = state.attributes.get("preset_mode")
+        return str(preset_mode) if preset_mode is not None else None
 
     async def async_select_option(self, option: str) -> None:
         await self.coordinator.async_call_climate_service(

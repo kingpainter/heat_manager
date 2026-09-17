@@ -366,7 +366,7 @@ def _build_active_issues(
 async def ws_boost_start(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
-    msg: dict,
+    msg: dict[str, Any],
 ) -> None:
     """WebSocket: start boost mode for all eligible rooms.
 
@@ -397,7 +397,7 @@ async def ws_boost_start(
 async def ws_boost_stop(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
-    msg: dict,
+    msg: dict[str, Any],
 ) -> None:
     """WebSocket: stop boost mode and restore boosted rooms to schedule.
 
@@ -426,7 +426,7 @@ async def ws_boost_stop(
 async def ws_set_room_temp(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
-    msg: dict,
+    msg: dict[str, Any],
 ) -> None:
     """WebSocket: set a manual temperature override for one room.
 
@@ -593,7 +593,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
 async def ws_get_state(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
-    msg: dict,
+    msg: dict[str, Any],
 ) -> None:
     """Return full Heat Manager state snapshot."""
     entry = _get_entry(hass)
@@ -626,7 +626,7 @@ async def ws_get_state(
         # which writes CONF_TRVS only. Reading the flat fields directly
         # left climate_id empty for any such room, which cascaded into
         # missing setpoint/TRV-temp/valve % in the panel.
-        primary_trv = next(iter(coordinator.get_all_room_trvs(name)), {})
+        primary_trv: dict[str, Any] = next(iter(coordinator.get_all_room_trvs(name)), {})
         climate_id = primary_trv.get(CONF_CLIMATE_ENTITY, "")
         sensors = room.get(CONF_WINDOW_SENSORS, [])
         room_state = coordinator.get_room_state(name)
@@ -1182,7 +1182,7 @@ async def ws_get_state(
 async def ws_get_history(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
-    msg: dict,
+    msg: dict[str, Any],
 ) -> None:
     """Return event log data."""
     entry = _get_entry(hass)
@@ -1312,7 +1312,7 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
 async def ws_update_config(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
-    msg: dict,
+    msg: dict[str, Any],
 ) -> None:
     """Update editable global config fields from the sidebar panel.
 
@@ -1350,7 +1350,7 @@ async def ws_update_config(
                 current_options[key] = new_bool
                 changed.append(key)
 
-    for key, (cast, default) in _NUMERIC_CONFIG_FIELDS.items():
+    for key, (cast, numeric_default) in _NUMERIC_CONFIG_FIELDS.items():
         if key in msg:
             try:
                 new_num = cast(msg[key])
@@ -1359,7 +1359,7 @@ async def ws_update_config(
                     msg["id"], "invalid_value", f"Invalid value for {key}"
                 )
                 return
-            if current_options.get(key, default) != new_num:
+            if current_options.get(key, numeric_default) != new_num:
                 current_options[key] = new_num
                 changed.append(key)
 
@@ -1401,7 +1401,7 @@ _ROOM_NUMERIC_FIELDS: dict[str, tuple[type, float, float, float]] = {
 async def ws_update_room_config(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
-    msg: dict,
+    msg: dict[str, Any],
 ) -> None:
     """Update editable per-room config fields from the Rum-fane's room cards.
 
@@ -1503,7 +1503,7 @@ def _fmt_time(dt: datetime) -> str:
     return local_dt.strftime("%d/%m %H:%M")
 
 
-def _get_event_log(coordinator: Any, days: int) -> list[dict]:
+def _get_event_log(coordinator: Any, days: int) -> list[dict[str, Any]]:
     """Return events from coordinator._event_log deque, newest first, capped at 50."""
     from homeassistant.util.dt import now as ha_now
 

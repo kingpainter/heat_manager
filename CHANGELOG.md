@@ -9,6 +9,83 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.47.0] — 2026-09-15
+
+Punkt 1(B) FULDFØRT: sidste bid af strict typing (runde 3) — alle 7
+resterende platform-filer (`switch.py`, `sensor.py`, `binary_sensor.py`,
+`select.py`, `number.py`, `websocket.py`, `config_flow.py`). Sammen med
+runde 1 (`engine/`, v0.44.0) og runde 2 (`coordinator.py`, v0.46.0) er nu
+HVER første-parts .py-fil i integrationen, undtaget kun `__init__.py`,
+`diagnostics.py`, `migrations.py` og `panel.py` (aldrig i scope — små,
+lavrisiko glue-filer), verificeret `mypy --strict`-ren.
+
+### Fixed
+- **Strukturel rodfejl fundet og rettet i alle fire entity-platform-filer**:
+  hver entity-klasse arvede fra en utype-parameteriseret `CoordinatorEntity`,
+  hvilket gjorde `self.coordinator` til `Any` overalt — IKKE løst af blot
+  at parameterisere `CoordinatorEntity[HeatManagerCoordinator]`, fordi
+  `homeassistant-stubs`' `BaseCoordinatorEntity` selv erklærer
+  `coordinator: Incomplete` på klasse-niveau, hvilket overskygger den
+  generiske TypeVar-baserede inferens. Løst med en eksplicit re-annotering
+  (`self.coordinator: HeatManagerCoordinator = coordinator`) i hver klasses
+  `__init__`, umiddelbart efter `super().__init__(coordinator)` — verificeret
+  med et minimalt mypy-repro før det blev anvendt bredt. Ren typing-fix,
+  ingen adfærdsændring.
+- **`websocket.py`/`coordinator.py`-mønster genkendt igen**: genbrug af et
+  løkkevariabelnavn (`default`) i to separate `for`-løkker i
+  `ws_update_config()` låste mypy's typeinferens forkert fast — omdøbt til
+  `numeric_default` i den anden løkke, samme mønster som gårsdagens
+  `controller_off_pid`/`dormant_pid`-fix i `coordinator.py`.
+- **~50 mekaniske annoteringsfejl rettet** på tværs af de 7 filer: utypede
+  `dict`/`list[dict]`/`frozenset` (nu `dict[str, Any]` osv.), `**kwargs`
+  uden type i `switch.py`'s `async_turn_on`/`async_turn_off` (plus et
+  forkert `# type: ignore[override]`, som reelt skulle have været
+  `no-untyped-def`), samt et par `description_placeholders`-dicts der fik
+  en `str | None`-værdi hvor HA's egen type kræver `str` (nu `or ""`).
+
+### Added
+- **`pyproject.toml`**: `[[tool.mypy.overrides]]` udvidet til at dække alle
+  7 platform-filer, med samme `strict = true`. Dokumenterer begge
+  strukturelle fælder ovenfor direkte i kommentaren, så de ikke skal
+  genopdages næste gang overridet fejler efter en HA-/stub-opdatering.
+  Verificeret ved rent faktisk at køre `mypy --config-file pyproject.toml`
+  mod alle 21 filer på én gang.
+
+## [0.46.0] — 2026-09-15
+
+Første bid af punkt 1(B) (strict typing, resten af kodebasen): `coordinator.py`
+tilføjet til `mypy --strict`-settet fra v0.44.0 (som dækkede `engine/`).
+Resterende platform-filer (`sensor.py`, `binary_sensor.py`, `number.py`,
+`select.py`, `config_flow.py`, `websocket.py`) er stadig ikke dækket — tages
+som senere bidder.
+
+### Fixed
+- **13 `mypy --strict`-fejl rettet i `coordinator.py`**:
+  - `_weather_compensation_feedforward()`/`_solar_gain_reduction()`: `config`-
+    parameteren var en utypet `dict`, og `config.get(...)`-kaldene returnerede
+    `Any` ind i funktioner der lover `float` retur — nu `dict[str, Any]` plus
+    eksplicitte `float(...)`-casts på hvert opslået tal.
+  - `rooms`/`persons`/`doors`-properties og `get_door_other_room()`: samme
+    mønster — `self.config.get(...)` returnerer `Any` fra en `dict[str, Any]`,
+    tilføjet eksplicitte `cast()`/`str()` på returværdien.
+  - `global_device_info()`: `entry_type="service"` (en rå streng med et
+    overset `# type: ignore`) erstattet med den rigtige
+    `DeviceEntryType.SERVICE`-enum — en reel rettelse, ikke kun en
+    typeannotation.
+  - `room_device_info()`: `via_device_id`-feltet er ukendt for den lokale
+    `homeassistant-stubs`-pakke (formentlig en stub/runtime-versionsforskel,
+    ikke en reel fejl) — dokumenteret `# type: ignore[typeddict-unknown-key]`
+    med forklaring, adfærd uændret.
+  - `_async_pid_tick()`: to tidlige "nulstil alle PID'er"-løkker genbrugte
+    løkkevariablen `pid` (samme navn som den senere per-rum `pid: PidController
+    | None`), hvilket fik mypy til at låse variablens type forkert fast —
+    omdøbt til `controller_off_pid`/`dormant_pid`, ingen adfærdsændring.
+- **`pyproject.toml`**: `[[tool.mypy.overrides]]` for
+  `custom_components.heat_manager.coordinator` tilføjet med `strict = true`,
+  ved siden af `engine.*`-overridet fra v0.44.0. Verificeret ved rent faktisk
+  at køre `mypy --config-file pyproject.toml` mod begge — 0 fejl i alle 14
+  filer.
+
 ## [0.45.0] — 2026-09-15
 
 Overshoot-undersøgelse: rum med 21°C mål holdt sig konsekvent på 22-25°C.

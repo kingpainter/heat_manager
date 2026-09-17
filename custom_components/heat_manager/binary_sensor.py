@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -59,7 +60,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class AnyWindowOpenSensor(CoordinatorEntity, BinarySensorEntity):
+class AnyWindowOpenSensor(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEntity):
     """True when any configured window/door sensor is currently open."""
 
     _attr_has_entity_name = True
@@ -69,6 +70,15 @@ class AnyWindowOpenSensor(CoordinatorEntity, BinarySensorEntity):
 
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
+        # 2026-09-15 (punkt 1B, strict typing): homeassistant-stubs'
+        # BaseCoordinatorEntity declares `coordinator: Incomplete` at
+        # the class level, which shadows the generic TypeVar-based
+        # inference from CoordinatorEntity[HeatManagerCoordinator] —
+        # every self.coordinator.xxx access below would otherwise type
+        # as Any regardless of the class's own generic parameter. This
+        # explicit re-annotation narrows it back for mypy's benefit;
+        # purely a typing fix, coordinator is the same object either way.
+        self.coordinator: HeatManagerCoordinator = coordinator
         self._attr_unique_id = f"{entry.entry_id}_any_window_open"
         self._attr_device_info = coordinator.global_device_info()
 
@@ -77,7 +87,7 @@ class AnyWindowOpenSensor(CoordinatorEntity, BinarySensorEntity):
         return self.coordinator.any_window_open()
 
 
-class CloudAvailableSensor(CoordinatorEntity, BinarySensorEntity):
+class CloudAvailableSensor(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEntity):
     """True when Netatmo cloud entities are available and fresh.
 
     Detects two failure modes:
@@ -96,6 +106,15 @@ class CloudAvailableSensor(CoordinatorEntity, BinarySensorEntity):
 
     def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
+        # 2026-09-15 (punkt 1B, strict typing): homeassistant-stubs'
+        # BaseCoordinatorEntity declares `coordinator: Incomplete` at
+        # the class level, which shadows the generic TypeVar-based
+        # inference from CoordinatorEntity[HeatManagerCoordinator] —
+        # every self.coordinator.xxx access below would otherwise type
+        # as Any regardless of the class's own generic parameter. This
+        # explicit re-annotation narrows it back for mypy's benefit;
+        # purely a typing fix, coordinator is the same object either way.
+        self.coordinator: HeatManagerCoordinator = coordinator
         self._attr_unique_id = f"{entry.entry_id}_cloud_available"
         self._attr_device_info = coordinator.global_device_info()
 
@@ -142,7 +161,7 @@ class CloudAvailableSensor(CoordinatorEntity, BinarySensorEntity):
         return stale_count != total
 
     @property
-    def extra_state_attributes(self) -> dict:
+    def extra_state_attributes(self) -> dict[str, Any]:
         rooms = self.coordinator.rooms
         unavailable = []
         stale = []
@@ -173,7 +192,7 @@ class CloudAvailableSensor(CoordinatorEntity, BinarySensorEntity):
         }
 
 
-class RoomWindowSensor(CoordinatorEntity, BinarySensorEntity):
+class RoomWindowSensor(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEntity):
     """Per-room aggregated window open state."""
 
     _attr_has_entity_name = True
@@ -184,9 +203,18 @@ class RoomWindowSensor(CoordinatorEntity, BinarySensorEntity):
         self,
         coordinator: HeatManagerCoordinator,
         entry: ConfigEntry,
-        room: dict,
+        room: dict[str, Any],
     ) -> None:
         super().__init__(coordinator)
+        # 2026-09-15 (punkt 1B, strict typing): homeassistant-stubs'
+        # BaseCoordinatorEntity declares `coordinator: Incomplete` at
+        # the class level, which shadows the generic TypeVar-based
+        # inference from CoordinatorEntity[HeatManagerCoordinator] —
+        # every self.coordinator.xxx access below would otherwise type
+        # as Any regardless of the class's own generic parameter. This
+        # explicit re-annotation narrows it back for mypy's benefit;
+        # purely a typing fix, coordinator is the same object either way.
+        self.coordinator: HeatManagerCoordinator = coordinator
         self._room_name = room["room_name"]
         self._sensors = room.get(CONF_WINDOW_SENSORS, [])
         safe_name = self._room_name.lower().replace(" ", "_")
@@ -208,7 +236,7 @@ class RoomWindowSensor(CoordinatorEntity, BinarySensorEntity):
         )
 
 
-class MoldRiskSensor(CoordinatorEntity, BinarySensorEntity):
+class MoldRiskSensor(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEntity):
     """
     True when conditions indicate mold risk in a room.
 
@@ -244,9 +272,18 @@ class MoldRiskSensor(CoordinatorEntity, BinarySensorEntity):
         self,
         coordinator: HeatManagerCoordinator,
         entry: ConfigEntry,
-        room: dict,
+        room: dict[str, Any],
     ) -> None:
         super().__init__(coordinator)
+        # 2026-09-15 (punkt 1B, strict typing): homeassistant-stubs'
+        # BaseCoordinatorEntity declares `coordinator: Incomplete` at
+        # the class level, which shadows the generic TypeVar-based
+        # inference from CoordinatorEntity[HeatManagerCoordinator] —
+        # every self.coordinator.xxx access below would otherwise type
+        # as Any regardless of the class's own generic parameter. This
+        # explicit re-annotation narrows it back for mypy's benefit;
+        # purely a typing fix, coordinator is the same object either way.
+        self.coordinator: HeatManagerCoordinator = coordinator
         self._room_name = room["room_name"]
         self._humidity_id = room.get(CONF_HUMIDITY_SENSOR, "")
         self._temp_id = room.get(CONF_ROOM_TEMP_SENSOR, "")
@@ -317,7 +354,7 @@ class MoldRiskSensor(CoordinatorEntity, BinarySensorEntity):
         return temp <= (dewpoint + self._SURFACE_MARGIN)
 
     @property
-    def extra_state_attributes(self) -> dict:
+    def extra_state_attributes(self) -> dict[str, Any]:
         rh = self._get_humidity()
         temp = self._get_temp()
         if rh is None or temp is None:
@@ -336,7 +373,7 @@ class MoldRiskSensor(CoordinatorEntity, BinarySensorEntity):
         }
 
 
-class RawWindowContactMirror(CoordinatorEntity, BinarySensorEntity):
+class RawWindowContactMirror(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEntity):
     """Diagnostic mirror of ONE raw configured window/door contact sensor,
     shown under the room's own device (v0.15.0).
 
@@ -359,11 +396,20 @@ class RawWindowContactMirror(CoordinatorEntity, BinarySensorEntity):
         self,
         coordinator: HeatManagerCoordinator,
         entry: ConfigEntry,
-        room: dict,
+        room: dict[str, Any],
         index: int,
         source_entity_id: str,
     ) -> None:
         super().__init__(coordinator)
+        # 2026-09-15 (punkt 1B, strict typing): homeassistant-stubs'
+        # BaseCoordinatorEntity declares `coordinator: Incomplete` at
+        # the class level, which shadows the generic TypeVar-based
+        # inference from CoordinatorEntity[HeatManagerCoordinator] —
+        # every self.coordinator.xxx access below would otherwise type
+        # as Any regardless of the class's own generic parameter. This
+        # explicit re-annotation narrows it back for mypy's benefit;
+        # purely a typing fix, coordinator is the same object either way.
+        self.coordinator: HeatManagerCoordinator = coordinator
         room_name = room["room_name"]
         safe_name = room_name.lower().replace(" ", "_")
         self._source_id = source_entity_id
@@ -381,8 +427,8 @@ class RawWindowContactMirror(CoordinatorEntity, BinarySensorEntity):
         s = self.coordinator.hass.states.get(self._source_id)
         if s is None or s.state in ("unavailable", "unknown"):
             return None
-        return s.state == "on"
+        return bool(s.state == "on")
 
     @property
-    def extra_state_attributes(self) -> dict:
+    def extra_state_attributes(self) -> dict[str, Any]:
         return {"source_entity_id": self._source_id}
