@@ -418,6 +418,14 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # active boost that was still in effect when HA last shut down — see
         # _restore_override_snapshot()/_persist_override_snapshot() below.
         self._restore_override_snapshot()
+        # 2026-09-15 (restart-safety hardening, round 2): room_group_enabled
+        # (RoomGroupToggleSwitch, B18 Fase 3) used to be pure in-memory too
+        # — a room whose secondary TRVs had been deliberately released for
+        # manual control silently went back to "grouped" on every HA
+        # restart. Same entry.options snapshot pattern as the override
+        # snapshot just above. See _persist_group_toggle_snapshot()/
+        # _restore_group_toggle_snapshot() below.
+        self._restore_group_toggle_snapshot()
 
         # Snapshot of rooms/persons at last successful setup — used by
         # __init__.py's _async_update_listener to decide whether an
@@ -672,8 +680,38 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         just-regrouped one starts being monitored again) without requiring
         an integration reload."""
         self.room_group_enabled[room_name] = enabled
+        self._persist_group_toggle_snapshot()
         self.sync_engine.rebuild_entity_map()
         self.async_update_listeners()
+
+    def _persist_group_toggle_snapshot(self) -> None:
+        """Persist room_group_enabled (2026-09-15, restart-safety hardening)
+        — called immediately on every toggle (rare, user-triggered only,
+        never per tick) rather than waiting for shutdown, so a crash right
+        after toggling doesn't lose it."""
+        import json
+
+        options = dict(self.entry.options)
+        options["_group_toggle_snap"] = json.dumps(self.room_group_enabled)
+        self.hass.config_entries.async_update_entry(self.entry, options=options)
+        _LOGGER.debug("Room group-toggle state persisted: %s", self.room_group_enabled)
+
+    def _restore_group_toggle_snapshot(self) -> None:
+        """Restore room_group_enabled from a persisted snapshot on startup."""
+        import json
+
+        raw = self.entry.options.get("_group_toggle_snap")
+        if not raw:
+            return
+        try:
+            snap = json.loads(raw)
+        except (ValueError, TypeError):
+            return
+        if isinstance(snap, dict):
+            self.room_group_enabled = {k: bool(v) for k, v in snap.items()}
+            _LOGGER.info(
+                "Restored room group-toggle state for %d room(s)", len(snap)
+            )
 
     @staticmethod
     def get_trv_climate_entity(trv: dict[str, Any]) -> str | None:
@@ -2432,7 +2470,16 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("House Voice: failed to trigger '%s': %s", event_id, err)
 
     async def async_shutdown(self) -> None:
-        """Persist the event log snapshot and shut down all engines cleanly."""
+        """Persist the event log snapshot and shut down all engines cleanly.
+
+        2026-09-15 (restart-safety hardening, round 2): controller.py and
+        season_engine.py now persist their own state via THEIR OWN
+        async_shutdown()/_persist_snapshot() — controller.py's is already
+        called on every transition (not just shutdown), and season_engine's
+        async_shutdown() call below already covers its day-counter.
+        calibration_engine's async_shutdown() below covers the punkt-5
+        regression state the same way.
+        """
         # Persist the event log so it survives an unexpected HA restart.
         try:
             self._persist_event_log_snapshot()
@@ -2444,6 +2491,11 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # broad-except-rationale: best-effort; must not block the engine shutdowns that follow
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Override/boost snapshot persist on shutdown failed: %s", err)
+        try:
+            self._persist_group_toggle_snapshot()
+        # broad-except-rationale: best-effort; must not block the engine shutdowns that follow
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Group-toggle snapshot persist on shutdown failed: %s", err)
         await self.presence_engine.async_shutdown()
         await self.window_engine.async_shutdown()
         await self.door_engine.async_shutdown()

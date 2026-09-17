@@ -96,6 +96,88 @@ class ControllerEngine:
         self._pause_until: datetime | None = None
         # Lock only guards _state reads/writes, not full async chains
         self._lock = asyncio.Lock()
+        # 2026-09-15 (restart-safety hardening, round 2): before this, a
+        # manual PAUSE or OFF was pure in-memory and silently reverted to ON
+        # on the next HA restart — heating could resume exactly when the
+        # user had deliberately turned it off (e.g. mid-painting-job, or a
+        # deliberate summer OFF). Same entry.options snapshot pattern as
+        # coordinator._restore_override_snapshot()/_persist_event_log_
+        # snapshot(). See _persist_snapshot()/_restore_snapshot() below.
+        self._restore_snapshot()
+
+    # ── Restart-safety persistence (2026-09-15) ─────────────────────────────
+    #
+    # Same snapshot-into-entry.options pattern as coordinator.
+    # _persist_event_log_snapshot()/_persist_override_snapshot() — called on
+    # every state-mutating transition (cheap: user/season-triggered only,
+    # never per PID tick) plus on shutdown, and restored once in __init__.
+
+    def _persist_snapshot(self) -> None:
+        """Persist controller state so a manual PAUSE/OFF survives an HA
+        restart instead of silently reverting to ON."""
+        import json
+
+        snap = {
+            "state": self._state.value,
+            "pause_until": self._pause_until.isoformat()
+            if self._pause_until
+            else None,
+            "auto_off_reason": self._auto_off_reason.value,
+        }
+        options = dict(self.coordinator.entry.options)
+        options["_controller_snap"] = json.dumps(snap)
+        self.coordinator.hass.config_entries.async_update_entry(
+            self.coordinator.entry, options=options
+        )
+        _LOGGER.debug("Controller state persisted: %s", snap)
+
+    def _restore_snapshot(self) -> None:
+        """Restore controller state from a persisted snapshot on startup.
+
+        A saved PAUSE whose expiry already passed while HA was down is
+        deliberately NOT restored — same "already expired, back to normal"
+        rule coordinator._restore_override_snapshot() uses for room
+        overrides: the house just starts ON, exactly as if the pause had
+        expired normally instead of HA being down at the time.
+        """
+        import json
+
+        raw = self.coordinator.entry.options.get("_controller_snap")
+        if not raw:
+            return
+        try:
+            snap = json.loads(raw)
+        except (ValueError, TypeError):
+            return
+
+        pause_until: datetime | None = None
+        pause_until_raw = snap.get("pause_until")
+        if pause_until_raw:
+            try:
+                pause_until = datetime.fromisoformat(pause_until_raw)
+            except (TypeError, ValueError):
+                pause_until = None
+
+        try:
+            state = ControllerState(snap.get("state"))
+        except ValueError:
+            return
+
+        if state == ControllerState.PAUSE:
+            if pause_until is None or utcnow() >= pause_until:
+                return  # expired while HA was down — stays ON
+            self._state = ControllerState.PAUSE
+            self._pause_until = pause_until
+            _LOGGER.info("Restored PAUSE state (until %s)", pause_until)
+        elif state == ControllerState.OFF:
+            try:
+                self._auto_off_reason = AutoOffReason(snap.get("auto_off_reason"))
+            except ValueError:
+                self._auto_off_reason = AutoOffReason.NONE
+            self._state = ControllerState.OFF
+            _LOGGER.info(
+                "Restored OFF state (reason=%s)", self._auto_off_reason.value
+            )
 
     # ── Public properties ─────────────────────────────────────────────────────
 
@@ -139,6 +221,8 @@ class ControllerEngine:
                 self._pause_until = None
             self._state = new_state
 
+        self._persist_snapshot()
+
         # Run side-effects outside the lock
         if new_state == ControllerState.OFF:
             await self._apply_off_fallback()
@@ -156,6 +240,7 @@ class ControllerEngine:
             self._pause_until = utcnow() + timedelta(minutes=duration_minutes)
             self._state = ControllerState.PAUSE
             _LOGGER.info("Paused for %d minutes", duration_minutes)
+        self._persist_snapshot()
         self.coordinator.async_update_listeners()
 
     async def resume(self) -> None:
@@ -166,6 +251,7 @@ class ControllerEngine:
             self._state = ControllerState.ON
             self._pause_until = None
             _LOGGER.info("Resumed from pause")
+        self._persist_snapshot()
         self.coordinator.async_update_listeners()
 
     # ── Periodic tick ─────────────────────────────────────────────────────────
@@ -195,6 +281,7 @@ class ControllerEngine:
             async with self._lock:
                 self._state = ControllerState.ON
                 self._pause_until = None
+            self._persist_snapshot()
             _LOGGER.info("Pause timer expired — resuming")
             self.coordinator.async_update_listeners()
 
@@ -218,6 +305,7 @@ class ControllerEngine:
         self._reset_room_states()
         async with self._lock:
             self._state = ControllerState.OFF
+        self._persist_snapshot()
         self.coordinator.async_update_listeners()
 
     # ── Auto-resume checks ────────────────────────────────────────────────────
@@ -241,6 +329,7 @@ class ControllerEngine:
             async with self._lock:
                 self._state = ControllerState.ON
                 self._auto_off_reason = AutoOffReason.NONE
+            self._persist_snapshot()
             self.coordinator.async_update_listeners()
 
     # ── Climate fallback on OFF ────────────────────────────────────────────────

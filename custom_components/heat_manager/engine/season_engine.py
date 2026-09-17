@@ -81,6 +81,16 @@ class SeasonEngine:
         self._prev_effective_season: EffectiveSeason | None = (
             None  # B4: was SeasonMode, now EffectiveSeason
         )
+        # 2026-09-15 (restart-safety hardening, round 2): this multi-day
+        # counter used to reset to 0 on every HA restart — an install 4
+        # days into a 5-day mild-weather streak toward auto-off (SUMMER)
+        # would lose that progress and need to start counting over, exactly
+        # the same class of problem punkt 5's outdoor-temp regression had.
+        # Same entry.options snapshot pattern as coordinator.
+        # _restore_override_snapshot(); only changes once a day (see
+        # async_tick() below), so persisting once a day plus on shutdown is
+        # cheap and sufficient — never persisted per-tick.
+        self._restore_snapshot()
 
     async def async_tick(self) -> None:
         """Called every SCAN_INTERVAL_SECONDS by the coordinator.
@@ -167,6 +177,7 @@ class SeasonEngine:
                         self._days_above,
                     )
                 self._days_above = 0
+            self._persist_snapshot()
 
         if self._days_above >= days_needed:
             new_eff = EffectiveSeason.DORMANT
@@ -269,4 +280,49 @@ class SeasonEngine:
         return EffectiveSeason.ACTIVE
 
     async def async_shutdown(self) -> None:
+        self._persist_snapshot()
         _LOGGER.debug("SeasonEngine shut down")
+
+    # ── Restart-safety persistence (2026-09-15) ─────────────────────────────
+
+    def _persist_snapshot(self) -> None:
+        """Persist the mild-weather day counter so it survives an HA
+        restart instead of resetting to 0 (see __init__ for rationale)."""
+        import json
+
+        snap = {"days_above": self._days_above, "last_date": self._last_date}
+        options = dict(self.coordinator.entry.options)
+        options["_season_snap"] = json.dumps(snap)
+        self.coordinator.hass.config_entries.async_update_entry(
+            self.coordinator.entry, options=options
+        )
+        _LOGGER.debug("Season day-counter persisted: %s", snap)
+
+    def _restore_snapshot(self) -> None:
+        """Restore the mild-weather day counter from a persisted snapshot.
+
+        A counter from a stale date (HA was down long enough to miss a day
+        boundary) is restored as-is — the next tick's own date-change check
+        will correctly evaluate today's outdoor temp and continue counting
+        or reset, exactly as if HA had never been down.
+        """
+        import json
+
+        raw = self.coordinator.entry.options.get("_season_snap")
+        if not raw:
+            return
+        try:
+            snap = json.loads(raw)
+        except (ValueError, TypeError):
+            return
+        days_above = snap.get("days_above")
+        if isinstance(days_above, int) and days_above >= 0:
+            self._days_above = days_above
+        last_date = snap.get("last_date")
+        if isinstance(last_date, str):
+            self._last_date = last_date
+        _LOGGER.info(
+            "Restored season day-counter: %d day(s) above threshold (as of %s)",
+            self._days_above,
+            self._last_date,
+        )

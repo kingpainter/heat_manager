@@ -9,6 +9,42 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.48.0] — 2026-09-15
+
+Restart-safety hardening, runde 2 — udløst af opdagelsen af, at punkt 5's
+udetemp-regression var 100% in-memory og blev nulstillet ved HVER HA-genstart
+(og der har været 15+ genstarter blot under denne uges udviklingsarbejde).
+Brugerens eget krav: "ikke kun dette emne men alt vigtig data". Følger det
+eksisterende `entry.options`-snapshot-mønster fra 2026-09-13's event-log/
+override-hårdføring uændret — ingen ny persisterings-mekanisme introduceret.
+
+### Fixed
+- **`engine/calibration_engine.py`**: punkt 5's udetemp-regression
+  (`_heatup_mean_x/y/xy/xx`, `_heatup_sample_count`) og
+  kalibrerings-offset-writerens `_last_written` overlever nu en HA-genstart.
+  Gemmes én gang dagligt (samme kadence som event-loggen) plus ved
+  nedlukning — aldrig pr. tick, da regressionen kun flytter sig lidt pr.
+  prøve. Bevidst IKKE persisteret: `_heatup_anomaly_streak` og
+  `_heatup_baseline_*` — kortlivet bogføring for den aktuelle
+  opvarmningscyklus, sikkert at nulstille.
+- **`engine/controller.py`**: hele hus-tilstanden (Tænd/Pause/Sluk,
+  `pause_until`, `auto_off_reason`) overlever nu en genstart — en manuel
+  Pause eller Sluk gik før stille tilbage til Tænd ved næste genstart,
+  hvilket kunne genoptage varmen præcis når brugeren bevidst havde slået
+  den fra. Gemmes på HVER tilstandsændring (billigt — kun bruger-/
+  sæson-udløst, aldrig pr. tick). En gemt Pause hvis udløbstid allerede er
+  passeret, mens HA var nede, genoprettes bevidst IKKE — samme "allerede
+  udløbet"-regel som `_restore_override_snapshot()` allerede brugte.
+- **`engine/season_engine.py`**: den flerdages tæller til auto-off ved
+  mildt vejr (`_days_above`) overlevede før ikke en genstart — en
+  installation 4 dage inde i en 5-dages mild-vejrs-stræk mistede
+  fremskridtet og skulle starte forfra. Samme daglig+nedlukning-kadence som
+  kalibreringen ovenfor.
+- **`coordinator.py`**: `room_group_enabled` (per-rum "hold TRV'er
+  grupperet"-toggle) overlever nu en genstart — et rum hvis sekundære
+  TRV'er var bevidst frigivet til manuel kontrol blev før stille grupperet
+  igen ved næste genstart. Gemmes med det samme ved hvert toggle.
+
 ## [0.47.0] — 2026-09-15
 
 Punkt 1(B) FULDFØRT: sidste bid af strict typing (runde 3) — alle 7

@@ -219,6 +219,21 @@ class CalibrationEngine:
         # when the room stops actively heating. Exposed via
         # get_room_heatup_anomaly() once it reaches the streak threshold.
         self._heatup_anomaly_streak: dict[str, int] = {}
+        # 2026-09-15 (restart-safety hardening, round 2): the punkt-5
+        # regression state above (mean_x/y/xy/xx, sample_count) and
+        # _last_written used to be pure in-memory — EVERY HA restart wiped
+        # them back to empty, silently starting the "learn over a full
+        # heating season" goal over from zero each time. Same
+        # entry.options snapshot pattern as coordinator.
+        # _restore_override_snapshot(); persisted once a day (see
+        # async_tick() below, same cadence as the event log) plus on
+        # shutdown — never on every tick, since the regression only moves a
+        # little per sample and an entry.options write on every PID tick
+        # would be excessive. _heatup_anomaly_streak/_heatup_baseline_* are
+        # deliberately NOT persisted — short-lived, tick-scoped bookkeeping
+        # for the CURRENT heating cycle only, safe to reset.
+        self._last_persist_date: str = ""
+        self._restore_snapshot()
 
     async def async_tick(self) -> None:
         """Called every SCAN_INTERVAL_SECONDS from the coordinator's main tick."""
@@ -237,6 +252,18 @@ class CalibrationEngine:
             await self._async_update_room(
                 room_name, climate_entity, room_temp_sensor, calibration_entity
             )
+
+        # 2026-09-15 (restart-safety hardening, round 2): persist the punkt-5
+        # regression state once a day (same cadence as coordinator's own
+        # event-log snapshot) so at most a day's worth of learning is ever
+        # at risk from an unclean shutdown — a clean shutdown/restart always
+        # persists via async_shutdown() regardless of this check.
+        from homeassistant.util.dt import now as ha_now
+
+        today_str = ha_now().date().isoformat()
+        if self._last_persist_date and self._last_persist_date != today_str:
+            self._persist_snapshot()
+        self._last_persist_date = today_str
 
     # ── Heat-up-rate learning ────────────────────────────────────────────────
 
@@ -646,6 +673,91 @@ class CalibrationEngine:
             return None
 
     async def async_shutdown(self) -> None:
-        """No listeners or timers to release — present for interface consistency
-        with the other engines the coordinator shuts down."""
-        return None
+        """Persist the punkt-5 regression state so it survives an HA
+        restart — see __init__ for the full rationale."""
+        self._persist_snapshot()
+
+    # ── Restart-safety persistence (2026-09-15) ─────────────────────────────
+
+    @staticmethod
+    def _key_to_str(key: tuple[str, bool]) -> str:
+        """JSON object keys must be strings — encode the (room_name,
+        door_open) tuple key as "room_name|True"/"room_name|False"."""
+        room_name, door_open = key
+        return f"{room_name}|{door_open}"
+
+    @staticmethod
+    def _str_to_key(raw: str) -> tuple[str, bool] | None:
+        room_name, _, door_str = raw.rpartition("|")
+        if not room_name:
+            return None
+        return (room_name, door_str == "True")
+
+    def _persist_snapshot(self) -> None:
+        """Persist the punkt-5 heat-up-rate regression state and the last
+        calibration offset written per room."""
+        import json
+
+        snap = {
+            "mean_x": {self._key_to_str(k): v for k, v in self._heatup_mean_x.items()},
+            "mean_y": {self._key_to_str(k): v for k, v in self._heatup_mean_y.items()},
+            "mean_xy": {
+                self._key_to_str(k): v for k, v in self._heatup_mean_xy.items()
+            },
+            "mean_xx": {
+                self._key_to_str(k): v for k, v in self._heatup_mean_xx.items()
+            },
+            "sample_count": {
+                self._key_to_str(k): v for k, v in self._heatup_sample_count.items()
+            },
+            "last_written": dict(self._last_written),
+        }
+        options = dict(self.coordinator.entry.options)
+        options["_calibration_snap"] = json.dumps(snap)
+        self.coordinator.hass.config_entries.async_update_entry(
+            self.coordinator.entry, options=options
+        )
+        _LOGGER.debug(
+            "Calibration/heat-up-rate state persisted (%d regression key(s))",
+            len(self._heatup_mean_y),
+        )
+
+    def _restore_snapshot(self) -> None:
+        """Restore the punkt-5 regression state and last-written offsets
+        from a persisted snapshot on startup."""
+        import json
+
+        raw = self.coordinator.entry.options.get("_calibration_snap")
+        if not raw:
+            return
+        try:
+            snap = json.loads(raw)
+        except (ValueError, TypeError):
+            return
+
+        def _restore_dict(field: str) -> dict[tuple[str, bool], float]:
+            result: dict[tuple[str, bool], float] = {}
+            for raw_key, value in (snap.get(field) or {}).items():
+                key = self._str_to_key(raw_key)
+                if key is not None:
+                    result[key] = value
+            return result
+
+        self._heatup_mean_x = _restore_dict("mean_x")
+        self._heatup_mean_y = _restore_dict("mean_y")
+        self._heatup_mean_xy = _restore_dict("mean_xy")
+        self._heatup_mean_xx = _restore_dict("mean_xx")
+        self._heatup_sample_count = {
+            key: int(value)
+            for raw_key, value in (snap.get("sample_count") or {}).items()
+            if (key := self._str_to_key(raw_key)) is not None
+        }
+        last_written = snap.get("last_written")
+        if isinstance(last_written, dict):
+            self._last_written = dict(last_written)
+        _LOGGER.info(
+            "Restored heat-up-rate learning: %d regression key(s), "
+            "%d calibration offset(s)",
+            len(self._heatup_mean_y),
+            len(self._last_written),
+        )
