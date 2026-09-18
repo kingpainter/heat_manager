@@ -13,12 +13,12 @@
           "window_warning_min": "Window open warning after (minutes)",
           "window_delay_default_min": "Window open delay (minutes)",
           "window_off_temp": "Window-open shutoff temperature",
-          "grace_day_min": "Grace period \u2014 daytime (minutes)",
-          "grace_night_min": "Grace period \u2014 night-time (minutes)",
+          "grace_day_min": "Grace period — daytime (minutes)",
+          "grace_night_min": "Grace period — night-time (minutes)",
           "auto_off_temp_threshold": "Auto-off temperature threshold",
           "auto_off_temp_days": "Auto-off sustained days",
           "night_setback_enabled": "Enable night setback",
-          "night_setback_temp": "Night setback (\u00b0C to reduce)",
+          "night_setback_temp": "Night setback (°C to reduce)",
           "night_start_hour": "Night start hour",
           "night_end_hour": "Night end hour",
           "house_voice_enabled": "Enable House Voice announcements",
@@ -31,38 +31,38 @@
           "pid_kd": "PID derivative gain (Kd)",
           "trv_max_temp": "TRV maximum setpoint",
           "weather_compensation_enabled": "Enable weather compensation curve",
-          "ff_reference_outdoor_temp": "Weather compensation \u2014 reference outdoor temperature",
-          "ff_weight": "Weather compensation \u2014 weight",
-          "ff_max_contribution": "Weather compensation \u2014 maximum contribution",
+          "ff_reference_outdoor_temp": "Weather compensation — reference outdoor temperature",
+          "ff_weight": "Weather compensation — weight",
+          "ff_max_contribution": "Weather compensation — maximum contribution",
           "indoor_wake_sensor": "Indoor wake sensor (optional)",
           "indoor_wake_threshold": "Indoor wake threshold",
-          "wake_setback_temp": "Wake phase setback (\u00b0C to reduce)"
+          "wake_setback_temp": "Wake phase setback (°C to reduce)"
         },
         "data_description": {
-          "weather_compensation_enabled": "Adds a proactive power contribution based on outdoor temperature, on top of PID's reactive correction (a classic \u201cheating curve\u201d) \u2014 was always on before this setting existed, so it defaults to enabled.",
-          "ff_reference_outdoor_temp": "Outdoor temperature at/above which weather compensation contributes nothing. Default 15\u00b0C.",
-          "ff_weight": "Extra power fraction added per \u00b0C the outdoor temperature is below the reference. Default 0.02.",
-          "ff_max_contribution": "Cap \u2014 weather compensation alone never adds more than this fraction of power. Default 0.3 (30%).",
+          "weather_compensation_enabled": "Adds a proactive power contribution based on outdoor temperature, on top of PID's reactive correction (a classic “heating curve”) — was always on before this setting existed, so it defaults to enabled.",
+          "ff_reference_outdoor_temp": "Outdoor temperature at/above which weather compensation contributes nothing. Default 15°C.",
+          "ff_weight": "Extra power fraction added per °C the outdoor temperature is below the reference. Default 0.02.",
+          "ff_max_contribution": "Cap — weather compensation alone never adds more than this fraction of power. Default 0.3 (30%).",
           "outdoor_temp_sensor": "Local weather station or outdoor module (e.g. Netatmo, Aqara). Overrides the weather entity temperature for adaptive away setpoint and season detection. Leave blank to use the weather entity.",
           "outdoor_humidity_sensor": "Local outdoor humidity sensor (e.g. Netatmo outdoor module). Used to weight mold-risk calculations more heavily when outdoor humidity is high.",
-          "precipitation_sensor": "Rain/precipitation sensor (mm or mm/h). When it reports rain, an open window is always treated as pure heat loss regardless of CO\u2082 level \u2014 nobody ventilates on purpose in the rain.",
+          "precipitation_sensor": "Rain/precipitation sensor (mm or mm/h). When it reports rain, an open window is always treated as pure heat loss regardless of CO₂ level — nobody ventilates on purpose in the rain.",
           "wind_speed_sensor": "Local wind speed sensor (m/s). Above 6 m/s, the window open-delay is shortened so heat loss is caught faster in blustery weather.",
-          "window_delay_default_min": "How long a window must be open before Heat Manager actually turns off the heat in that room. Applies to every room \u2014 shortened automatically in strong wind or rain. Replaces the old per-room field, which was never editable from the panel.",
-          "window_off_temp": "The setpoint sent to a room's TRV once its window-open delay has passed. Deliberately independent of \u201cAway temperature for this room\u201d (room step), which still floors the PID's own idle output and the night setback.",
+          "window_delay_default_min": "How long a window must be open before Heat Manager actually turns off the heat in that room. Applies to every room — shortened automatically in strong wind or rain. Replaces the old per-room field, which was never editable from the panel.",
+          "window_off_temp": "The setpoint sent to a room's TRV once its window-open delay has passed. Deliberately independent of “Away temperature for this room” (room step), which still floors the PID's own idle output and the night setback.",
           "night_setback_enabled": "When enabled, the PID target temperature is reduced by the setback value during the configured night hours. Uses the existing night start/end hours.",
           "night_setback_temp": "Degrees Celsius subtracted from the room's target temperature during night hours. The setpoint will not go below the room's away temperature.",
           "house_voice_enabled": "Requires the House Voice integration to be installed. When enabled, Heat Manager will announce events such as boost activation, season changes, and controller state changes.",
           "pause_duration_min": "How long the controller stays paused after a manual pause, before automatically resuming.",
-          "boost_default_temp": "Used by heat_manager.boost_start / the panel's boost button when no temperature is specified. Default 24\u00b0C.",
+          "boost_default_temp": "Used by heat_manager.boost_start / the panel's boost button when no temperature is specified. Default 24°C.",
           "boost_default_minutes": "Used by heat_manager.boost_start / the panel's boost button when no duration is specified. Default 30 minutes.",
           "pid_enabled": "When disabled, TRVs follow the Netatmo/Zigbee schedule directly with no proportional adjustment.",
-          "pid_kp": "Proportional gain \u2014 higher values react more aggressively to temperature error. Default 0.5.",
-          "pid_ki": "Integral gain \u2014 corrects a persistent offset over time. Default 0.02. Keep small; large values cause overshoot.",
-          "pid_kd": "Derivative gain \u2014 reacts to the rate of change. Disabled (0) by default: TRVs have several minutes of thermal lag, so a derivative term mostly amplifies sensor noise.",
-          "trv_max_temp": "TRV setpoint sent when PID power is at 100%. Default 28\u00b0C.",
+          "pid_kp": "Proportional gain — higher values react more aggressively to temperature error. Default 0.5.",
+          "pid_ki": "Integral gain — corrects a persistent offset over time. Default 0.02. Keep small; large values cause overshoot.",
+          "pid_kd": "Derivative gain — reacts to the rate of change. Disabled (0) by default: TRVs have several minutes of thermal lag, so a derivative term mostly amplifies sensor noise.",
+          "trv_max_temp": "TRV setpoint sent when PID power is at 100%. Default 28°C.",
           "indoor_wake_sensor": "Shared indoor temperature sensor used to detect the gentler WAKING phase during spring/autumn. Falls back to full ACTIVE heating when not set.",
-          "indoor_wake_threshold": "Indoor temperature above which the system enters the WAKING phase instead of full ACTIVE heating. Default 21\u00b0C.",
-          "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2\u00b0C."
+          "indoor_wake_threshold": "Indoor temperature above which the system enters the WAKING phase instead of full ACTIVE heating. Default 21°C.",
+          "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2°C."
         }
       },
       "room": {
@@ -71,22 +71,26 @@
         "data": {
           "room_name": "Room name",
           "window_sensors": "Window / door sensors",
-          "window_delay_min": "Window open delay (minutes) \u2014 unused, see global settings",
+          "door_styled_sensors": "Show as door instead of window (cosmetic)",
+          "heated_door_sensors": "Doors to a heated area (no heat cutoff)",
+          "window_delay_min": "Window open delay (minutes) — unused, see global settings",
           "away_temp_override": "Away temperature for this room",
           "comfort_temp": "Target temperature",
-          "co2_sensor": "CO\u2082 sensor (optional)",
-          "co2_threshold": "CO\u2082 ventilation threshold (ppm)",
+          "co2_sensor": "CO₂ sensor (optional)",
+          "co2_threshold": "CO₂ ventilation threshold (ppm)",
           "room_temp_sensor": "Room temperature sensor (optional)",
           "battery_sensor": "Battery sensor (optional)",
           "humidity_sensor": "Humidity sensor (optional)",
           "schedule_entity": "Schedule / calendar entity (optional)"
         },
         "data_description": {
-          "window_delay_min": "No longer read since v0.33.0 \u2014 every room's window open-delay now uses the single global setting instead (Season & global settings step). Left here only so a value already saved for this room isn't silently discarded; safe to ignore.",
-          "comfort_temp": "PID target temperature for this room \u2014 authoritative for every TRV type, Netatmo included. Default 20\u00b0C.",
-          "co2_sensor": "Used for context-aware window notifications and energy waste classification. When CO\u2082 is high, an open window is marked as ventilation rather than heat loss.",
-          "co2_threshold": "CO\u2082 level above which an open window is classified as intentional ventilation. Default is 900 ppm. Increase for bedrooms (higher tolerance) or decrease for seldom-occupied rooms.",
-          "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1\u20133\u00b0C too high).",
+          "door_styled_sensors": "Optional subset of the Window / door sensors above that should be labelled and logged as a door instead of a window — purely cosmetic, the exact same grace period / off-temperature / 30-minute warning behaviour applies either way (e.g. a balcony door still loses heat like a window). A sensor must ALSO be selected above in Window / door sensors for this to have any effect — selecting it ONLY here does nothing.",
+          "heated_door_sensors": "A SEPARATE list from Window / door sensors above — exterior doors leading to a heated/enclosed space (e.g. a front door onto a heated stairwell), not the outside air. These get NO heat-suppression behaviour at all: no grace period, no off-temperature, no warning — visibility and event log only. Do not add a sensor here INSTEAD of Window / door sensors if you want opening it to actually reduce heating.",
+          "window_delay_min": "No longer read since v0.33.0 — every room's window open-delay now uses the single global setting instead (Season & global settings step). Left here only so a value already saved for this room isn't silently discarded; safe to ignore.",
+          "comfort_temp": "PID target temperature for this room — authoritative for every TRV type, Netatmo included. Default 20°C.",
+          "co2_sensor": "Used for context-aware window notifications and energy waste classification. When CO₂ is high, an open window is marked as ventilation rather than heat loss.",
+          "co2_threshold": "CO₂ level above which an open window is classified as intentional ventilation. Default is 900 ppm. Increase for bedrooms (higher tolerance) or decrease for seldom-occupied rooms.",
+          "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1–3°C too high).",
           "battery_sensor": "TRV battery level sensor (sensor.* reporting %). Recommended for Zigbee TRVs, whose battery is usually its own entity rather than an attribute on the climate entity. Leave blank to fall back to the climate entity's own battery_level attribute, if it has one.",
           "humidity_sensor": "Relative humidity sensor (%) for this room. Used together with the room temperature sensor to calculate mold risk (dewpoint vs. surface temperature).",
           "schedule_entity": "A schedule.* helper or calendar.* entity. While a time block or event is active, its temperature overrides this room's normal target."
@@ -94,7 +98,7 @@
       },
       "room_trvs_menu": {
         "title": "Manage this room's TRVs",
-        "description": "Room: {room_name}. TRVs added so far: {trv_count}. At least one TRV is required \u2014 add it, then edit or delete any TRV, or continue once you're done.",
+        "description": "Room: {room_name}. TRVs added so far: {trv_count}. At least one TRV is required — add it, then edit or delete any TRV, or continue once you're done.",
         "data": {
           "action": "Action"
         }
@@ -165,7 +169,7 @@
       }
     },
     "error": {
-      "entity_not_found": "Entity not found \u2014 check the entity ID.",
+      "entity_not_found": "Entity not found — check the entity ID.",
       "duplicate_room": "A room with this name already exists.",
       "duplicate_person": "This person is already added."
     },
@@ -193,12 +197,12 @@
           "window_warning_min": "Window open warning after (minutes)",
           "window_delay_default_min": "Window open delay (minutes)",
           "window_off_temp": "Window-open shutoff temperature",
-          "grace_day_min": "Grace period \u2014 daytime (minutes)",
-          "grace_night_min": "Grace period \u2014 night-time (minutes)",
+          "grace_day_min": "Grace period — daytime (minutes)",
+          "grace_night_min": "Grace period — night-time (minutes)",
           "auto_off_temp_threshold": "Auto-off temperature threshold",
           "auto_off_temp_days": "Auto-off sustained days",
           "night_setback_enabled": "Enable night setback",
-          "night_setback_temp": "Night setback (\u00b0C to reduce)",
+          "night_setback_temp": "Night setback (°C to reduce)",
           "night_start_hour": "Night start hour",
           "night_end_hour": "Night end hour",
           "house_voice_enabled": "Enable House Voice announcements",
@@ -211,38 +215,38 @@
           "pid_kd": "PID derivative gain (Kd)",
           "trv_max_temp": "TRV maximum setpoint",
           "weather_compensation_enabled": "Enable weather compensation curve",
-          "ff_reference_outdoor_temp": "Weather compensation \u2014 reference outdoor temperature",
-          "ff_weight": "Weather compensation \u2014 weight",
-          "ff_max_contribution": "Weather compensation \u2014 maximum contribution",
+          "ff_reference_outdoor_temp": "Weather compensation — reference outdoor temperature",
+          "ff_weight": "Weather compensation — weight",
+          "ff_max_contribution": "Weather compensation — maximum contribution",
           "indoor_wake_sensor": "Indoor wake sensor (optional)",
           "indoor_wake_threshold": "Indoor wake threshold",
-          "wake_setback_temp": "Wake phase setback (\u00b0C to reduce)"
+          "wake_setback_temp": "Wake phase setback (°C to reduce)"
         },
         "data_description": {
-          "weather_compensation_enabled": "Adds a proactive power contribution based on outdoor temperature, on top of PID's reactive correction (a classic \u201cheating curve\u201d) \u2014 was always on before this setting existed, so it defaults to enabled.",
-          "ff_reference_outdoor_temp": "Outdoor temperature at/above which weather compensation contributes nothing. Default 15\u00b0C.",
-          "ff_weight": "Extra power fraction added per \u00b0C the outdoor temperature is below the reference. Default 0.02.",
-          "ff_max_contribution": "Cap \u2014 weather compensation alone never adds more than this fraction of power. Default 0.3 (30%).",
+          "weather_compensation_enabled": "Adds a proactive power contribution based on outdoor temperature, on top of PID's reactive correction (a classic “heating curve”) — was always on before this setting existed, so it defaults to enabled.",
+          "ff_reference_outdoor_temp": "Outdoor temperature at/above which weather compensation contributes nothing. Default 15°C.",
+          "ff_weight": "Extra power fraction added per °C the outdoor temperature is below the reference. Default 0.02.",
+          "ff_max_contribution": "Cap — weather compensation alone never adds more than this fraction of power. Default 0.3 (30%).",
           "outdoor_temp_sensor": "Local weather station or outdoor module (e.g. Netatmo, Aqara). Overrides the weather entity temperature for adaptive away setpoint and season detection. Leave blank to use the weather entity.",
           "outdoor_humidity_sensor": "Local outdoor humidity sensor (e.g. Netatmo outdoor module). Used to weight mold-risk calculations more heavily when outdoor humidity is high.",
-          "precipitation_sensor": "Rain/precipitation sensor (mm or mm/h). When it reports rain, an open window is always treated as pure heat loss regardless of CO\u2082 level \u2014 nobody ventilates on purpose in the rain.",
+          "precipitation_sensor": "Rain/precipitation sensor (mm or mm/h). When it reports rain, an open window is always treated as pure heat loss regardless of CO₂ level — nobody ventilates on purpose in the rain.",
           "wind_speed_sensor": "Local wind speed sensor (m/s). Above 6 m/s, the window open-delay is shortened so heat loss is caught faster in blustery weather.",
-          "window_delay_default_min": "How long a window must be open before Heat Manager actually turns off the heat in that room. Applies to every room \u2014 shortened automatically in strong wind or rain. Replaces the old per-room field, which was never editable from the panel.",
-          "window_off_temp": "The setpoint sent to a room's TRV once its window-open delay has passed. Deliberately independent of \u201cAway temperature for this room\u201d (room step), which still floors the PID's own idle output and the night setback.",
+          "window_delay_default_min": "How long a window must be open before Heat Manager actually turns off the heat in that room. Applies to every room — shortened automatically in strong wind or rain. Replaces the old per-room field, which was never editable from the panel.",
+          "window_off_temp": "The setpoint sent to a room's TRV once its window-open delay has passed. Deliberately independent of “Away temperature for this room” (room step), which still floors the PID's own idle output and the night setback.",
           "night_setback_enabled": "When enabled, the PID target temperature is reduced by the setback value during the configured night hours. Uses the existing night start/end hours.",
           "night_setback_temp": "Degrees Celsius subtracted from the room's target temperature during night hours. The setpoint will not go below the room's away temperature.",
           "house_voice_enabled": "Requires the House Voice integration to be installed. When enabled, Heat Manager will announce events such as boost activation, season changes, and controller state changes.",
           "pause_duration_min": "How long the controller stays paused after a manual pause, before automatically resuming.",
-          "boost_default_temp": "Used by heat_manager.boost_start / the panel's boost button when no temperature is specified. Default 24\u00b0C.",
+          "boost_default_temp": "Used by heat_manager.boost_start / the panel's boost button when no temperature is specified. Default 24°C.",
           "boost_default_minutes": "Used by heat_manager.boost_start / the panel's boost button when no duration is specified. Default 30 minutes.",
           "pid_enabled": "When disabled, TRVs follow the Netatmo/Zigbee schedule directly with no proportional adjustment.",
-          "pid_kp": "Proportional gain \u2014 higher values react more aggressively to temperature error. Default 0.5.",
-          "pid_ki": "Integral gain \u2014 corrects a persistent offset over time. Default 0.02. Keep small; large values cause overshoot.",
-          "pid_kd": "Derivative gain \u2014 reacts to the rate of change. Disabled (0) by default: TRVs have several minutes of thermal lag, so a derivative term mostly amplifies sensor noise.",
-          "trv_max_temp": "TRV setpoint sent when PID power is at 100%. Default 28\u00b0C.",
+          "pid_kp": "Proportional gain — higher values react more aggressively to temperature error. Default 0.5.",
+          "pid_ki": "Integral gain — corrects a persistent offset over time. Default 0.02. Keep small; large values cause overshoot.",
+          "pid_kd": "Derivative gain — reacts to the rate of change. Disabled (0) by default: TRVs have several minutes of thermal lag, so a derivative term mostly amplifies sensor noise.",
+          "trv_max_temp": "TRV setpoint sent when PID power is at 100%. Default 28°C.",
           "indoor_wake_sensor": "Shared indoor temperature sensor used to detect the gentler WAKING phase during spring/autumn. Falls back to full ACTIVE heating when not set.",
-          "indoor_wake_threshold": "Indoor temperature above which the system enters the WAKING phase instead of full ACTIVE heating. Default 21\u00b0C.",
-          "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2\u00b0C."
+          "indoor_wake_threshold": "Indoor temperature above which the system enters the WAKING phase instead of full ACTIVE heating. Default 21°C.",
+          "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2°C."
         }
       },
       "rooms_menu": {
@@ -257,22 +261,26 @@
         "data": {
           "room_name": "Room name",
           "window_sensors": "Window / door sensors",
-          "window_delay_min": "Window open delay (minutes) \u2014 unused, see global settings",
+          "door_styled_sensors": "Show as door instead of window (cosmetic)",
+          "heated_door_sensors": "Doors to a heated area (no heat cutoff)",
+          "window_delay_min": "Window open delay (minutes) — unused, see global settings",
           "away_temp_override": "Away temperature for this room",
           "comfort_temp": "Target temperature",
-          "co2_sensor": "CO\u2082 sensor (optional)",
-          "co2_threshold": "CO\u2082 ventilation threshold (ppm)",
+          "co2_sensor": "CO₂ sensor (optional)",
+          "co2_threshold": "CO₂ ventilation threshold (ppm)",
           "room_temp_sensor": "Room temperature sensor (optional)",
           "battery_sensor": "Battery sensor (optional)",
           "humidity_sensor": "Humidity sensor (optional)",
           "schedule_entity": "Schedule / calendar entity (optional)"
         },
         "data_description": {
-          "window_delay_min": "No longer read since v0.33.0 \u2014 every room's window open-delay now uses the single global setting instead (Season & global settings step). Left here only so a value already saved for this room isn't silently discarded; safe to ignore.",
-          "comfort_temp": "PID target temperature for this room \u2014 authoritative for every TRV type, Netatmo included. Default 20\u00b0C.",
-          "co2_sensor": "Used for context-aware window notifications and energy waste classification. When CO\u2082 is high, an open window is marked as ventilation rather than heat loss.",
-          "co2_threshold": "CO\u2082 level above which an open window is classified as intentional ventilation. Default is 900 ppm. Increase for bedrooms (higher tolerance) or decrease for seldom-occupied rooms.",
-          "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1\u20133\u00b0C too high).",
+          "door_styled_sensors": "Optional subset of the Window / door sensors above that should be labelled and logged as a door instead of a window — purely cosmetic, the exact same grace period / off-temperature / 30-minute warning behaviour applies either way (e.g. a balcony door still loses heat like a window). A sensor must ALSO be selected above in Window / door sensors for this to have any effect — selecting it ONLY here does nothing.",
+          "heated_door_sensors": "A SEPARATE list from Window / door sensors above — exterior doors leading to a heated/enclosed space (e.g. a front door onto a heated stairwell), not the outside air. These get NO heat-suppression behaviour at all: no grace period, no off-temperature, no warning — visibility and event log only. Do not add a sensor here INSTEAD of Window / door sensors if you want opening it to actually reduce heating.",
+          "window_delay_min": "No longer read since v0.33.0 — every room's window open-delay now uses the single global setting instead (Season & global settings step). Left here only so a value already saved for this room isn't silently discarded; safe to ignore.",
+          "comfort_temp": "PID target temperature for this room — authoritative for every TRV type, Netatmo included. Default 20°C.",
+          "co2_sensor": "Used for context-aware window notifications and energy waste classification. When CO₂ is high, an open window is marked as ventilation rather than heat loss.",
+          "co2_threshold": "CO₂ level above which an open window is classified as intentional ventilation. Default is 900 ppm. Increase for bedrooms (higher tolerance) or decrease for seldom-occupied rooms.",
+          "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1–3°C too high).",
           "battery_sensor": "TRV battery level sensor (sensor.* reporting %). Recommended for Zigbee TRVs, whose battery is usually its own entity rather than an attribute on the climate entity. Leave blank to fall back to the climate entity's own battery_level attribute, if it has one.",
           "humidity_sensor": "Relative humidity sensor (%) for this room. Used together with the room temperature sensor to calculate mold risk (dewpoint vs. surface temperature).",
           "schedule_entity": "A schedule.* helper or calendar.* entity. While a time block or event is active, its temperature overrides this room's normal target."
@@ -284,22 +292,26 @@
         "data": {
           "room_name": "Room name",
           "window_sensors": "Window / door sensors",
-          "window_delay_min": "Window open delay (minutes) \u2014 unused, see global settings",
+          "door_styled_sensors": "Show as door instead of window (cosmetic)",
+          "heated_door_sensors": "Doors to a heated area (no heat cutoff)",
+          "window_delay_min": "Window open delay (minutes) — unused, see global settings",
           "away_temp_override": "Away temperature for this room",
           "comfort_temp": "Target temperature",
-          "co2_sensor": "CO\u2082 sensor (optional)",
-          "co2_threshold": "CO\u2082 ventilation threshold (ppm)",
+          "co2_sensor": "CO₂ sensor (optional)",
+          "co2_threshold": "CO₂ ventilation threshold (ppm)",
           "room_temp_sensor": "Room temperature sensor (optional)",
           "battery_sensor": "Battery sensor (optional)",
           "humidity_sensor": "Humidity sensor (optional)",
           "schedule_entity": "Schedule / calendar entity (optional)"
         },
         "data_description": {
-          "window_delay_min": "No longer read since v0.33.0 \u2014 every room's window open-delay now uses the single global setting instead (Season & global settings step). Left here only so a value already saved for this room isn't silently discarded; safe to ignore.",
-          "comfort_temp": "PID target temperature for this room \u2014 authoritative for every TRV type, Netatmo included. Default 20\u00b0C.",
-          "co2_sensor": "Used for context-aware window notifications and energy waste classification. When CO\u2082 is high, an open window is marked as ventilation rather than heat loss.",
-          "co2_threshold": "CO\u2082 level above which an open window is classified as intentional ventilation. Default is 900 ppm. Increase for bedrooms (higher tolerance) or decrease for seldom-occupied rooms.",
-          "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1\u20133\u00b0C too high).",
+          "door_styled_sensors": "Optional subset of the Window / door sensors above that should be labelled and logged as a door instead of a window — purely cosmetic, the exact same grace period / off-temperature / 30-minute warning behaviour applies either way (e.g. a balcony door still loses heat like a window). A sensor must ALSO be selected above in Window / door sensors for this to have any effect — selecting it ONLY here does nothing.",
+          "heated_door_sensors": "A SEPARATE list from Window / door sensors above — exterior doors leading to a heated/enclosed space (e.g. a front door onto a heated stairwell), not the outside air. These get NO heat-suppression behaviour at all: no grace period, no off-temperature, no warning — visibility and event log only. Do not add a sensor here INSTEAD of Window / door sensors if you want opening it to actually reduce heating.",
+          "window_delay_min": "No longer read since v0.33.0 — every room's window open-delay now uses the single global setting instead (Season & global settings step). Left here only so a value already saved for this room isn't silently discarded; safe to ignore.",
+          "comfort_temp": "PID target temperature for this room — authoritative for every TRV type, Netatmo included. Default 20°C.",
+          "co2_sensor": "Used for context-aware window notifications and energy waste classification. When CO₂ is high, an open window is marked as ventilation rather than heat loss.",
+          "co2_threshold": "CO₂ level above which an open window is classified as intentional ventilation. Default is 900 ppm. Increase for bedrooms (higher tolerance) or decrease for seldom-occupied rooms.",
+          "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1–3°C too high).",
           "battery_sensor": "TRV battery level sensor (sensor.* reporting %). Recommended for Zigbee TRVs, whose battery is usually its own entity rather than an attribute on the climate entity. Leave blank to fall back to the climate entity's own battery_level attribute, if it has one.",
           "humidity_sensor": "Relative humidity sensor (%) for this room. Used together with the room temperature sensor to calculate mold risk (dewpoint vs. surface temperature).",
           "schedule_entity": "A schedule.* helper or calendar.* entity. While a time block or event is active, its temperature overrides this room's normal target."
@@ -307,7 +319,7 @@
       },
       "room_trvs_menu": {
         "title": "Manage this room's TRVs",
-        "description": "Room: {room_name}. TRVs added so far: {trv_count}. At least one TRV is required \u2014 add it, then edit or delete any TRV, or save the room once you're done.",
+        "description": "Room: {room_name}. TRVs added so far: {trv_count}. At least one TRV is required — add it, then edit or delete any TRV, or save the room once you're done.",
         "data": {
           "action": "Action"
         }
@@ -388,8 +400,8 @@
         },
         "data_description": {
           "door_sensor": "A binary_sensor.* contact sensor mounted on this interior door.",
-          "door_room_a": "The two rooms this door connects \u2014 order doesn't matter, but they must be two different rooms.",
-          "door_room_b": "The two rooms this door connects \u2014 order doesn't matter, but they must be two different rooms."
+          "door_room_a": "The two rooms this door connects — order doesn't matter, but they must be two different rooms.",
+          "door_room_b": "The two rooms this door connects — order doesn't matter, but they must be two different rooms."
         }
       },
       "door_edit": {
@@ -402,8 +414,8 @@
         },
         "data_description": {
           "door_sensor": "A binary_sensor.* contact sensor mounted on this interior door.",
-          "door_room_a": "The two rooms this door connects \u2014 order doesn't matter, but they must be two different rooms.",
-          "door_room_b": "The two rooms this door connects \u2014 order doesn't matter, but they must be two different rooms."
+          "door_room_a": "The two rooms this door connects — order doesn't matter, but they must be two different rooms.",
+          "door_room_b": "The two rooms this door connects — order doesn't matter, but they must be two different rooms."
         }
       },
       "notifications": {
@@ -426,14 +438,14 @@
           "button_mode_toggle_entity": "Auto/manual toggle button (optional)"
         },
         "data_description": {
-          "button_temp_up_entity": "An event.* entity that fires on button press \u2014 e.g. one button of an Aqara Climate Sensor W100. Raises every room's setpoint (except windows-open/away rooms) and switches them to manual if needed.",
+          "button_temp_up_entity": "An event.* entity that fires on button press — e.g. one button of an Aqara Climate Sensor W100. Raises every room's setpoint (except windows-open/away rooms) and switches them to manual if needed.",
           "button_temp_down_entity": "An event.* entity that fires on button press. Lowers every room's setpoint (except windows-open/away rooms) and switches them to manual if needed.",
           "button_mode_toggle_entity": "An event.* entity that fires on button press. Toggles every eligible room between automatic (schedule/PID) and manual (override) control."
         }
       }
     },
     "error": {
-      "entity_not_found": "Entity not found \u2014 check the entity ID.",
+      "entity_not_found": "Entity not found — check the entity ID.",
       "duplicate_room": "A room with this name already exists.",
       "duplicate_person": "This person is already added.",
       "same_room": "The two rooms must be different.",
@@ -527,7 +539,7 @@
       "message": "Room '{room_name}' not found in Heat Manager configuration."
     },
     "setup_failed": {
-      "message": "Heat Manager could not complete startup \u2014 no climate entities are reachable yet."
+      "message": "Heat Manager could not complete startup — no climate entities are reachable yet."
     }
   }
 }

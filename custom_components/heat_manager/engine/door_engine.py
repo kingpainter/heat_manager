@@ -40,7 +40,12 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.core import callback
 from homeassistant.helpers.event import async_track_state_change_event
 
-from ..const import CONF_DOOR_ROOM_A, CONF_DOOR_ROOM_B, CONF_DOOR_SENSOR
+from ..const import (
+    CONF_DOOR_ROOM_A,
+    CONF_DOOR_ROOM_B,
+    CONF_DOOR_SENSOR,
+    CONF_HEATED_DOOR_SENSORS,
+)
 
 if TYPE_CHECKING:
     from ..coordinator import HeatManagerCoordinator
@@ -55,8 +60,18 @@ class DoorEngine:
         self.coordinator = coordinator
         # sensor entity_id -> (room_a, room_b), in the order configured
         self._sensor_to_rooms: dict[str, tuple[str, str]] = {}
+        # 2026-09-15 ("vindue vs dør") — exterior doors leading to a
+        # heated/enclosed buffer space (front door onto a heated stairwell,
+        # not the outside air): sensor entity_id -> the single room it's
+        # configured on. Deliberately handled in THIS engine, not
+        # window_engine.py — these carry no heat-suppression meaning at
+        # all (no grace period, no off-temp write, no 30-min warning),
+        # exactly like an interior door above; they just belong to one
+        # room instead of a pair. See const.py's CONF_HEATED_DOOR_SENSORS.
+        self._heated_door_sensor_to_room: dict[str, str] = {}
         self._unsubs: list[Any] = []
         self._build_sensor_map()
+        self._build_heated_door_map()
         self._register_listeners()
 
     def _build_sensor_map(self) -> None:
@@ -68,10 +83,25 @@ class DoorEngine:
                 self._sensor_to_rooms[sensor_id] = (room_a, room_b)
         _LOGGER.debug("Door engine tracking %d door(s)", len(self._sensor_to_rooms))
 
+    def _build_heated_door_map(self) -> None:
+        for room in self.coordinator.rooms:
+            room_name = room.get("room_name", "")
+            if not room_name:
+                continue
+            for sensor_id in room.get(CONF_HEATED_DOOR_SENSORS, []) or []:
+                if sensor_id:
+                    self._heated_door_sensor_to_room[sensor_id] = room_name
+        _LOGGER.debug(
+            "Door engine tracking %d heated-area door(s)",
+            len(self._heated_door_sensor_to_room),
+        )
+
     def _register_listeners(self) -> None:
-        sensors = list(self._sensor_to_rooms.keys())
+        sensors = list(self._sensor_to_rooms.keys()) + list(
+            self._heated_door_sensor_to_room.keys()
+        )
         if not sensors:
-            _LOGGER.debug("No interior doors configured — door engine idle")
+            _LOGGER.debug("No interior/heated-area doors configured — door engine idle")
             return
         self._unsubs.append(
             async_track_state_change_event(
@@ -96,20 +126,41 @@ class DoorEngine:
             return
 
         rooms = self._sensor_to_rooms.get(entity_id)
-        if not rooms:
+        if rooms:
+            room_a, room_b = rooms
+            if new == "on":
+                _LOGGER.info("Door opened between '%s' and '%s'", room_a, room_b)
+                self.coordinator.log_event(
+                    f"Dør åbnet mellem {room_a} og {room_b}", "Dør", "door"
+                )
+            else:
+                _LOGGER.info("Door closed between '%s' and '%s'", room_a, room_b)
+                self.coordinator.log_event(
+                    f"Dør lukket mellem {room_a} og {room_b}", "Dør", "door"
+                )
             return
-        room_a, room_b = rooms
 
-        if new == "on":
-            _LOGGER.info("Door opened between '%s' and '%s'", room_a, room_b)
-            self.coordinator.log_event(
-                f"Dør åbnet mellem {room_a} og {room_b}", "Dør", "door"
+        heated_room = self._heated_door_sensor_to_room.get(entity_id)
+        if heated_room:
+            # 2026-09-15 — visibility + log only, deliberately no
+            # window_engine-style grace/off-temp/warning: opening a front
+            # door onto a heated stairwell for a few seconds shouldn't ever
+            # be treated like a window left open.
+            friendly = (
+                new_state.attributes.get("friendly_name", entity_id)
+                if new_state
+                else entity_id
             )
-        else:
-            _LOGGER.info("Door closed between '%s' and '%s'", room_a, room_b)
-            self.coordinator.log_event(
-                f"Dør lukket mellem {room_a} og {room_b}", "Dør", "door"
-            )
+            if new == "on":
+                _LOGGER.info(
+                    "Heated-area door opened: %s (%s)", friendly, heated_room
+                )
+                self.coordinator.log_event(f"Dør åbnet: {friendly}", "Dør", "door")
+            else:
+                _LOGGER.info(
+                    "Heated-area door closed: %s (%s)", friendly, heated_room
+                )
+                self.coordinator.log_event(f"Dør lukket: {friendly}", "Dør", "door")
 
     async def async_shutdown(self) -> None:
         for unsub in self._unsubs:

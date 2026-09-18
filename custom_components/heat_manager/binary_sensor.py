@@ -21,6 +21,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    CONF_HEATED_DOOR_SENSORS,
     CONF_HUMIDITY_SENSOR,
     CONF_ROOM_TEMP_SENSOR,
     CONF_WINDOW_SENSORS,
@@ -49,6 +50,9 @@ async def async_setup_entry(
             # under the room's device too (RoomWindowSensor above only
             # exposes the aggregated "any open" state) — see sensor.py's
             # analogous numeric mirrors for the same visibility rationale.
+            # 2026-09-15 ("vindue vs dør"): each mirror now shows the
+            # correct icon/name depending on CONF_DOOR_STYLED_SENSORS —
+            # purely cosmetic, same underlying sensor/behaviour either way.
             entities.extend(
                 RawWindowContactMirror(coordinator, entry, room, index, source_id)
                 for index, source_id in enumerate(room[CONF_WINDOW_SENSORS])
@@ -56,6 +60,16 @@ async def async_setup_entry(
             )
         if room.get(CONF_HUMIDITY_SENSOR):
             entities.append(MoldRiskSensor(coordinator, entry, room))
+        # 2026-09-15 — heated-area doors (front door onto a heated
+        # stairwell, etc.): visibility-only mirrors, no relation to
+        # window_engine.py's grace/off-temp/warning logic at all. See
+        # const.py's CONF_HEATED_DOOR_SENSORS.
+        if room.get(CONF_HEATED_DOOR_SENSORS):
+            entities.extend(
+                HeatedDoorContactMirror(coordinator, entry, room, index, source_id)
+                for index, source_id in enumerate(room[CONF_HEATED_DOOR_SENSORS])
+                if source_id
+            )
 
     async_add_entities(entities)
 
@@ -388,7 +402,6 @@ class RawWindowContactMirror(CoordinatorEntity[HeatManagerCoordinator], BinarySe
     """
 
     _attr_has_entity_name = True
-    _attr_device_class = BinarySensorDeviceClass.WINDOW
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = True
 
@@ -414,7 +427,65 @@ class RawWindowContactMirror(CoordinatorEntity[HeatManagerCoordinator], BinarySe
         safe_name = room_name.lower().replace(" ", "_")
         self._source_id = source_entity_id
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_window_mirror_{index}"
-        self._attr_name = f"Window/door sensor {index + 1}"
+        # 2026-09-15 ("vindue vs dør") — purely cosmetic: icon/name reflect
+        # CONF_DOOR_STYLED_SENSORS, everything else about this mirror is
+        # unchanged. See const.py's CONF_DOOR_STYLED_SENSORS.
+        is_door = source_entity_id in coordinator.get_room_door_styled_sensors(
+            room_name
+        )
+        self._attr_device_class = (
+            BinarySensorDeviceClass.DOOR if is_door else BinarySensorDeviceClass.WINDOW
+        )
+        self._attr_name = f"{'Door' if is_door else 'Window'} sensor {index + 1}"
+        self._attr_device_info = coordinator.room_device_info(room_name)
+
+    @property
+    def available(self) -> bool:
+        s = self.coordinator.hass.states.get(self._source_id)
+        return s is not None and s.state not in ("unavailable", "unknown")
+
+    @property
+    def is_on(self) -> bool | None:
+        s = self.coordinator.hass.states.get(self._source_id)
+        if s is None or s.state in ("unavailable", "unknown"):
+            return None
+        return bool(s.state == "on")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"source_entity_id": self._source_id}
+
+
+class HeatedDoorContactMirror(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEntity):
+    """Diagnostic mirror of ONE heated-area door sensor (2026-09-15) — a
+    front door onto a heated stairwell, etc. Structurally identical to
+    RawWindowContactMirror above, but sourced from CONF_HEATED_DOOR_SENSORS
+    instead of CONF_WINDOW_SENSORS and always shown as a door. No relation
+    to window_engine.py's grace/off-temp/warning logic — this is purely a
+    visibility mirror, exactly like door_engine.py's own event-log-only
+    handling of these sensors. See const.py's CONF_HEATED_DOOR_SENSORS.
+    """
+
+    _attr_has_entity_name = True
+    _attr_device_class = BinarySensorDeviceClass.DOOR
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(
+        self,
+        coordinator: HeatManagerCoordinator,
+        entry: ConfigEntry,
+        room: dict[str, Any],
+        index: int,
+        source_entity_id: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self.coordinator: HeatManagerCoordinator = coordinator
+        room_name = room["room_name"]
+        safe_name = room_name.lower().replace(" ", "_")
+        self._source_id = source_entity_id
+        self._attr_unique_id = f"{entry.entry_id}_{safe_name}_heated_door_mirror_{index}"
+        self._attr_name = f"Door sensor {index + 1}"
         self._attr_device_info = coordinator.room_device_info(room_name)
 
     @property

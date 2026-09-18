@@ -30,6 +30,29 @@ CONF_CLIMATE_ENTITY = "climate_entity"
 # to coordinator.py and the engines.
 CONF_TRVS = "trvs"
 CONF_WINDOW_SENSORS = "window_sensors"
+# 2026-09-15 (window vs door labeling) -- purely cosmetic label/icon overlay
+# on top of CONF_WINDOW_SENSORS: which of those already-tracked sensors
+# should show/log as a door instead of a window. Grace period, off-temp,
+# and the 30-min warning are IDENTICAL either way -- a balcony door leads
+# to the same cold outside air a window does, so it keeps the exact same
+# heat-loss behaviour; only the label/icon differs. A sensor not in this
+# set defaults to window, so every existing install is unaffected until
+# the user explicitly marks a sensor here. See window_engine.py's
+# event-log lines and binary_sensor.py's RawWindowContactMirror.
+CONF_DOOR_STYLED_SENSORS = "door_styled_sensors"
+# 2026-09-15 -- a SEPARATE list: exterior doors leading to a heated/enclosed
+# buffer space (a front door opening onto a heated stairwell, not the
+# outside air). Unlike CONF_WINDOW_SENSORS/CONF_DOOR_STYLED_SENSORS above,
+# these carry NO heat-suppression meaning at all: no grace period, no
+# off-temp write, no 30-min-left-open warning -- opening the front door for
+# a few seconds shouldn't ever be treated like a window left open.
+# Visibility + event log only, same restart-safe known-old-state-guard
+# pattern as the interior-door tracking below -- see door_engine.py's
+# heated-door section and coordinator.get_room_heated_doors(). Deliberately
+# its own list rather than a third value on CONF_DOOR_STYLED_SENSORS: those
+# two sensors need opposite window_engine.py handling (full grace/warning
+# vs. none at all), not just a different icon.
+CONF_HEATED_DOOR_SENSORS = "heated_door_sensors"
 # Per-room field, set only via the options-flow room step. v0.33.0: no
 # longer read by window_engine.py — see CONF_WINDOW_DELAY_DEFAULT_MIN below.
 # Left in place (not migrated away) so nothing is lost for anyone who did
@@ -332,6 +355,51 @@ SOLAR_GAIN_WEIGHT: float = 0.15
 # room drift cold on a bright-but-freezing day just because the sun is out.
 CONF_SOLAR_GAIN_MAX_REDUCTION = "solar_gain_max_reduction"
 SOLAR_GAIN_MAX_REDUCTION: float = 0.4
+
+# ── Door heat sharing (2026-09-16, punkt 8) ─────────────────────────────
+# A per-room REDUCTION of PID power, mirroring the same "cancel out, never
+# increase" pattern as solar gain above — but the free heat source here is
+# a warmer NEIGHBOURING room, delivered through a shared open interior
+# door (CONF_DOORS), instead of the sun. Deliberately does NOT touch
+# comfort_temp/target_temp at all — unlike an earlier design considered
+# for this feature, which would have temporarily lowered the room's own
+# target while a door was open. That raised an unresolved ownership
+# question (who "owns" a room's target when a door has temporarily
+# changed it, and what happens when the door closes again) that made the
+# feature feel unpredictable. Reducing PID POWER instead sidesteps that
+# entirely: the room's own target never changes, so there is nothing to
+# restore when the door closes — the reduction simply stops applying at
+# the next tick, the same way solar gain's reduction disappears the
+# moment the sun goes behind a cloud. See
+# coordinator._door_heat_share_reduction() for the formula and
+# _async_pid_tick() for where it's applied (after weather compensation
+# and solar gain, same position in the chain).
+CONF_DOOR_HEAT_SHARE_ENABLED = "door_heat_share_enabled"
+DEFAULT_DOOR_HEAT_SHARE_ENABLED: bool = False
+# The neighbouring room must itself be running at least this much PID
+# power for its heat to count as "actually being delivered" through the
+# door right now, not just "the neighbour happens to be warmer already"
+# (e.g. residual heat from earlier, or a room that's simply always warm).
+# 0.5 = the neighbour's own TRV must be at 50% power or more.
+CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER = "door_heat_share_min_neighbor_power"
+DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER: float = 0.5
+# Minimum temperature gap (°C) between the two rooms before any reduction
+# applies — without a real gradient there's nothing meaningfully flowing
+# through the doorway yet, regardless of how hard the neighbour's TRV is
+# working.
+CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF = "door_heat_share_min_temp_diff"
+DOOR_HEAT_SHARE_MIN_TEMP_DIFF: float = 1.5
+# Power-fraction reduction per full °C the neighbour is warmer, once both
+# thresholds above are met — scales the reduction with the size of the
+# gradient (a bigger gap means more heat is genuinely moving through the
+# doorway), same shape as SOLAR_GAIN_WEIGHT.
+CONF_DOOR_HEAT_SHARE_WEIGHT = "door_heat_share_weight"
+DOOR_HEAT_SHARE_WEIGHT: float = 0.15
+# Cap — door heat sharing alone never removes more than this fraction of
+# PID's commanded power, regardless of how warm the neighbour is. Same
+# conservative-by-default rationale as SOLAR_GAIN_MAX_REDUCTION.
+CONF_DOOR_HEAT_SHARE_MAX_REDUCTION = "door_heat_share_max_reduction"
+DOOR_HEAT_SHARE_MAX_REDUCTION: float = 0.4
 
 # PID defaults
 DEFAULT_PID_KP: float = 0.5

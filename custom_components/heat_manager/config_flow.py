@@ -42,12 +42,19 @@ from .const import (
     CONF_DOOR_ROOM_A,
     CONF_DOOR_ROOM_B,
     CONF_DOOR_SENSOR,
+    CONF_DOOR_HEAT_SHARE_ENABLED,
+    CONF_DOOR_HEAT_SHARE_MAX_REDUCTION,
+    CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
+    CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF,
+    CONF_DOOR_HEAT_SHARE_WEIGHT,
+    CONF_DOOR_STYLED_SENSORS,
     CONF_DOORS,
     CONF_FF_MAX_CONTRIBUTION,
     CONF_FF_REFERENCE_OUTDOOR_TEMP,
     CONF_FF_WEIGHT,
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
+    CONF_HEATED_DOOR_SENSORS,
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_HOUSE_VOICE_ENABLED,
     CONF_HUMIDITY_SENSOR,
@@ -107,6 +114,7 @@ from .const import (
     DEFAULT_BOOST_TEMP,
     DEFAULT_CO2_VENTILATION_THRESHOLD,
     DEFAULT_COMFORT_TEMP,
+    DEFAULT_DOOR_HEAT_SHARE_ENABLED,
     DEFAULT_GRACE_DAY_MIN,
     DEFAULT_GRACE_NIGHT_MIN,
     DEFAULT_INDOOR_WAKE_THRESHOLD,
@@ -133,6 +141,10 @@ from .const import (
     FF_MAX_CONTRIBUTION,
     FF_REFERENCE_OUTDOOR_TEMP,
     FF_WEIGHT,
+    DOOR_HEAT_SHARE_MAX_REDUCTION,
+    DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
+    DOOR_HEAT_SHARE_MIN_TEMP_DIFF,
+    DOOR_HEAT_SHARE_WEIGHT,
     PID_SETPOINT_MARGIN,
     SOLAR_GAIN_LUX_THRESHOLD,
     SOLAR_GAIN_MAX_REDUCTION,
@@ -512,6 +524,45 @@ def _step1_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                     CONF_SOLAR_GAIN_MAX_REDUCTION, SOLAR_GAIN_MAX_REDUCTION
                 ),
             ): selector.selector({"number": {"min": 0, "max": 0.8, "step": 0.05}}),
+            # ── Door heat sharing (2026-09-16, punkt 8) ────────────
+            # See const.py's CONF_DOOR_HEAT_SHARE_ENABLED for the full
+            # rationale. Off by default — no prior always-on behaviour to
+            # preserve, and it only ever activates once both an interior
+            # door (CONF_DOORS) is open AND the warmer neighbour is
+            # actively heating.
+            vol.Optional(
+                CONF_DOOR_HEAT_SHARE_ENABLED,
+                default=defaults.get(
+                    CONF_DOOR_HEAT_SHARE_ENABLED, DEFAULT_DOOR_HEAT_SHARE_ENABLED
+                ),
+            ): selector.selector({"boolean": {}}),
+            vol.Optional(
+                CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
+                default=defaults.get(
+                    CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
+                    DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
+                ),
+            ): selector.selector({"number": {"min": 0, "max": 1.0, "step": 0.05}}),
+            vol.Optional(
+                CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF,
+                default=defaults.get(
+                    CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF, DOOR_HEAT_SHARE_MIN_TEMP_DIFF
+                ),
+            ): selector.selector(
+                {"number": {"min": 0.5, "max": 6.0, "step": 0.5, "unit_of_measurement": "°C"}}
+            ),
+            vol.Optional(
+                CONF_DOOR_HEAT_SHARE_WEIGHT,
+                default=defaults.get(
+                    CONF_DOOR_HEAT_SHARE_WEIGHT, DOOR_HEAT_SHARE_WEIGHT
+                ),
+            ): selector.selector({"number": {"min": 0, "max": 0.5, "step": 0.01}}),
+            vol.Optional(
+                CONF_DOOR_HEAT_SHARE_MAX_REDUCTION,
+                default=defaults.get(
+                    CONF_DOOR_HEAT_SHARE_MAX_REDUCTION, DOOR_HEAT_SHARE_MAX_REDUCTION
+                ),
+            ): selector.selector({"number": {"min": 0, "max": 0.8, "step": 0.05}}),
             # ── Wake / WAKING phase ────────────────────────────────────
             vol.Optional(
                 CONF_INDOOR_WAKE_SENSOR,
@@ -634,6 +685,27 @@ def _room_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             ): selector.selector({"text": {}}),
             vol.Optional(
                 CONF_WINDOW_SENSORS, default=defaults.get(CONF_WINDOW_SENSORS, [])
+            ): selector.selector(
+                {"entity": {"domain": "binary_sensor", "multiple": True}}
+            ),
+            # 2026-09-15 (window vs door labeling) -- purely cosmetic subset
+            # of CONF_WINDOW_SENSORS above: same grace/off-temp/warning
+            # behaviour either way, only the label/icon changes. See
+            # const.py's CONF_DOOR_STYLED_SENSORS for the full rationale.
+            vol.Optional(
+                CONF_DOOR_STYLED_SENSORS,
+                default=defaults.get(CONF_DOOR_STYLED_SENSORS, []),
+            ): selector.selector(
+                {"entity": {"domain": "binary_sensor", "multiple": True}}
+            ),
+            # 2026-09-15 -- a separate list: exterior doors leading to a
+            # heated/enclosed buffer space (e.g. a front door onto a heated
+            # stairwell). No grace period, no off-temp, no 30-min warning --
+            # visibility + event log only. See const.py's
+            # CONF_HEATED_DOOR_SENSORS for the full rationale.
+            vol.Optional(
+                CONF_HEATED_DOOR_SENSORS,
+                default=defaults.get(CONF_HEATED_DOOR_SENSORS, []),
             ): selector.selector(
                 {"entity": {"domain": "binary_sensor", "multiple": True}}
             ),

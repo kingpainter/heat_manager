@@ -69,6 +69,11 @@ from .const import (
     CONF_PID_KI,
     CONF_PID_KP,
     CONF_PID_SETPOINT_MARGIN,
+    CONF_DOOR_HEAT_SHARE_ENABLED,
+    CONF_DOOR_HEAT_SHARE_MAX_REDUCTION,
+    CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
+    CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF,
+    CONF_DOOR_HEAT_SHARE_WEIGHT,
     CONF_ROOM_NAME,
     CONF_ROOMS,
     CONF_SCHEDULE_ENTITY,
@@ -100,6 +105,7 @@ from .const import (
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
+    DEFAULT_DOOR_HEAT_SHARE_ENABLED,
     DEFAULT_SOLAR_GAIN_ENABLED,
     DEFAULT_WEATHER_COMPENSATION_ENABLED,
     DEFAULT_WINDOW_DELAY_DEFAULT_MIN,
@@ -109,6 +115,10 @@ from .const import (
     FF_MAX_CONTRIBUTION,
     FF_REFERENCE_OUTDOOR_TEMP,
     FF_WEIGHT,
+    DOOR_HEAT_SHARE_MAX_REDUCTION,
+    DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
+    DOOR_HEAT_SHARE_MIN_TEMP_DIFF,
+    DOOR_HEAT_SHARE_WEIGHT,
     PID_SETPOINT_MARGIN,
     SOLAR_GAIN_LUX_THRESHOLD,
     SOLAR_GAIN_MAX_REDUCTION,
@@ -454,7 +464,7 @@ async def ws_set_room_temp(
         return
 
     # B18: every physical TRV configured for the room receives the same
-    # command, each routed by its own trv_type/write-entity policy \u2014
+    # command, each routed by its own trv_type/write-entity policy —
     # unchanged from the pre-existing single-TRV policy per branch.
     trvs = coordinator.get_room_trvs(room_name)
     if not trvs:
@@ -470,27 +480,34 @@ async def ws_set_room_temp(
             # Restore to schedule
             for trv in trvs:
                 trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
+                # 2026-09-16 (deep-dive audit fix): both branches below used
+                # to call hass.services.async_call("climate", ...) directly,
+                # bypassing coordinator.async_call_climate_service()'s
+                # shared Netatmo lock/pacing. The panel's "Send til alle"
+                # control calls this WS command once per room in sequence,
+                # so within any ONE of those calls every TRV in that room
+                # was still hit with no lock at all.
                 if trv_type == "zigbee":
                     entity_id = coordinator.get_trv_write_entity(trv) or trv.get(
                         CONF_CLIMATE_ENTITY
                     )
                     if not entity_id:
                         continue
-                    await hass.services.async_call(
-                        "climate",
+                    await coordinator.async_call_climate_service(
                         "set_hvac_mode",
-                        {"entity_id": entity_id, "hvac_mode": "heat"},
-                        blocking=True,
+                        entity_id,
+                        {"hvac_mode": "heat"},
+                        needs_delay=coordinator.trv_needs_cloud_delay(trv),
                     )
                 else:
                     entity_id = trv.get(CONF_CLIMATE_ENTITY)
                     if not entity_id:
                         continue
-                    await hass.services.async_call(
-                        "climate",
+                    await coordinator.async_call_climate_service(
                         "set_preset_mode",
-                        {"entity_id": entity_id, "preset_mode": "schedule"},
-                        blocking=True,
+                        entity_id,
+                        {"preset_mode": "schedule"},
+                        needs_delay=True,
                     )
                 if write_entity is None:
                     write_entity = entity_id
@@ -501,26 +518,30 @@ async def ws_set_room_temp(
             )
             _LOGGER.info("Room '%s' restored to schedule", room_name)
         else:
-            # Set temperature \u2014 same setpoint fanned out to every TRV's
-            # write entity (HomeKit-preferred, matching the pre-existing
-            # single-TRV policy).
+            # Set temperature — same setpoint fanned out to every TRV,
+            # each with its own trv_needs_cloud_delay() decision (2026-09-16
+            # audit fix — iterates trvs directly instead of the flattened
+            # write-entity list so each write keeps its TRV association).
             temp = float(temperature)
-            write_entities = coordinator.get_room_write_entities(room_name)
-            if not write_entities:
+            if not trvs:
                 connection.send_error(
                     msg["id"],
                     "not_found",
                     f"No write entity for room '{room_name}'",
                 )
                 return
-            for entity_id in write_entities:
-                await hass.services.async_call(
-                    "climate",
+            for trv in trvs:
+                entity_id = coordinator.get_trv_write_entity(trv)
+                if not entity_id:
+                    continue
+                await coordinator.async_call_climate_service(
                     "set_temperature",
-                    {"entity_id": entity_id, "temperature": temp},
-                    blocking=True,
+                    entity_id,
+                    {"temperature": temp},
+                    needs_delay=coordinator.trv_needs_cloud_delay(trv),
                 )
-            write_entity = write_entities[0]
+                if write_entity is None:
+                    write_entity = entity_id
             dur_label = f"{duration} min" if duration > 0 else "permanent"
             coordinator.log_event(
                 f"{room_name}: {temp}\u00b0C ({dur_label})",
@@ -536,7 +557,7 @@ async def ws_set_room_temp(
             )
             # 1.4 fix: mark the room OVERRIDE (bypassing presence/window
             # logic) and record the source, matching the behaviour of the
-            # override switch and the remote-button engine \u2014 previously
+            # override switch and the remote-button engine — previously
             # a manual panel temperature never engaged RoomOverrideSwitch's
             # OVERRIDE state at all.
             coordinator.set_room_state(room_name, RoomState.OVERRIDE)
@@ -966,6 +987,25 @@ async def ws_get_state(
                 # attributes, only populated for rooms with a Netatmo cloud
                 # climate entity (None for Zigbee/local rooms).
                 "target_temp": target_temp,
+                # 2026-09-16 ("hvad er hvad"-forvirring) — the setpoint PID
+                # actually computed and wrote to the TRV(s) during its last
+                # active cycle for this room (coordinator._async_pid_tick(),
+                # after power->setpoint mapping AND the setpoint-margin cap
+                # — see that method for the full chain). Distinct from
+                # target_temp above: target_temp is what Heat Manager is
+                # trying to reach; this is what it's actually telling the
+                # valve to do right now, which can sit noticeably above
+                # target_temp while the room is still far from it.
+                # last_expected_setpoint is NEVER cleared once written (see
+                # sync_engine.py's own reliance on that), so it would hold a
+                # stale value indefinitely for a room that has left NORMAL
+                # — gated on room_state here so the frontend only ever sees
+                # a value while it's actually live/meaningful.
+                "trv_setpoint": (
+                    coordinator.last_expected_setpoint.get(name)
+                    if room_state == RoomState.NORMAL
+                    else None
+                ),
                 "cloud_temperature": cloud_temperature,
                 "cloud_hvac_action": cloud_hvac_action,
                 "cloud_preset_mode": cloud_preset_mode,
@@ -982,6 +1022,13 @@ async def ws_get_state(
                 # has observed enough genuine heating to learn a rate — see
                 # engine/calibration_engine.py's "Heat-up-rate learning".
                 "door_open": coordinator.is_room_door_open(name),
+                # 2026-09-15 ("vindue vs dør") — heated-area doors (front
+                # door onto a heated stairwell, etc.) are a SEPARATE concept
+                # from the interior door_open above: no heat-suppression
+                # meaning at all, visibility-only. has_heated_doors lets the
+                # panel decide whether to show the row at all for this room.
+                "has_heated_doors": bool(coordinator.get_room_heated_doors(name)),
+                "heated_door_open": coordinator.is_room_heated_door_open(name),
                 "heatup_rate_door_open": coordinator.calibration_engine.get_room_heatup_rate(
                     name, True
                 ),
@@ -1129,6 +1176,24 @@ async def ws_get_state(
         "solar_gain_max_reduction": cfg.get(
             CONF_SOLAR_GAIN_MAX_REDUCTION, SOLAR_GAIN_MAX_REDUCTION
         ),
+        # 2026-09-16 (punkt 8) — door heat sharing, same panel-editable
+        # pattern as solar gain above.
+        "door_heat_share_enabled": cfg.get(
+            CONF_DOOR_HEAT_SHARE_ENABLED, DEFAULT_DOOR_HEAT_SHARE_ENABLED
+        ),
+        "door_heat_share_min_neighbor_power": cfg.get(
+            CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
+            DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
+        ),
+        "door_heat_share_min_temp_diff": cfg.get(
+            CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF, DOOR_HEAT_SHARE_MIN_TEMP_DIFF
+        ),
+        "door_heat_share_weight": cfg.get(
+            CONF_DOOR_HEAT_SHARE_WEIGHT, DOOR_HEAT_SHARE_WEIGHT
+        ),
+        "door_heat_share_max_reduction": cfg.get(
+            CONF_DOOR_HEAT_SHARE_MAX_REDUCTION, DOOR_HEAT_SHARE_MAX_REDUCTION
+        ),
     }
 
     payload: dict[str, Any] = {
@@ -1237,6 +1302,7 @@ _BOOL_CONFIG_FIELD_DEFAULTS: dict[str, bool] = {
     CONF_NOTIFY_ISSUE_ESCALATION: True,
     CONF_WEATHER_COMPENSATION_ENABLED: DEFAULT_WEATHER_COMPENSATION_ENABLED,
     CONF_SOLAR_GAIN_ENABLED: DEFAULT_SOLAR_GAIN_ENABLED,
+    CONF_DOOR_HEAT_SHARE_ENABLED: DEFAULT_DOOR_HEAT_SHARE_ENABLED,
 }
 
 # value = (python type to cast the raw WS value to, DEFAULT_* fallback)
@@ -1264,6 +1330,10 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
     CONF_SOLAR_GAIN_LUX_THRESHOLD: (float, SOLAR_GAIN_LUX_THRESHOLD),
     CONF_SOLAR_GAIN_WEIGHT: (float, SOLAR_GAIN_WEIGHT),
     CONF_SOLAR_GAIN_MAX_REDUCTION: (float, SOLAR_GAIN_MAX_REDUCTION),
+    CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER: (float, DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER),
+    CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF: (float, DOOR_HEAT_SHARE_MIN_TEMP_DIFF),
+    CONF_DOOR_HEAT_SHARE_WEIGHT: (float, DOOR_HEAT_SHARE_WEIGHT),
+    CONF_DOOR_HEAT_SHARE_MAX_REDUCTION: (float, DOOR_HEAT_SHARE_MAX_REDUCTION),
 }
 
 
@@ -1289,6 +1359,10 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
         vol.Optional(CONF_SOLAR_GAIN_LUX_THRESHOLD): vol.Any(float, int),
         vol.Optional(CONF_SOLAR_GAIN_WEIGHT): vol.Any(float, int),
         vol.Optional(CONF_SOLAR_GAIN_MAX_REDUCTION): vol.Any(float, int),
+        vol.Optional(CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER): vol.Any(float, int),
+        vol.Optional(CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF): vol.Any(float, int),
+        vol.Optional(CONF_DOOR_HEAT_SHARE_WEIGHT): vol.Any(float, int),
+        vol.Optional(CONF_DOOR_HEAT_SHARE_MAX_REDUCTION): vol.Any(float, int),
         vol.Optional(CONF_PID_KP): vol.Any(float, int),
         vol.Optional(CONF_PID_KI): vol.Any(float, int),
         vol.Optional(CONF_PID_KD): vol.Any(float, int),

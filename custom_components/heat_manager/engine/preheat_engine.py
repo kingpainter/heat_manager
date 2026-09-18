@@ -177,7 +177,6 @@ class PreheatEngine:
         if not self._preheat_armed:
             return  # Already handled (e.g. person arrived in the meantime)
 
-        hass = self.coordinator.hass
         rooms_preheated: list[str] = []
 
         for room in self.coordinator.rooms:
@@ -196,20 +195,33 @@ class PreheatEngine:
                 if not climate_id:
                     continue
                 trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
+                # 2026-09-16 (deep-dive audit fix): this used to call
+                # hass.services.async_call("climate", ...) directly, bypassing
+                # coordinator.async_call_climate_service()'s shared lock/pacing
+                # — the same mechanism controller.py's OFF-fallback,
+                # presence_engine.py, and window_engine.py all route through
+                # specifically to serialise Netatmo-bound calls and avoid 429
+                # errors (see that method's own docstring). A preheat sweep
+                # touches every AWAY room in quick succession — exactly the
+                # burst pattern the shared lock exists to prevent — so this
+                # was a real, if lower-probability (arrival timing dependent),
+                # gap in that protection.
+                write_id = self.coordinator.get_trv_write_entity(trv) or climate_id
+                delay = self.coordinator.trv_needs_cloud_delay(trv)
                 try:
                     if trv_type == TRV_TYPE_ZIGBEE:
-                        await hass.services.async_call(
-                            "climate",
+                        await self.coordinator.async_call_climate_service(
                             "set_hvac_mode",
-                            {"entity_id": climate_id, "hvac_mode": "heat"},
-                            blocking=True,
+                            write_id,
+                            {"hvac_mode": "heat"},
+                            needs_delay=delay,
                         )
                     else:
-                        await hass.services.async_call(
-                            "climate",
+                        await self.coordinator.async_call_climate_service(
                             "set_preset_mode",
-                            {"entity_id": climate_id, "preset_mode": PRESET_SCHEDULE},
-                            blocking=True,
+                            climate_id,
+                            {"preset_mode": PRESET_SCHEDULE},
+                            needs_delay=delay,
                         )
                     room_ok = True
                 # broad-except-rationale: one entity failing must not abort the others in this loop

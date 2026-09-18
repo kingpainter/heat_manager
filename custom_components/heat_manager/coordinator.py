@@ -50,13 +50,20 @@ from .const import (
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
     CONF_COMFORT_TEMP,
+    CONF_DOOR_HEAT_SHARE_ENABLED,
+    CONF_DOOR_HEAT_SHARE_MAX_REDUCTION,
+    CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
+    CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF,
+    CONF_DOOR_HEAT_SHARE_WEIGHT,
     CONF_DOOR_ROOM_A,
     CONF_DOOR_ROOM_B,
     CONF_DOOR_SENSOR,
+    CONF_DOOR_STYLED_SENSORS,
     CONF_DOORS,
     CONF_FF_MAX_CONTRIBUTION,
     CONF_FF_REFERENCE_OUTDOOR_TEMP,
     CONF_FF_WEIGHT,
+    CONF_HEATED_DOOR_SENSORS,
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_HOUSE_VOICE_ENABLED,
     CONF_HUMIDITY_SENSOR,
@@ -90,6 +97,7 @@ from .const import (
     DEFAULT_BOOST_MINUTES,
     DEFAULT_BOOST_TEMP,
     DEFAULT_COMFORT_TEMP,
+    DEFAULT_DOOR_HEAT_SHARE_ENABLED,
     DEFAULT_ISSUE_ESCALATION_MINUTES,
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
@@ -101,6 +109,10 @@ from .const import (
     FF_MAX_CONTRIBUTION,
     FF_REFERENCE_OUTDOOR_TEMP,
     FF_WEIGHT,
+    DOOR_HEAT_SHARE_MAX_REDUCTION,
+    DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
+    DOOR_HEAT_SHARE_MIN_TEMP_DIFF,
+    DOOR_HEAT_SHARE_WEIGHT,
     HOUSE_VOICE_DOMAIN,
     HOUSE_VOICE_SERVICE_SAY,
     NETATMO_API_CALL_DELAY_SEC,
@@ -233,6 +245,59 @@ def _solar_gain_reduction(
     )
     excess_ratio = (lux - threshold) / threshold
     return min(max_reduction, excess_ratio * weight)
+
+
+def _door_heat_share_reduction(
+    config: dict[str, Any],
+    neighbor_power: float | None,
+    temp_diff: float | None,
+) -> float:
+    """Door-heat-sharing PID power REDUCTION (2026-09-16, punkt 8) — a room
+    with an open interior door to a warmer, actively-heating neighbour
+    needs less TRV-delivered heat than the schedule alone would call for,
+    since part of the work is already being done for free through the
+    doorway. Same shape as _solar_gain_reduction() above (only ever
+    SUBTRACTS power, never adds) and the same reason it's a power
+    reduction rather than a target_temp change: see const.py's
+    CONF_DOOR_HEAT_SHARE_ENABLED docstring for the ownership-question
+    rationale this design sidesteps entirely.
+
+    Returns 0.0 (no effect) unless ALL of: the feature is enabled, both
+    `neighbor_power` and `temp_diff` are known (None means "no open door
+    to a room with an active PID" — see _async_pid_tick()'s call site for
+    how these are resolved across a room's open doors), the neighbour's
+    own PID power meets CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER (it must
+    actually be delivering heat right now, not just be warmer from
+    residual heat earlier), and the temperature gap meets
+    CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF (a real gradient, not noise). A
+    pure function of its three arguments — no coordinator/hass access
+    needed — same testability rationale as the feedforward/solar-gain
+    helpers above.
+    """
+    if neighbor_power is None or temp_diff is None:
+        return 0.0
+    if not config.get(CONF_DOOR_HEAT_SHARE_ENABLED, DEFAULT_DOOR_HEAT_SHARE_ENABLED):
+        return 0.0
+    min_neighbor_power = float(
+        config.get(
+            CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
+            DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
+        )
+    )
+    if neighbor_power < min_neighbor_power:
+        return 0.0
+    min_temp_diff = float(
+        config.get(CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF, DOOR_HEAT_SHARE_MIN_TEMP_DIFF)
+    )
+    if temp_diff < min_temp_diff:
+        return 0.0
+    weight = float(config.get(CONF_DOOR_HEAT_SHARE_WEIGHT, DOOR_HEAT_SHARE_WEIGHT))
+    max_reduction = float(
+        config.get(
+            CONF_DOOR_HEAT_SHARE_MAX_REDUCTION, DOOR_HEAT_SHARE_MAX_REDUCTION
+        )
+    )
+    return min(max_reduction, temp_diff * weight)
 
 
 # Mold risk (mirrors binary_sensor.py's MoldRiskSensor algorithm — duplicated
@@ -485,6 +550,84 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             sensor_id = door.get(CONF_DOOR_SENSOR)
             if not sensor_id:
                 continue
+            state = self.hass.states.get(sensor_id)
+            if state and state.state == "on":
+                return True
+        return False
+
+    def get_door_heat_share_inputs(
+        self, room_name: str, current_temp: float
+    ) -> tuple[float | None, float | None]:
+        """For punkt 8 (door heat sharing, 2026-09-16): among this room's
+        open interior doors, find the neighbouring room best positioned to
+        be sharing heat right now and return (neighbor_power, temp_diff)
+        for it — or (None, None) if no door is open, no neighbour has an
+        active PID, or the neighbour's temperature isn't known.
+
+        Only ever considers a neighbour WARMER than this room (a colder
+        neighbour isn't sharing anything in); "best" means the neighbour
+        with the highest current PID power, since that's the one most
+        likely to actually be delivering heat through the doorway right
+        now. Feeds directly into _door_heat_share_reduction() — see that
+        function for the thresholds these two values are checked against.
+        A room with multiple open doors is deliberately capped at its
+        single best neighbour rather than summing across all of them, to
+        avoid over-crediting a room with several doors open at once.
+        """
+        best_power: float | None = None
+        best_diff: float | None = None
+        for door in self.get_room_doors(room_name):
+            sensor_id = door.get(CONF_DOOR_SENSOR)
+            if not sensor_id:
+                continue
+            state = self.hass.states.get(sensor_id)
+            if state is None or state.state != "on":
+                continue
+            neighbor_name = self.get_door_other_room(door, room_name)
+            if not neighbor_name:
+                continue
+            neighbor_pid = self.pid_controllers.get(neighbor_name)
+            if neighbor_pid is None:
+                continue
+            neighbor_power = getattr(neighbor_pid, "_last_output", None)
+            if neighbor_power is None:
+                continue
+            neighbor_climate_id = self.get_climate_entity(neighbor_name) or ""
+            neighbor_temp = self.get_room_current_temp(neighbor_name, neighbor_climate_id)
+            if neighbor_temp is None:
+                continue
+            diff = neighbor_temp - current_temp
+            if diff <= 0:
+                continue
+            if best_power is None or neighbor_power > best_power:
+                best_power = float(neighbor_power)
+                best_diff = diff
+        return best_power, best_diff
+
+    # ── "Vindue vs dør" labeling + heated-area doors (2026-09-15) ──────────
+
+    def get_room_door_styled_sensors(self, room_name: str) -> list[str]:
+        """Subset of a room's CONF_WINDOW_SENSORS that should show/log as a
+        door rather than a window — purely cosmetic, same grace/off-temp/
+        warning behaviour either way. See const.py's
+        CONF_DOOR_STYLED_SENSORS."""
+        for room in self.rooms:
+            if room.get("room_name") == room_name:
+                return list(room.get(CONF_DOOR_STYLED_SENSORS, []) or [])
+        return []
+
+    def get_room_heated_doors(self, room_name: str) -> list[str]:
+        """A room's configured heated-area door sensors (front door onto a
+        heated stairwell, etc.) — no heat-suppression meaning, visibility +
+        log only. See const.py's CONF_HEATED_DOOR_SENSORS."""
+        for room in self.rooms:
+            if room.get("room_name") == room_name:
+                return list(room.get(CONF_HEATED_DOOR_SENSORS, []) or [])
+        return []
+
+    def is_room_heated_door_open(self, room_name: str) -> bool:
+        """True if ANY of this room's heated-area doors is currently open."""
+        for sensor_id in self.get_room_heated_doors(room_name):
             state = self.hass.states.get(sensor_id)
             if state and state.state == "on":
                 return True
@@ -789,21 +932,27 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not climate_id:
                 continue
             trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
+            # 2026-09-16 (deep-dive audit fix): this used to call
+            # hass.services.async_call("climate", ...) directly. Shared by
+            # RoomOverrideSwitch (one room) AND RemoteButtonEngine's mode-
+            # toggle button (every eligible room at once, per its own
+            # module docstring) — the latter is the same whole-house burst
+            # pattern already fixed for temp up/down in that file.
             try:
                 if trv_type == TRV_TYPE_ZIGBEE:
                     write_id = self.get_trv_write_entity(trv) or climate_id
-                    await self.hass.services.async_call(
-                        "climate",
+                    await self.async_call_climate_service(
                         "set_hvac_mode",
-                        {"entity_id": write_id, "hvac_mode": "heat"},
-                        blocking=True,
+                        write_id,
+                        {"hvac_mode": "heat"},
+                        needs_delay=self.trv_needs_cloud_delay(trv),
                     )
                 else:
-                    await self.hass.services.async_call(
-                        "climate",
+                    await self.async_call_climate_service(
                         "set_preset_mode",
-                        {"entity_id": climate_id, "preset_mode": PRESET_SCHEDULE},
-                        blocking=True,
+                        climate_id,
+                        {"preset_mode": PRESET_SCHEDULE},
+                        needs_delay=True,
                     )
                 any_ok = True
                 _LOGGER.info("Override ON: %s \u2192 heating (%s)", room_name, trv_type)
@@ -1262,17 +1411,28 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
             # B18: same boost temperature to every TRV configured for this
             # room, not just the primary one.
-            write_entities = self.get_room_write_entities(room_name)
-            if not write_entities:
+            # 2026-09-16 (deep-dive audit fix): iterates TRVs directly
+            # (rather than the flattened write-entity list) so each write
+            # gets its own trv_needs_cloud_delay() decision — this used to
+            # call hass.services.async_call("climate", ...) directly for
+            # every room's every TRV with no lock/pacing at all. Boost is a
+            # one-press, whole-house action (same burst shape as the
+            # RemoteButtonEngine fix), making this one of the more
+            # user-visible 429-risk gaps this audit found.
+            trvs = self.get_room_trvs(room_name)
+            if not trvs:
                 continue
             room_ok = False
-            for write_entity in write_entities:
+            for trv in trvs:
+                write_entity = self.get_trv_write_entity(trv)
+                if not write_entity:
+                    continue
                 try:
-                    await self.hass.services.async_call(
-                        "climate",
+                    await self.async_call_climate_service(
                         "set_temperature",
-                        {"entity_id": write_entity, "temperature": temp},
-                        blocking=True,
+                        write_entity,
+                        {"temperature": temp},
+                        needs_delay=self.trv_needs_cloud_delay(trv),
                     )
                     room_ok = True
                 # broad-except-rationale: one entity failing must not abort the others in this loop
@@ -2308,6 +2468,27 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if solar_reduction > 0.0:
                     power = max(0.0, power - solar_reduction)
 
+                # ── Door heat sharing (2026-09-16, punkt 8) ────────────
+                # A room with an open interior door to a warmer, actively-
+                # heating neighbour needs less TRV-delivered heat right now
+                # — part of the work is already being done for free through
+                # the doorway. Deliberately does NOT touch comfort_temp/
+                # target_temp at all (see const.py's
+                # CONF_DOOR_HEAT_SHARE_ENABLED for why: it sidesteps an
+                # unresolved "who owns the target while a door is open"
+                # question from an earlier design). No effect at all unless
+                # CONF_DOOR_HEAT_SHARE_ENABLED is on (default off — no prior
+                # always-on behaviour to preserve) and a qualifying open
+                # door + actively-heating warmer neighbour exists.
+                neighbor_power, temp_diff = self.get_door_heat_share_inputs(
+                    room_name, current_temp
+                )
+                door_share_reduction = _door_heat_share_reduction(
+                    self.config, neighbor_power, temp_diff
+                )
+                if door_share_reduction > 0.0:
+                    power = max(0.0, power - door_share_reduction)
+
                 trv_setpoint = PidController.power_to_setpoint(
                     power=power,
                     current_temp=current_temp,
@@ -2410,11 +2591,28 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         continue
 
                     try:
-                        await self.hass.services.async_call(
-                            "climate",
+                        # 2026-09-16 (deep-dive audit fix — highest priority
+                        # finding): this used to call
+                        # hass.services.async_call("climate", ...) directly.
+                        # For a room with a reachable HomeKit entity on this
+                        # SAME TRV, trv_write_id above already resolves local
+                        # — harmless. But in a multi-TRV (B18 grouping) room
+                        # where a SECONDARY TRV has no HomeKit entity of its
+                        # own (or a Netatmo room configured without HomeKit
+                        # at all), trv_write_id resolves to that TRV's cloud
+                        # entity — and this runs on EVERY tick (60 s) for
+                        # EVERY room needing a setpoint change, making it by
+                        # far the highest-frequency of the 429-lock gaps this
+                        # audit found. Routed through
+                        # async_call_climate_service() with the same
+                        # per-TRV trv_needs_cloud_delay() decision
+                        # controller.py's OFF-fallback and the other fixed
+                        # engines already use.
+                        await self.async_call_climate_service(
                             "set_temperature",
-                            {"entity_id": trv_write_id, "temperature": trv_setpoint},
-                            blocking=True,
+                            trv_write_id,
+                            {"temperature": trv_setpoint},
+                            needs_delay=self.trv_needs_cloud_delay(trv),
                         )
                         _LOGGER.debug(
                             "PID tick [%s] (%s): target=%.1f cur=%.1f pwr=%.2f → %.1f°C"

@@ -234,17 +234,23 @@ class SyncEngine:
                 observed,
             )
         elif sync_mode == SYNC_MODE_LOCK:
-            await self._async_lock_revert(room_name, entity_id, expected)
+            await self._async_lock_revert(room_name, entity_id, trv, expected)
 
     async def _async_lock_revert(
-        self, room_name: str, entity_id: str, expected: float
+        self, room_name: str, entity_id: str, trv: dict[str, Any], expected: float
     ) -> None:
+        # 2026-09-16 (deep-dive audit fix): this used to call
+        # hass.services.async_call("climate", ...) directly, bypassing
+        # coordinator.async_call_climate_service()'s shared lock/pacing.
+        # Lower-probability than the other three call sites this audit found
+        # (sync_mode: lock is opt-in and per-TRV, not a whole-house sweep),
+        # but the same real gap.
         try:
-            await self.coordinator.hass.services.async_call(
-                "climate",
+            await self.coordinator.async_call_climate_service(
                 "set_temperature",
-                {"entity_id": entity_id, "temperature": expected},
-                blocking=True,
+                entity_id,
+                {"temperature": expected},
+                needs_delay=self.coordinator.trv_needs_cloud_delay(trv),
             )
             self.coordinator.log_event(
                 f"Manuel ændring afvist — {room_name} tilbage til {expected:.1f}°C",

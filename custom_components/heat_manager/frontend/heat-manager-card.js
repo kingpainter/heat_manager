@@ -116,7 +116,11 @@ function _hmCtrlColor(s) {
 }
 
 function _hmCtrlLabel(s) {
-  return ({ on:"On", pause:"Pause", off:"Off" })[s] ?? (s || "–");
+  // 2026-09-16 (sprogkonsistens): panel.js's _ctrlTitle() has always shown
+  // Danish ("Varme aktiv"/"Pause"/"Slukket") for these same three states —
+  // this was the one place in the card still showing raw English for the
+  // identical concept.
+  return ({ on:"Varme aktiv", pause:"Pause", off:"Slukket" })[s] ?? (s || "–");
 }
 
 // v0.9.0: self-reporting diagnostics — short Danish tags for the neutral

@@ -71,6 +71,8 @@
         "data": {
           "room_name": "Rumnavn",
           "window_sensors": "Vindue- / dørsensorer",
+          "door_styled_sensors": "Vis som dør i stedet for vindue (kosmetisk)",
+          "heated_door_sensors": "Døre til opvarmet område (ingen varmeafbrydelse)",
           "window_delay_min": "Forsinkelse ved åbent vindue (minutter) — bruges ikke, se globale indstillinger",
           "away_temp_override": "Fraværstemperatur for dette rum",
           "comfort_temp": "Target-temperatur",
@@ -82,6 +84,8 @@
           "schedule_entity": "Skema-/kalenderentitet (valgfrit)"
         },
         "data_description": {
+          "door_styled_sensors": "Valgfri delmængde af Vindue- / dørsensorer ovenfor, der skal vises og logges som en dør i stedet for et vindue — rent kosmetisk, nøjagtig samme grace-periode / sluk-temperatur / 30-minutters-advarsel gælder under alle omstændigheder (fx en altandør mister stadig varme ligesom et vindue). En sensor skal OGSÅ vælges ovenfor i Vindue- / dørsensorer, for at dette har nogen effekt — kun at vælge den her gør ingenting.",
+          "heated_door_sensors": "En SEPARAT liste fra Vindue- / dørsensorer ovenfor — yderdøre der fører til et opvarmet/lukket område (fx en fordør til en opvarmet opgang), ikke den udendørs luft. Disse har INGEN varme-dæmpende effekt overhovedet: ingen grace-periode, ingen sluk-temperatur, ingen advarsel — kun synlighed og hændelseslog. Tilføj ikke en sensor her I STEDET FOR Vindue- / dørsensorer, hvis du vil have, at det reelt reducerer opvarmningen, når den åbnes.",
           "window_delay_min": "Læses ikke længere siden v0.33.0 — alle rums vinduesforsinkelse bruger nu i stedet den ene globale indstilling (trinnet Sæson & globale indstillinger). Stående her kun så en allerede gemt værdi for dette rum ikke tabes; kan trygt ignoreres.",
           "comfort_temp": "PID-måltemperatur for dette rum — gælder for alle TRV-typer, inklusive Netatmo. Standard 20°C.",
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO₂ er høj, registreres et åbent vindue som ventilation frem for varmespild.",
@@ -257,6 +261,8 @@
         "data": {
           "room_name": "Rumnavn",
           "window_sensors": "Vindue- / dørsensorer",
+          "door_styled_sensors": "Vis som dør i stedet for vindue (kosmetisk)",
+          "heated_door_sensors": "Døre til opvarmet område (ingen varmeafbrydelse)",
           "window_delay_min": "Forsinkelse ved åbent vindue (minutter) — bruges ikke, se globale indstillinger",
           "away_temp_override": "Fraværstemperatur for dette rum",
           "comfort_temp": "Target-temperatur",
@@ -268,6 +274,8 @@
           "schedule_entity": "Skema-/kalenderentitet (valgfrit)"
         },
         "data_description": {
+          "door_styled_sensors": "Valgfri delmængde af Vindue- / dørsensorer ovenfor, der skal vises og logges som en dør i stedet for et vindue — rent kosmetisk, nøjagtig samme grace-periode / sluk-temperatur / 30-minutters-advarsel gælder under alle omstændigheder (fx en altandør mister stadig varme ligesom et vindue). En sensor skal OGSÅ vælges ovenfor i Vindue- / dørsensorer, for at dette har nogen effekt — kun at vælge den her gør ingenting.",
+          "heated_door_sensors": "En SEPARAT liste fra Vindue- / dørsensorer ovenfor — yderdøre der fører til et opvarmet/lukket område (fx en fordør til en opvarmet opgang), ikke den udendørs luft. Disse har INGEN varme-dæmpende effekt overhovedet: ingen grace-periode, ingen sluk-temperatur, ingen advarsel — kun synlighed og hændelseslog. Tilføj ikke en sensor her I STEDET FOR Vindue- / dørsensorer, hvis du vil have, at det reelt reducerer opvarmningen, når den åbnes.",
           "window_delay_min": "Læses ikke længere siden v0.33.0 — alle rums vinduesforsinkelse bruger nu i stedet den ene globale indstilling (trinnet Sæson & globale indstillinger). Stående her kun så en allerede gemt værdi for dette rum ikke tabes; kan trygt ignoreres.",
           "comfort_temp": "PID-måltemperatur for dette rum — gælder for alle TRV-typer, inklusive Netatmo. Standard 20°C.",
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO₂ er høj, registreres et åbent vindue som ventilation frem for varmespild.",
@@ -284,6 +292,8 @@
         "data": {
           "room_name": "Rumnavn",
           "window_sensors": "Vindue- / dørsensorer",
+          "door_styled_sensors": "Vis som dør i stedet for vindue (kosmetisk)",
+          "heated_door_sensors": "Døre til opvarmet område (ingen varmeafbrydelse)",
           "window_delay_min": "Forsinkelse ved åbent vindue (minutter) — bruges ikke, se globale indstillinger",
           "away_temp_override": "Fraværstemperatur for dette rum",
           "comfort_temp": "Target-temperatur",
@@ -295,6 +305,8 @@
           "schedule_entity": "Skema-/kalenderentitet (valgfrit)"
         },
         "data_description": {
+          "door_styled_sensors": "Valgfri delmængde af Vindue- / dørsensorer ovenfor, der skal vises og logges som en dør i stedet for et vindue — rent kosmetisk, nøjagtig samme grace-periode / sluk-temperatur / 30-minutters-advarsel gælder under alle omstændigheder (fx en altandør mister stadig varme ligesom et vindue). En sensor skal OGSÅ vælges ovenfor i Vindue- / dørsensorer, for at dette har nogen effekt — kun at vælge den her gør ingenting.",
+          "heated_door_sensors": "En SEPARAT liste fra Vindue- / dørsensorer ovenfor — yderdøre der fører til et opvarmet/lukket område (fx en fordør til en opvarmet opgang), ikke den udendørs luft. Disse har INGEN varme-dæmpende effekt overhovedet: ingen grace-periode, ingen sluk-temperatur, ingen advarsel — kun synlighed og hændelseslog. Tilføj ikke en sensor her I STEDET FOR Vindue- / dørsensorer, hvis du vil have, at det reelt reducerer opvarmningen, når den åbnes.",
           "window_delay_min": "Læses ikke længere siden v0.33.0 — alle rums vinduesforsinkelse bruger nu i stedet den ene globale indstilling (trinnet Sæson & globale indstillinger). Stående her kun så en allerede gemt værdi for dette rum ikke tabes; kan trygt ignoreres.",
           "comfort_temp": "PID-måltemperatur for dette rum — gælder for alle TRV-typer, inklusive Netatmo. Standard 20°C.",
           "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO₂ er høj, registreres et åbent vindue som ventilation frem for varmespild.",

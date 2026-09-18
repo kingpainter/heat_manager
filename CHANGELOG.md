@@ -9,6 +9,305 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.56.0] — 2026-09-16
+
+To bekræftede løse ender fra en gennemgang af tidligere revisioners
+UI/UX-fund (de fleste andre punkter på den gamle liste viste sig allerede
+rettet i mellemliggende sessioner — se `_ctrlTitle`/toast-systemet/
+batteri-farver/aria-live, som alle allerede var på plads).
+
+### Added
+- **panel.js: sæson kan nu ændres direkte fra Oversigt-fanens
+  Controller-boks** — "Sæson"-chippen er gået fra ren tekst til en
+  `<select>` (Auto/Vinter/Forår/Sommer/Efterår), der kalder HA's indbyggede
+  `select.select_option`-service direkte på den eksisterende
+  `select.<entry>_season_mode`-entity — ingen backendændring nødvendig,
+  samme handling som `select.py`s egen `SeasonModeSelect.async_select_
+  option()` allerede udfører. Før krævede en manuel sæson-tvang, at man gik
+  uden om det custom panel og ind på HA's egen entity-side.
+  `_patchControllerHero()` er samtidig omskrevet fra skør
+  positions-indeksering (`querySelectorAll("strong")[n]`) til eksplicitte
+  per-chip-klasser, så en fremtidig ny/fjernet chip ikke igen kan forskyde
+  alle efterfølgende chips ét indeks.
+
+### Fixed
+- **card.js: sprogblanding rettet.** `_hmCtrlLabel()` viste "On/Pause/Off"
+  på engelsk for præcis samme tre tilstande som panel.js's `_ctrlTitle()`
+  altid har vist korrekt på dansk ("Varme aktiv/Pause/Slukket"). Eneste
+  resterende engelsk-rest i mobilkortet.
+
+**Bevidst ikke ændret:** mobilkortets sæson-visning forbliver ren tekst
+(samme minimale designfilosofi som resten af kortets header) — den
+interaktive kontrol lever i panelet, jeres primære kontrolflade.
+
+Verificeret: `node --check` på begge ændrede frontend-filer.
+
+## [0.55.0] — 2026-09-16
+
+Fundet rodårsagen til Flemmings rapport: "den nye dør-logik virker ikke"
+(altandøren stoppede ikke varmen efter at være omregistreret fra vindue til
+dør). Selve logikken fra v0.49.0 var korrekt — problemet var, at de to nye
+felter (`door_styled_sensors`, `heated_door_sensors`) blev tilføjet til
+config-skemaet uden NOGEN oversat label eller beskrivelse i `strings.json`/
+`translations/da.json`. I UI'en så de derfor ud som rå, kryptiske
+feltnavne uden nogen forklaring på forskellen — nem at forveksle med
+hinanden, hvilket er præcis det der skete: en sensor sat i
+`heated_door_sensors` (ingen varmeafbrydelse overhovedet, med vilje) i
+stedet for `door_styled_sensors` (kosmetisk delmængde af de eksisterende
+vinduessensorer, samme fulde adfærd).
+
+### Fixed
+- **`strings.json`/`translations/da.json`**: tilføjet manglende labels og
+  data_description-tekster for `door_styled_sensors` ("Vis som dør i
+  stedet for vindue (kosmetisk)") og `heated_door_sensors` ("Døre til
+  opvarmet område (ingen varmeafbrydelse)") på alle tre steder, felterne
+  optræder (opsætningsflowets `room`-trin samt options-flowets `room_add`/
+  `room_edit`-trin). Beskrivelserne navngiver eksplicit begge lister over
+  for hinanden og advarer direkte mod at forveksle dem ("En sensor skal
+  OGSÅ vælges i Vindue-/dørsensorer, for at dette har nogen effekt — kun
+  at vælge den her gør ingenting" / "Tilføj ikke en sensor her I STEDET
+  FOR...").
+
+Ingen kodeændring — selve dør/vindue-logikken fra v0.49.0 er stadig
+korrekt og uændret. Ren tekst-/oversættelsesfix.
+
+## [0.54.0] — 2026-09-16
+
+Nyt "Trv setpoint"-felt i Rum-detaljer — svar på "hvad er hvad"-forvirringen
+mellem de fire+ temperaturtal i panelet. Der fandtes allerede en (i)-tekst
+der ADVAREDE om at Target Temp ikke nødvendigvis er det, der sendes til
+TRV'en — men det faktiske tal blev aldrig vist noget sted.
+
+### Added
+- **`websocket.py`**: nyt `trv_setpoint`-felt i rum-payloaden —
+  `coordinator.last_expected_setpoint[room_name]`, det setpoint PID'en
+  rent faktisk beregnede og sendte til TRV'en i sidste aktive cyklus
+  (efter effekt→setpoint-mapping OG setpoint-margin-loftet fra
+  overshoot-fixet). Gated på `room_state == NORMAL`: `last_expected_
+  setpoint` ryddes aldrig efter skrivning (`sync_engine.py` er afhængig af
+  det), så uden denne gæring ville et rum i AWAY/WINDOW_OPEN/OVERRIDE vise
+  en forældet værdi som om den var live.
+- **Panelet (Rum-detaljer)**: nyt femte felt "Trv setpoint" i stat-rækken,
+  ved siden af Rum temp/Target Temp/Trv temp/Trv batt, med egen
+  (i)-forklaring der præcist beskriver forskellen til Target Temp.
+
+Dermed er alle fire temperaturtal i panelet nu entydigt forklaret og
+synlige side om side: **Rum temp** (faktisk temperatur, bedste kilde),
+**Target Temp** (Heat Managers mål), **Trv setpoint** (det TRV'en reelt
+bliver bedt om lige nu), **Trv temp** (TRV'ens egen, ofte for varme,
+måling).
+
+Verificeret: `websocket.py` + hele det tidligere verificerede
+punkt-1(B)-sæt (22 filer i alt) består `mypy --strict` rent; panel.js's
+JavaScript-syntaks bekræftet med `node --check`.
+
+## [0.53.0] — 2026-09-16
+
+Deep-dive audit, del 3 (sidste): platform-filerne (`switch.py`, `number.py`,
+`select.py`, `binary_sensor.py`, `sensor.py`, `websocket.py`, `__init__.py`).
+Fandt én yderligere forekomst af samme fejlklasse.
+
+### Fixed
+- **`websocket.py` (`ws_set_room_temp`)** — panelets manuelle TRV-kontrol
+  (både enkelt-rum-slideren og "Send til alle"-knappen). Begge grene
+  (gendan til schedule / sæt temperatur) kaldte
+  `hass.services.async_call("climate", ...)` direkte for hver TRV, uden
+  lås. Da "Send til alle" kalder denne WS-kommando én gang pr. rum i
+  rækkefølge, blev alle TRV'er i det rum stadig ramt uden pacing inden for
+  hvert enkelt kald. Rettet til `async_call_climate_service()` med
+  pr.-TRV `trv_needs_cloud_delay()`.
+- **Tegn-korruption**: ryddet op i tre steder i `websocket.py`, hvor en
+  tidligere redigering havde efterladt den litterale tekst `\u2014` i
+  stedet for en rigtig tankestreg i kommentarer — kosmetisk, ingen
+  funktionel betydning.
+
+**Ingen fund** i `switch.py`, `number.py`, `select.py`, `binary_sensor.py`,
+`sensor.py` eller `__init__.py` — alle skrive-handlinger deri var enten
+allerede korrekt delegeret til `coordinator`'s (nu rettede) metoder, eller
+rene, ikke-Netatmo-relaterede kald (notify/HA-services).
+
+**Samlet status for hele deep-dive-revisionen (runde 1-3):** 9 forekomster
+af samme grundlæggende fejlklasse fundet og rettet på tværs af 12
+engine-filer, `coordinator.py`, og `websocket.py` — hvert eneste sted i
+integrationen, der skriver til en "climate"-entity, går nu igennem den
+delte Netatmo-lås/pacing. Plus én separat tidszone-fejl
+(`presence_engine.py`).
+
+Verificeret: alle 22 filer i det verificerede sæt består `mypy --strict`
+rent.
+
+## [0.52.0] — 2026-09-16
+
+Deep-dive audit, del 2: `coordinator.py` selv (2670+ linjer, den mest
+centrale fil). Fandt tre yderligere forekomster af samme fejlklasse som
+runde 1's engine-audit — heraf én i selve PID-tick'et, formentlig den
+vigtigste enkeltrettelse i hele revisionen, da den kører hvert 60. sekund
+for hvert rum, ikke kun ved lejlighedsvise brugerhandlinger.
+
+### Fixed
+- **`_async_pid_tick()`'s eget setpoint-skriveloop** — højeste prioritet:
+  brugte `hass.services.async_call("climate", ...)` direkte for HVER
+  TRV's setpoint-opdatering, hver tick. For et rum hvor den primære TRV har
+  en nåelig HomeKit-entity er det harmløst (allerede lokalt) — men i et
+  multi-TRV-rum (B18-gruppering), hvor en SEKUNDÆR TRV ikke har sin egen
+  HomeKit-entity, eller for et Netatmo-rum konfigureret helt uden HomeKit,
+  går skrivningen direkte til Netatmo-cloud'en, uden lås, hver gang
+  setpointet ændrer sig — potentielt hvert 60. sekund. Rettet til at bruge
+  `async_call_climate_service()` med `trv_needs_cloud_delay()` pr. TRV.
+- **`async_boost_start()`** — samme mangel: Boost-knappen (formentlig den
+  mest brugte enkeltfunktion i panelet) rammer alle boost-klare rums TRV'er
+  i én arbejdsgang uden lås. Omskrevet til at iterere TRV'er direkte (i
+  stedet for den flade write-entity-liste) med korrekt pr.-TRV-forsinkelse.
+- **`async_set_room_override()`** — delt af override-kontakten (ét rum) OG
+  fjernbetjeningens tilstands-knap (alle kvalificerende rum på én gang,
+  jf. modulets egen dokumentation) — samme rettelse.
+
+Gennemgået og bekræftet fri for fejl: `get_room_target_temp()`,
+`get_all_room_trvs()`/`get_room_trvs()` (TRV-cache/gruppe-toggle-logikken),
+`get_room_current_temp()`, `get_room_blocking_sources()`, og
+`_async_update_data()`s tick-orkestrering.
+
+Verificeret: `coordinator.py` + hele det tidligere verificerede
+punkt-1(B)-sæt (22 filer i alt) består `mypy --strict` rent.
+
+## [0.51.0] — 2026-09-16
+
+Deep-dive audit af alle 12 engine-filer for reelle logikfejl (ikke typing,
+det blev dækket af punkt 1). Fandt og rettede fire forekomster af samme
+fejlklasse plus én separat tidszone-fejl. Ingen af de øvrige otte
+engine-filer (`calibration_engine.py`, `controller.py`, `door_engine.py`,
+`pid_controller.py`, `schedule_engine.py`, `season_engine.py`,
+`valve_protection_engine.py`, `window_engine.py`) gav anledning til fund.
+
+### Fixed
+- **Fire steder omgik `coordinator.async_call_climate_service()`s delte
+  Netatmo-lås/pacing** (samme mekanisme der allerede forhindrer 429-fejl i
+  `controller.py`, `presence_engine.py` og `window_engine.py`) ved at kalde
+  `hass.services.async_call("climate", ...)` direkte:
+  - **`remote_button_engine.py`** (`_async_adjust_all_rooms`) — mest
+    kritisk: en enkelt fjernbetjenings-tryk rammer *alle* konfigurerede
+    rum i én arbejdsgang, uden nogen lås eller forsinkelse mellem kaldene.
+    Omskrevet til at iterere rummets TRV'er direkte (i stedet for den
+    flade write-entity-liste) så hver skrivning kan få sin egen
+    `trv_needs_cloud_delay()`-afgørelse.
+  - **`preheat_engine.py`** (`_start_preheat`) — en forvarmnings-sweep
+    rører alle AWAY-rum i hurtig rækkefølge, samme byrdemønster som
+    låsen er bygget til at forhindre.
+  - **`sync_engine.py`** (`_async_lock_revert`) — kun relevant for rum med
+    `sync_mode: lock` (opt-in, formentlig sjældent brugt), men samme
+    grundlæggende hul.
+  Alle tre rettet til at bruge `async_call_climate_service()` med korrekt
+  per-TRV `trv_needs_cloud_delay()`-afgørelse, samme mønster som
+  `controller.py`s OFF-fallback og `valve_protection_engine.py` allerede
+  brugte korrekt.
+- **`presence_engine.py`** (`_grace_period_minutes`): brugte
+  `utcnow().hour` til at afgøre dag/nat-grace-periode, men
+  `CONF_NIGHT_START_HOUR`/`CONF_NIGHT_END_HOUR` er konfigureret som LOKALE
+  vægur-timer — samme felter som `coordinator.is_night_setback_active()`
+  allerede korrekt sammenligner med `homeassistant.util.dt.now()`. Med
+  Danmarks UTC+1/+2-forskydning betød det, at grace-periodens dag/nat-
+  skifte reelt skete 1-2 timer forskudt fra det konfigurerede tidspunkt.
+  Rettet til samme `now()`-mønster.
+
+Verificeret: alle 4 ændrede filer + hele det tidligere verificerede
+punkt-1(B)-sæt (22 filer i alt) består `mypy --strict` rent.
+
+## [0.50.0] — 2026-09-16
+
+Punkt 8 (gruppe C) — dør-varmedeling: en åben indendørs dør til et varmere,
+aktivt opvarmende naborum reducerer nu PID-effekten i det koldere rum,
+i stedet for at bruge et rum-par-baseret "niveau C"-design der ville have
+sænket rummets eget mål midlertidigt. Den oprindelige model rejste et
+uåbnet ejerskabsspørgsmål (hvem "ejer" et rums mål når en dør midlertidigt
+har ændret det, og hvad sker der når døren lukkes) — den nye model
+sidestepper det helt ved aldrig at røre `comfort_temp`/`target_temp`
+overhovedet, samme mønster som vejrkompensation (punkt 7's forgænger) og
+solindfald (punkt 7) allerede bruger til at justere PID-effekten uden at
+ændre selve målet.
+
+### Added
+- **`CONF_DOOR_HEAT_SHARE_ENABLED`** (`const.py`, `config_flow.py`,
+  `coordinator.py`, `websocket.py`, panel): ny global sektion
+  "Dør-varmedeling" i Konfiguration. **Off som standard** — ingen
+  adfærdsændring for nogen installation før du selv slår den til. Fire
+  justerbare tærskler:
+  - `door_heat_share_min_neighbor_power` (standard **50%**, som aftalt) —
+    naborummets egen PID-effekt skal være mindst dette, før dets varme
+    tæller som reelt leveret lige nu (ikke bare "naboen er varmere fra
+    tidligere").
+  - `door_heat_share_min_temp_diff` (standard 1,5°C) — en reel
+    temperaturgradient skal være til stede, før noget meningsfuldt
+    strømmer gennem døråbningen.
+  - `door_heat_share_weight` og `door_heat_share_max_reduction` (loft) —
+    samme skaleringsmønster som solindfalds tilsvarende felter.
+- **`coordinator._door_heat_share_reduction()`**: ren funktion (samme
+  "aldrig øge, kun reducere"-form som `_solar_gain_reduction()`), anvendt
+  i `_async_pid_tick()` lige efter solindfald. **`comfort_temp` og
+  `target_temp` røres aldrig** — kun den effekt PID'en beder TRV'en om
+  lige nu, hvilket også betyder ingenting at rydde op i, når døren lukkes
+  igen; reduktionen stopper simpelthen ved næste tick.
+- **`coordinator.get_door_heat_share_inputs()`**: finder, blandt et rums
+  åbne indendørs døre, den nabo der bedst kvalificerer (højest PID-effekt)
+  og returnerer dens effekt + temperaturforskel. Et rum med flere åbne
+  døre bruger bevidst kun sin bedste nabo, ikke summen af alle, for at
+  undgå overdreven reduktion.
+
+### Fixed
+- **`config_flow.py`**: ryddet op i en eksisterende dobbelt-import af
+  `CONF_DOOR_STYLED_SENSORS`/`CONF_HEATED_DOOR_SENSORS` fra sidste
+  sessions "vindue vs. dør"-arbejde (v0.49.0) — harmløst ved runtime
+  (Python tillader det), men ryddet op for konsistens.
+
+Verificeret: alle 4 ændrede filer + hele det tidligere verificerede
+punkt-1(B)-sæt (22 filer i alt) består `mypy --strict` rent; skemaet
+verificeret til rent faktisk at bygge (tomt og udfyldt) i et isoleret
+testmiljø — samme test der fangede gårsdagens `NameError`-fejl før
+deploy denne gang. panel.js's JavaScript-syntaks bekræftet med
+`node --check`.
+
+## [0.49.0] — 2026-09-15/16
+
+"Vindue vs dør": Flemmings fordør blev vist/logget som et "vindue" i systemet
+— misvisende, og udløste desuden fulde vindues-advarsler ved almindelig
+ind-/udgang. To uafhængige akser adskilt: (1) label/ikon (vindue vs. dør) og
+(2) reel adfærd (koldt udenfor vs. varmt/lukket bufferområde). Efter
+brugerens eget forslag: akse 1+2 (koldt udenfor) forbliver éN liste
+(`CONF_WINDOW_SENSORS`, uændret adfærd) med kun et kosmetisk
+label-overlay; "varmt område"-døre (fordør til opvarmet opgang) får sin
+egen, separate liste uden nogen grace/sluk/advarsel-logik overhovedet.
+
+### Added
+- **`CONF_DOOR_STYLED_SENSORS`** (`const.py`, `config_flow.py`): valgfri
+  delmængde af en rums `CONF_WINDOW_SENSORS` der skal vises/logges som
+  "Dør" i stedet for "Vindue" — rent kosmetisk, identisk grace/sluk-temp/
+  30-min-advarsel-adfærd, matcher f.eks. en altandør (samme reelle
+  varmetab som et vindue).
+- **`CONF_HEATED_DOOR_SENSORS`** (`const.py`, `config_flow.py`,
+  `door_engine.py`, `binary_sensor.py`, `coordinator.py`, `websocket.py`,
+  panel): helt separat liste — døre til et opvarmet/lukket bufferområde
+  (Flemmings fordør til opgangen). Ingen grace-periode, ingen sluk-temp,
+  ingen 30-min-advarsel — kun synlighed + hændelseslog, håndteret af
+  `door_engine.py` med samme genstart-sikre mønster som de interne døre.
+  Nye `coordinator.get_room_heated_doors()`/`is_room_heated_door_open()`/
+  `get_room_door_styled_sensors()`.
+
+### Changed
+- **`window_engine.py`**: alle 6 log-/notifikationssteder (åbn/luk/30-min-
+  advarsel) viser nu dynamisk "Door"/"Window" ud fra
+  `CONF_DOOR_STYLED_SENSORS` — selve reguleringen (grace, sluk-temp,
+  `RoomState.WINDOW_OPEN`, event_type til historik-filtrering) er 100%
+  uændret, kun den menneskelæselige tekst.
+- **`binary_sensor.py`**: `RawWindowContactMirror` viser korrekt
+  ikon/navn (Dør/Vindue) pr. sensor; ny `HeatedDoorContactMirror`-klasse
+  for de nye "varmt område"-døre.
+- **Panelet**: Rum-detaljer viser nu "🚪 Yderdør Åben/Lukket" som en
+  separat linje fra den eksisterende interne-dør-status, kun for rum med
+  mindst én `CONF_HEATED_DOOR_SENSORS` konfigureret.
+
+Verificeret: alle 7 ændrede backend-filer + hele det tidligere
+verificerede punkt-1(B)-sæt (22 filer i alt) består `mypy --strict`
+rent; panel.js's JavaScript-syntaks bekræftet med `node --check`.
+
 ## [0.48.0] — 2026-09-15
 
 Restart-safety hardening, runde 2 — udløst af opdagelsen af, at punkt 5's

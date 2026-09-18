@@ -635,7 +635,18 @@ class PresenceEngine:
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _grace_period_minutes(self) -> int:
-        hour = utcnow().hour
+        # 2026-09-16 (deep-dive audit fix): this used utcnow().hour to decide
+        # day vs. night grace period — but CONF_NIGHT_START_HOUR/
+        # CONF_NIGHT_END_HOUR are configured as LOCAL wall-clock hours (the
+        # same fields coordinator.is_night_setback_active() compares against
+        # using homeassistant.util.dt.now(), correctly, for the exact same
+        # config values). Comparing against UTC instead shifted the day/
+        # night boundary by Denmark's UTC offset (1h CET / 2h CEST) — e.g. a
+        # configured night_start of 22 (22:00 local) only actually took
+        # effect at 23:00/00:00 local time, and ended equally late.
+        from homeassistant.util.dt import now as ha_now
+
+        hour = ha_now().hour
         night_start = self.coordinator.config.get(
             CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR
         )

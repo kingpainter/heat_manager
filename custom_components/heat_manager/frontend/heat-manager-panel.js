@@ -839,22 +839,34 @@ class HeatManagerPanel extends HTMLElement {
     if (ctrlSub) ctrlSub.textContent = `${(this._data?.rooms ?? []).length} rum konfigureret`;
 
     // Meta chips
-    const chips = root.querySelectorAll(".ctrl-meta-chip strong");
-    if (chips[0]) chips[0].textContent = otemp != null ? Math.round(otemp) + "°C" : "–";
-    if (chips[1]) chips[1].textContent = ({ winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår", auto:"Auto" })[season] ?? season;
-    if (chips[2]) {
+    // 2026-09-16 ("Sæson"-kontrol): switched from positional indexing
+    // (querySelectorAll(".ctrl-meta-chip strong")[n]) to explicit
+    // per-chip classes — the season chip is now a <select>, not a
+    // <strong>, which would otherwise have silently shifted every
+    // subsequent chip's index by one.
+    const outdoorStrong = root.querySelector(".ctrl-chip-outdoor strong");
+    if (outdoorStrong) outdoorStrong.textContent = otemp != null ? Math.round(otemp) + "°C" : "–";
+
+    const seasonSelect = root.querySelector(".ctrl-season-select");
+    // Never override the value while the user has the dropdown focused/open
+    // — a poll landing mid-interaction shouldn't yank the selection away.
+    if (seasonSelect && document.activeElement !== seasonSelect) seasonSelect.value = season;
+
+    const statusStrong = root.querySelector(".ctrl-chip-status strong");
+    if (statusStrong) {
       const eff = this._effSeasonInfo(this._data?.effective_season); // v0.3.9
-      chips[2].textContent = eff.label;
-      const chipIcon = chips[2].parentElement?.firstChild;
+      statusStrong.textContent = eff.label;
+      const chipIcon = statusStrong.parentElement?.firstChild;
       if (chipIcon && chipIcon.nodeType === Node.TEXT_NODE) chipIcon.textContent = eff.icon + " ";
     }
     // 2026-09-11: 4th chip only exists in the DOM when at least one room had
     // Netatmo cloud data at last full render — see _netatmoCloudSummary().
-    if (chips[3]) {
+    const netatmoStrong = root.querySelector(".ctrl-chip-netatmo strong");
+    if (netatmoStrong) {
       const summary = this._netatmoCloudSummary();
       if (summary) {
-        chips[3].textContent = summary.label;
-        const chipEl = chips[3].closest(".ctrl-meta-chip");
+        netatmoStrong.textContent = summary.label;
+        const chipEl = netatmoStrong.closest(".ctrl-meta-chip");
         if (chipEl) chipEl.title = summary.title || "";
       }
     }
@@ -1883,6 +1895,23 @@ class HeatManagerPanel extends HTMLElement {
       }
       .ctrl-meta-chip span { color: var(--sub); }
       .ctrl-meta-chip strong { font-weight: 600; }
+      /* 2026-09-16 ("Sæson"-kontrol) — styled to look like the plain
+         <strong> text it replaces, but with a subtle chevron so it still
+         reads as clickable/interactive rather than static. */
+      .ctrl-season-select {
+        appearance: none; -webkit-appearance: none;
+        background: transparent;
+        border: none;
+        color: var(--text); font-family: inherit; font-size: 12px; font-weight: 600;
+        padding: 0 14px 0 0;
+        margin: 0;
+        cursor: pointer;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right center;
+      }
+      .ctrl-season-select:hover { color: #f97316; }
+      .ctrl-season-select option { background: var(--bg2); color: var(--text); }
       .ctrl-blocking-row {
         align-items: center; gap: 5px; margin-top: 8px;
         font-size: 11px; font-weight: 600; color: #fca5a5;
@@ -2400,20 +2429,26 @@ class HeatManagerPanel extends HTMLElement {
             <div class="ctrl-sub">${(this._data?.rooms ?? []).length} rum konfigureret</div>
             <div class="ctrl-blocking-row" id="ctrl-blocking-row" style="display:${blockingSrc.length ? "flex" : "none"}">⛔ ${this._esc(blockingSrc.map(s => this._blockingLabel(s)).join(", "))}</div>
             <div class="ctrl-meta-row">
-              <div class="ctrl-meta-chip">
+              <div class="ctrl-meta-chip ctrl-chip-outdoor">
                 🌡️ <span>Ude</span>
                 <strong>${otemp != null ? Math.round(otemp) + "°C" : "–"}</strong>
               </div>
-              <div class="ctrl-meta-chip">
+              <div class="ctrl-meta-chip ctrl-chip-season">
                 🍂 <span>Sæson</span>
-                <strong>${({ winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår", auto:"Auto" })[season] ?? season}</strong>
+                <select class="ctrl-season-select" data-action="change-season-mode" title="Skift sæsontilstand manuelt — Auto lader Heat Manager selv styre skiftet">
+                  <option value="auto" ${season === "auto" ? "selected" : ""}>Auto</option>
+                  <option value="winter" ${season === "winter" ? "selected" : ""}>Vinter</option>
+                  <option value="spring" ${season === "spring" ? "selected" : ""}>Forår</option>
+                  <option value="summer" ${season === "summer" ? "selected" : ""}>Sommer</option>
+                  <option value="autumn" ${season === "autumn" ? "selected" : ""}>Efterår</option>
+                </select>
               </div>
-              <div class="ctrl-meta-chip">
+              <div class="ctrl-meta-chip ctrl-chip-status">
                 ${eff.icon} <span>Status</span>
                 <strong>${eff.label}</strong>
               </div>
               ${netatmoSummary ? `
-              <div class="ctrl-meta-chip" ${netatmoSummary.title ? `title="${this._esc(netatmoSummary.title)}"` : ""}>
+              <div class="ctrl-meta-chip ctrl-chip-netatmo" ${netatmoSummary.title ? `title="${this._esc(netatmoSummary.title)}"` : ""}>
                 🛰️ <span>Netatmo</span>
                 <strong>${this._esc(netatmoSummary.label)}</strong>
               </div>` : ""}
@@ -2799,6 +2834,9 @@ class HeatManagerPanel extends HTMLElement {
     const doorStr = connectedDoors.length
       ? (room.door_open ? "Åben" : "Lukket")
       : null;
+    const heatedDoorStr = room.has_heated_doors
+      ? (room.heated_door_open ? "Åben" : "Lukket")
+      : null;
     // 2026-09 audit fix (UI/UX #8): unavailable_entities lists every entity
     // this room depends on (all TRVs, window/humidity/CO2/battery sensors)
     // that's currently missing/unavailable/unknown — a small warning chip
@@ -2898,17 +2936,20 @@ class HeatManagerPanel extends HTMLElement {
     const roomTempDesc = "Rummets faktiske temperatur — fra ekstern temperatur-sensor hvis rummet har en, ellers TRV'ens egen sensor.";
     const targetTempDesc = "Den rumtemperatur Heat Manager forsøger at opnå lige nu (\"set point\") — comfort-temp efter skema, offset og evt. nat-sænkning. Ikke nødvendigvis det tal der sendes til TRV'en: PID'en oversætter dette til en styringsværdi for ventilen, som kan ligge et stykke over eller under selve target-temperaturen.";
     const trvTempDesc = "TRV'ens egen temperaturmåling. Den sidder på radiatoren og viser derfor typisk 1-3°C varmere end den faktiske rumtemperatur — brug Rum temp som den reelle temperatur.";
+    const trvSetpointStr = room.trv_setpoint != null ? (Math.round(room.trv_setpoint * 10) / 10) + "°C" : "–";
+    const trvSetpointDesc = "Det setpoint PID'en rent faktisk sender til TRV'en lige nu — efter effekt-beregning og setpoint-margin (se overshoot-fixet). Kan ligge et stykke over Target Temp, mens rummet stadig er langt fra sit mål. Vises kun når rummet er i normal, automatisk drift.";
     const statsRowHTML = hasTrv
-      ? `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid var(--div)">
+      ? `<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid var(--div)">
            ${statBox("Rum temp", roomTempStr, null, roomTempDesc)}
            ${statBox("Target Temp", setpt ?? "–", null, targetTempDesc)}
+           ${statBox("Trv setpoint", trvSetpointStr, null, trvSetpointDesc)}
            ${statBox("Trv temp", trvTempStr, null, trvTempDesc)}
            ${statBox("Trv batt", batteryStr, batteryColor)}
          </div>`
       : `<div style="display:grid;grid-template-columns:1fr;gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid var(--div)">
            ${statBox("Rum temp", roomTempStr, null, roomTempDesc)}
          </div>`;
-    const extraSensorsHTML = (humidityStr || co2Str || luxStr || pidPowerStr || calibStr || windowDurStr || doorStr || unavailableList.length) ? `
+    const extraSensorsHTML = (humidityStr || co2Str || luxStr || pidPowerStr || calibStr || windowDurStr || doorStr || heatedDoorStr || unavailableList.length) ? `
          <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
            ${humidityStr ? `<span style="font-size:10px;color:var(--sub)">💧 ${humidityStr}</span>` : ""}
            ${co2Str ? `<span style="font-size:10px;color:var(--sub)">🫧 CO₂ ${co2Str}</span>` : ""}
@@ -2917,6 +2958,7 @@ class HeatManagerPanel extends HTMLElement {
            ${calibStr ? `<span style="font-size:10px;color:var(--sub)">🎯 ${calibStr}</span>` : ""}
            ${windowDurStr ? `<span style="font-size:10px;color:var(--sub)">🪟 ${windowDurStr} i dag</span>` : ""}
            ${doorStr ? `<span style="font-size:10px;color:var(--sub)">🚪 Dør ${doorStr}</span>` : ""}
+           ${heatedDoorStr ? `<span style="font-size:10px;color:var(--sub)">🚪 Yderdør ${heatedDoorStr}</span>` : ""}
            ${unavailableList.length ? `<span style="font-size:10px;color:var(--red)" title="${this._esc(unavailableList.join(", "))}">⚠️ ${unavailableList.length} utilgængelig${unavailableList.length > 1 ? "e" : ""}</span>` : ""}
          </div>` : "";
     // Fase 2 (2026-09-11) — the user's `select.mit_hjem`-style visibility
@@ -3279,6 +3321,39 @@ class HeatManagerPanel extends HTMLElement {
 
       <div class="section-box">
         <div class="section-box-header collapsible" data-action="toggle-section">
+          <div class="section-box-title">Dør-varmedeling</div>
+          <div class="section-box-badge" style="background:${d.door_heat_share_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.door_heat_share_enabled ? "#818cf8" : "var(--sub)"}">
+            ${d.door_heat_share_enabled ? "Aktiv" : "Inaktiv"}
+          </div>
+        </div>
+        <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
+          Reducerer PID-effekten i et rum, når en åben indendørs dør (konfigureret
+          under Rum &amp; klimaentiteter) fører til et varmere naborum der selv
+          varmer aktivt lige nu. Ændrer ALDRIG rummets eget mål (comfort_temp) —
+          kun den effekt TRV'en beder om. Forsvinder automatisk når døren lukkes
+          eller naboen holder op med at varme.
+        </div>
+        ${this._cfgToggleRow("Dør-varmedeling aktiveret", "door_heat_share_enabled", !!d.door_heat_share_enabled)}
+        ${this._cfgNumberRow("Naborums minimumseffekt", "door_heat_share_min_neighbor_power", d.door_heat_share_min_neighbor_power ?? "", {
+          min: 0, max: 1.0, step: 0.05, cast: "float",
+          desc: "Naborummets egen PID-effekt skal være mindst dette, før dets varme tæller som reelt leveret lige nu.",
+        })}
+        ${this._cfgNumberRow("Minimum temperaturforskel", "door_heat_share_min_temp_diff", d.door_heat_share_min_temp_diff ?? "", {
+          min: 0.5, max: 6.0, step: 0.5, unit: "°C", cast: "float",
+          desc: "Hvor meget varmere naborummet mindst skal være, før nogen reduktion sker.",
+        })}
+        ${this._cfgNumberRow("Vægt", "door_heat_share_weight", d.door_heat_share_weight ?? "", {
+          min: 0, max: 0.5, step: 0.01, cast: "float",
+          desc: "Hvor meget effekten reduceres pr. grad temperaturforskellen overstiger grænsen.",
+        })}
+        ${this._cfgNumberRow("Maksimal reduktion", "door_heat_share_max_reduction", d.door_heat_share_max_reduction ?? "", {
+          min: 0, max: 0.8, step: 0.05, cast: "float",
+          desc: "Loft — dør-varmedeling alene fjerner aldrig mere end denne andel af effekten.",
+        })}
+      </div>
+
+      <div class="section-box">
+        <div class="section-box-header collapsible" data-action="toggle-section">
           <div class="section-box-title">Boost — standardværdier</div>
         </div>
         <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
@@ -3478,6 +3553,30 @@ class HeatManagerPanel extends HTMLElement {
       else this._scheduleRender();
     }));
     root.querySelector("[data-action='refresh']")?.addEventListener("click", () => this._load(true));
+    // 2026-09-16 ("Sæson"-kontrol): mirrors controller_state's own
+    // set_controller_state service call, but season_mode has no equivalent
+    // custom service — calling HA's built-in select.select_option directly
+    // on the existing select.<entry>_season_mode entity (already tracked in
+    // this._seasonEntityId for the read-only display above) does exactly
+    // what select.py's own SeasonModeSelect.async_select_option does, with
+    // no backend changes needed. Bound once here since the <select> element
+    // itself persists across _patchControllerHero() polls (only its
+    // .value is patched, never replaced).
+    root.querySelector(".ctrl-season-select")?.addEventListener("change", async (e) => {
+      const option = e.target.value;
+      const seasonLabel = ({ winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår", auto:"Auto" })[option] ?? option;
+      if (!this._seasonEntityId) {
+        this._showToast("Sæson-entity ikke fundet", "error");
+        return;
+      }
+      try {
+        await this._hass.callService("select", "select_option", { entity_id: this._seasonEntityId, option });
+        if (this._data) this._data.season_mode = option;
+        this._showToast(`Sæson sat til ${seasonLabel}`, "success");
+      } catch (err) {
+        this._showToast("Kunne ikke skifte sæson", "error");
+      }
+    });
     root.querySelector("[data-action='on']"    )?.addEventListener("click", () => this._setController("on"));
     // 2026-09-07 audit fix (UI/UX-5): "Sluk hele huset" had no confirmation
     // at all — one misclick turned off heating for every room. Click-to-arm

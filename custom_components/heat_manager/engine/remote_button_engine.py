@@ -168,13 +168,29 @@ class RemoteButtonEngine:
             if new_target == current:
                 continue
 
-            for write_id in write_entities:
+            # 2026-09-16 (deep-dive audit fix): this loop used to call
+            # hass.services.async_call("climate", ...) directly for every
+            # write entity, bypassing coordinator.async_call_climate_service()
+            # entirely. A single button press touches EVERY eligible room at
+            # once — exactly the burst pattern the shared Netatmo lock/pacing
+            # exists to prevent (see that method's own docstring and
+            # controller.py's OFF-fallback for the same fix already applied
+            # elsewhere) — making this the most likely of the four call sites
+            # this audit found to actually trigger a 429. Iterates the room's
+            # TRVs directly (not the flattened write_entities list above) so
+            # each write's delay is resolved per-TRV via
+            # trv_needs_cloud_delay(), the same way preheat_engine.py and
+            # controller.py's off-fallback do it.
+            for trv in self.coordinator.get_room_trvs(room_name):
+                write_id = self.coordinator.get_trv_write_entity(trv)
+                if not write_id:
+                    continue
                 try:
-                    await self.coordinator.hass.services.async_call(
-                        "climate",
+                    await self.coordinator.async_call_climate_service(
                         "set_temperature",
-                        {"entity_id": write_id, "temperature": new_target},
-                        blocking=True,
+                        write_id,
+                        {"temperature": new_target},
+                        needs_delay=self.coordinator.trv_needs_cloud_delay(trv),
                     )
                 # broad-except-rationale: one entity failing must not abort the others in this loop
                 except Exception as err:  # noqa: BLE001
