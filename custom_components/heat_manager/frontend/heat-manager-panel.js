@@ -1664,6 +1664,23 @@ class HeatManagerPanel extends HTMLElement {
       .tab:hover:not(.active) { color: var(--text); background: rgba(255,255,255,0.04); }
 
       /* ── Section boxes (Indeklima system) ── */
+      /* 2026-09-19 ("panel fylder mindre") — Konfiguration-fanen lægges i to
+         kolonner på bred skærm, så sektionerne (de fleste nu sammenfoldet som
+         standard, se .section-box.collapsed nedenfor) ikke bruger dobbelt så
+         meget lodret plads som nødvendigt. Ét-kolonne på smal skærm/mobil.
+         align-items:start forhindrer grid'et i at strække korte bokse til
+         samme højde som en længere nabo-boks i samme række. Kun brugt af
+         _configTabHTML() — andre faners section-box'e står udenfor dette
+         wrapper-element og forbliver én kolonne. */
+      .config-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        align-items: start;
+      }
+      @media (max-width: 760px) {
+        .config-grid { grid-template-columns: 1fr; }
+      }
       .section-box {
         background: var(--bg2);
         border: 1px solid rgba(148,163,184,0.18);
