@@ -3714,6 +3714,16 @@ class HeatManagerPanel extends HTMLElement {
     const root = this.shadowRoot;
     root.querySelectorAll(".tab").forEach(btn => btn.addEventListener("click", () => {
       this._tab = btn.dataset.tab;
+      // 2026-09-19 (ønske: alle 14 sektioner altid ens når man lander på
+      // siden): fold-tilstand blev tidligere husket på ubestemt tid (se
+      // v0.57.1) — nyttigt så en gemning ikke klapper den sektion man lige
+      // sad i, men det betød også at en sektion åbnet for lang tid siden
+      // stod åben igen, hver gang man kom tilbage til fanen, og så anderledes
+      // ud end resten. Nulstilles nu hver gang man klikker IND på
+      // Konfiguration — alle 14 starter garanteret sammenfoldet og ens ved
+      // hvert besøg, mens en sektion stadig får lov at blive stående åben
+      // så længe man rent faktisk er i gang med at redigere i den.
+      if (this._tab === "config") this._expandedConfigSections.clear();
       if (this._tab === "history" && !this._history) this._loadHistory().then(() => this._scheduleRender());
       else this._scheduleRender();
     }));

@@ -9,6 +9,27 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.58.1] — 2026-09-19
+
+Fold-tilstand i Konfiguration nulstilles nu hver gang man klikker IND på
+fanen, i stedet for at huskes på ubestemt tid (v0.57.1). Løser en
+utilsigtet konsekvens af den rettelse: en sektion åbnet under tidligere
+test stod stadig åben, hver gang brugeren senere kom tilbage til fanen —
+også minutter eller timer efter — og så dermed anderledes ud (synlig
+"Slå fra"-knap) end de øvrige, sammenfoldede sektioner, selvom alle 14
+faktisk deler præcis samme skabelon.
+
+### Changed
+- **`frontend/heat-manager-panel.js`**: fane-klik-handleren rydder nu
+  `this._expandedConfigSections`, hver gang der klikkes på
+  Konfiguration-fanen. Garanterer at alle 14 sektioner altid ser ens og
+  sammenfoldet ud, hver gang man lander på siden — mens en sektion,
+  brugeren rent faktisk sidder og redigerer i lige nu (fx lige har klikket
+  "Slå til" i), stadig får lov at blive stående åben, indtil man forlader
+  fanen.
+
+Verificeret: `node --check` på den ændrede frontend-fil.
+
 ## [0.58.0] — 2026-09-19
 
 Konsekvent, altid-synlig beskrivelse under HVER indstillingsrække i
