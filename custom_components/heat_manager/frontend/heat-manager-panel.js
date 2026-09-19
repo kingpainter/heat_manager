@@ -2294,7 +2294,15 @@ class HeatManagerPanel extends HTMLElement {
       /* ── Config edit rows ── */
       .cfg-edit-row {
         display: flex; align-items: center; gap: 8px;
-        padding: 10px 16px 14px;
+        padding: 10px 16px 10px;
+      }
+      /* 2026-09-19 — always-visible description under a number row's
+         label/input line, matching _cfgToggleRow's own desc styling
+         exactly (same font-size/color/line-height). */
+      .cfg-edit-row-wrap .cfg-edit-row { padding-bottom: 2px; }
+      .cfg-edit-desc {
+        font-size: 11px; color: var(--sub); line-height: 1.4;
+        padding: 0 16px 10px;
       }
       .cfg-edit-label {
         font-size: 12px; color: var(--sub); white-space: nowrap; flex-shrink: 0;
@@ -3180,15 +3188,25 @@ class HeatManagerPanel extends HTMLElement {
   // One generic save-field/toggle-field click handler in _attachEvents()
   // handles every row these produce — see planning/heat_manager_fase2_spec.
   _cfgNumberRow(label, field, value, { min, max, step, unit = "", desc = "", cast = "float" } = {}) {
+    // 2026-09-19 (ønske: konsekvent beskrivelses-stil): var før en (i)-hover-
+    // ikon (_infoIcon) — skjult indtil man aktivt hoverede/tappede den, i
+    // modstrid med _cfgToggleRow's altid-synlige beskrivelse lige under
+    // label'et. Nu samme mønster begge steder: beskrivelsen står direkte
+    // under label-rækken, aldrig skjult. Gælder alle kald af denne funktion
+    // på tværs af alle 14 sektioner i Konfiguration — én ændring her slår
+    // igennem overalt, ingen af de øvrige kaldesteder skal røres.
     return `
-      <div class="cfg-edit-row">
-        <span class="cfg-edit-label" style="flex:0 0 150px">${this._esc(label)}${desc ? this._infoIcon(desc) : ""}</span>
-        <input class="cfg-edit-input" type="number"
-          id="cfg-${field}-input" min="${min}" max="${max}" step="${step}"
-          value="${this._esc(value)}">
-        ${unit ? `<span class="cfg-edit-label" style="flex-shrink:0">${this._esc(unit)}</span>` : ""}
-        <button class="cfg-save-btn" data-action="save-field" data-field="${field}" data-cast="${cast}">Gem</button>
-        <span class="cfg-save-ok" id="cfg-${field}-ok">✔</span>
+      <div class="cfg-edit-row-wrap">
+        <div class="cfg-edit-row">
+          <span class="cfg-edit-label" style="flex:0 0 150px">${this._esc(label)}</span>
+          <input class="cfg-edit-input" type="number"
+            id="cfg-${field}-input" min="${min}" max="${max}" step="${step}"
+            value="${this._esc(value)}">
+          ${unit ? `<span class="cfg-edit-label" style="flex-shrink:0">${this._esc(unit)}</span>` : ""}
+          <button class="cfg-save-btn" data-action="save-field" data-field="${field}" data-cast="${cast}">Gem</button>
+          <span class="cfg-save-ok" id="cfg-${field}-ok">✔</span>
+        </div>
+        ${desc ? `<div class="cfg-edit-desc">${this._esc(desc)}</div>` : ""}
       </div>`;
   }
 
@@ -3325,12 +3343,21 @@ class HeatManagerPanel extends HTMLElement {
           </div>
         </div>
         ${this._cfgToggleRow("PID-regulering aktiveret", "pid_enabled", !!d.pid_enabled)}
-        ${this._cfgNumberRow("Kp", "pid_kp", d.pid_kp ?? "", { min: 0, max: 5, step: 0.05, cast: "float" })}
-        ${this._cfgNumberRow("Ki", "pid_ki", d.pid_ki ?? "", { min: 0, max: 0.5, step: 0.01, cast: "float" })}
-        ${this._cfgNumberRow("Kd", "pid_kd", d.pid_kd ?? "", { min: 0, max: 2, step: 0.05, cast: "float" })}
+        ${this._cfgNumberRow("Kp", "pid_kp", d.pid_kp ?? "", {
+          min: 0, max: 5, step: 0.05, cast: "float",
+          desc: "Hvor kraftigt effekten reagerer på den aktuelle temperaturafvigelse. Højere værdi = hurtigere, men mere ustabil regulering.",
+        })}
+        ${this._cfgNumberRow("Ki", "pid_ki", d.pid_ki ?? "", {
+          min: 0, max: 0.5, step: 0.01, cast: "float",
+          desc: "Retter en vedvarende, langsom afvigelse over tid. Hold lav — for høj værdi giver overshoot.",
+        })}
+        ${this._cfgNumberRow("Kd", "pid_kd", d.pid_kd ?? "", {
+          min: 0, max: 2, step: 0.05, cast: "float",
+          desc: "Reagerer på hvor hurtigt temperaturen ændrer sig. Sjældent nødvendig, da TRV'er har flere minutters egen forsinkelse.",
+        })}
         ${this._cfgNumberRow("Setpoint-margin", "pid_setpoint_margin", d.pid_setpoint_margin ?? "", {
           min: 0.5, max: 6.0, step: 0.5, unit: "°C", cast: "float",
-          desc: "2026-09-15: loft for hvor mange grader OVER rummets eget mål en TRV må blive bedt om at gå — uanset trv_max. Ved 100% PID-effekt sendte systemet før et setpoint helt op mod trv_max (fx 24°C ved et 21°C-mål), hvilket var årsagen til den observerede overskydning til 22-25°C. Sænk denne for tættere styring, hæv den hvis opvarmningen føles for langsom.",
+          desc: "Loft for hvor mange grader OVER rummets eget mål en TRV må bedes om at gå, uanset trv_max. Sænk for tættere styring, hæv hvis opvarmningen føles for langsom.",
         })}
       </div>
 
@@ -3452,8 +3479,14 @@ class HeatManagerPanel extends HTMLElement {
           Bruges af Boost-knappen og <span style="font-family:'DM Mono',monospace">heat_manager.boost_start</span>,
           når intet andet angives eksplicit.
         </div>
-        ${this._cfgNumberRow("Standardtemperatur", "boost_default_temp", d.boost_default_temp ?? "", { min: 15, max: 32, step: 0.5, unit: "°C", cast: "float" })}
-        ${this._cfgNumberRow("Standardvarighed", "boost_default_minutes", d.boost_default_minutes ?? "", { min: 1, max: 240, step: 1, unit: "min", cast: "float" })}
+        ${this._cfgNumberRow("Standardtemperatur", "boost_default_temp", d.boost_default_temp ?? "", {
+          min: 15, max: 32, step: 0.5, unit: "°C", cast: "float",
+          desc: "Temperaturen rummet sættes til, når Boost startes uden selv at angive en anden.",
+        })}
+        ${this._cfgNumberRow("Standardvarighed", "boost_default_minutes", d.boost_default_minutes ?? "", {
+          min: 1, max: 240, step: 1, unit: "min", cast: "float",
+          desc: "Hvor længe Boost varer, når det startes uden selv at angive en anden varighed.",
+        })}
       </div>
 
       <div class="${this._cfgSectionClass('window')}" data-section-id="window">
@@ -3475,8 +3508,8 @@ class HeatManagerPanel extends HTMLElement {
           min: 5, max: 180, step: 5, unit: "min", cast: "int",
           desc: "Hvor længe et vindue skal have været åbent, før du får en ekstra påmindelse om at det stadig er åbent — påvirker ikke selve sluk-funktionen ovenfor.",
         })}
-        ${this._cfgToggleRow("Notifikation ved åbent vindue", "notify_windows", !!d.notify_windows)}
-        ${this._cfgToggleRow("30-minutters-advarsel", "notify_window_warning_30", !!d.notify_window_warning_30)}
+        ${this._cfgToggleRow("Notifikation ved åbent vindue", "notify_windows", !!d.notify_windows, "Send en notifikation når et vindue åbnes eller lukkes.")}
+        ${this._cfgToggleRow("30-minutters-advarsel", "notify_window_warning_30", !!d.notify_window_warning_30, "Send en ekstra påmindelse hvis vinduet stadig er åbent efter tiden angivet i «Advarsel efter» ovenfor.")}
       </div>
 
       <div class="${this._cfgSectionClass('night_setback')}" data-section-id="night_setback">
@@ -3490,9 +3523,18 @@ class HeatManagerPanel extends HTMLElement {
           </div>
         </div>
         ${this._cfgToggleRow("Nat-sætpunkt aktiveret", "night_setback_enabled", !!d.night_setback_enabled)}
-        ${this._cfgNumberRow("Temperatur (sænkning)", "night_setback_temp", d.night_setback_temp ?? "", { min: 0.5, max: 5.0, step: 0.5, unit: "°C", cast: "float" })}
-        ${this._cfgNumberRow("Start time", "night_start_hour", d.night_start_hour ?? "", { min: 18, max: 23, step: 1, unit: "h", cast: "int" })}
-        ${this._cfgNumberRow("Slut time", "night_end_hour", d.night_end_hour ?? "", { min: 4, max: 10, step: 1, unit: "h", cast: "int" })}
+        ${this._cfgNumberRow("Temperatur (sænkning)", "night_setback_temp", d.night_setback_temp ?? "", {
+          min: 0.5, max: 5.0, step: 0.5, unit: "°C", cast: "float",
+          desc: "Antal grader der trækkes fra måltemperaturen i nat-perioden. Går aldrig under rummets fraværstemperatur.",
+        })}
+        ${this._cfgNumberRow("Start time", "night_start_hour", d.night_start_hour ?? "", {
+          min: 18, max: 23, step: 1, unit: "h", cast: "int",
+          desc: "Klokkeslæt (lokal tid) hvor nat-sænkningen begynder.",
+        })}
+        ${this._cfgNumberRow("Slut time", "night_end_hour", d.night_end_hour ?? "", {
+          min: 4, max: 10, step: 1, unit: "h", cast: "int",
+          desc: "Klokkeslæt (lokal tid) hvor rummet igen varmer til fuld måltemperatur.",
+        })}
       </div>
 
       <div class="${this._cfgSectionClass('grace')}" data-section-id="grace">
@@ -3502,8 +3544,14 @@ class HeatManagerPanel extends HTMLElement {
             ${this._cfgSectionDesc("Ventetid før fraværstilstand aktiveres")}
           </div>
         </div>
-        ${this._cfgNumberRow("Dag", "grace_day_min", d.grace_day_min ?? "", { min: 5, max: 120, step: 5, unit: "min", cast: "int" })}
-        ${this._cfgNumberRow("Nat", "grace_night_min", d.grace_night_min ?? "", { min: 5, max: 60, step: 5, unit: "min", cast: "int" })}
+        ${this._cfgNumberRow("Dag", "grace_day_min", d.grace_day_min ?? "", {
+          min: 5, max: 120, step: 5, unit: "min", cast: "int",
+          desc: "Hvor længe der ventes, efter alle er gået, før et rum om dagen sættes på fraværstemperatur.",
+        })}
+        ${this._cfgNumberRow("Nat", "grace_night_min", d.grace_night_min ?? "", {
+          min: 5, max: 60, step: 5, unit: "min", cast: "int",
+          desc: "Samme ventetid, men om natten — typisk kortere, da man sjældent forlader huset midt om natten uden grund.",
+        })}
       </div>
 
       <div class="${this._cfgSectionClass('auto_off')}" data-section-id="auto_off">
@@ -3513,8 +3561,14 @@ class HeatManagerPanel extends HTMLElement {
             ${this._cfgSectionDesc("Sluk automatisk ved vedvarende mildt vejr")}
           </div>
         </div>
-        ${this._cfgNumberRow("Temperaturgrænse", "auto_off_temp_threshold", d.auto_off_temp_threshold ?? "", { min: 10, max: 30, step: 1, unit: "°C", cast: "float" })}
-        ${this._cfgNumberRow("Dage i træk", "auto_off_temp_days", d.auto_off_temp_days ?? "", { min: 1, max: 14, step: 1, unit: "dage", cast: "int" })}
+        ${this._cfgNumberRow("Temperaturgrænse", "auto_off_temp_threshold", d.auto_off_temp_threshold ?? "", {
+          min: 10, max: 30, step: 1, unit: "°C", cast: "float",
+          desc: "Udetemperatur hvorover en dag tæller med i rækken af milde dage nedenfor.",
+        })}
+        ${this._cfgNumberRow("Dage i træk", "auto_off_temp_days", d.auto_off_temp_days ?? "", {
+          min: 1, max: 14, step: 1, unit: "dage", cast: "int",
+          desc: "Antal sammenhængende dage over temperaturgrænsen, før hele huset automatisk slukkes for sæsonen.",
+        })}
       </div>
 
       <div class="${this._cfgSectionClass('notifications')}" data-section-id="notifications" style="padding:0">
@@ -3547,10 +3601,10 @@ class HeatManagerPanel extends HTMLElement {
               <span class="cfg-save-ok" id="cfg-notify-ok">✔</span>
             </div>
             <div style="margin-top:4px">
-              ${this._cfgToggleRow("Tilstedeværelse/fravær", "notify_presence", !!d.notify_presence)}
-              ${this._cfgToggleRow("Forvarmning", "notify_preheat", !!d.notify_preheat)}
-              ${this._cfgToggleRow("Skimmelrisiko", "notify_mold_risk", !!d.notify_mold_risk)}
-              ${this._cfgToggleRow("Eskalér langvarige problemer", "notify_issue_escalation", !!d.notify_issue_escalation)}
+              ${this._cfgToggleRow("Tilstedeværelse/fravær", "notify_presence", !!d.notify_presence, "Send en notifikation når nogen kommer hjem, eller alle går.")}
+              ${this._cfgToggleRow("Forvarmning", "notify_preheat", !!d.notify_preheat, "Send en notifikation når forvarmning starter forud for en persons hjemkomst.")}
+              ${this._cfgToggleRow("Skimmelrisiko", "notify_mold_risk", !!d.notify_mold_risk, "Send en notifikation når høj luftfugtighed tæt på dugpunktet registreres i et rum.")}
+              ${this._cfgToggleRow("Eskalér langvarige problemer", "notify_issue_escalation", !!d.notify_issue_escalation, "Send én notifikation når et statuscenter-problem har stået på uafbrudt i mindst så mange minutter som angivet nedenfor.")}
               ${this._cfgNumberRow("Eskalér efter", "issue_escalation_minutes", d.issue_escalation_minutes ?? "", {
                 min: 10, max: 360, step: 10, unit: "min", cast: "int",
                 desc: "Et statuscenter-problem (skimmel, åbent vindue, langsom opvarmning m.fl.) der har stået på uafbrudt i så mange minutter, sender én push-notifikation.",

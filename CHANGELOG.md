@@ -9,6 +9,37 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.58.0] — 2026-09-19
+
+Konsekvent, altid-synlig beskrivelse under HVER indstillingsrække i
+Konfiguration-fanen, efter brugerens eget designeksempel — ikke kun
+titel/badge-niveau (v0.57.1) men helt ned på den enkelte række.
+
+### Changed
+- **`_cfgNumberRow()`**: brugte før en (i)-hover-ikon (`_infoIcon()`) til
+  sin `desc`-tekst — skjult indtil man aktivt hoverede/tappede den, i
+  modstrid med `_cfgToggleRow()`'s egen altid-synlige beskrivelse. Nu
+  samme mønster begge steder: beskrivelsen står direkte under
+  label/input-rækken, aldrig skjult. Én ændring i denne delte funktion slår
+  igennem for alle ca. 20 tal-felter på tværs af alle 14 sektioner uden at
+  hvert enkelt kaldested skulle ændres. `_infoIcon()` selv er urørt og
+  bruges stadig de to andre steder (Rum-detaljers stat-bokse, Away
+  temp-feltet) — kun `_cfgNumberRow()`s brug af den er fjernet.
+- **Skrevet nye, tilpassede beskrivelser** til hver række der manglede en:
+  Kp/Ki/Kd/Setpoint-margin (PID), Standardtemperatur/-varighed (Boost),
+  Temperatur/Start/Slut (Nat-sætpunkt), Dag/Nat (Grace-perioder),
+  Temperaturgrænse/Dage i træk (Auto-off), samt to vindues-notifikations-
+  toggles og fire notifikations-toggles i Notifikationer-sektionen (de
+  eneste toggle-rækker uden allerede-forklarende tekst omkring sig i
+  forvejen — resten af "X aktiveret"-togglerne har allerede en fyldig
+  forklaring i selve sektionens header/introtekst, så en tredje forklaring
+  på togglen selv ville være en gentagelse). Setpoint-margins tidligere
+  meget lange changelog-agtige tekst er samtidig forkortet til en kort,
+  læsbar sætning, nu hvor den er altid synlig i stedet for skjult bag
+  hover.
+
+Verificeret: `node --check` på den ændrede frontend-fil.
+
 ## [0.57.3] — 2026-09-19
 
 Lille visuel forbedring til Konfiguration-fanens sektions-badges (ønske
