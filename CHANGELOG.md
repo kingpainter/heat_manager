@@ -9,6 +9,24 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.56.1] — 2026-09-19 (hotfix)
+
+Min egen fejl fra v0.50.0: `door_heat_share_enabled` blev tilføjet til
+`_BOOL_CONFIG_FIELD_DEFAULTS`, men aldrig til selve voluptuous-skemaet der
+validerer `ws_update_config`-beskeder — de tre numeriske felter
+(`door_heat_share_min_neighbor_power` osv.) kom med, men ikke selve
+til/fra-kontakten. Konsekvens: forsøg på at gemme "Dør-varmedeling
+aktiveret" fra Konfiguration fejlede med "not a valid option" og gemte
+aldrig værdien.
+
+### Fixed
+- **`websocket.py`**: tilføjet den manglende `vol.Optional(CONF_DOOR_HEAT_
+  SHARE_ENABLED): bool` til skemaet. Krydstjekket samtidig ALLE øvrige
+  bool- og numeriske config-felter systematisk mod skemaet — dette var det
+  eneste hul.
+
+Verificeret: `mypy --strict` rent.
+
 ## [0.56.0] — 2026-09-16
 
 To bekræftede løse ender fra en gennemgang af tidligere revisioners

@@ -1353,6 +1353,7 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
         vol.Optional(CONF_NOTIFY_ISSUE_ESCALATION): bool,
         vol.Optional(CONF_WEATHER_COMPENSATION_ENABLED): bool,
         vol.Optional(CONF_SOLAR_GAIN_ENABLED): bool,
+        vol.Optional(CONF_DOOR_HEAT_SHARE_ENABLED): bool,
         vol.Optional(CONF_FF_REFERENCE_OUTDOOR_TEMP): vol.Any(float, int),
         vol.Optional(CONF_FF_WEIGHT): vol.Any(float, int),
         vol.Optional(CONF_FF_MAX_CONTRIBUTION): vol.Any(float, int),
