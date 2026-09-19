@@ -9,6 +9,62 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.57.1] — 2026-09-19
+
+Fire relaterede Konfiguration-fane-forbedringer, udløst af rapporten om at
+Dør-varmedeling "stadig ikke kunne tændes" — som viste sig at være en
+regression fra v0.57.0's sammenfold-som-standard-ændring, ikke en ny
+backend-fejl.
+
+### Fixed
+- **Kritisk regression: enhver felt-ændring foldede ALLE sektioner sammen
+  igen.** v0.57.0 hardkodede `collapsed` ind i selve HTML-skabelonen, så
+  enhver `_scheduleRender()` (som hvert `toggle-field`/`Gem`-klik udløser)
+  nulstillede samtlige 14 sektioner til lukket — den sektion man lige havde
+  åbnet for at trykke "Slå til" i, klappede sig selv sammen i samme
+  øjeblik. Det så ud som om klikket ikke virkede (Dør-varmedeling-rapporten),
+  fordi hele sektionen — badge, knap, det hele — forsvandt igen med det
+  samme. Rettet: fold-tilstand ligger nu i `this._expandedConfigSections`
+  (en `Set`, nøglet på et stabilt `data-section-id` pr. sektion) i stedet
+  for kun i en DOM-klasse en genopbygning altid overskriver.
+
+### Added
+- **Altid-synlig kort beskrivelse i hver sektions-header** (Ønske #3):
+  hver af de 14 sektioner har nu en én-linjes beskrivelse under titlen,
+  inde i selve headeren — derfor aldrig skjult af sammenfoldning, modsat
+  den længere forklarende tekst i sektionens krop.
+
+### Changed
+- Med konsekvent header-struktur (titel + kort beskrivelse + evt. badge)
+  på alle 14 sektioner har de nu ensartet højde når sammenfoldet, hvilket
+  giver den efterspurgte størrelses-harmoni (Ønske #4) i to-kolonne-gridet
+  uden at ændre selve rækkefølgen — parringen (Alarmtavle+Manuel TRV,
+  PID+Vejrkompensation, Solindfald+Dør-varmedeling, osv.) var allerede
+  fornuftig, det var forskellen i UDFOLDET højde der skabte disharmonien.
+
+Verificeret: `node --check` på den ændrede frontend-fil, alle 14
+`data-section-id`-værdier bekræftet unikke.
+
+## [0.57.0] — 2026-09-19
+
+Konfiguration-fanen fylder mindre: to-kolonne-layout på bred skærm, og alle
+13 sektioner er nu sammenfoldet som standard i stedet for udfoldet.
+
+### Changed
+- **`frontend/heat-manager-panel.js`**: `_configTabHTML()`s output er nu
+  pakket i et `.config-grid`-wrapper-element (`display:grid;
+  grid-template-columns:1fr 1fr`, med `@media (max-width:760px)`-fallback
+  til én kolonne på mobil). Kun Konfiguration-fanen — Oversigt/Rum/
+  Historik-fanernes egne section-box'e står udenfor dette wrapper-element
+  og er uændrede.
+- Alle 13 sektioner i Konfiguration (Alarmtavle t/m Rum &amp;
+  klimaentiteter) har nu `collapsed`-klassen fra første render, i stedet
+  for at starte udfoldet — samme klap-mekanisme fra Trin 5
+  (2026-09-14), blot med modsat standardtilstand. Klik på en
+  sektions-header for at folde den ud, som før.
+
+Verificeret: `node --check` på den ændrede frontend-fil.
+
 ## [0.56.1] — 2026-09-19 (hotfix)
 
 Min egen fejl fra v0.50.0: `door_heat_share_enabled` blev tilføjet til

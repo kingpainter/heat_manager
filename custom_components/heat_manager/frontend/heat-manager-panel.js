@@ -194,6 +194,14 @@ class HeatManagerPanel extends HTMLElement {
     this._manualControlEnabled = false; // manual TRV control toggle
     this._historyFilter   = "all"; // v0.3.9: event-type filter on Historik tab
     this._toastTimer      = null;  // v0.3.9: auto-dismiss timer for toast
+    // 2026-09-19 (bugfix): sections in Konfiguration default collapsed
+    // (v0.57.0), but every field save previously triggered a full
+    // _configTabHTML() rebuild that hardcoded every section back to
+    // collapsed — clicking a toggle inside an open section made that
+    // section snap shut immediately, looking like the click had done
+    // nothing. Tracked by stable data-section-id (not DOM state, which a
+    // rebuild always discards) and consulted when building the class list.
+    this._expandedConfigSections = new Set();
   }
 
   set hass(h) {
@@ -1710,7 +1718,17 @@ class HeatManagerPanel extends HTMLElement {
       .section-box-title {
         font-size: 11px; font-weight: 600;
         text-transform: uppercase; letter-spacing: 1px;
-        color: var(--sub); flex: 1;
+        color: var(--sub);
+      }
+      /* 2026-09-19 ("synlig beskrivelse når lukket") — title moved into a
+         flex:1 wrapper alongside the new always-visible description line,
+         so a badge (still a header sibling) stays vertically centred
+         against the whole two-line block instead of just the title. */
+      .section-box-title-wrap { flex: 1; min-width: 0; }
+      .section-box-desc {
+        font-size: 11px; font-weight: 400; color: var(--sub);
+        text-transform: none; letter-spacing: normal;
+        margin-top: 3px; line-height: 1.3;
       }
       .section-box-badge {
         font-size: 9px; font-weight: 700;
@@ -3174,6 +3192,22 @@ class HeatManagerPanel extends HTMLElement {
     return `<span class="info-icon" tabindex="0" role="note" aria-label="${this._esc(text)}">ⓘ<span class="info-popover">${this._esc(text)}</span></span>`;
   }
 
+  // 2026-09-19: stable per-section collapse-state class, keyed by the same
+  // id used for data-section-id — see this._expandedConfigSections in the
+  // constructor and the toggle-section click handler in _attachEvents().
+  _cfgSectionClass(id) {
+    return "section-box" + (this._expandedConfigSections.has(id) ? "" : " collapsed");
+  }
+
+  // 2026-09-19 ("synlig beskrivelse når lukket"): a short, ALWAYS-visible
+  // one-liner under a section's title — lives inside .section-box-header,
+  // so unlike the longer descriptive paragraphs already in each section's
+  // body, this text is never hidden by the .collapsed CSS rule (which only
+  // hides content OUTSIDE .section-box-header).
+  _cfgSectionDesc(text) {
+    return `<div class="section-box-desc">${this._esc(text)}</div>`;
+  }
+
   _cfgToggleRow(label, field, value, desc = "") {
     return `
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px">
@@ -3195,18 +3229,24 @@ class HeatManagerPanel extends HTMLElement {
     ];
     return `
       <div class="config-grid">
-      <div class="section-box collapsed">
+      <div class="${this._cfgSectionClass('global')}" data-section-id="global">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Global konfiguration</div>
+          <div class="section-box-title-wrap">
+            <div class="section-box-title">Global konfiguration</div>
+            ${this._cfgSectionDesc("Vejr-entity og udetemperatur-sensor")}
+          </div>
         </div>
         ${cfg.map(([k,v]) =>
           `<div class="cfg-row"><span class="cfg-k">${k}</span><span class="cfg-v">${this._esc(v)}</span></div>`
         ).join("")}
       </div>
 
-      <div class="section-box collapsed">
+      <div class="${this._cfgSectionClass('alarm')}" data-section-id="alarm">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Alarmtavle</div>
+          <div class="section-box-title-wrap">
+            <div class="section-box-title">Alarmtavle</div>
+            ${this._cfgSectionDesc("Fravær ved arm/deaktivering af alarmen")}
+          </div>
           <div class="section-box-badge" style="background:rgba(249,115,22,0.12);color:var(--amber)">
             ${d.alarm_panel ? 'Konfigureret' : 'Ikke sat'}
           </div>
@@ -3225,9 +3265,12 @@ class HeatManagerPanel extends HTMLElement {
         </div>
       </div>
 
-      <div class="section-box collapsed">
+      <div class="${this._cfgSectionClass('manual_trv')}" data-section-id="manual_trv">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Manuel TRV-kontrol</div>
+          <div class="section-box-title-wrap">
+            <div class="section-box-title">Manuel TRV-kontrol</div>
+            ${this._cfgSectionDesc("Send temperatur direkte til én eller alle TRV'er")}
+          </div>
           <div class="section-box-badge" style="background:${this._manualControlEnabled?'rgba(99,102,241,0.15)':'rgba(71,85,105,0.15)'};color:${this._manualControlEnabled?'#818cf8':'var(--sub)'}">
             ${this._manualControlEnabled ? 'Aktiv' : 'Inaktiv'}
           </div>
@@ -3255,9 +3298,12 @@ class HeatManagerPanel extends HTMLElement {
            førstegangsopsætning) — se
            planning/heat_manager_fase2_spec_2026-09-11.md, "Del 1". -->
 
-      <div class="section-box collapsed">
+      <div class="${this._cfgSectionClass('pid')}" data-section-id="pid">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">PID-regulator</div>
+          <div class="section-box-title-wrap">
+            <div class="section-box-title">PID-regulator</div>
+            ${this._cfgSectionDesc("Kp/Ki/Kd, TRV-loft og setpoint-margin")}
+          </div>
           <div class="section-box-badge" style="background:${d.pid_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.pid_enabled ? "#818cf8" : "var(--sub)"}">
             ${d.pid_enabled ? "Aktiv" : "Inaktiv"}
           </div>
@@ -3278,9 +3324,12 @@ class HeatManagerPanel extends HTMLElement {
            default = de tidligere hardkodede værdier, så eksisterende
            installationer opfører sig uændret indtil felterne rent faktisk
            redigeres her. -->
-      <div class="section-box collapsed">
+      <div class="${this._cfgSectionClass('weather_comp')}" data-section-id="weather_comp">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Vejrkompensation</div>
+          <div class="section-box-title-wrap">
+            <div class="section-box-title">Vejrkompensation</div>
+            ${this._cfgSectionDesc("Proaktivt effekt-tillæg ved kold udetemperatur")}
+          </div>
           <div class="section-box-badge" style="background:${d.weather_compensation_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.weather_compensation_enabled ? "#818cf8" : "var(--sub)"}">
             ${d.weather_compensation_enabled ? "Aktiv" : "Inaktiv"}
           </div>
@@ -3309,9 +3358,12 @@ class HeatManagerPanel extends HTMLElement {
            (konfigureres pr. rum under "Rum & klimaentiteter"/rediger rum)
            viser lys. Genbruger de samme generiske toggle/number-rækker
            (og dermed den samme gem-logik) som Vejrkompensation ovenfor. -->
-      <div class="section-box collapsed">
+      <div class="${this._cfgSectionClass('solar_gain')}" data-section-id="solar_gain">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Solindfald</div>
+          <div class="section-box-title-wrap">
+            <div class="section-box-title">Solindfald</div>
+            ${this._cfgSectionDesc("Reducerer effekt når lux-sensor viser sol")}
+          </div>
           <div class="section-box-badge" style="background:${d.solar_gain_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.solar_gain_enabled ? "#818cf8" : "var(--sub)"}">
             ${d.solar_gain_enabled ? "Aktiv" : "Inaktiv"}
           </div>
@@ -3337,9 +3389,12 @@ class HeatManagerPanel extends HTMLElement {
         })}
       </div>
 
-      <div class="section-box collapsed">
+      <div class="${this._cfgSectionClass('door_heat_share')}" data-section-id="door_heat_share">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Dør-varmedeling</div>
+          <div class="section-box-title-wrap">
+            <div class="section-box-title">Dør-varmedeling</div>
+            ${this._cfgSectionDesc("Reducerer effekt ved gratis varme via åben dør")}
+          </div>
           <div class="section-box-badge" style="background:${d.door_heat_share_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.door_heat_share_enabled ? "#818cf8" : "var(--sub)"}">
             ${d.door_heat_share_enabled ? "Aktiv" : "Inaktiv"}
           </div>
@@ -3370,9 +3425,12 @@ class HeatManagerPanel extends HTMLElement {
         })}
       </div>
 
-      <div class="section-box collapsed">
+      <div class="${this._cfgSectionClass('boost')}" data-section-id="boost">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Boost — standardværdier</div>
+          <div class="section-box-title-wrap">
+            <div class="section-box-title">Boost — standardværdier</div>
+            ${this._cfgSectionDesc("Standardtemperatur og -varighed for Boost")}
+          </div>
         </div>
         <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
           Bruges af Boost-knappen og <span style="font-family:'DM Mono',monospace">heat_manager.boost_start</span>,
@@ -3382,9 +3440,12 @@ class HeatManagerPanel extends HTMLElement {
         ${this._cfgNumberRow("Standardvarighed", "boost_default_minutes", d.boost_default_minutes ?? "", { min: 1, max: 240, step: 1, unit: "min", cast: "float" })}
       </div>
 
-      <div class="section-box collapsed">
+      <div class="${this._cfgSectionClass('window')}" data-section-id="window">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Vindue</div>
+          <div class="section-box-title-wrap">
+            <div class="section-box-title">Vindue</div>
+            ${this._cfgSectionDesc("Forsinkelse, sluk-temperatur og advarsler")}
+          </div>
         </div>
         ${this._cfgNumberRow("Forsinkelse før sluk", "window_delay_default_min", d.window_delay_default_min ?? "", {
           min: 0, max: 60, step: 1, unit: "min", cast: "int",
@@ -3402,9 +3463,12 @@ class HeatManagerPanel extends HTMLElement {
         ${this._cfgToggleRow("30-minutters-advarsel", "notify_window_warning_30", !!d.notify_window_warning_30)}
       </div>
 
-      <div class="section-box collapsed">
+      <div class="${this._cfgSectionClass('night_setback')}" data-section-id="night_setback">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Nat-sætpunkt</div>
+          <div class="section-box-title-wrap">
+            <div class="section-box-title">Nat-sætpunkt</div>
+            ${this._cfgSectionDesc("Automatisk temperatursænkning om natten")}
+          </div>
           <div class="section-box-badge" style="background:${d.night_setback_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.night_setback_enabled ? "#818cf8" : "var(--sub)"}">
             ${d.night_setback_enabled ? "Aktiv" : "Inaktiv"}
           </div>
@@ -3415,25 +3479,34 @@ class HeatManagerPanel extends HTMLElement {
         ${this._cfgNumberRow("Slut time", "night_end_hour", d.night_end_hour ?? "", { min: 4, max: 10, step: 1, unit: "h", cast: "int" })}
       </div>
 
-      <div class="section-box collapsed">
+      <div class="${this._cfgSectionClass('grace')}" data-section-id="grace">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Grace-perioder</div>
+          <div class="section-box-title-wrap">
+            <div class="section-box-title">Grace-perioder</div>
+            ${this._cfgSectionDesc("Ventetid før fraværstilstand aktiveres")}
+          </div>
         </div>
         ${this._cfgNumberRow("Dag", "grace_day_min", d.grace_day_min ?? "", { min: 5, max: 120, step: 5, unit: "min", cast: "int" })}
         ${this._cfgNumberRow("Nat", "grace_night_min", d.grace_night_min ?? "", { min: 5, max: 60, step: 5, unit: "min", cast: "int" })}
       </div>
 
-      <div class="section-box collapsed">
+      <div class="${this._cfgSectionClass('auto_off')}" data-section-id="auto_off">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Auto-off ved mildt vejr</div>
+          <div class="section-box-title-wrap">
+            <div class="section-box-title">Auto-off ved mildt vejr</div>
+            ${this._cfgSectionDesc("Sluk automatisk ved vedvarende mildt vejr")}
+          </div>
         </div>
         ${this._cfgNumberRow("Temperaturgrænse", "auto_off_temp_threshold", d.auto_off_temp_threshold ?? "", { min: 10, max: 30, step: 1, unit: "°C", cast: "float" })}
         ${this._cfgNumberRow("Dage i træk", "auto_off_temp_days", d.auto_off_temp_days ?? "", { min: 1, max: 14, step: 1, unit: "dage", cast: "int" })}
       </div>
 
-      <div class="section-box collapsed" style="padding:0">
+      <div class="${this._cfgSectionClass('notifications')}" data-section-id="notifications" style="padding:0">
         <div class="section-box-header collapsible" data-action="toggle-section" style="padding:12px 16px 10px;border-bottom:1px solid var(--div)">
-          <div class="section-box-title">Notifikationer</div>
+          <div class="section-box-title-wrap">
+            <div class="section-box-title">Notifikationer</div>
+            ${this._cfgSectionDesc("Hvilke hændelser der sender en notifikation")}
+          </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr${d.house_voice_enabled ? ' 1fr' : ''};gap:0">
 
@@ -3494,9 +3567,12 @@ class HeatManagerPanel extends HTMLElement {
         </div>
       </div>
 
-      <div class="section-box collapsed">
+      <div class="${this._cfgSectionClass('rooms_summary')}" data-section-id="rooms_summary">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Rum &amp; klimaentiteter</div>
+          <div class="section-box-title-wrap">
+            <div class="section-box-title">Rum &amp; klimaentiteter</div>
+            ${this._cfgSectionDesc("Oversigt over rum og deres TRV'er (read-only)")}
+          </div>
         </div>
         ${(this._data?.rooms ?? []).map(r => {
           // v0.9.0: read-only summary of the optional per-room engines —
@@ -3706,13 +3782,23 @@ class HeatManagerPanel extends HTMLElement {
     this._attachRoomDetailEvents();
 
     // Punkt 5 (2026-09-14) — sammenklappelige sektioner i Konfiguration-
-    // fanen. Collapsed state is purely a .collapsed class on the closest
-    // .section-box, toggled per header click — no per-section id needed,
-    // resets on the next full render (tab switch, or any action that calls
-    // _scheduleRender()). See _css() for the matching collapse rule.
+    // fanen. 2026-09-19 fix: state is now ALSO tracked in
+    // this._expandedConfigSections (keyed by each section's stable
+    // data-section-id), not just the DOM's .collapsed class — a full
+    // rebuild of _configTabHTML() (which every field save triggers, via
+    // _scheduleRender()) used to hardcode every section back to collapsed,
+    // snapping shut whatever the user had just opened right as they
+    // clicked a toggle inside it. See _css() for the matching collapse rule.
     root.querySelectorAll(".section-box-header.collapsible").forEach((header) => {
       header.addEventListener("click", () => {
-        header.closest(".section-box")?.classList.toggle("collapsed");
+        const box = header.closest(".section-box");
+        if (!box) return;
+        const isNowCollapsed = box.classList.toggle("collapsed");
+        const sectionId = box.dataset.sectionId;
+        if (sectionId) {
+          if (isNowCollapsed) this._expandedConfigSections.delete(sectionId);
+          else this._expandedConfigSections.add(sectionId);
+        }
       });
     });
 
