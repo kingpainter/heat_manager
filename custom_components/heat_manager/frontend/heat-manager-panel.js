@@ -880,7 +880,16 @@ class HeatManagerPanel extends HTMLElement {
     }
 
     // Section badge
-    const badge = root.querySelector(".section-box-badge");
+    // 2026-09-19 (bugfix): was the unscoped ".section-box-badge" selector,
+    // which matched whichever such element came first in the CURRENT tab's
+    // DOM — this patch runs on every poll regardless of which tab is
+    // active, so viewing Konfiguration (which now has several of its own
+    // ".section-box-badge" elements — Alarmtavle, PID, etc.) meant this
+    // silently overwrote e.g. Alarmtavle's "Konfigureret"/"Ikke sat" badge
+    // with the controller's own status text ("Varme aktiv"). Scoped to the
+    // dedicated .ctrl-status-badge class the Controller-hero's own badge
+    // now carries alongside .section-box-badge (kept for shared styling).
+    const badge = root.querySelector(".ctrl-status-badge");
     if (badge) {
       badge.textContent = this._ctrlTitle(ctrl);
       badge.style.background = `${ringColor}22`;
@@ -2441,7 +2450,7 @@ class HeatManagerPanel extends HTMLElement {
       <div class="section-box">
         <div class="section-box-header">
           <div class="section-box-title">Controller</div>
-          <div class="section-box-badge" style="background:${ringColor}22;color:${ringColor}">
+          <div class="section-box-badge ctrl-status-badge" style="background:${ringColor}22;color:${ringColor}">
             ${this._ctrlTitle(ctrl)}
           </div>
         </div>

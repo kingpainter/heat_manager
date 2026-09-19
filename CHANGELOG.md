@@ -9,6 +9,36 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.57.2] — 2026-09-19
+
+**Vigtig proces-rettelse:** `panel.py` registrerer panelets JavaScript-URL
+(med cache-busting-parametrene `?v=<version>&m=<filens ændringstidspunkt>`)
+én gang pr. HA-proces, ved integrationens opstart — `async_unregister_
+panel()` bekræfter selv eksplicit "panel is process-level, skipping
+removal". En almindelig "Genindlæs integration" nulstiller IKKE dette, og
+ingen mængde browser-hård-genindlæsning kan hente en ny fil, så længe HA
+selv fortsat fortæller browseren at hente den GAMLE URL. **Tidligere
+beskeder i denne log, der sagde "kun browser-genindlæsning, ingen
+HA-genstart nødvendig" for rene frontend-ændringer (v0.55.0, v0.57.0,
+v0.57.1), var forkerte for dette specifikke panel** — en fuld HA-genstart
+har hele tiden været nødvendig, også for kun-frontend-ændringer. Det
+forklarer, hvorfor både v0.57.1's fold-tilstands-rettelse og de
+nye sektionsbeskrivelser aldrig nåede frem til browseren.
+
+### Fixed
+- **`frontend/heat-manager-panel.js`**: Controller-boksens eget status-badge
+  ("Varme aktiv"/"Pause"/"Slukket") delte utilsigtet CSS-klassen
+  `.section-box-badge` med Konfiguration-fanens egne sektions-badges
+  (Alarmtavle, PID, Vejrkompensation, osv.). `_patchControllerHero()`s
+  baggrunds-opdatering — som kører på HVER poll, uanset hvilken fane der
+  vises — brugte et uafgrænset `querySelector(".section-box-badge")`, der
+  ramte den FØRSTE matchende el i den AKTUELT viste fane. Står man på
+  Konfiguration, overskrev det Alarmtavlens "Konfigureret"/"Ikke sat"-badge
+  med controller-titlen ("Varme aktiv") i stedet. Rettet med en dedikeret
+  `.ctrl-status-badge`-klasse, kun på Controller-boksens eget badge.
+
+Verificeret: `node --check` på den ændrede frontend-fil.
+
 ## [0.57.1] — 2026-09-19
 
 Fire relaterede Konfiguration-fane-forbedringer, udløst af rapporten om at
