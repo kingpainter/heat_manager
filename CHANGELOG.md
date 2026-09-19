@@ -9,6 +9,23 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.57.3] — 2026-09-19
+
+Lille visuel forbedring til Konfiguration-fanens sektions-badges (ønske
+#2/#3): en lille farvet prik (grøn/grå) tilføjet foran "Aktiv"/"Inaktiv"/
+"Konfigureret"/"Ikke sat"-teksten på alle 7 badges (Alarmtavle, Manuel
+TRV-kontrol, PID, Vejrkompensation, Solindfald, Dør-varmedeling,
+Nat-sætpunkt) — hurtigere at aflæse status ved et blik, særligt når de
+fleste sektioner står sammenfoldet og kun viser headeren.
+
+Bekræftet (ikke en fejl): sektioner der stadig viser deres indhold efter
+genstart er dem, brugeren selv har klikket åbne under test — fold-tilstand
+husker bevidst brugerens eget valg på tværs af felt-gemninger (se v0.57.1).
+Klik på headeren igen for at folde sammen og skjule til/fra-knappen, som
+allerede vist korrekt af "Manuel TRV-kontrol" i brugerens eget skærmbillede.
+
+Verificeret: `node --check` på den ændrede frontend-fil.
+
 ## [0.57.2] — 2026-09-19
 
 **Vigtig proces-rettelse:** `panel.py` registrerer panelets JavaScript-URL

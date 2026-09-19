@@ -3217,6 +3217,13 @@ class HeatManagerPanel extends HTMLElement {
     return `<div class="section-box-desc">${this._esc(text)}</div>`;
   }
 
+  // 2026-09-19 (ønske #2): a small colour dot alongside the existing
+  // Aktiv/Inaktiv text — quicker to scan at a glance than reading the word,
+  // especially once most sections sit collapsed showing only their header.
+  _cfgStatusDot(active) {
+    return `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${active ? "#22c55e" : "#64748b"};margin-right:5px;vertical-align:middle;flex-shrink:0"></span>`;
+  }
+
   _cfgToggleRow(label, field, value, desc = "") {
     return `
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px">
@@ -3257,7 +3264,7 @@ class HeatManagerPanel extends HTMLElement {
             ${this._cfgSectionDesc("Fravær ved arm/deaktivering af alarmen")}
           </div>
           <div class="section-box-badge" style="background:rgba(249,115,22,0.12);color:var(--amber)">
-            ${d.alarm_panel ? 'Konfigureret' : 'Ikke sat'}
+            ${this._cfgStatusDot(!!d.alarm_panel)}${d.alarm_panel ? 'Konfigureret' : 'Ikke sat'}
           </div>
         </div>
         <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
@@ -3281,7 +3288,7 @@ class HeatManagerPanel extends HTMLElement {
             ${this._cfgSectionDesc("Send temperatur direkte til én eller alle TRV'er")}
           </div>
           <div class="section-box-badge" style="background:${this._manualControlEnabled?'rgba(99,102,241,0.15)':'rgba(71,85,105,0.15)'};color:${this._manualControlEnabled?'#818cf8':'var(--sub)'}">
-            ${this._manualControlEnabled ? 'Aktiv' : 'Inaktiv'}
+            ${this._cfgStatusDot(this._manualControlEnabled)}${this._manualControlEnabled ? 'Aktiv' : 'Inaktiv'}
           </div>
         </div>
         <div style="padding:14px 16px">
@@ -3314,7 +3321,7 @@ class HeatManagerPanel extends HTMLElement {
             ${this._cfgSectionDesc("Kp/Ki/Kd, TRV-loft og setpoint-margin")}
           </div>
           <div class="section-box-badge" style="background:${d.pid_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.pid_enabled ? "#818cf8" : "var(--sub)"}">
-            ${d.pid_enabled ? "Aktiv" : "Inaktiv"}
+            ${this._cfgStatusDot(!!d.pid_enabled)}${d.pid_enabled ? "Aktiv" : "Inaktiv"}
           </div>
         </div>
         ${this._cfgToggleRow("PID-regulering aktiveret", "pid_enabled", !!d.pid_enabled)}
@@ -3340,7 +3347,7 @@ class HeatManagerPanel extends HTMLElement {
             ${this._cfgSectionDesc("Proaktivt effekt-tillæg ved kold udetemperatur")}
           </div>
           <div class="section-box-badge" style="background:${d.weather_compensation_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.weather_compensation_enabled ? "#818cf8" : "var(--sub)"}">
-            ${d.weather_compensation_enabled ? "Aktiv" : "Inaktiv"}
+            ${this._cfgStatusDot(!!d.weather_compensation_enabled)}${d.weather_compensation_enabled ? "Aktiv" : "Inaktiv"}
           </div>
         </div>
         <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
@@ -3374,7 +3381,7 @@ class HeatManagerPanel extends HTMLElement {
             ${this._cfgSectionDesc("Reducerer effekt når lux-sensor viser sol")}
           </div>
           <div class="section-box-badge" style="background:${d.solar_gain_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.solar_gain_enabled ? "#818cf8" : "var(--sub)"}">
-            ${d.solar_gain_enabled ? "Aktiv" : "Inaktiv"}
+            ${this._cfgStatusDot(!!d.solar_gain_enabled)}${d.solar_gain_enabled ? "Aktiv" : "Inaktiv"}
           </div>
         </div>
         <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
@@ -3405,7 +3412,7 @@ class HeatManagerPanel extends HTMLElement {
             ${this._cfgSectionDesc("Reducerer effekt ved gratis varme via åben dør")}
           </div>
           <div class="section-box-badge" style="background:${d.door_heat_share_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.door_heat_share_enabled ? "#818cf8" : "var(--sub)"}">
-            ${d.door_heat_share_enabled ? "Aktiv" : "Inaktiv"}
+            ${this._cfgStatusDot(!!d.door_heat_share_enabled)}${d.door_heat_share_enabled ? "Aktiv" : "Inaktiv"}
           </div>
         </div>
         <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
@@ -3479,7 +3486,7 @@ class HeatManagerPanel extends HTMLElement {
             ${this._cfgSectionDesc("Automatisk temperatursænkning om natten")}
           </div>
           <div class="section-box-badge" style="background:${d.night_setback_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.night_setback_enabled ? "#818cf8" : "var(--sub)"}">
-            ${d.night_setback_enabled ? "Aktiv" : "Inaktiv"}
+            ${this._cfgStatusDot(!!d.night_setback_enabled)}${d.night_setback_enabled ? "Aktiv" : "Inaktiv"}
           </div>
         </div>
         ${this._cfgToggleRow("Nat-sætpunkt aktiveret", "night_setback_enabled", !!d.night_setback_enabled)}
