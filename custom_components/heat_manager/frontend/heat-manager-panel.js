@@ -1708,6 +1708,7 @@ class HeatManagerPanel extends HTMLElement {
       .section-box-header {
         display: flex; align-items: center; gap: 8px;
         padding: 10px 16px;
+        box-sizing: border-box; min-height: 44px;
         border-bottom: 1px solid rgba(148,163,184,0.12);
         background: rgba(0,0,0,0.18);
       }
@@ -1723,21 +1724,27 @@ class HeatManagerPanel extends HTMLElement {
         transition: transform .2s;
       }
       .section-box.collapsed .section-box-header.collapsible::after { transform: rotate(-90deg); }
-      .section-box.collapsed > *:not(.section-box-header) { display: none; }
+      /* 2026-09-19 (endelig tredelt struktur): titel+badge (header) og den
+         nye altid-synlige bund-beskrivelse (.section-box-footer) er begge
+         undtaget fra sammenfoldnings-skjulningen — kun selve
+         indstillingerne imellem dem (toggle/number-rækker, evt. længere
+         introtekst) skjules. */
+      .section-box.collapsed > *:not(.section-box-header):not(.section-box-footer) { display: none !important; }
       .section-box-title {
         font-size: 11px; font-weight: 600;
         text-transform: uppercase; letter-spacing: 1px;
-        color: var(--sub);
+        color: var(--sub); flex: 1; min-width: 0;
       }
-      /* 2026-09-19 ("synlig beskrivelse når lukket") — title moved into a
-         flex:1 wrapper alongside the new always-visible description line,
-         so a badge (still a header sibling) stays vertically centred
-         against the whole two-line block instead of just the title. */
-      .section-box-title-wrap { flex: 1; min-width: 0; }
-      .section-box-desc {
-        font-size: 11px; font-weight: 400; color: var(--sub);
-        text-transform: none; letter-spacing: normal;
-        margin-top: 3px; line-height: 1.3;
+      /* 2026-09-19: altid-synlig kort beskrivelse i BUNDEN af hver sektion,
+         adskilt fra titlen — titlen står nu alene i headeren (grøn/i brugerens
+         illustration), selve indstillingerne er den sammenfoldelige midte
+         (rød), og denne footer er den altid-synlige bund (blå). Erstatter
+         den tidligere .section-box-desc, som sad lige under titlen. */
+      .section-box-footer {
+        font-size: 12px; color: var(--sub); line-height: 1.5;
+        padding: 10px 16px;
+        box-sizing: border-box; min-height: 74px; /* = 3 linjer, så alle sektioner fylder lige meget foldet sammen */
+        border-top: 1px solid rgba(148,163,184,0.12);
       }
       .section-box-badge {
         font-size: 9px; font-weight: 700;
@@ -3226,13 +3233,13 @@ class HeatManagerPanel extends HTMLElement {
     return "section-box" + (this._expandedConfigSections.has(id) ? "" : " collapsed");
   }
 
-  // 2026-09-19 ("synlig beskrivelse når lukket"): a short, ALWAYS-visible
-  // one-liner under a section's title — lives inside .section-box-header,
-  // so unlike the longer descriptive paragraphs already in each section's
-  // body, this text is never hidden by the .collapsed CSS rule (which only
-  // hides content OUTSIDE .section-box-header).
-  _cfgSectionDesc(text) {
-    return `<div class="section-box-desc">${this._esc(text)}</div>`;
+  // 2026-09-19 (endelig tredelt struktur, efter brugerens egen illustration
+  // med grøn/rød/blå markering): titel står nu ALENE i headeren — denne
+  // bygger i stedet den altid-synlige bund-beskrivelse
+  // (.section-box-footer), placeret efter alle indstillings-rækkerne. Ikke
+  // påvirket af .collapsed, uanset om sektionen er foldet ud eller ej.
+  _cfgSectionFooter(text) {
+    return `<div class="section-box-footer">${this._esc(text)}</div>`;
   }
 
   // 2026-09-19 (ønske #2): a small colour dot alongside the existing
@@ -3265,30 +3272,20 @@ class HeatManagerPanel extends HTMLElement {
       <div class="config-grid">
       <div class="${this._cfgSectionClass('global')}" data-section-id="global">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title-wrap">
-            <div class="section-box-title">Global konfiguration</div>
-            ${this._cfgSectionDesc("Vejr-entity og udetemperatur-sensor")}
-          </div>
+          <div class="section-box-title">Global konfiguration</div>
         </div>
         ${cfg.map(([k,v]) =>
           `<div class="cfg-row"><span class="cfg-k">${k}</span><span class="cfg-v">${this._esc(v)}</span></div>`
         ).join("")}
+        <div class="section-box-footer">Vejr-entiteten leverer udetemperatur til sæson, vejrkompensation, auto-off og nat-sætpunkt. Sættes under opsætningen — kan ikke redigeres herfra.</div>
       </div>
 
       <div class="${this._cfgSectionClass('alarm')}" data-section-id="alarm">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title-wrap">
-            <div class="section-box-title">Alarmtavle</div>
-            ${this._cfgSectionDesc("Fravær ved arm/deaktivering af alarmen")}
-          </div>
+          <div class="section-box-title">Alarmtavle</div>
           <div class="section-box-badge" style="background:rgba(249,115,22,0.12);color:var(--amber)">
             ${this._cfgStatusDot(!!d.alarm_panel)}${d.alarm_panel ? 'Konfigureret' : 'Ikke sat'}
           </div>
-        </div>
-        <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
-          Når alarmen sættes til <strong style="color:var(--text)">armeret (væk)</strong> aktiveres
-          fraværsmodus øjeblikkeligt uden grace period. Når den deaktiveres og nogen
-          er hjemme, genoptages opvarmningen automatisk.
         </div>
         <div class="cfg-edit-row" style="padding-top:12px">
           <input class="cfg-edit-input" id="cfg-alarm-input"
@@ -3297,14 +3294,12 @@ class HeatManagerPanel extends HTMLElement {
           <button class="cfg-save-btn" data-action="save-alarm">Gem</button>
           <span class="cfg-save-ok" id="cfg-alarm-ok">✔</span>
         </div>
+        <div class="section-box-footer">Når alarmen sættes til <strong style="color:var(--text)">armeret (væk)</strong> aktiveres fraværsmodus øjeblikkeligt uden grace period. Når den deaktiveres og nogen er hjemme, genoptages opvarmningen automatisk.</div>
       </div>
 
       <div class="${this._cfgSectionClass('manual_trv')}" data-section-id="manual_trv">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title-wrap">
-            <div class="section-box-title">Manuel TRV-kontrol</div>
-            ${this._cfgSectionDesc("Send temperatur direkte til én eller alle TRV'er")}
-          </div>
+          <div class="section-box-title">Manuel TRV-kontrol</div>
           <div class="section-box-badge" style="background:${this._manualControlEnabled?'rgba(99,102,241,0.15)':'rgba(71,85,105,0.15)'};color:${this._manualControlEnabled?'#818cf8':'var(--sub)'}">
             ${this._cfgStatusDot(this._manualControlEnabled)}${this._manualControlEnabled ? 'Aktiv' : 'Inaktiv'}
           </div>
@@ -3323,6 +3318,7 @@ class HeatManagerPanel extends HTMLElement {
             </button>
           </div>
         </div>
+        <div class="section-box-footer">Viser en ekstra kontrol i Rum-fanen til at sætte en midlertidig temperatur direkte på én eller alle TRV'er — uden om schedule og PID. Til hurtige justeringer.</div>
       </div>
 
       <!-- Fase 2, del 1 (2026-09-13) — "Indstillinger": driftsparametre der
@@ -3334,11 +3330,8 @@ class HeatManagerPanel extends HTMLElement {
 
       <div class="${this._cfgSectionClass('pid')}" data-section-id="pid">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title-wrap">
-            <div class="section-box-title">PID-regulator</div>
-            ${this._cfgSectionDesc("Kp/Ki/Kd, TRV-loft og setpoint-margin")}
-          </div>
-          <div class="section-box-badge" style="background:${d.pid_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.pid_enabled ? "#818cf8" : "var(--sub)"}">
+          <div class="section-box-title">PID-regulator</div>
+          <div class="section-box-badge" data-badge-field="pid_enabled" style="background:${d.pid_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.pid_enabled ? "#818cf8" : "var(--sub)"}">
             ${this._cfgStatusDot(!!d.pid_enabled)}${d.pid_enabled ? "Aktiv" : "Inaktiv"}
           </div>
         </div>
@@ -3359,6 +3352,7 @@ class HeatManagerPanel extends HTMLElement {
           min: 0.5, max: 6.0, step: 0.5, unit: "°C", cast: "float",
           desc: "Loft for hvor mange grader OVER rummets eget mål en TRV må bedes om at gå, uanset trv_max. Sænk for tættere styring, hæv hvis opvarmningen føles for langsom.",
         })}
+        <div class="section-box-footer">PID-regulatoren styrer, hvor meget effekt hvert rum beder sine TRV'er om, ud fra afvigelsen mellem rummets aktuelle temperatur og målet.</div>
       </div>
 
       <!-- 2026-09-13 (architekturgennemgang #5) — vejrkompensationskurven
@@ -3369,17 +3363,10 @@ class HeatManagerPanel extends HTMLElement {
            redigeres her. -->
       <div class="${this._cfgSectionClass('weather_comp')}" data-section-id="weather_comp">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title-wrap">
-            <div class="section-box-title">Vejrkompensation</div>
-            ${this._cfgSectionDesc("Proaktivt effekt-tillæg ved kold udetemperatur")}
-          </div>
-          <div class="section-box-badge" style="background:${d.weather_compensation_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.weather_compensation_enabled ? "#818cf8" : "var(--sub)"}">
+          <div class="section-box-title">Vejrkompensation</div>
+          <div class="section-box-badge" data-badge-field="weather_compensation_enabled" style="background:${d.weather_compensation_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.weather_compensation_enabled ? "#818cf8" : "var(--sub)"}">
             ${this._cfgStatusDot(!!d.weather_compensation_enabled)}${d.weather_compensation_enabled ? "Aktiv" : "Inaktiv"}
           </div>
-        </div>
-        <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
-          Tilføjer et proaktivt effektbidrag baseret på udetemperaturen, oven i PID'ens
-          reaktive korrektion — en klassisk "varmekurve".
         </div>
         ${this._cfgToggleRow("Vejrkompensation aktiveret", "weather_compensation_enabled", !!d.weather_compensation_enabled)}
         ${this._cfgNumberRow("Referenceudetemperatur", "ff_reference_outdoor_temp", d.ff_reference_outdoor_temp ?? "", {
@@ -3394,6 +3381,7 @@ class HeatManagerPanel extends HTMLElement {
           min: 0, max: 0.6, step: 0.05, cast: "float",
           desc: "Loft — vejrkompensation alene tilføjer aldrig mere end denne andel af effekten.",
         })}
+        <div class="section-box-footer">Tilføjer et proaktivt effektbidrag baseret på udetemperaturen, oven i PID'ens reaktive korrektion — en klassisk "varmekurve".</div>
       </div>
 
       <!-- 2026-09-14 (punkt 7) — solindfald: reducerer PID-effekten pr. rum
@@ -3403,19 +3391,10 @@ class HeatManagerPanel extends HTMLElement {
            (og dermed den samme gem-logik) som Vejrkompensation ovenfor. -->
       <div class="${this._cfgSectionClass('solar_gain')}" data-section-id="solar_gain">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title-wrap">
-            <div class="section-box-title">Solindfald</div>
-            ${this._cfgSectionDesc("Reducerer effekt når lux-sensor viser sol")}
-          </div>
-          <div class="section-box-badge" style="background:${d.solar_gain_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.solar_gain_enabled ? "#818cf8" : "var(--sub)"}">
+          <div class="section-box-title">Solindfald</div>
+          <div class="section-box-badge" data-badge-field="solar_gain_enabled" style="background:${d.solar_gain_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.solar_gain_enabled ? "#818cf8" : "var(--sub)"}">
             ${this._cfgStatusDot(!!d.solar_gain_enabled)}${d.solar_gain_enabled ? "Aktiv" : "Inaktiv"}
           </div>
-        </div>
-        <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
-          Reducerer PID-effekten i et rum, mens solen er oppe og rummets lux-sensor
-          (sat pr. rum) viser lys — direkte sol gennem vinduerne kræver mindre varme
-          fra TRV'en lige nu. Kun rum med en lux-sensor konfigureret påvirkes;
-          nuværende: Stuen, Køkken, Gang.
         </div>
         ${this._cfgToggleRow("Solindfald aktiveret", "solar_gain_enabled", !!d.solar_gain_enabled)}
         ${this._cfgNumberRow("Lux-grænse", "solar_gain_lux_threshold", d.solar_gain_lux_threshold ?? "", {
@@ -3430,24 +3409,15 @@ class HeatManagerPanel extends HTMLElement {
           min: 0, max: 0.8, step: 0.05, cast: "float",
           desc: "Loft — solindfald alene fjerner aldrig mere end denne andel af effekten.",
         })}
+        <div class="section-box-footer">Reducerer PID-effekten i rum med lux-sensor, mens solen er oppe og sensoren viser lys — direkte sol kræver mindre varme fra TRV'en.</div>
       </div>
 
       <div class="${this._cfgSectionClass('door_heat_share')}" data-section-id="door_heat_share">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title-wrap">
-            <div class="section-box-title">Dør-varmedeling</div>
-            ${this._cfgSectionDesc("Reducerer effekt ved gratis varme via åben dør")}
-          </div>
-          <div class="section-box-badge" style="background:${d.door_heat_share_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.door_heat_share_enabled ? "#818cf8" : "var(--sub)"}">
+          <div class="section-box-title">Dør-varmedeling</div>
+          <div class="section-box-badge" data-badge-field="door_heat_share_enabled" style="background:${d.door_heat_share_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.door_heat_share_enabled ? "#818cf8" : "var(--sub)"}">
             ${this._cfgStatusDot(!!d.door_heat_share_enabled)}${d.door_heat_share_enabled ? "Aktiv" : "Inaktiv"}
           </div>
-        </div>
-        <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
-          Reducerer PID-effekten i et rum, når en åben indendørs dør (konfigureret
-          under Rum &amp; klimaentiteter) fører til et varmere naborum der selv
-          varmer aktivt lige nu. Ændrer ALDRIG rummets eget mål (comfort_temp) —
-          kun den effekt TRV'en beder om. Forsvinder automatisk når døren lukkes
-          eller naboen holder op med at varme.
         </div>
         ${this._cfgToggleRow("Dør-varmedeling aktiveret", "door_heat_share_enabled", !!d.door_heat_share_enabled)}
         ${this._cfgNumberRow("Naborums minimumseffekt", "door_heat_share_min_neighbor_power", d.door_heat_share_min_neighbor_power ?? "", {
@@ -3466,18 +3436,12 @@ class HeatManagerPanel extends HTMLElement {
           min: 0, max: 0.8, step: 0.05, cast: "float",
           desc: "Loft — dør-varmedeling alene fjerner aldrig mere end denne andel af effekten.",
         })}
+        <div class="section-box-footer">Reducerer PID-effekten, når en åben indendørs dør fører til et varmere naborum, der selv varmer aktivt. Ændrer aldrig rummets mål — kun effekten.</div>
       </div>
 
       <div class="${this._cfgSectionClass('boost')}" data-section-id="boost">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title-wrap">
-            <div class="section-box-title">Boost — standardværdier</div>
-            ${this._cfgSectionDesc("Standardtemperatur og -varighed for Boost")}
-          </div>
-        </div>
-        <div style="padding:10px 16px 4px;font-size:12px;color:var(--sub);line-height:1.5">
-          Bruges af Boost-knappen og <span style="font-family:'DM Mono',monospace">heat_manager.boost_start</span>,
-          når intet andet angives eksplicit.
+          <div class="section-box-title">Boost — standardværdier</div>
         </div>
         ${this._cfgNumberRow("Standardtemperatur", "boost_default_temp", d.boost_default_temp ?? "", {
           min: 15, max: 32, step: 0.5, unit: "°C", cast: "float",
@@ -3487,14 +3451,12 @@ class HeatManagerPanel extends HTMLElement {
           min: 1, max: 240, step: 1, unit: "min", cast: "float",
           desc: "Hvor længe Boost varer, når det startes uden selv at angive en anden varighed.",
         })}
+        <div class="section-box-footer">Bruges af Boost-knappen og <span style="font-family:'DM Mono',monospace">heat_manager.boost_start</span>, når intet andet angives eksplicit.</div>
       </div>
 
       <div class="${this._cfgSectionClass('window')}" data-section-id="window">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title-wrap">
-            <div class="section-box-title">Vindue</div>
-            ${this._cfgSectionDesc("Forsinkelse, sluk-temperatur og advarsler")}
-          </div>
+          <div class="section-box-title">Vindue</div>
         </div>
         ${this._cfgNumberRow("Forsinkelse før sluk", "window_delay_default_min", d.window_delay_default_min ?? "", {
           min: 0, max: 60, step: 1, unit: "min", cast: "int",
@@ -3510,15 +3472,13 @@ class HeatManagerPanel extends HTMLElement {
         })}
         ${this._cfgToggleRow("Notifikation ved åbent vindue", "notify_windows", !!d.notify_windows, "Send en notifikation når et vindue åbnes eller lukkes.")}
         ${this._cfgToggleRow("30-minutters-advarsel", "notify_window_warning_30", !!d.notify_window_warning_30, "Send en ekstra påmindelse hvis vinduet stadig er åbent efter tiden angivet i «Advarsel efter» ovenfor.")}
+        <div class="section-box-footer">Styrer hvornår og hvordan varmen slås fra, når et vindue står åbent — og hvornår du får besked om det.</div>
       </div>
 
       <div class="${this._cfgSectionClass('night_setback')}" data-section-id="night_setback">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title-wrap">
-            <div class="section-box-title">Nat-sætpunkt</div>
-            ${this._cfgSectionDesc("Automatisk temperatursænkning om natten")}
-          </div>
-          <div class="section-box-badge" style="background:${d.night_setback_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.night_setback_enabled ? "#818cf8" : "var(--sub)"}">
+          <div class="section-box-title">Nat-sætpunkt</div>
+          <div class="section-box-badge" data-badge-field="night_setback_enabled" style="background:${d.night_setback_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.night_setback_enabled ? "#818cf8" : "var(--sub)"}">
             ${this._cfgStatusDot(!!d.night_setback_enabled)}${d.night_setback_enabled ? "Aktiv" : "Inaktiv"}
           </div>
         </div>
@@ -3535,14 +3495,12 @@ class HeatManagerPanel extends HTMLElement {
           min: 4, max: 10, step: 1, unit: "h", cast: "int",
           desc: "Klokkeslæt (lokal tid) hvor rummet igen varmer til fuld måltemperatur.",
         })}
+        <div class="section-box-footer">Sænker rummenes måltemperatur automatisk i nat-perioden og hæver den igen om morgenen.</div>
       </div>
 
       <div class="${this._cfgSectionClass('grace')}" data-section-id="grace">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title-wrap">
-            <div class="section-box-title">Grace-perioder</div>
-            ${this._cfgSectionDesc("Ventetid før fraværstilstand aktiveres")}
-          </div>
+          <div class="section-box-title">Grace-perioder</div>
         </div>
         ${this._cfgNumberRow("Dag", "grace_day_min", d.grace_day_min ?? "", {
           min: 5, max: 120, step: 5, unit: "min", cast: "int",
@@ -3552,14 +3510,12 @@ class HeatManagerPanel extends HTMLElement {
           min: 5, max: 60, step: 5, unit: "min", cast: "int",
           desc: "Samme ventetid, men om natten — typisk kortere, da man sjældent forlader huset midt om natten uden grund.",
         })}
+        <div class="section-box-footer">Hvor længe Heat Manager venter, efter alle er gået hjemmefra, før et rum rent faktisk sættes på fraværstemperatur — så en kort tur ud til bilen ikke udløser unødig nedkøling.</div>
       </div>
 
       <div class="${this._cfgSectionClass('auto_off')}" data-section-id="auto_off">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title-wrap">
-            <div class="section-box-title">Auto-off ved mildt vejr</div>
-            ${this._cfgSectionDesc("Sluk automatisk ved vedvarende mildt vejr")}
-          </div>
+          <div class="section-box-title">Auto-off ved mildt vejr</div>
         </div>
         ${this._cfgNumberRow("Temperaturgrænse", "auto_off_temp_threshold", d.auto_off_temp_threshold ?? "", {
           min: 10, max: 30, step: 1, unit: "°C", cast: "float",
@@ -3569,14 +3525,12 @@ class HeatManagerPanel extends HTMLElement {
           min: 1, max: 14, step: 1, unit: "dage", cast: "int",
           desc: "Antal sammenhængende dage over temperaturgrænsen, før hele huset automatisk slukkes for sæsonen.",
         })}
+        <div class="section-box-footer">Slukker automatisk hele huset for sæsonen, hvis udetemperaturen holder sig over grænsen i det angivne antal dage i træk — typisk relevant i overgangen til forår/sommer.</div>
       </div>
 
-      <div class="${this._cfgSectionClass('notifications')}" data-section-id="notifications" style="padding:0">
-        <div class="section-box-header collapsible" data-action="toggle-section" style="padding:12px 16px 10px;border-bottom:1px solid var(--div)">
-          <div class="section-box-title-wrap">
-            <div class="section-box-title">Notifikationer</div>
-            ${this._cfgSectionDesc("Hvilke hændelser der sender en notifikation")}
-          </div>
+      <div class="${this._cfgSectionClass('notifications')}" data-section-id="notifications">
+        <div class="section-box-header collapsible" data-action="toggle-section">
+          <div class="section-box-title">Notifikationer</div>
         </div>
         <div style="display:grid;grid-template-columns:1fr${d.house_voice_enabled ? ' 1fr' : ''};gap:0">
 
@@ -3635,14 +3589,12 @@ class HeatManagerPanel extends HTMLElement {
           </div>` : ''}
 
         </div>
+        <div class="section-box-footer">Vælg hvilke hændelser der sender en push-notifikation via Home Assistants notify-tjeneste, og/eller en talt meddelelse via House Voice, hvis den er installeret.</div>
       </div>
 
       <div class="${this._cfgSectionClass('rooms_summary')}" data-section-id="rooms_summary">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title-wrap">
-            <div class="section-box-title">Rum &amp; klimaentiteter</div>
-            ${this._cfgSectionDesc("Oversigt over rum og deres TRV'er (read-only)")}
-          </div>
+          <div class="section-box-title">Rum &amp; klimaentiteter</div>
         </div>
         ${(this._data?.rooms ?? []).map(r => {
           // v0.9.0: read-only summary of the optional per-room engines —
@@ -3660,6 +3612,7 @@ class HeatManagerPanel extends HTMLElement {
             <span class="cfg-v" style="font-size:11px;font-weight:400;color:var(--sub)">${this._esc(extras.join(" · "))}</span>
           </div>` : "");
         }).join("") || `<div class="empty">Ingen rum</div>`}
+        <div class="section-box-footer">Skrivebeskyttet oversigt over hvert rums klimaentitet og valgfrie ekstrafunktioner. Ændres via Home Assistants rekonfigurering af integrationen.</div>
       </div>
       </div>`;
   }
@@ -3987,13 +3940,40 @@ class HeatManagerPanel extends HTMLElement {
     // (optimistic update, revert + toast on failure), for every bool field
     // added by _cfgToggleRow() (PID enabled, night setback enabled, window/
     // presence/preheat notify toggles).
+    // 2026-09-19 (fold-tilstand-fix, endelig version): this used to call
+    // _scheduleRender() on both the optimistic update AND any revert —
+    // regenerating the WHOLE Konfiguration tab from scratch every single
+    // toggle. Even with the per-section fold-state Set (v0.57.1) and the
+    // per-tab-entry reset (v0.58.1), a full rebuild is simply the wrong
+    // tool for "one boolean changed": it's the root cause of every
+    // collapse/expand confusion this evening, since ANY full render
+    // reapplies the ENTIRE section list from the template literal. Fixed
+    // properly this time by never touching the DOM tree at all beyond the
+    // one button and its section's own badge (via the new data-badge-field
+    // attribute on the five Aktiv/Inaktiv-badged sections) — the section's
+    // open/closed state literally cannot change, because nothing about the
+    // section's own DOM node is ever replaced.
     root.querySelectorAll("[data-action='toggle-field']").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const field   = btn.dataset.field;
         const current = !!(this._data?.config?.[field] ?? false);
         const newVal  = !current;
+
+        const applyVisual = (on) => {
+          btn.textContent = on ? "Slå fra" : "Slå til";
+          btn.classList.toggle("active", on);
+          const badge = btn.closest(".section-box")?.querySelector(
+            `[data-badge-field="${field}"]`
+          );
+          if (badge) {
+            badge.style.background = on ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)";
+            badge.style.color = on ? "#818cf8" : "var(--sub)";
+            badge.innerHTML = `${this._cfgStatusDot(on)}${on ? "Aktiv" : "Inaktiv"}`;
+          }
+        };
+
         if (this._data?.config) this._data.config[field] = newVal; // optimistic
-        this._scheduleRender();
+        applyVisual(newVal);
         try {
           await this._hass.callWS({
             type: "heat_manager/update_config",
@@ -4001,7 +3981,7 @@ class HeatManagerPanel extends HTMLElement {
           });
         } catch (e) {
           if (this._data?.config) this._data.config[field] = current; // revert
-          this._scheduleRender();
+          applyVisual(current);
           this._showToast(`Kunne ikke gemme ${field}`, "error");
           console.error(`Heat Manager: save ${field} failed`, e);
         }

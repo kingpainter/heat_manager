@@ -9,6 +9,42 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.58.3] — 2026-09-19
+
+Tilføjet den manglende introduktions-tekst i kroppen af de fem sektioner,
+der ikke allerede havde en (Alarmtavle, Vejrkompensation, Solindfald,
+Dør-varmedeling og Boost havde den i forvejen) — samme visuelle mønster,
+samme placering lige under headeren, før selve indstillingsrækkerne:
+Global konfiguration, Manuel TRV-kontrol, Grace-perioder, Auto-off ved
+mildt vejr, og Notifikationer.
+
+Verificeret: `node --check` på den ændrede frontend-fil.
+
+## [0.58.2] — 2026-09-19
+
+Rodfejlen bag hele aftenens "sektioner folder sig forkert"-forvirring
+rettet ved kilden, i stedet for endnu et lag ovenpå (v0.57.1/v0.58.1's
+fold-tilstands-huskeri): `toggle-field`-klikkeren genopbyggede hele
+Konfiguration-fanens HTML fra bunden (`_scheduleRender()`) for hver eneste
+"Slå til/fra"-klik. Ligegyldigt hvor godt fold-tilstanden huskes, betyder
+en fuld genopbygning altid en reel risiko for at ramme forkert — den
+rigtige løsning er slet ikke at genopbygge når kun én boolean ændrer sig.
+
+### Fixed
+- **`toggle-field`-klikkeren rører nu ALDRIG DOM-træet ud over selve
+  knappen og dens sektions eget badge.** Opdaterer direkte: knap-tekst
+  (Slå til ↔ Slå fra) og `.active`-klasse, samt — via et nyt
+  `data-badge-field`-mærke på de fem Aktiv/Inaktiv-badgede sektioner (PID,
+  Vejrkompensation, Solindfald, Dør-varmedeling, Nat-sætpunkt) — badgens
+  farvede prik og tekst. Fejl reverterer begge dele visuelt igen. Ingen
+  sektion kan længere åbne eller lukke sig selv som bivirkning af et klik
+  på en helt anden sektions knap, fordi selve sektionens DOM-node aldrig
+  udskiftes.
+- `save-field`-knappen (tal-felternes "Gem") var allerede korrekt bygget
+  på samme måde — ingen ændring der, kun `toggle-field` manglede det.
+
+Verificeret: `node --check` på den ændrede frontend-fil.
+
 ## [0.58.1] — 2026-09-19
 
 Fold-tilstand i Konfiguration nulstilles nu hver gang man klikker IND på
