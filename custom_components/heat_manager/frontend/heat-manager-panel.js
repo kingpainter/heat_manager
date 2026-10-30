@@ -543,20 +543,10 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   // Update the version/temp/season line in the header without re-rendering topbar.
-  _patchTopbarVersion() {
-    const root   = this.shadowRoot;
-    const verEl  = root.querySelector(".header-text .version");
-    if (!verEl) return;
-    const d      = this._data;
-    const season = ({ winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår", auto:"Auto" })[d?.season_mode] ?? "Auto";
-    const otemp  = d?.outdoor_temp != null ? `${Math.round(d.outdoor_temp)}°C · ` : "";
-    // 6.0 m/s mirrors const.py's WIND_FAST_MS — keep in sync if that changes.
-    const wxIcons = [
-      d?.precipitation > 0 ? "🌧️" : null,
-      d?.wind_speed != null && d.wind_speed >= 6.0 ? "💨" : null,
-    ].filter(Boolean).join(" ");
-    verEl.textContent = `${otemp}${season}${wxIcons ? " · " + wxIcons : ""}`;
-  }
+  // v0.60.1: the header's outdoor/season/weather sub-line is gone (outdoor
+  // temp and weather moved into the smart line) — kept as a no-op because
+  // _patchAll() still calls it.
+  _patchTopbarVersion() {}
 
   // Update the four quick-stat numbers in the overview Rum section.
   _patchQuickStats() {
@@ -1637,10 +1627,8 @@ class HeatManagerPanel extends HTMLElement {
         background: linear-gradient(90deg, #e2e8f0, #94a3b8);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       }
-      .header-text .version {
-        font-size: 11px; color: var(--sub); letter-spacing: 0.5px;
-        font-family: 'DM Mono', monospace; margin-top: 2px;
-      }
+      .header-text { flex-shrink: 0; }
+      .header-text .topbar-badge { margin-top: 5px; }
       .header-refresh {
         margin-left: auto;
         background: var(--bg2); border: 1px solid var(--div);
@@ -1985,7 +1973,9 @@ class HeatManagerPanel extends HTMLElement {
       .sl {
         --sl: #10b981; --sl-rgb: 16,185,129;
         position: relative;
-        margin-top: 12px; border-radius: 14px;
+        /* v0.60.1: sits in the header row between title and refresh */
+        flex: 1 1 auto; min-width: 0; margin: 0 6px;
+        border-radius: 14px;
         border: 1px solid rgba(var(--sl-rgb),0.45);
         background: linear-gradient(135deg, rgba(var(--sl-rgb),0.16) 0%, rgba(var(--sl-rgb),0.04) 100%);
         transition: background .35s, border-color .35s;
@@ -2094,6 +2084,10 @@ class HeatManagerPanel extends HTMLElement {
         margin: 2px 0 6px; line-height: 1.35;
       }
       .room-override-info[hidden] { display: none; }
+      @media (max-width: 760px) {
+        .header { flex-wrap: wrap; }
+        .header .sl { order: 10; flex-basis: 100%; margin: 2px 0 0; }
+      }
       @media (max-width: 600px) {
         .sl-main { flex-wrap: wrap; }
         .sl-body { flex-basis: calc(100% - 60px); }
@@ -2441,16 +2435,6 @@ class HeatManagerPanel extends HTMLElement {
   _topbarHTML() {
     const d      = this._data;
     const ctrl   = d?.controller_state ?? "unknown";
-    const season = ({ winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår", auto:"Auto" })[d?.season_mode] ?? "Auto";
-    const otemp  = d?.outdoor_temp != null ? `${Math.round(d.outdoor_temp)}°C · ` : "";
-    // 2026-09-07 audit fix (5.8): wind/precipitation were already read by
-    // WindowEngine/WasteCalculator to shape delay/waste decisions but never
-    // reached the panel payload at all — small icons next to outdoor temp.
-    // 6.0 m/s mirrors const.py's WIND_FAST_MS — keep in sync if that changes.
-    const wxIcons = [
-      d?.precipitation > 0 ? "🌧️" : null,
-      d?.wind_speed != null && d.wind_speed >= 6.0 ? "💨" : null,
-    ].filter(Boolean).join(" ");
     const bColors = {
       on:    { bg:"rgba(249,115,22,0.2)",  color:"#fed7aa", border:"#f97316" },
       pause: { bg:"rgba(234,179,8,0.15)",  color:"#fef08a", border:"#ca8a04" },
@@ -2463,17 +2447,20 @@ class HeatManagerPanel extends HTMLElement {
         <div class="header-icon"></div>
         <div class="header-text">
           <h1>Heat Manager</h1>
-          <div class="version">${otemp}${season}${wxIcons ? " · " + wxIcons : ""}</div>
+          <!-- v0.60.1: controller badge moved under the title (was beside
+               the status field); the old outdoor/season/weather sub-line is
+               gone — outdoor temp and weather now live in the smart line,
+               season in the Controller section. -->
+          <div id="topbar-badge" class="topbar-badge"
+            style="background:${bc.bg};color:${bc.color};border-color:${bc.border}">
+            <div class="badge-dot" style="background:${bc.color}"></div>
+            ${this._ctrlTitle(ctrl)}
+          </div>
         </div>
-        <div id="topbar-badge" class="topbar-badge"
-          style="background:${bc.bg};color:${bc.color};border-color:${bc.border}">
-          <div class="badge-dot" style="background:${bc.color}"></div>
-          ${this._ctrlTitle(ctrl)}
-        </div>
+        ${this._smartLineHTML()}
         <button class="header-refresh" data-action="refresh">↻ Opdater</button>
         <div class="app-version" title="Heat Manager integration version">v${this._esc(d?.version ?? "–")}</div>
       </div>
-      ${this._smartLineHTML()}
       <div class="tabs" role="tablist">${[
         { id:"overview", label:"Oversigt"  },
         { id:"rooms",    label:"Rum"       },
@@ -2817,7 +2804,10 @@ class HeatManagerPanel extends HTMLElement {
       if (fc) subs.push(`🕒 ${fc}`);
       const night = this._nightSetbackText();
       if (night) subs.push(`🌙 ${night}`);
-      if (d.outdoor_temp != null) subs.push(`🌡 Ude ${this._fmtTemp(d.outdoor_temp)}`);
+      // Outdoor temp + weather moved here from the header sub-line (v0.60.1).
+      // 6.0 m/s mirrors const.py's WIND_FAST_MS — keep in sync if that changes.
+      const wx = [d.precipitation > 0 ? "🌧️ regn" : null, d.wind_speed != null && d.wind_speed >= 6.0 ? "💨 blæst" : null].filter(Boolean);
+      if (d.outdoor_temp != null) subs.push(`🌡 Ude ${this._fmtTemp(d.outdoor_temp)}${wx.length ? ` · ${wx.join(" · ")}` : ""}`);
       msgs.push({ key: "ok", tone: "ok", icon: "✓", title: heating ? `Alt kører automatisk · ${heating} rum varmer op` : "Alt kører automatisk · alle rum er på mål", subs, actions: [] });
     }
     return msgs;

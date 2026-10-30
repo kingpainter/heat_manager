@@ -1,4 +1,11 @@
-"""Tests for WasteCalculator — Phase 3."""
+"""Tests for WasteCalculator — Phase 3.
+
+2026-10-30: skipped as a whole. engine/waste_calculator.py has been dead
+code since the "Energi i dag" feature was removed (nothing imports it, and
+it imports CONF_ENERGY_TRACKING, which no longer exists) — importing it
+here stopped the whole pytest run at collection. Delete this file together
+with engine/waste_calculator.py when convenient.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +13,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from custom_components.heat_manager.const import RoomState
-from custom_components.heat_manager.engine.waste_calculator import WasteCalculator
+pytest.skip(
+    "waste_calculator.py is dead code since the energy feature was removed",
+    allow_module_level=True,
+)
+
+from custom_components.heat_manager.const import RoomState  # noqa: E402
+from custom_components.heat_manager.engine.waste_calculator import (  # noqa: E402
+    WasteCalculator,
+)
 
 
 def _make_coordinator(rooms=None, outdoor_temp=5.0) -> MagicMock:

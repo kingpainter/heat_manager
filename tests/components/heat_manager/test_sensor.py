@@ -12,9 +12,6 @@ from unittest.mock import MagicMock
 
 from custom_components.heat_manager.const import RoomState
 from custom_components.heat_manager.sensor import (
-    EfficiencyScoreSensor,
-    EnergySavedSensor,
-    EnergyWastedSensor,
     PauseRemainingSensor,
     RoomCalibrationOffsetSensor,
     RoomPidPowerSensor,
@@ -80,28 +77,10 @@ def test_pause_remaining_sensor_reads_coordinator_value():
     assert sensor.unique_id == "entry123_pause_remaining"
 
 
-def test_energy_wasted_sensor_reads_coordinator_value():
-    coord = _make_coordinator()
-    coord.energy_wasted_today = 1.25
-    sensor = EnergyWastedSensor(coord, _entry())
-    assert sensor.native_value == 1.25
-    assert sensor.unique_id == "entry123_energy_wasted_today"
-
-
-def test_energy_saved_sensor_reads_coordinator_value():
-    coord = _make_coordinator()
-    coord.energy_saved_today = 0.75
-    sensor = EnergySavedSensor(coord, _entry())
-    assert sensor.native_value == 0.75
-    assert sensor.unique_id == "entry123_energy_saved_today"
-
-
-def test_efficiency_score_sensor_reads_coordinator_value():
-    coord = _make_coordinator()
-    coord.efficiency_score = 87
-    sensor = EfficiencyScoreSensor(coord, _entry())
-    assert sensor.native_value == 87
-    assert sensor.unique_id == "entry123_efficiency_score"
+# 2026-10-30: the energy-wasted/energy-saved/efficiency-score sensor tests
+# lived here — those sensors were removed with the "Energi i dag" feature
+# (see CHANGELOG), and their imports stopped the whole test run at
+# collection.
 
 
 # ── RoomStateSensor: value + attributes ─────────────────────────────────────

@@ -9,6 +9,30 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed
+- **CI var rød på både lint og tests.** Ruff stoppede på tre fejl, den ikke
+  selv må rette: `guarded` i `engine/controller.py` bruger nu PEP 695-
+  typeparametre (UP047), fjernbetjeningens tidsstempel i `websocket.py`
+  bruger `contextlib.suppress` (SIM105), og en ubrugt `heating_power`-
+  variabel er fjernet (F841). Pytest stoppede allerede ved indsamlingen, så
+  ingen tests blev kørt: `test_sensor.py` importerede de fjernede energi-
+  sensorer (de tre tests er fjernet), og `test_waste_calculator.py` tester
+  død kode og springes nu over. Testene kører igen; 104 ældre fejl står
+  tilbage og tages i en separat oprydning.
+
+## [0.60.1] — 2026-10-30
+
+### Changed
+- **Den smarte statuslinje sidder nu i headeren** mellem titlen og
+  Opdater-knappen (hvor det gamle status-felt sad), så den ikke længere
+  ligger klemt ind over fanerne. På smalle skærme (under 760 px) lægger den
+  sig på sin egen linje under titlen.
+- **"Varme aktiv"-mærket er flyttet ind under titlen** i stedet for at stå
+  ved siden af statusfeltet.
+- **Linjen under titlen (udetemperatur · sæson · vejr) er fjernet.**
+  Udetemperatur og regn/blæst vises nu i statuslinjens rolige tilstand;
+  sæsonen står allerede i Controller-sektionen.
+
 ## [0.60.0] — 2026-10-30
 
 Én smart statuslinje i stedet for status-centret og AUTO/MANUEL-bjælken —

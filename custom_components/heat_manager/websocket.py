@@ -367,10 +367,8 @@ def _build_active_issues(
     rla = coordinator.remote_last_action
     if rla and rla.get("timestamp"):
         age_min: float | None = None
-        try:
+        with contextlib.suppress(TypeError, ValueError):
             age_min = (utcnow() - datetime.fromisoformat(rla["timestamp"])).total_seconds() / 60
-        except (TypeError, ValueError):
-            pass
         if age_min is not None and 0 <= age_min < 30:
             description = rla.get("description", "")
             # B26: RemoteButtonEngine's own descriptions already list the
@@ -773,7 +771,6 @@ async def ws_get_state(
         room_state = coordinator.get_room_state(name)
 
         current_temp: float | None = coordinator.get_room_current_temp(name, climate_id)
-        heating_power: float | None = None
         valve_position: float | None = None  # B1: valve % for Zigbee and Netatmo
         boost_active: bool = False  # B2: boost state per room
 
@@ -817,23 +814,17 @@ async def ws_get_state(
         if climate_id:
             cs = hass.states.get(climate_id)
             if cs:
-                raw = cs.attributes.get("heating_power_request")
-                if raw is not None:
-                    with contextlib.suppress(TypeError, ValueError):
-                        heating_power = float(raw)
-                        # 2026-09-14 fix: valve_position used to be set
-                        # straight from Netatmo's own self-reported
-                        # heating_power_request here. That value can lag
-                        # several minutes behind what Heat Manager has
-                        # actually just commanded (cloud/valve lag) — a room
-                        # already back at target could still show 70-100%
-                        # "demand" from Netatmo's side, looking like a stuck
-                        # PID when the PID itself had already dropped to 0.
-                        # valve_position for Netatmo rooms is now set from
-                        # Heat Manager's own pid_power further down instead
-                        # (once it's computed) — heating_power is kept only
-                        # as a raw value, no longer echoed to the frontend
-                        # as the room's displayed 🔥/valve %.
+                # 2026-09-14 fix: valve_position used to be set straight
+                # from Netatmo's own self-reported heating_power_request
+                # here. That value can lag several minutes behind what Heat
+                # Manager has actually just commanded (cloud/valve lag) — a
+                # room already back at target could still show 70-100%
+                # "demand" from Netatmo's side, looking like a stuck PID
+                # when the PID itself had already dropped to 0.
+                # valve_position for Netatmo rooms is now set from Heat
+                # Manager's own pid_power further down instead. 2026-10-30:
+                # the raw value was still read into an unused local
+                # (ruff F841) — no longer read at all.
                 cloud_temperature = _coerce_float(cs.attributes.get("temperature"))
                 cloud_hvac_action = cs.attributes.get("hvac_action")
                 cloud_preset_mode = cs.attributes.get("preset_mode")

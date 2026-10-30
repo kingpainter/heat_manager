@@ -21,7 +21,7 @@ import functools
 import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.util.dt import utcnow
 
@@ -47,13 +47,13 @@ _LOGGER = logging.getLogger(__name__)
 # arguments) is disallowed under mypy --strict ("Missing type arguments for
 # generic type"). Every guarded method has a different (self, *args,
 # **kwargs) -> Awaitable[Any] shape, so `Callable[..., Any]` (ellipsis =
-# "any argument list") is the accurate signature here — a TypeVar so the
-# decorator's return type stays tied to its input type instead of widening
-# every guarded method to the same generic Callable.
-_F = TypeVar("_F", bound=Callable[..., Any])
+# "any argument list") is the accurate signature here — a type parameter so
+# the decorator's return type stays tied to its input type instead of
+# widening every guarded method to the same generic Callable. 2026-10-30:
+# PEP 695 syntax (ruff UP047) instead of a module-level TypeVar.
 
 
-def guarded(func: _F) -> _F:
+def guarded[F: Callable[..., Any]](func: F) -> F:
     """
     Decorator for engine handler methods.
     Skips execution silently when the controller is OFF or PAUSED.
