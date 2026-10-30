@@ -9,7 +9,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.60.2] — 2026-10-30
+
 ### Fixed
+- **Boost bruger igen dine indstillede standardværdier.** "Standardtemperatur"
+  og "Standardvarighed" (panelets Indstillinger / options flow) blev ikke
+  længere læst siden v0.31.0 — al boost uden eksplicit temperatur/varighed
+  (panelets Boost-knap og langt tryk på fjernbetjeningens knap 3) brugte
+  altid de faste 24 °C / 30 min. Nu bruges de indstillede værdier igen, med
+  24 °C / 30 min kun som fallback.
+- **PID'en mister ikke længere sin opbyggede varme ved kortvarigt tab af
+  rumtemperatur.** Mangler temperaturen i et enkelt tick (rumsensor/HomeKit/
+  sky-udfald), springes tick'et blot over, og PID'ens integral bevares. Den
+  nulstilles stadig, hvis rummets klima-entitet selv er utilgængelig.
 - **CI var rød på både lint og tests.** Ruff stoppede på tre fejl, den ikke
   selv må rette: `guarded` i `engine/controller.py` bruger nu PEP 695-
   typeparametre (UP047), fjernbetjeningens tidsstempel i `websocket.py`
@@ -24,10 +36,9 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   nye koordinator-opslag (`get_control_mode`, `get_climate_entity`,
   `get_room_target_temp`, lux/sol/dør-input) manglede, og ændret adfærd
   (setpunkt-margin, PID-ventil %, "Vindue-/Dørsensor"-navne, rum uden TRV,
-  lokal tid i grace-perioden) var ikke fulgt med. Tre tests fejler
-  stadig med vilje, fordi de afslører rigtige fejl i koden: boost
-  ignorerer de indstillede standardværdier for temperatur/varighed (2
-  tests), og PID'en nulstilles ved kortvarigt tab af rumtemperatur (1 test).
+  lokal tid i grace-perioden) var ikke fulgt med. De sidste tre fejlende
+  tests afslørede de to kodefejl ovenfor, som nu er rettet — alle tests
+  er grønne.
 
 ## [0.60.1] — 2026-10-30
 

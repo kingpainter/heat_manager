@@ -46,6 +46,8 @@ from homeassistant.util.dt import utcnow
 
 from .const import (
     CONF_ALARM_PANEL,
+    CONF_BOOST_DEFAULT_MINUTES,
+    CONF_BOOST_DEFAULT_TEMP,
     CONF_CALIBRATION_ENTITY,
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
@@ -1598,7 +1600,8 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         Rooms currently AWAY, WINDOW_OPEN or PRE_HEAT are left untouched.
         Sets boost_expires_at so the coordinator tick can auto-restore after
-        duration_minutes (default DEFAULT_BOOST_MINUTES) even if nobody ever
+        duration_minutes (default: CONF_BOOST_DEFAULT_MINUTES from options,
+        falling back to DEFAULT_BOOST_MINUTES) even if nobody ever
         calls async_boost_stop() — the Lovelace card's own boost only ever
         had a client-side countdown that stopped working the moment the
         dashboard was closed; this gives boost a real backend expiry.
@@ -1609,7 +1612,16 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         an absolute temperature that would otherwise silently stack with a
         leftover offset.
         """
-        temp = float(temperature) if temperature is not None else DEFAULT_BOOST_TEMP
+        # 2026-10-30 fix: the configured defaults (panel "Standardtemperatur"/
+        # "Standardvarighed", options flow) were read here until v0.31.0
+        # dropped them — since then every boost without an explicit
+        # temperature/duration (panel button, remote long-press) silently
+        # used the hardcoded DEFAULT_BOOST_TEMP/DEFAULT_BOOST_MINUTES.
+        temp = (
+            float(temperature)
+            if temperature is not None
+            else float(self.config.get(CONF_BOOST_DEFAULT_TEMP, DEFAULT_BOOST_TEMP))
+        )
         self.room_offsets = {}
         self.async_update_listeners()  # refresh every number.<room>_offset immediately
 
@@ -1662,7 +1674,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             minutes = (
                 float(duration_minutes)
                 if duration_minutes is not None
-                else DEFAULT_BOOST_MINUTES
+                else float(
+                    self.config.get(CONF_BOOST_DEFAULT_MINUTES, DEFAULT_BOOST_MINUTES)
+                )
             )
             self.boost_expires_at = utcnow() + timedelta(minutes=minutes)
         else:
@@ -2609,7 +2623,19 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # Preference: room_temp_sensor → HomeKit entity → cloud entity
                 current_temp = self.get_room_current_temp(room_name, primary_id)
                 if current_temp is None:
-                    pid.reset()
+                    # 2026-10-30: a brief loss of every temperature reading
+                    # (room sensor / HomeKit / cloud dropout) only skips this
+                    # tick — the PID keeps its integral, so the room doesn't
+                    # lose the heat demand it had built up over a one-tick
+                    # gap. The PID is still reset when the room's primary
+                    # climate entity itself is gone, same policy as the
+                    # unavailable checks further down.
+                    primary_state = self.hass.states.get(primary_id)
+                    if primary_state is None or primary_state.state in (
+                        "unavailable",
+                        "unknown",
+                    ):
+                        pid.reset()
                     continue
 
                 hk_id = self.get_homekit_climate_entity(room_name)
