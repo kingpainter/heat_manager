@@ -22,7 +22,6 @@ from custom_components.heat_manager.coordinator import (
     _weather_compensation_feedforward,
 )
 
-
 # ── default (no config) == old hardcoded behaviour ──────────────────────────
 
 

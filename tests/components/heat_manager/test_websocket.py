@@ -1391,9 +1391,7 @@ async def test_update_room_config_unknown_room_sends_not_found():
     hass = _make_hass_with_entry(coord)
     conn = _connection()
 
-    await ws_update_room_config(
-        hass, conn, _msg(room_name="Attic", comfort_temp=21.0)
-    )
+    await ws_update_room_config(hass, conn, _msg(room_name="Attic", comfort_temp=21.0))
 
     conn.send_error.assert_called_once()
     assert conn.send_error.call_args[0][1] == "not_found"

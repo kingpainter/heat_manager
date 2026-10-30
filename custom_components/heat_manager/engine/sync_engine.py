@@ -177,7 +177,9 @@ class SyncEngine:
             self._make_confirm_callback(room_name, entity_id),
         )
 
-    def _make_confirm_callback(self, room_name: str, entity_id: str) -> Callable[[Any], None]:
+    def _make_confirm_callback(
+        self, room_name: str, entity_id: str
+    ) -> Callable[[Any], None]:
         @callback
         def _confirm(_now: Any) -> None:
             self._pending_confirm.pop(room_name, None)

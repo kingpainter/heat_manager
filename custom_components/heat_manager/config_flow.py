@@ -388,9 +388,7 @@ def _step1_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             ),
             vol.Optional(
                 CONF_BOOST_DEFAULT_MINUTES,
-                default=defaults.get(
-                    CONF_BOOST_DEFAULT_MINUTES, DEFAULT_BOOST_MINUTES
-                ),
+                default=defaults.get(CONF_BOOST_DEFAULT_MINUTES, DEFAULT_BOOST_MINUTES),
             ): selector.selector(
                 {
                     "number": {
@@ -551,7 +549,14 @@ def _step1_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                     CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF, DOOR_HEAT_SHARE_MIN_TEMP_DIFF
                 ),
             ): selector.selector(
-                {"number": {"min": 0.5, "max": 6.0, "step": 0.5, "unit_of_measurement": "°C"}}
+                {
+                    "number": {
+                        "min": 0.5,
+                        "max": 6.0,
+                        "step": 0.5,
+                        "unit_of_measurement": "°C",
+                    }
+                }
             ),
             vol.Optional(
                 CONF_DOOR_HEAT_SHARE_WEIGHT,
@@ -1707,7 +1712,9 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
         )
 
     def _door_room_pair(self, door: dict[str, Any]) -> frozenset[str]:
-        return frozenset({str(door.get(CONF_DOOR_ROOM_A, "")), str(door.get(CONF_DOOR_ROOM_B, ""))})
+        return frozenset(
+            {str(door.get(CONF_DOOR_ROOM_A, "")), str(door.get(CONF_DOOR_ROOM_B, ""))}
+        )
 
     def _validate_door(
         self, user_input: dict[str, Any], other_doors: list[dict[str, Any]]

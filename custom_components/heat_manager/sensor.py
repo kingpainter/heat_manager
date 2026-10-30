@@ -689,7 +689,9 @@ class RoomPidPowerSensor(CoordinatorEntity[HeatManagerCoordinator], SensorEntity
         }
 
 
-class RoomCalibrationOffsetSensor(CoordinatorEntity[HeatManagerCoordinator], SensorEntity):
+class RoomCalibrationOffsetSensor(
+    CoordinatorEntity[HeatManagerCoordinator], SensorEntity
+):
     """Last offset CalibrationEngine wrote to the room's calibration entity.
 
     Read-only mirror of engine/calibration_engine.py's internal state —

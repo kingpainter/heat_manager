@@ -74,7 +74,9 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class AnyWindowOpenSensor(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEntity):
+class AnyWindowOpenSensor(
+    CoordinatorEntity[HeatManagerCoordinator], BinarySensorEntity
+):
     """True when any configured window/door sensor is currently open."""
 
     _attr_has_entity_name = True
@@ -101,7 +103,9 @@ class AnyWindowOpenSensor(CoordinatorEntity[HeatManagerCoordinator], BinarySenso
         return self.coordinator.any_window_open()
 
 
-class CloudAvailableSensor(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEntity):
+class CloudAvailableSensor(
+    CoordinatorEntity[HeatManagerCoordinator], BinarySensorEntity
+):
     """True when Netatmo cloud entities are available and fresh.
 
     Detects two failure modes:
@@ -387,7 +391,9 @@ class MoldRiskSensor(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEnti
         }
 
 
-class RawWindowContactMirror(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEntity):
+class RawWindowContactMirror(
+    CoordinatorEntity[HeatManagerCoordinator], BinarySensorEntity
+):
     """Diagnostic mirror of ONE raw configured window/door contact sensor,
     shown under the room's own device (v0.15.0).
 
@@ -456,7 +462,9 @@ class RawWindowContactMirror(CoordinatorEntity[HeatManagerCoordinator], BinarySe
         return {"source_entity_id": self._source_id}
 
 
-class HeatedDoorContactMirror(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEntity):
+class HeatedDoorContactMirror(
+    CoordinatorEntity[HeatManagerCoordinator], BinarySensorEntity
+):
     """Diagnostic mirror of ONE heated-area door sensor (2026-09-15) — a
     front door onto a heated stairwell, etc. Structurally identical to
     RawWindowContactMirror above, but sourced from CONF_HEATED_DOOR_SENSORS
@@ -484,7 +492,9 @@ class HeatedDoorContactMirror(CoordinatorEntity[HeatManagerCoordinator], BinaryS
         room_name = room["room_name"]
         safe_name = room_name.lower().replace(" ", "_")
         self._source_id = source_entity_id
-        self._attr_unique_id = f"{entry.entry_id}_{safe_name}_heated_door_mirror_{index}"
+        self._attr_unique_id = (
+            f"{entry.entry_id}_{safe_name}_heated_door_mirror_{index}"
+        )
         self._attr_name = f"Door sensor {index + 1}"
         self._attr_device_info = coordinator.room_device_info(room_name)
 
