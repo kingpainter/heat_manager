@@ -31,6 +31,15 @@ def _make_entry(rooms: list[dict], entry_id: str = ENTRY_ID) -> MagicMock:
     entry.entry_id = entry_id
     entry.data = {"rooms": rooms}
     entry.options = {}
+    # 2026-09 audit fix: the check resolves each room's climate entity via
+    # coordinator.get_climate_entity() (TRV-aware) instead of the room's
+    # flat field — mirror that from the same flat fields these tests use.
+    entry.runtime_data.get_climate_entity = MagicMock(
+        side_effect=lambda name: next(
+            (r.get("climate_entity") for r in rooms if r.get("room_name") == name),
+            None,
+        )
+    )
     return entry
 
 

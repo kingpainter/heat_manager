@@ -65,9 +65,6 @@ def _make_coordinator(rooms=None, persons=None) -> MagicMock:
     coord.effective_season = EffectiveSeason.ACTIVE
     coord.calendar_season = SeasonMode.WINTER
     coord.outdoor_temperature = 5.0
-    coord.energy_saved_today = 0.0
-    coord.energy_wasted_today = 0.0
-    coord.efficiency_score = 100
     coord.boost_remaining_minutes = 0
     coord.last_waste_time = None
     coord.last_saved_time = None
@@ -145,6 +142,22 @@ def _make_coordinator(rooms=None, persons=None) -> MagicMock:
     # behaves like real data in every existing test instead of leaking a
     # bare MagicMock. Tests that care about a specific value override this.
     coord.get_room_target_temp = MagicMock(return_value=21.0)
+
+    # 2026-10-30 test-drift fix: every climate write now goes through
+    # coordinator.async_call_climate_service() (Netatmo pacing lock) instead
+    # of hass.services.async_call() directly. Forward it to the mocked
+    # hass.services.async_call with the same call shape the real method
+    # uses, so the existing service-call assertions keep working unchanged.
+    async def _climate_service(service, entity_id, data=None, *, needs_delay):
+        await hass.services.async_call(
+            "climate", service, {"entity_id": entity_id, **(data or {})}, blocking=True
+        )
+
+    coord.async_call_climate_service = AsyncMock(side_effect=_climate_service)
+    # ws_get_state() reads the integration version off the event loop.
+    hass.async_add_executor_job = AsyncMock(return_value="0.0.0")
+    # v0.59.0: ws_get_state() adds the auto/manual summary.
+    coord.get_control_mode = MagicMock(return_value=("auto", []))
 
     return coord
 
@@ -251,14 +264,16 @@ async def test_get_state_top_level_keys_present():
         "outdoor_temp",
         "rooms",
         "persons",
-        "energy_saved_today",
-        "energy_wasted_today",
-        "efficiency_score",
         "boost_remaining_minutes",
         "config",
         "blocking_sources",
+        "control_mode",
+        "manual_rooms",
     ):
         assert key in payload, f"missing key: {key}"
+    # Energy fields were removed with the "Energi i dag" feature.
+    for key in ("energy_saved_today", "energy_wasted_today", "efficiency_score"):
+        assert key not in payload
     assert payload["controller_state"] == "on"
     room_payload = payload["rooms"][0]
     for key in ("trv_count", "offset", "group_enabled"):
@@ -360,20 +375,27 @@ async def test_get_state_room_sync_mode_disabled_string_passes_through_unfiltere
 
 
 @pytest.mark.asyncio
-async def test_get_state_netatmo_valve_position_from_heating_power_request():
+async def test_get_state_netatmo_valve_position_from_pid_power_not_cloud():
+    """2026-09-14 fix: a Netatmo/HomeKit room's valve_position is Heat
+    Manager's own commanded PID power, not Netatmo's lagging self-reported
+    heating_power_request (which is no longer read at all)."""
     coord = _make_coordinator(rooms=[_room(climate="climate.bathroom")])
     climate_state = MagicMock()
     climate_state.attributes = {"heating_power_request": 42}
     coord.hass.states.get = MagicMock(
         side_effect=lambda eid: climate_state if eid == "climate.bathroom" else None
     )
+    coord.get_homekit_climate_entity = MagicMock(return_value="climate.bathroom_hk")
+    pid = MagicMock()
+    pid._last_output = 0.3
+    coord.get_pid = MagicMock(return_value=pid)
     hass = _make_hass_with_entry(coord)
     conn = _connection()
 
     await ws_get_state(hass, conn, _msg())
 
     room = conn.send_result.call_args[0][1]["rooms"][0]
-    assert room["valve_position"] == 42.0
+    assert room["valve_position"] == 30.0
     # "heating_power" was dropped from the payload in 0.18.1 (frontend
     # dead-code sweep) — it always duplicated valve_position for Netatmo
     # rooms and no frontend ever read it separately.
@@ -843,7 +865,9 @@ async def test_get_state_resolves_climate_entity_from_trvs_only_room():
     room = conn.send_result.call_args[0][1]["rooms"][0]
     assert room["climate_entity"] == "climate.kokken"
     assert room["trv_type"] == "zigbee"
-    assert room["valve_position"] == 37.0
+    # heating_power_request is no longer read (2026-09-14 fix); a Zigbee
+    # room's valve % only comes from its pi_demand_entity, none configured.
+    assert room["valve_position"] is None
 
 
 @pytest.mark.asyncio
@@ -1391,9 +1415,7 @@ async def test_update_room_config_unknown_room_sends_not_found():
     hass = _make_hass_with_entry(coord)
     conn = _connection()
 
-    await ws_update_room_config(
-        hass, conn, _msg(room_name="Attic", comfort_temp=21.0)
-    )
+    await ws_update_room_config(hass, conn, _msg(room_name="Attic", comfort_temp=21.0))
 
     conn.send_error.assert_called_once()
     assert conn.send_error.call_args[0][1] == "not_found"
@@ -1583,19 +1605,18 @@ async def test_get_history_no_entry_sends_not_found():
 
 
 @pytest.mark.asyncio
-async def test_get_history_returns_events_and_days_shape():
+async def test_get_history_returns_events_only():
+    """The per-day saved/wasted "days" list went away with the energy
+    feature — the history payload is the event log alone."""
     coord = _make_coordinator()
     coord._event_log = []
-    coord._energy_history = {}
     hass = _make_hass_with_entry(coord)
     conn = _connection()
 
     await ws_get_history(hass, conn, _msg(days=3))
 
     result = conn.send_result.call_args[0][1]
-    assert result["events"] == []
-    assert len(result["days"]) == 3
-    assert set(result["days"][0].keys()) == {"label", "date", "saved", "wasted"}
+    assert result == {"events": []}
 
 
 # ── _get_entry helper ────────────────────────────────────────────────────────

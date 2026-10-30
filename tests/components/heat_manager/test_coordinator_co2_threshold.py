@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from custom_components.heat_manager.const import (
     CONF_CO2_THRESHOLD,
     DEFAULT_CO2_VENTILATION_THRESHOLD,
@@ -105,51 +103,9 @@ def test_float_threshold_converted_to_int():
     assert coord.get_room_co2_threshold("Bad") == 1100
 
 
-# ── WasteCalculator uses per-room threshold ───────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_waste_calculator_uses_per_room_threshold():
-    """WasteCalculator._co2_waste_weight() must use get_room_co2_threshold()."""
-    from custom_components.heat_manager.engine.waste_calculator import WasteCalculator
-
-    coord = MagicMock()
-    coord.rooms = [
-        {
-            "room_name": "Stue",
-            "climate_entity": "climate.stue",
-            CONF_CO2_THRESHOLD: 1500,  # high threshold — CO₂ at 1000 should NOT reduce waste
-        }
-    ]
-    coord.get_room_co2_threshold = MagicMock(return_value=1500)
-    coord.get_room_co2 = MagicMock(return_value=1000.0)  # below 1500
-    coord.is_raining = MagicMock(return_value=False)
-
-    engine = WasteCalculator(coord)
-    weight = engine._co2_waste_weight("Stue")
-
-    # CO₂ 1000 < threshold 1500 → full waste (1.0)
-    coord.get_room_co2_threshold.assert_called_once_with("Stue")
-    assert weight == pytest.approx(1.0)
-
-
-@pytest.mark.asyncio
-async def test_waste_calculator_reduces_waste_above_per_room_threshold():
-    """CO₂ above per-room threshold → waste weight 0.50."""
-    from custom_components.heat_manager.engine.waste_calculator import WasteCalculator
-
-    coord = MagicMock()
-    coord.rooms = [
-        {"room_name": "Stue", "climate_entity": "climate.stue", CONF_CO2_THRESHOLD: 800}
-    ]
-    coord.get_room_co2_threshold = MagicMock(return_value=800)
-    coord.get_room_co2 = MagicMock(return_value=1000.0)  # above 800
-    coord.is_raining = MagicMock(return_value=False)
-
-    engine = WasteCalculator(coord)
-    weight = engine._co2_waste_weight("Stue")
-
-    assert weight == pytest.approx(0.50)
+# 2026-10-30: the two WasteCalculator per-room-threshold tests lived here —
+# engine/waste_calculator.py is dead code since the energy feature was
+# removed (it imports CONF_ENERGY_TRACKING, which no longer exists).
 
 
 # ── WindowEngine uses per-room threshold ─────────────────────────────────────

@@ -50,6 +50,12 @@ def _make_coordinator(rooms=None) -> MagicMock:
             None,
         )
     )
+    # async_tick() also feeds the heat-up-rate learning (2026-09-13), which
+    # reads the room temperature via get_room_current_temp() — that path has
+    # its own test file (test_calibration_engine_heatup_anomaly.py), so keep
+    # it inert here: no reading → the learning step returns immediately.
+    coord.get_room_current_temp = MagicMock(return_value=None)
+    coord.outdoor_temperature = None
     return coord
 
 

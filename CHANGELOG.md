@@ -19,6 +19,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   sensorer (de tre tests er fjernet), og `test_waste_calculator.py` tester
   død kode og springes nu over. Testene kører igen; 104 ældre fejl står
   tilbage og tages i en separat oprydning.
+- **De 104 ældre test-fejl er rettet (kun testfiler).** Næsten alle var
+  forældede mocks: klima-kald går nu via `async_call_climate_service()`,
+  nye koordinator-opslag (`get_control_mode`, `get_climate_entity`,
+  `get_room_target_temp`, lux/sol/dør-input) manglede, og ændret adfærd
+  (setpunkt-margin, PID-ventil %, "Vindue-/Dørsensor"-navne, rum uden TRV,
+  lokal tid i grace-perioden) var ikke fulgt med. Tre tests fejler
+  stadig med vilje, fordi de afslører rigtige fejl i koden: boost
+  ignorerer de indstillede standardværdier for temperatur/varighed (2
+  tests), og PID'en nulstilles ved kortvarigt tab af rumtemperatur (1 test).
 
 ## [0.60.1] — 2026-10-30
 

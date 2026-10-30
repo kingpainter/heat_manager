@@ -113,7 +113,13 @@ def make_coordinator(
     coord.hass.services.async_call = AsyncMock()
     coord.night_setback_delta = MagicMock(return_value=0.0)
     coord.wake_setback_delta = MagicMock(return_value=0.0)
-    coord.get_room_current_temp = MagicMock(return_value=current_temp)
+    # No temperature anywhere (climate_missing_temps) → the helper returns
+    # None, exactly like the real get_room_current_temp() would.
+    coord.get_room_current_temp = MagicMock(
+        return_value=None
+        if (climate_missing_temps or climate_unavailable)
+        else current_temp
+    )
     # v0.9.0 / B18 Fase 3: real values, not auto-vivified MagicMocks —
     # room_offsets is read with .get() and its value added to target_temp,
     # last_expected_setpoint is written to as a real dict, and
@@ -122,7 +128,41 @@ def make_coordinator(
     coord.room_offsets = {}
     coord.last_expected_setpoint = {}
     coord.schedule_override = {}
+    _wire_tick_dependencies(coord, climate_id)
     return coord
+
+
+def _wire_tick_dependencies(coord: MagicMock, climate_id: str) -> None:
+    """Wire the coordinator reads _async_pid_tick() needs beyond the room
+    data itself (shared by make_coordinator() and hand-built coordinators)."""
+    # 2026-10-30 test-drift fix — _async_pid_tick() grew several reads
+    # since this factory was written; each would otherwise auto-vivify a
+    # MagicMock and blow up in arithmetic/comparisons:
+    # - self.config (weather compensation, solar gain, door heat share,
+    #   setpoint margin) — a real dict, so every option takes its default.
+    # - get_climate_entity() resolves the room's primary entity.
+    # - get_room_target_temp() is the shared target helper (bound for real,
+    #   so the comfort/schedule/offset/setback tests still exercise it).
+    # - lux / sun / door-share inputs — "nothing configured".
+    # - every write goes through async_call_climate_service(); forward it
+    #   to hass.services.async_call with the real call shape so the
+    #   existing service-call assertions keep working.
+    coord.config = {}
+    coord.get_climate_entity = MagicMock(return_value=climate_id)
+    coord.get_room_target_temp = HeatManagerCoordinator.get_room_target_temp.__get__(
+        coord, type(coord)
+    )
+    coord.get_room_lux = MagicMock(return_value=None)
+    coord.get_sun_elevation = MagicMock(return_value=None)
+    coord.get_door_heat_share_inputs = MagicMock(return_value=(None, None))
+    coord.trv_needs_cloud_delay = MagicMock(return_value=False)
+
+    async def _climate_service(service, entity_id, data=None, *, needs_delay):
+        await coord.hass.services.async_call(
+            "climate", service, {"entity_id": entity_id, **(data or {})}, blocking=True
+        )
+
+    coord.async_call_climate_service = AsyncMock(side_effect=_climate_service)
 
 
 _pid_tick = HeatManagerCoordinator._async_pid_tick
@@ -283,15 +323,18 @@ async def test_room_offset_shifts_this_rooms_target():
 
     A +5.0 room offset (GROUP_OFFSET_MAX) shifts the target to 15.0:
     error = 15 - 12 = 3 → power = Kp * 3 = 1.5, clamped to 1.0 →
-    trv_setpoint = 12 + 1.0 * (28 - 12) = 28.0 — far from the still-10.0
-    reported setpoint → a call must go out.
+    trv_setpoint = 12 + 1.0 * (28 - 12) = 28.0, then capped by the
+    2026-09-15 setpoint margin at target + PID_SETPOINT_MARGIN = 17.0 —
+    far from the still-10.0 reported setpoint → a call must go out.
     """
+    from custom_components.heat_manager.const import PID_SETPOINT_MARGIN
+
     coord = make_coordinator(current_temp=12.0, target_temp=10.0)
     coord.room_offsets = {"living_room": 5.0}
     await _pid_tick(coord)
     coord.hass.services.async_call.assert_called_once()
     call_args = coord.hass.services.async_call.call_args
-    assert call_args[0][2]["temperature"] == 28.0
+    assert call_args[0][2]["temperature"] == 15.0 + PID_SETPOINT_MARGIN
 
 
 @pytest.mark.asyncio
@@ -352,8 +395,15 @@ async def test_bug_b_pid_2_no_call_when_delta_below_threshold():
     # B21: the cloud entity's own schedule attribute must no longer be read
     # as the PID target on the HomeKit path.
     cs.attributes = {"current_temperature": 21.8, "temperature": 99.0}
+    # The HomeKit write entity reports the setpoint the suppress-check
+    # compares against: 22.0, i.e. 0.4 °C from the computed 22.4.
+    hk = MagicMock()
+    hk.state = "heat"
+    hk.attributes = {"current_temperature": 21.8, "temperature": 22.0}
     coord.hass = MagicMock()
-    coord.hass.states.get = MagicMock(return_value=cs)
+    coord.hass.states.get = MagicMock(
+        side_effect=lambda eid: hk if eid == "climate.kitchen_homekit" else cs
+    )
     coord.hass.services.async_call = AsyncMock()
     coord.night_setback_delta = MagicMock(return_value=0.0)
     coord.wake_setback_delta = MagicMock(return_value=0.0)
@@ -361,6 +411,7 @@ async def test_bug_b_pid_2_no_call_when_delta_below_threshold():
     coord.room_offsets = {}
     coord.last_expected_setpoint = {}
     coord.schedule_override = {}
+    _wire_tick_dependencies(coord, "climate.kitchen")
     await _pid_tick(coord)
     coord.hass.services.async_call.assert_not_called()
 
@@ -396,7 +447,10 @@ async def test_local_path_defaults_comfort_temp_when_unset():
     (20°C) rather than crashing."""
     from custom_components.heat_manager.const import DEFAULT_COMFORT_TEMP
 
-    coord = make_coordinator(homekit_entity=None, current_temp=15.0)
+    # target_temp only sets the TRV's reported setpoint here (17.0) — kept
+    # away from the margin-capped 20 + 2 = 22.0 the tick computes, so the
+    # suppress-check can't mistake it for "already there".
+    coord = make_coordinator(homekit_entity=None, current_temp=15.0, target_temp=17.0)
     coord.rooms[0].pop("comfort_temp", None)
     await _pid_tick(coord)
     coord.hass.services.async_call.assert_called_once()

@@ -71,7 +71,8 @@ def test_nearest_select_option_picks_closest():
 
     result = engine._nearest_select_option("select.trv_offset", 0.7)
 
-    assert result == {"label": "0.5", "value": 0.5}
+    # 2026-09-14 (strict typing): (label, value) tuple, no longer a dict.
+    assert result == ("0.5", 0.5)
 
 
 def test_nearest_select_option_missing_entity_returns_none():

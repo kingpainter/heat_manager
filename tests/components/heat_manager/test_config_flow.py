@@ -456,9 +456,10 @@ async def test_step_room_blank_name_redisplays_room_form():
 
 
 @pytest.mark.asyncio
-async def test_step_room_trvs_menu_hides_done_until_a_trv_is_added():
-    """The room can't be finished with zero TRVs — "done" isn't even an
-    offered action until at least one has been added."""
+async def test_step_room_trvs_menu_offers_monitoring_only_save_with_zero_trvs():
+    """2026-09-11: a room with zero TRVs is a supported monitoring-only room
+    (e.g. a hallway) — "done"/"done_add_room" are offered from the start,
+    labelled as saving without a TRV."""
     hass = _make_hass({"climate.kitchen": MagicMock()})
     flow = HeatManagerConfigFlow()
     flow.hass = hass
@@ -478,9 +479,12 @@ async def test_step_room_trvs_menu_hides_done_until_a_trv_is_added():
     offered = {
         opt["value"] for opt in result["data_schema"].schema["action"].config["options"]
     }
-    assert "done" not in offered
-    assert "done_add_room" not in offered
-    assert "add" in offered
+    assert offered == {"add", "done", "done_add_room"}
+    labels = {
+        opt["value"]: opt["label"]
+        for opt in result["data_schema"].schema["action"].config["options"]
+    }
+    assert "monitoring only" in labels["done"]
 
 
 @pytest.mark.asyncio

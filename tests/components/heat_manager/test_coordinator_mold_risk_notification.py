@@ -52,12 +52,15 @@ def _make_coordinator(config: dict, rooms: list[dict]) -> MagicMock:
 
     from custom_components.heat_manager.coordinator import HeatManagerCoordinator
 
-    coord._async_check_mold_risk = HeatManagerCoordinator._async_check_mold_risk.__get__(
-        coord, type(coord)
+    coord._async_check_mold_risk = (
+        HeatManagerCoordinator._async_check_mold_risk.__get__(coord, type(coord))
     )
     coord._notify_mold_risk = HeatManagerCoordinator._notify_mold_risk.__get__(
         coord, type(coord)
     )
+    # 2026-09-13: the check also reports into the issue-escalation
+    # tracker (_report_issue), which is its own tested unit.
+    coord._report_issue = AsyncMock()
     return coord
 
 
@@ -68,9 +71,7 @@ _ROOM = {"room_name": "Kælder", CONF_HUMIDITY_SENSOR: "sensor.kaelder_rh"}
 async def test_notification_sent_on_risk_edge():
     """RH/temp cross into risk for the first time -> exactly one notification,
     one log_event, and the room's risk state is recorded as True."""
-    coord = _make_coordinator(
-        {CONF_NOTIFY_SERVICE: "notify.mobile_app_phone"}, [_ROOM]
-    )
+    coord = _make_coordinator({CONF_NOTIFY_SERVICE: "notify.mobile_app_phone"}, [_ROOM])
     coord.hass.states.get = MagicMock(return_value=_state(_RISK_RH))
     coord.get_climate_entity = MagicMock(return_value="climate.kaelder")
     coord.get_room_current_temp = MagicMock(return_value=_RISK_TEMP)
@@ -91,9 +92,7 @@ async def test_notification_sent_on_risk_edge():
 @pytest.mark.asyncio
 async def test_no_duplicate_notification_within_same_episode():
     """Risk stays True across two consecutive ticks -> notified only once."""
-    coord = _make_coordinator(
-        {CONF_NOTIFY_SERVICE: "notify.mobile_app_phone"}, [_ROOM]
-    )
+    coord = _make_coordinator({CONF_NOTIFY_SERVICE: "notify.mobile_app_phone"}, [_ROOM])
     coord.hass.states.get = MagicMock(return_value=_state(_RISK_RH))
     coord.get_climate_entity = MagicMock(return_value="climate.kaelder")
     coord.get_room_current_temp = MagicMock(return_value=_RISK_TEMP)
@@ -108,9 +107,7 @@ async def test_no_duplicate_notification_within_same_episode():
 async def test_notification_rearms_after_risk_clears():
     """Risk True -> False -> True again fires a second, independent
     notification (re-armed only once the episode actually ended)."""
-    coord = _make_coordinator(
-        {CONF_NOTIFY_SERVICE: "notify.mobile_app_phone"}, [_ROOM]
-    )
+    coord = _make_coordinator({CONF_NOTIFY_SERVICE: "notify.mobile_app_phone"}, [_ROOM])
     coord.get_climate_entity = MagicMock(return_value="climate.kaelder")
 
     coord.hass.states.get = MagicMock(return_value=_state(_RISK_RH))
@@ -128,9 +125,7 @@ async def test_notification_rearms_after_risk_clears():
 
 @pytest.mark.asyncio
 async def test_no_notification_when_rh_below_threshold():
-    coord = _make_coordinator(
-        {CONF_NOTIFY_SERVICE: "notify.mobile_app_phone"}, [_ROOM]
-    )
+    coord = _make_coordinator({CONF_NOTIFY_SERVICE: "notify.mobile_app_phone"}, [_ROOM])
     coord.hass.states.get = MagicMock(return_value=_state(_SAFE_RH))
     coord.get_climate_entity = MagicMock(return_value="climate.kaelder")
     coord.get_room_current_temp = MagicMock(return_value=_RISK_TEMP)
@@ -159,9 +154,7 @@ async def test_room_without_humidity_sensor_is_skipped():
 
 @pytest.mark.asyncio
 async def test_unavailable_humidity_sensor_is_skipped():
-    coord = _make_coordinator(
-        {CONF_NOTIFY_SERVICE: "notify.mobile_app_phone"}, [_ROOM]
-    )
+    coord = _make_coordinator({CONF_NOTIFY_SERVICE: "notify.mobile_app_phone"}, [_ROOM])
     coord.hass.states.get = MagicMock(return_value=_state("unavailable"))
     coord.get_climate_entity = MagicMock(return_value="climate.kaelder")
     coord.get_room_current_temp = MagicMock(return_value=_RISK_TEMP)
@@ -175,9 +168,7 @@ async def test_unavailable_humidity_sensor_is_skipped():
 async def test_missing_temperature_is_skipped():
     """get_room_current_temp() returns None (all temp sources unavailable)
     -> the room is skipped rather than crashing on the dewpoint math."""
-    coord = _make_coordinator(
-        {CONF_NOTIFY_SERVICE: "notify.mobile_app_phone"}, [_ROOM]
-    )
+    coord = _make_coordinator({CONF_NOTIFY_SERVICE: "notify.mobile_app_phone"}, [_ROOM])
     coord.hass.states.get = MagicMock(return_value=_state(_RISK_RH))
     coord.get_climate_entity = MagicMock(return_value="climate.kaelder")
     coord.get_room_current_temp = MagicMock(return_value=None)
@@ -234,7 +225,9 @@ async def test_notify_mold_risk_no_service_configured():
 
 @pytest.mark.asyncio
 async def test_notify_mold_risk_splits_domain_and_service():
-    coord = _make_coordinator({CONF_NOTIFY_SERVICE: "notify.mobile_app_min_telefon"}, [])
+    coord = _make_coordinator(
+        {CONF_NOTIFY_SERVICE: "notify.mobile_app_min_telefon"}, []
+    )
 
     await coord._notify_mold_risk("Mold risk — Kælder (95% RH, 10.0C)")
 

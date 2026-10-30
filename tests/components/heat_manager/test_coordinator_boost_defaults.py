@@ -42,6 +42,14 @@ def _make_coordinator(config: dict) -> MagicMock:
     coord.log_event = MagicMock()
     coord.get_room_state = MagicMock(return_value=RoomState.NORMAL)
     coord.get_room_write_entities = MagicMock(return_value=["climate.bathroom"])
+    # B18: boost fans out per TRV via get_room_trvs()/get_trv_write_entity().
+    coord.get_room_trvs = MagicMock(
+        return_value=[{"climate_entity": "climate.bathroom"}]
+    )
+    coord.get_trv_write_entity = MagicMock(
+        side_effect=lambda trv: trv.get("climate_entity")
+    )
+    coord.trv_needs_cloud_delay = MagicMock(return_value=False)
     coord.hass = MagicMock()
     coord.hass.services.async_call = AsyncMock()
 
@@ -50,6 +58,18 @@ def _make_coordinator(config: dict) -> MagicMock:
     coord.async_boost_start = HeatManagerCoordinator.async_boost_start.__get__(
         coord, type(coord)
     )
+
+    # 2026-10-30 test-drift fix: climate writes now go through
+    # coordinator.async_call_climate_service() (Netatmo pacing lock) instead
+    # of hass.services.async_call() directly. Forward it to the mocked
+    # hass.services.async_call with the real call shape, so the existing
+    # service-call assertions keep working unchanged.
+    async def _climate_service(service, entity_id, data=None, *, needs_delay):
+        await coord.hass.services.async_call(
+            "climate", service, {"entity_id": entity_id, **(data or {})}, blocking=True
+        )
+
+    coord.async_call_climate_service = AsyncMock(side_effect=_climate_service)
     return coord
 
 

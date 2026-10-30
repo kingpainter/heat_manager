@@ -29,6 +29,9 @@ def _coordinator() -> MagicMock:
     coord.rooms = []
     coord.room_device_info = MagicMock(return_value={"identifiers": {("x", "room")}})
     coord.global_device_info = MagicMock(return_value={"identifiers": {("x", "hub")}})
+    # 2026-09-15 ("vindue vs dør"): the mirror's name/icon depend on whether
+    # its source is listed as door-styled — default to none.
+    coord.get_room_door_styled_sensors = MagicMock(return_value=[])
     return coord
 
 
@@ -50,7 +53,9 @@ def test_mirror_is_on_true():
     assert mirror.is_on is True
     assert mirror.available is True
     assert mirror.unique_id == "entry123_living_room_window_mirror_0"
-    assert mirror.name == "Window/door sensor 1"
+    # Named "Window sensor N" / "Door sensor N" since 2026-09-15 (was the
+    # combined "Window/door sensor N").
+    assert mirror.name == "Window sensor 1"
 
 
 def test_mirror_is_on_false():
@@ -78,8 +83,22 @@ def test_mirror_index_appears_in_name_and_unique_id():
     mirror = RawWindowContactMirror(
         coord, _entry(), {"room_name": "Living room"}, 2, "binary_sensor.window3"
     )
-    assert mirror.name == "Window/door sensor 3"
+    assert mirror.name == "Window sensor 3"
     assert mirror.unique_id == "entry123_living_room_window_mirror_2"
+
+
+def test_mirror_door_styled_source_is_named_door():
+    coord = _coordinator()
+    coord.hass.states.get = MagicMock(return_value=_state("off"))
+    coord.get_room_door_styled_sensors = MagicMock(
+        return_value=["binary_sensor.terrace_door"]
+    )
+    mirror = RawWindowContactMirror(
+        coord, _entry(), {"room_name": "Living room"}, 0, "binary_sensor.terrace_door"
+    )
+    assert mirror.name == "Door sensor 1"
+    # Cosmetic only — the unique_id keeps its window_mirror form.
+    assert mirror.unique_id == "entry123_living_room_window_mirror_0"
 
 
 # ── async_setup_entry(): one mirror per configured window sensor ────────────

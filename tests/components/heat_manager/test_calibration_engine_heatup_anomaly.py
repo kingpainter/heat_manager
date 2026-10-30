@@ -36,10 +36,16 @@ def _make_coordinator() -> MagicMock:
     coord = MagicMock()
     coord.get_room_state = MagicMock(return_value=RoomState.NORMAL)
     coord.is_room_door_open = MagicMock(return_value=False)
+    # 2026-09-14 (punkt 5): the learning keys its regression on outdoor
+    # temperature — None ("no weather entity yet") instead of an
+    # auto-vivified MagicMock that can't be formatted or compared.
+    coord.outdoor_temperature = None
     return coord
 
 
-def _run_ticks(engine, coord, temps, room_name="Bathroom", climate_entity="climate.bathroom"):
+def _run_ticks(
+    engine, coord, temps, room_name="Bathroom", climate_entity="climate.bathroom"
+):
     """Feed one temperature reading per tick, 10 minutes apart, through
     _async_update_heatup_learning(). temps[0] only sets the initial
     baseline (no sample produced from it)."""
@@ -72,9 +78,14 @@ def test_anomaly_flagged_after_streak_of_underperforming_samples():
     engine = CalibrationEngine(coord)
 
     # Establish a healthy ~1.8°C/h baseline over 6 good samples (+0.3 every
-    # 10 min), then 3 samples in a row at ~0.6°C/h (well under 40% of 1.8).
+    # 10 min), then 3 samples in a row at ~0.42°C/h (+0.07 every 10 min).
+    # 2026-10-30: was +0.1 (0.6°C/h) — since punkt 5 (2026-09-14) every
+    # sample, the bad ones included, also feeds the exponentially-weighted
+    # baseline, which drags the prediction down to ~1.47°C/h by the third
+    # bad sample; 0.6 then sits just above 40% of it and the streak broke.
+    # 0.42°C/h stays clearly "markedly slower" for all three.
     good = [20.0, 20.3, 20.6, 20.9, 21.2, 21.5, 21.8]
-    bad = [21.9, 22.0, 22.1]
+    bad = [21.87, 21.94, 22.01]
     _run_ticks(engine, coord, good)
     assert engine.get_room_heatup_anomaly("Bathroom") is False  # not yet
 
@@ -102,7 +113,7 @@ def test_anomaly_clears_on_a_good_sample():
     _run_ticks(engine, coord, good)
 
     now = _START + len(good) * _STEP
-    for temp in (21.9, 22.0, 22.1):  # 3 bad samples -> flagged
+    for temp in (21.87, 21.94, 22.01):  # 3 bad samples -> flagged
         coord.get_room_current_temp = MagicMock(return_value=temp)
         with patch(
             "custom_components.heat_manager.engine.calibration_engine.utcnow",
@@ -113,7 +124,7 @@ def test_anomaly_clears_on_a_good_sample():
     assert engine.get_room_heatup_anomaly("Bathroom") is True
 
     # One good-rate sample (+0.3, matching the original baseline) clears it.
-    coord.get_room_current_temp = MagicMock(return_value=22.4)
+    coord.get_room_current_temp = MagicMock(return_value=22.31)
     with patch(
         "custom_components.heat_manager.engine.calibration_engine.utcnow",
         return_value=now,

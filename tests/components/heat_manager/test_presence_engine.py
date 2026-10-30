@@ -355,9 +355,9 @@ def test_grace_period_returns_night_value_during_night_hours():
     )
     engine = PresenceEngine(coordinator)
 
-    with patch(
-        "custom_components.heat_manager.engine.presence_engine.utcnow"
-    ) as mock_now:
+    # 2026-09-16: day/night is decided on LOCAL time (dt.now), not UTC —
+    # night_start/end_hour are local wall-clock hours.
+    with patch("homeassistant.util.dt.now") as mock_now:
         mock_now.return_value.hour = 2  # 02:00 — night
         result = engine._grace_period_minutes()
 
@@ -376,9 +376,7 @@ def test_grace_period_returns_day_value_during_day_hours():
     )
     engine = PresenceEngine(coordinator)
 
-    with patch(
-        "custom_components.heat_manager.engine.presence_engine.utcnow"
-    ) as mock_now:
+    with patch("homeassistant.util.dt.now") as mock_now:
         mock_now.return_value.hour = 14  # 14:00 — day
         result = engine._grace_period_minutes()
 
@@ -506,7 +504,11 @@ async def test_bug_b20_initial_presence_restore_is_scheduled_with_notify_false()
     pushed "Heating resumed — welcome home" to the phone even though
     nothing had actually happened — heating was simply being re-synced.
     """
-    coordinator = _make_coordinator(rooms=[_make_room()], someone_home=True)
+    # _check_initial_presence() is a no-op without any tracked persons
+    # (nothing to sync against), so the fixture needs one.
+    coordinator = _make_coordinator(
+        persons=[_make_person()], rooms=[_make_room()], someone_home=True
+    )
 
     with patch.object(
         PresenceEngine, "_restore_all_schedule", MagicMock()

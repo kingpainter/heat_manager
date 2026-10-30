@@ -51,6 +51,14 @@ def _make_coordinator(
         return migrate_room_to_trvs(room).get(CONF_TRVS, [])
 
     coord.get_room_trvs = MagicMock(side_effect=_room_trvs)
+    # Zigbee TRVs are written via get_trv_write_entity() (HomeKit entity if
+    # configured, else the TRV's own climate entity) — mirror that.
+    coord.get_trv_write_entity = MagicMock(
+        side_effect=lambda trv: (
+            trv.get("homekit_climate_entity") or trv.get("climate_entity")
+        )
+    )
+    coord.trv_needs_cloud_delay = MagicMock(return_value=False)
 
     hass = MagicMock()
     hass.async_create_task = MagicMock(return_value=MagicMock())
@@ -66,6 +74,18 @@ def _make_coordinator(
     hass.states.get.side_effect = states_get
     hass.services.async_call = AsyncMock()
     coord.hass = hass
+
+    # 2026-10-30 test-drift fix: climate writes now go through
+    # coordinator.async_call_climate_service() (Netatmo pacing lock) instead
+    # of hass.services.async_call() directly. Forward it to the mocked
+    # hass.services.async_call with the real call shape, so the existing
+    # service-call assertions keep working unchanged.
+    async def _climate_service(service, entity_id, data=None, *, needs_delay):
+        await coord.hass.services.async_call(
+            "climate", service, {"entity_id": entity_id, **(data or {})}, blocking=True
+        )
+
+    coord.async_call_climate_service = AsyncMock(side_effect=_climate_service)
     return coord
 
 

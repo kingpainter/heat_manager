@@ -75,6 +75,17 @@ def _make_coordinator() -> MagicMock:
         )
     )
 
+    # 2026-10-30 test-drift fix: climate writes now go through
+    # coordinator.async_call_climate_service() (Netatmo pacing lock) instead
+    # of hass.services.async_call() directly. Forward it to the mocked
+    # hass.services.async_call with the real call shape, so the existing
+    # service-call assertions keep working unchanged.
+    async def _climate_service(service, entity_id, data=None, *, needs_delay):
+        await coord.hass.services.async_call(
+            "climate", service, {"entity_id": entity_id, **(data or {})}, blocking=True
+        )
+
+    coord.async_call_climate_service = AsyncMock(side_effect=_climate_service)
     return coord
 
 
