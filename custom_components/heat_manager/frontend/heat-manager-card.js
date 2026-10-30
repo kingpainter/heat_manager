@@ -103,12 +103,32 @@ function _hmStateColor(s) {
   return ({ normal:"#f97316", away:"#64748b", window_open:"#ef4444", pre_heat:"#0ea5e9", override:"#a855f7" })[s] ?? "#64748b";
 }
 
-// v0.14.0: source param distinguishes who engaged OVERRIDE — "remote"
-// (RemoteButtonEngine) gets its own badge, "switch"/undefined keeps the
-// plain "Override" label as before.
+// v0.59.0: "Normal" → "Auto" and "Override" → "Manuel" (+ the source's
+// icon), so each room tile answers "automatic or manual?" at a glance. The
+// full source name and auto-restore time are on the mode row and in the
+// room sheet.
 function _hmStateLabel(s, source) {
-  if (s === "override" && source === "remote") return "📡 Fjernbetjening";
-  return ({ normal:"Normal", away:"Fraværende", window_open:"Vindue åbent", pre_heat:"Forvarmning", override:"Override" })[s] ?? (s || "–");
+  if (s === "override") {
+    const icon = _hmOverrideSourceIcon(source);
+    return icon ? `Manuel ${icon}` : "Manuel";
+  }
+  return ({ normal:"Auto", away:"Fraværende", window_open:"Vindue åbent", pre_heat:"Forvarmning" })[s] ?? (s || "–");
+}
+
+function _hmOverrideSourceName(src) {
+  return ({ remote:"Fjernbetjening", panel:"Panel", switch:"Kontakt", trv:"Ventil" })[src] ?? null;
+}
+
+function _hmOverrideSourceIcon(src) {
+  return ({ remote:"📡", panel:"🖥", switch:"🔘", trv:"🎚" })[src] ?? null;
+}
+
+// "20:42" from an ISO timestamp, in the browser's local time.
+function _hmHhmm(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 function _hmCtrlColor(s) {
@@ -187,6 +207,7 @@ class HeatManagerCard extends HTMLElement {
       this._targetTempPollStarted = true;
       this._loadTargetTemps();
     }
+    this._checkHouseStatusChange();
     this._updateInPlace();
   }
 
@@ -208,6 +229,21 @@ class HeatManagerCard extends HTMLElement {
   }
 
   connectedCallback() {
+    // v0.60.0: the compact smart line is rebuilt on every patch — delegate
+    // its clicks/keys from the shadow root, bound once.
+    if (!this._slcBound) {
+      this._slcBound = true;
+      this.shadowRoot.addEventListener("click", (e) => {
+        if (e.target.closest?.("#smart-compact")) this._onSmartCompactClick(e);
+      });
+      this.shadowRoot.addEventListener("keydown", (e) => {
+        if ((e.key === "Enter" || e.key === " ") && e.target.closest?.("[data-slc='toggle']")
+            && !e.target.closest?.("[data-slc-act]")) {
+          e.preventDefault();
+          this._onSmartCompactClick(e);
+        }
+      });
+    }
     this._updateScale();
     this._resizeHandler = () => this._updateScale();
     window.addEventListener("resize", this._resizeHandler);
@@ -223,6 +259,11 @@ class HeatManagerCard extends HTMLElement {
   disconnectedCallback() {
     if (this._resizeHandler) window.removeEventListener("resize", this._resizeHandler);
     if (this._targetTempInterval) { clearInterval(this._targetTempInterval); this._targetTempInterval = null; }
+    // v0.59.0: the boost countdown interval kept ticking after the card
+    // was removed from the DOM.
+    if (this._boostTimer) { clearInterval(this._boostTimer); this._boostTimer = null; }
+    clearTimeout(this._slcRefreshTimer);
+    this._slcRefreshTimer = null;
   }
 
   // WebKit-safe helper — ShadowRoot does not support insertAdjacentHTML
@@ -320,6 +361,7 @@ class HeatManagerCard extends HTMLElement {
       }
       this._targetTemps = map;
       this._roomData = roomData;
+      this._wsData = data; // v0.60.0: active_issues/remote_last_action for the smart line
     } catch (e) {
       // Backend not up yet / WS hiccup — keep whatever we last had (or
       // null) rather than throwing; _roomSetpoint() falls back gracefully.
@@ -355,14 +397,163 @@ class HeatManagerCard extends HTMLElement {
   // _roomBlockingSources() above (this card has no websocket connection of
   // its own, unlike the panel, which gets it straight from ws_get_state).
   _roomOverrideSource(name) {
+    return this._roomStateAttr(name, "override_source");
+  }
+
+  // v0.59.0: any attribute off the room's state sensor (override_source,
+  // override_expires_at, override_since, ...).
+  _roomStateAttr(name, attr) {
     const states = this._hass?.states ?? {};
     const key = name.toLowerCase().replace(/\s+/g, "_");
     for (const id of Object.keys(states)) {
       if (id.startsWith("sensor.") && id.endsWith("_" + key + "_state")) {
-        return states[id].attributes?.override_source ?? null;
+        return states[id].attributes?.[attr] ?? null;
       }
     }
     return null;
+  }
+
+  // ── v0.60.0: compact smart status line ──────────────────────────────────
+  // Mobile version of the panel's smart line: one tile (icon, or a ring
+  // counting down to the next automatic change), one plain-language title
+  // and at most one action. Tap folds out the context lines and anything
+  // else currently going on. Live parts come from the Hub "Status" sensor
+  // (instant); warnings/acknowledgements from the 60 s get_state poll,
+  // which is re-fetched immediately when that sensor changes.
+
+  _houseStatusState() {
+    const states = this._hass?.states ?? {};
+    if (!this._houseStatusEntityId && Date.now() >= (this._houseStatusRetryAt ?? 0)) {
+      this._houseStatusEntityId = Object.keys(states).find(id =>
+        id.startsWith("sensor.") && Array.isArray(states[id]?.attributes?.window_rooms)
+          && states[id]?.attributes?.boost_remaining_min !== undefined) ?? null;
+      if (!this._houseStatusEntityId && this._hass) this._houseStatusRetryAt = Date.now() + 30000;
+    }
+    return this._houseStatusEntityId ? states[this._houseStatusEntityId] ?? null : null;
+  }
+
+  _durText(ms) {
+    const min = Math.max(0, Math.round(ms / 60000));
+    if (min < 1) return "under 1 min";
+    const h = Math.floor(min / 60), m = min % 60;
+    return h ? (m ? `${h} t ${m} min` : `${h} t`) : `${m} min`;
+  }
+
+  _smartMessages() {
+    const hs = this._houseStatusState();
+    const a = hs?.attributes ?? {};
+    const d = this._wsData ?? {};
+    const msgs = [];
+    const rla = d.remote_last_action;
+    const age = rla?.timestamp ? Date.now() - Date.parse(rla.timestamp) : NaN;
+    if (!isNaN(age) && age > -60000 && age < 10000) {
+      const n = rla.rooms?.length ?? 0;
+      const dlt = rla.delta != null ? `${rla.delta > 0 ? "+" : "−"}${String(Math.abs(rla.delta)).replace(".", ",")}°` : "";
+      const title = ({
+        temp_up: `${dlt} sendt til ${n} rum`, temp_down: `${dlt} sendt til ${n} rum`,
+        manual: `Manuel i ${n} rum`, auto: `Automatik igen i ${n} rum`,
+        boost: `Boost startet i ${n} rum`, release: `Alle rum på automatik`,
+      })[rla.action] ?? "Fjernbetjening modtaget";
+      const skipped = Object.keys(rla.skipped ?? {});
+      msgs.push({ tone: "ack", icon: "✓", title, subs: skipped.length ? [`Sprunget over: ${skipped.join(", ")}`] : [] });
+      return msgs;
+    }
+    for (const i of (d.active_issues ?? []).filter(i => i.severity === "critical")) {
+      msgs.push({ tone: "critical", icon: i.icon ?? "!", title: i.message, subs: [] });
+    }
+    if (hs?.state === "off") msgs.push({ tone: "off", icon: "⏻", title: "Varmen er slukket", subs: [] });
+    if (hs?.state === "paused") msgs.push({ tone: "pause", icon: "⏸", title: `Pause · ${this._durText((a.pause_remaining_min ?? 0) * 60000)} tilbage`, subs: [] });
+    for (const i of (d.active_issues ?? []).filter(i => i.severity === "warning" && !i.snoozed)) {
+      msgs.push({ tone: "warning", icon: i.icon ?? "!", title: i.message, subs: [] });
+    }
+    const manual = a.manual_rooms ?? [];
+    if (manual.length) {
+      const until = a.auto_returns_at ? Date.parse(a.auto_returns_at) : NaN;
+      let ring = null;
+      const since = manual.map(n => Date.parse(this._roomData?.[n]?.override_since ?? "")).filter(t => !isNaN(t));
+      if (!isNaN(until) && since.length) {
+        const start = Math.min(...since);
+        if (until > start) ring = Math.min(1, Math.max(0, (until - Date.now()) / (until - start)));
+      }
+      // Prefer the get_state payload's source: the state-sensor lookup in
+      // _roomOverrideSource() matches on a slug that misses æ/ø/å room names.
+      const srcs = [...new Set(manual.map(n => this._roomData?.[n]?.override_source ?? this._roomOverrideSource(n)))];
+      msgs.push({
+        tone: "manual",
+        icon: srcs.length === 1 ? (_hmOverrideSourceIcon(srcs[0]) ?? "✋") : "✋",
+        title: `Manuel i ${manual.length} rum · ${isNaN(until) ? "uden udløb" : `auto om ${this._durText(until - Date.now())}`}`,
+        subs: [manual.join(", ")],
+        ring,
+        action: { act: "release", label: "Auto nu" },
+      });
+    }
+    if ((a.boost_remaining_min ?? 0) > 0) {
+      msgs.push({ tone: "ack", icon: "⚡", title: `Boost · ${this._durText(a.boost_remaining_min * 60000)} tilbage`, subs: [] });
+    }
+    if (!msgs.length) msgs.push({ tone: "ok", icon: "✓", title: "Alt kører automatisk", subs: [] });
+    return msgs;
+  }
+
+  _smartCompactHTML() {
+    const msgs = this._smartMessages();
+    const m = msgs[0];
+    const c = 119.38;
+    const ring = m.ring != null
+      ? `<svg class="slc-ring" viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="19" fill="none" class="slc-track" stroke-width="3.5"/><circle cx="22" cy="22" r="19" fill="none" class="slc-fill" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${(c * (1 - m.ring)).toFixed(1)}" transform="rotate(-90 22 22)"/></svg>`
+      : "";
+    const more = msgs.length > 1 ? `<span class="slc-more">+${msgs.length - 1}</span>` : "";
+    const act = m.action ? `<button class="slc-btn" data-slc-act="${m.action.act}">${_hmEsc(m.action.label)}</button>` : "";
+    const open = !!this._slcOpen;
+    const detail = open
+      ? `<div class="slc-detail">${[...(m.subs ?? []).map(t => `<div class="slc-line">${_hmEsc(t)}</div>`),
+          ...msgs.slice(1).map(x => `<div class="slc-line">${_hmEsc(x.icon)} ${_hmEsc(x.title)}</div>`)].join("")
+          || `<div class="slc-line">Intet andet at bemærke</div>`}</div>`
+      : "";
+    return { tone: m.tone, html: `<div class="slc-main" data-slc="toggle" role="button" tabindex="0" aria-expanded="${open}">
+        <div class="slc-tile">${ring}<span class="slc-icon">${_hmEsc(m.icon)}</span></div>
+        <div class="slc-title">${_hmEsc(m.title)}</div>${more}${act}
+      </div>${detail}` };
+  }
+
+  _patchSmartCompact() {
+    const el = this.shadowRoot?.querySelector("#smart-compact");
+    if (!el) return;
+    const { tone, html } = this._smartCompactHTML();
+    el.className = `slc tone-${tone}`;
+    el.innerHTML = html;
+  }
+
+  async _onSmartCompactClick(e) {
+    const btn = e.target.closest?.("[data-slc-act]");
+    if (btn) {
+      e.stopPropagation();
+      try {
+        const res = await this._hass.callWS({ type: "heat_manager/release_overrides" });
+        const n = res?.rooms_released?.length ?? 0;
+        this._showToast(n ? `${n} rum tilbage på automatik` : "Alt kører allerede automatisk", "success");
+      } catch (err) {
+        this._showToast("Det lykkedes ikke — prøv igen", "error");
+      }
+      this._loadTargetTemps();
+      return;
+    }
+    if (e.target.closest?.("[data-slc='toggle']")) {
+      this._slcOpen = !this._slcOpen;
+      this._patchSmartCompact();
+    }
+  }
+
+  // Re-fetch get_state right away when the Status sensor changes, so a
+  // remote press or a new warning shows without waiting for the 60 s poll.
+  _checkHouseStatusChange() {
+    const hs = this._houseStatusState();
+    if (!hs) return;
+    const sig = hs.state + JSON.stringify(hs.attributes ?? {});
+    if (this._houseStatusSig === undefined) { this._houseStatusSig = sig; return; }
+    if (sig === this._houseStatusSig) return;
+    this._houseStatusSig = sig;
+    clearTimeout(this._slcRefreshTimer);
+    this._slcRefreshTimer = setTimeout(() => { this._slcRefreshTimer = null; this._loadTargetTemps(); }, 500);
   }
 
   // Per-room blocking sources minus whatever the room's own state pill
@@ -833,6 +1024,48 @@ class HeatManagerCard extends HTMLElement {
       }
 
       /* v0.9.0: blocking-sources indicators */
+      /* v0.60.0: compact smart status line — one tone per state */
+      .slc {
+        --sl: #10b981; --sl-rgb: 16,185,129;
+        margin: 0 16px calc(8px * var(--hm-scale-h));
+        border-radius: 12px; border: 1px solid rgba(var(--sl-rgb),0.45);
+        background: linear-gradient(135deg, rgba(var(--sl-rgb),0.16) 0%, rgba(var(--sl-rgb),0.04) 100%);
+      }
+      .slc.tone-manual   { --sl: #c084fc; --sl-rgb: 168,85,247; }
+      .slc.tone-warning  { --sl: #f59e0b; --sl-rgb: 245,158,11; }
+      .slc.tone-critical { --sl: #f87171; --sl-rgb: 239,68,68; }
+      .slc.tone-ack      { --sl: #38bdf8; --sl-rgb: 14,165,233; }
+      .slc.tone-pause    { --sl: #facc15; --sl-rgb: 234,179,8; }
+      .slc.tone-off      { --sl: #94a3b8; --sl-rgb: 148,163,184; }
+      .slc-main {
+        display: flex; align-items: center; gap: 10px; cursor: pointer;
+        padding: calc(6px * var(--hm-scale-h)) 10px;
+      }
+      .slc-tile {
+        position: relative; flex: 0 0 34px; width: 34px; height: 34px; border-radius: 10px;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(var(--sl-rgb),0.16); color: var(--sl); font-size: 15px;
+      }
+      .slc-ring { position: absolute; inset: 0; width: 34px; height: 34px; }
+      .slc-track { stroke: rgba(var(--sl-rgb),0.25); }
+      .slc-fill { stroke: var(--sl); }
+      .slc-icon { position: relative; line-height: 1; }
+      .slc-title {
+        flex: 1 1 auto; min-width: 0; color: var(--sl);
+        font-size: calc(12px * var(--hm-scale-h)); font-weight: 600; line-height: 1.3;
+      }
+      .slc.tone-ok .slc-title { color: var(--text); }
+      .slc-more {
+        font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px;
+        background: rgba(var(--sl-rgb),0.2); color: var(--sl);
+      }
+      .slc-btn {
+        font: inherit; font-size: 11px; font-weight: 600; white-space: nowrap; cursor: pointer;
+        padding: 5px 10px; border-radius: 16px; color: var(--green);
+        background: transparent; border: 1px solid rgba(16,185,129,0.5);
+      }
+      .slc-detail { padding: 0 10px 8px 54px; }
+      .slc-line { font-size: calc(11px * var(--hm-scale-h)); color: var(--sub); line-height: 1.5; }
       .blocking-row {
         display: flex; align-items: center; gap: 5px;
         padding: 0 16px calc(8px * var(--hm-scale-h));
@@ -1120,6 +1353,7 @@ class HeatManagerCard extends HTMLElement {
       : `<div style="color:var(--sub);font-size:12px;padding:4px 0;">Ingen rum konfigureret i kortet</div>`;
 
     const globalBlocked = this._globalBlockingSources();
+    const smart = this._smartCompactHTML(); // v0.60.0
     // 2026-09-11 statustjek: see _netatmoCloudStatusHTML() — was completely
     // missing at the card level before this.
     const cloudStatus = this._netatmoCloudStatusHTML();
@@ -1137,6 +1371,8 @@ class HeatManagerCard extends HTMLElement {
           ${_hmCtrlLabel(ctrl)}
         </div>
       </div>
+
+      <div id="smart-compact" class="slc tone-${smart.tone}">${smart.html}</div>
 
       <div id="blocking-row" class="blocking-row" style="display:${globalBlocked.length ? "flex" : "none"}">⛔ ${_hmEsc(globalBlocked.map(s => _hmBlockingLabel(s)).join(", "))}</div>
 
@@ -1248,6 +1484,9 @@ class HeatManagerCard extends HTMLElement {
       bar.style.display = showPause ? "flex" : "none";
       if (btxt && showPause) btxt.textContent = "⏸ Pause — " + pauseLeft + " min tilbage";
     }
+
+    // v0.60.0: compact smart status line
+    this._patchSmartCompact();
 
     // v0.9.0: global blocking-sources indicator
     const globalBlocked = this._globalBlockingSources();
@@ -1513,6 +1752,16 @@ class HeatManagerCard extends HTMLElement {
     // card until now — same gap for away_temp_override, which the card
     // never surfaced at all). Both are plain rd reads, only present once
     // the 60s get_state poll has completed.
+    // v0.59.0: who holds the room manual, since/until when.
+    if (state === "override") {
+      const src   = rd?.override_source ?? this._roomOverrideSource(roomName);
+      const since = _hmHhmm(rd?.override_since ?? this._roomStateAttr(roomName, "override_since"));
+      const until = _hmHhmm(rd?.override_expires_at ?? this._roomStateAttr(roomName, "override_expires_at"));
+      const parts = [`${_hmOverrideSourceIcon(src) ?? "✋"} ${_hmOverrideSourceName(src) ?? "Manuel"}`];
+      if (since) parts.push(`siden ${since}`);
+      parts.push(until ? `auto igen kl. ${until}` : "uden udløb");
+      rows.push(["✋ Manuel", parts.join(" · ")]);
+    }
     if (rd?.target_temp != null) {
       rows.push(["🎯 Mål-temp", rd.target_temp.toFixed(1) + "°C"]);
     }

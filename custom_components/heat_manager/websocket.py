@@ -36,6 +36,11 @@ from .const import (
     CONF_CLIMATE_ENTITY,
     CONF_CO2_SENSOR,
     CONF_COMFORT_TEMP,
+    CONF_DOOR_HEAT_SHARE_ENABLED,
+    CONF_DOOR_HEAT_SHARE_MAX_REDUCTION,
+    CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
+    CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF,
+    CONF_DOOR_HEAT_SHARE_WEIGHT,
     CONF_DOOR_ROOM_A,
     CONF_DOOR_ROOM_B,
     CONF_DOOR_SENSOR,
@@ -69,11 +74,6 @@ from .const import (
     CONF_PID_KI,
     CONF_PID_KP,
     CONF_PID_SETPOINT_MARGIN,
-    CONF_DOOR_HEAT_SHARE_ENABLED,
-    CONF_DOOR_HEAT_SHARE_MAX_REDUCTION,
-    CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
-    CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF,
-    CONF_DOOR_HEAT_SHARE_WEIGHT,
     CONF_ROOM_NAME,
     CONF_ROOMS,
     CONF_SCHEDULE_ENTITY,
@@ -94,6 +94,7 @@ from .const import (
     DEFAULT_BOOST_MINUTES,
     DEFAULT_BOOST_TEMP,
     DEFAULT_COMFORT_TEMP,
+    DEFAULT_DOOR_HEAT_SHARE_ENABLED,
     DEFAULT_GRACE_DAY_MIN,
     DEFAULT_GRACE_NIGHT_MIN,
     DEFAULT_ISSUE_ESCALATION_MINUTES,
@@ -105,20 +106,19 @@ from .const import (
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
-    DEFAULT_DOOR_HEAT_SHARE_ENABLED,
     DEFAULT_SOLAR_GAIN_ENABLED,
     DEFAULT_WEATHER_COMPENSATION_ENABLED,
     DEFAULT_WINDOW_DELAY_DEFAULT_MIN,
     DEFAULT_WINDOW_OFF_TEMP,
     DEFAULT_WINDOW_WARNING_MIN,
     DOMAIN,
-    FF_MAX_CONTRIBUTION,
-    FF_REFERENCE_OUTDOOR_TEMP,
-    FF_WEIGHT,
     DOOR_HEAT_SHARE_MAX_REDUCTION,
     DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
     DOOR_HEAT_SHARE_MIN_TEMP_DIFF,
     DOOR_HEAT_SHARE_WEIGHT,
+    FF_MAX_CONTRIBUTION,
+    FF_REFERENCE_OUTDOOR_TEMP,
+    FF_WEIGHT,
     PID_SETPOINT_MARGIN,
     SOLAR_GAIN_LUX_THRESHOLD,
     SOLAR_GAIN_MAX_REDUCTION,
@@ -206,6 +206,7 @@ def _build_active_issues(
     if total and unavailable_rooms and len(unavailable_rooms) == total:
         issues.append(
             {
+                "id": "cloud_down",
                 "severity": "critical",
                 "icon": "☁️",
                 "message": "Netatmo cloud/gateway nede — alle rum utilgængelige",
@@ -214,6 +215,7 @@ def _build_active_issues(
     elif unavailable_rooms:
         issues.append(
             {
+                "id": _issue_id("cloud_unavailable", unavailable_rooms),
                 "severity": "warning",
                 "icon": "☁️",
                 "message": f"Netatmo utilgængelig: {', '.join(unavailable_rooms)}",
@@ -222,6 +224,7 @@ def _build_active_issues(
     elif stale_rooms:
         issues.append(
             {
+                "id": _issue_id("cloud_stale", stale_rooms),
                 "severity": "warning",
                 "icon": "☁️",
                 "message": f"Netatmo-data ikke opdateret i 10+ min: {', '.join(stale_rooms)}",
@@ -246,6 +249,7 @@ def _build_active_issues(
         room_name, count = unavailable_entity_rooms[0]
         issues.append(
             {
+                "id": _issue_id("entities_unavailable", [room_name]),
                 "severity": "warning",
                 "icon": "⚠️",
                 "message": f"{room_name}: {count} sensor(er)/enhed(er) utilgængelig(e)",
@@ -256,6 +260,9 @@ def _build_active_issues(
         names = ", ".join(n for n, _ in unavailable_entity_rooms)
         issues.append(
             {
+                "id": _issue_id(
+                    "entities_unavailable", [n for n, _ in unavailable_entity_rooms]
+                ),
                 "severity": "warning",
                 "icon": "⚠️",
                 "message": f"{len(unavailable_entity_rooms)} rum har utilgængelige"
@@ -268,11 +275,17 @@ def _build_active_issues(
     mold_rooms = [room["name"] for room in rooms if room.get("mold_risk")]
     if len(mold_rooms) == 1:
         issues.append(
-            {"severity": "warning", "icon": "💧", "message": f"Skimmelrisiko — {mold_rooms[0]}"}
+            {
+                "id": _issue_id("mold_risk", mold_rooms),
+                "severity": "warning",
+                "icon": "💧",
+                "message": f"Skimmelrisiko — {mold_rooms[0]}",
+            }
         )
     elif mold_rooms:
         issues.append(
             {
+                "id": _issue_id("mold_risk", mold_rooms),
                 "severity": "warning",
                 "icon": "💧",
                 "message": f"Skimmelrisiko ({len(mold_rooms)} rum): {', '.join(mold_rooms)}",
@@ -283,11 +296,17 @@ def _build_active_issues(
     window_rooms = [room["name"] for room in rooms if room.get("windows_open")]
     if len(window_rooms) == 1:
         issues.append(
-            {"severity": "warning", "icon": "🪟", "message": f"Vindue åbent — {window_rooms[0]}"}
+            {
+                "id": _issue_id("window_open", window_rooms),
+                "severity": "warning",
+                "icon": "🪟",
+                "message": f"Vindue åbent — {window_rooms[0]}",
+            }
         )
     elif window_rooms:
         issues.append(
             {
+                "id": _issue_id("window_open", window_rooms),
                 "severity": "warning",
                 "icon": "🪟",
                 "message": f"Vindue åbent ({len(window_rooms)} rum): {', '.join(window_rooms)}",
@@ -307,6 +326,7 @@ def _build_active_issues(
     if len(anomaly_rooms) == 1:
         issues.append(
             {
+                "id": _issue_id("heatup_anomaly", anomaly_rooms),
                 "severity": "warning",
                 "icon": "🐌",
                 "message": f"{anomaly_rooms[0]}: varmer langsommere end normalt — muligvis"
@@ -316,6 +336,7 @@ def _build_active_issues(
     elif anomaly_rooms:
         issues.append(
             {
+                "id": _issue_id("heatup_anomaly", anomaly_rooms),
                 "severity": "warning",
                 "icon": "🐌",
                 "message": f"{len(anomaly_rooms)} rum varmer langsommere end normalt —"
@@ -332,6 +353,7 @@ def _build_active_issues(
         rooms_str = f" ({', '.join(active_rooms)})" if active_rooms else ""
         issues.append(
             {
+                "id": "boost",
                 "severity": "info",
                 "icon": "🔥",
                 "message": f"Boost aktivt{rooms_str} — {remaining} min tilbage",
@@ -350,19 +372,42 @@ def _build_active_issues(
         except (TypeError, ValueError):
             pass
         if age_min is not None and 0 <= age_min < 30:
-            rla_rooms = ", ".join(rla.get("rooms") or [])
+            description = rla.get("description", "")
+            # B26: RemoteButtonEngine's own descriptions already list the
+            # rooms ("... — Stue → 21.5°C, Køkken → 21.5°C"); appending them
+            # again doubled every room name in the header. Only append the
+            # room list when the description doesn't already name them.
+            rooms = [r for r in (rla.get("rooms") or []) if r not in description]
+            rla_rooms = ", ".join(rooms)
             issues.append(
                 {
+                    "id": "remote_action",
                     "severity": "info",
                     "icon": "📡",
-                    "message": f"Fjernbetjening: {rla.get('description', '')}"
+                    "message": f"Fjernbetjening: {description}"
                     + (f" — {rla_rooms}" if rla_rooms else ""),
                 }
             )
 
+    # v0.60.0: snoozed issues stay in the list (the panel shows them dimmed
+    # in its expanded view) but are flagged, so the status line and the
+    # status sensor skip them. Critical issues can never be snoozed.
+    for issue in issues:
+        until = coordinator.get_issue_snoozed_until(issue.get("id", ""))
+        snoozed = until is not None and issue["severity"] != "critical"
+        issue["snoozed"] = snoozed
+        issue["snoozed_until"] = until.isoformat() if snoozed and until else None
+
     order = {"critical": 0, "warning": 1, "info": 2}
     issues.sort(key=lambda i: order.get(i["severity"], 3))
     return issues
+
+
+def _issue_id(category: str, rooms: list[str]) -> str:
+    """Stable id for an active issue (v0.60.0): category + the rooms it
+    covers. Including the rooms means a snoozed "window open — Bad" comes
+    straight back if another room's window opens too."""
+    return f"{category}:{','.join(sorted(rooms))}"
 
 
 @websocket_api.websocket_command(
@@ -421,6 +466,78 @@ async def ws_boost_stop(
     restored = await coordinator.async_boost_stop()
     connection.send_result(
         msg["id"], {"success": True, "rooms_restored": len(restored)}
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "heat_manager/extend_overrides",
+        vol.Optional("minutes", default=60): vol.All(int, vol.Range(min=1, max=720)),
+    }
+)
+@websocket_api.async_response
+async def ws_extend_overrides(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """WebSocket: push every time-limited manual override's auto-restore
+    time back by `minutes` (v0.60.0 — the status line's "+1 time")."""
+    entry = _get_entry(hass)
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "Heat Manager not loaded")
+        return
+    coordinator: HeatManagerCoordinator = entry.runtime_data
+    extended = coordinator.extend_overrides(msg["minutes"])
+    connection.send_result(msg["id"], {"success": True, "rooms_extended": extended})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "heat_manager/snooze_issue",
+        vol.Required("issue_id"): str,
+        vol.Optional("minutes", default=60): vol.All(int, vol.Range(min=0, max=1440)),
+    }
+)
+@websocket_api.async_response
+async def ws_snooze_issue(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """WebSocket: hide one status-line issue for `minutes` (v0.60.0 —
+    "Skjul 1 t"). minutes=0 un-snoozes. Critical issues are never hidden;
+    _build_active_issues() ignores a snooze on them."""
+    entry = _get_entry(hass)
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "Heat Manager not loaded")
+        return
+    coordinator: HeatManagerCoordinator = entry.runtime_data
+    until = coordinator.snooze_issue(msg["issue_id"], msg["minutes"])
+    connection.send_result(
+        msg["id"],
+        {"success": True, "snoozed_until": until.isoformat() if until else None},
+    )
+
+
+@websocket_api.websocket_command({vol.Required("type"): "heat_manager/release_overrides"})
+@websocket_api.async_response
+async def ws_release_overrides(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """WebSocket: return every manually overridden room to automatic control
+    (v0.59.0 — the panel mode bar's "Tilbage til auto" button). Thin wrapper
+    around coordinator.async_release_all_overrides()."""
+    entry = _get_entry(hass)
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "Heat Manager not loaded")
+        return
+    coordinator: HeatManagerCoordinator = entry.runtime_data
+    released = await coordinator.async_release_all_overrides()
+    connection.send_result(
+        msg["id"], {"success": True, "rooms_released": released}
     )
 
 
@@ -599,6 +716,9 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_boost_stop)
     websocket_api.async_register_command(hass, ws_set_room_temp)
     websocket_api.async_register_command(hass, ws_update_room_config)
+    websocket_api.async_register_command(hass, ws_release_overrides)
+    websocket_api.async_register_command(hass, ws_extend_overrides)
+    websocket_api.async_register_command(hass, ws_snooze_issue)
     _LOGGER.debug("WebSocket commands registered")
 
 
@@ -956,6 +1076,15 @@ async def ws_get_state(
                 # this room in OVERRIDE, if any — None otherwise. Purely for
                 # the frontend badge (see coordinator.room_override_source).
                 "override_source": coordinator.room_override_source.get(name),
+                # v0.59.0: when a manual override auto-restores to schedule
+                # (None = no expiry) and when it started (None = unknown,
+                # e.g. restored after a restart) — "manual until 20:42".
+                "override_expires_at": _iso_or_none(
+                    coordinator.room_override_expires_at.get(name)
+                ),
+                "override_since": _iso_or_none(
+                    coordinator.room_override_since.get(name)
+                ),
                 # v0.9.0: self-reporting diagnostics — why this room's
                 # heating commands are currently held back, if at all.
                 "blocking_sources": coordinator.get_room_blocking_sources(name),
@@ -1087,6 +1216,7 @@ async def ws_get_state(
 
     # ── Status center (v0.32.0) ───────────────────────────────────────────────
     active_issues = _build_active_issues(coordinator, rooms)
+    control_mode, manual_rooms = coordinator.get_control_mode()
 
     # ── Outdoor temperature ───────────────────────────────────────────────────
     outdoor_temp: float | None = coordinator.outdoor_temperature
@@ -1226,6 +1356,9 @@ async def ws_get_state(
         # coordinator/engines but never reached the panel/card payload at
         # all — the only way to see them was the raw HA entity/attribute.
         "remote_last_action": coordinator.remote_last_action,
+        # v0.59.0: house-wide auto/manual/mixed — drives the panel's mode bar.
+        "control_mode": control_mode,
+        "manual_rooms": manual_rooms,
         "wind_speed": coordinator.get_wind_speed(),
         "precipitation": coordinator.get_precipitation(),
         "active_issues": active_issues,  # v0.32.0 — status center, see _build_active_issues()
@@ -1550,6 +1683,11 @@ async def ws_update_room_config(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _iso_or_none(value: datetime | None) -> str | None:
+    """ISO 8601 string for an optional datetime (WS payloads are JSON)."""
+    return value.isoformat() if value is not None else None
 
 
 def _get_entry(hass: HomeAssistant) -> Any:

@@ -65,6 +65,9 @@ Off shuts everything down permanently — with the correct fallback per season.
 - **Sync modes** *(v0.9.0)* — optional per-room: `mirror` or `lock` reacts to a manual/external change on a room's write entity (Netatmo app, TRV dial, another automation) — mirror hands control to the existing override switch, lock reverts the change back
 - **Group offset** *(v0.9.0)* — `number.heat_manager_group_offset`, a ±5 °C slider layered non-destructively on every room's target, persists across restarts, auto-resets on boost
 - **Schedule / calendar integration** *(v0.9.0)* — optional per-room: a native `schedule.*` helper or `calendar.*` entity overrides the room's target temperature while a block/event is active
+- **Physical remote control** *(v0.14.0, Matter support v0.58.4)* — three optional `event.*` buttons (e.g. an Aqara Climate Sensor W100 paired via Matter or Zigbee2MQTT): temperature up/down for every room at once (single press ±0.5 °C, double press ±1.0 °C) and an auto/manual toggle. Rooms the remote puts into manual return to automatic on their own after a configurable time (default 2 hours, every press restarts it)
+- **Auto/manual visibility** *(v0.59.0)* — `sensor.heat_manager_control_mode` (auto / manual / mixed) and per-room "manual since/until" with who set it (remote, panel, switch or the radiator itself) in both panel and card
+- **Smart status line** *(v0.60.0)* — one line under the panel header that says what matters most right now in a full sentence, with forecasts (when the coldest room reaches its target, time to night setback), a countdown ring for anything that ends on its own, a 10-second acknowledgement of every remote press (including skipped rooms and why), situation-specific actions (+1 hour, back to auto, hide a warning for an hour) and a fold-out with every warning, a plain-language "why" for each room and the latest events. The Lovelace card has a compact version
 - **Self-reporting diagnostics** *(v0.9.0)* — `blocking_sources` attribute on the controller and every room's state sensor lists exactly what's currently preventing heat (off/paused/window/away)
 
 ---
@@ -165,6 +168,19 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 | `notify_preheat` | bool | true | Notify when pre-heat starts |
 | `energy_tracking` | bool | true | Enable energy waste sensor |
 
+### Remote control (options flow)
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `button_temp_up_entity` | `event.*` | — | Raises every eligible room's setpoint (single press +0.5 °C, double +1.0 °C) |
+| `button_temp_down_entity` | `event.*` | — | Lowers every eligible room's setpoint |
+| `button_mode_toggle_entity` | `event.*` | — | Toggles every eligible room between automatic and manual |
+| `remote_override_duration_min` | int (min) | 120 | Manual rooms set by the remote return to automatic after this long; every press restarts it. 0 = never |
+
+Long presses *(v0.60.0)*: hold temperature up = start boost; hold auto/manual = every room back to automatic, whoever set it manual. Temperature down has no long-press action.
+
+Rooms with an open window or in away mode are never touched by the remote. Accepted press types: `multi_press_1`/`multi_press_2` (Matter) and `single`/`double` or `single_<button>`/`double_<button>` (Zigbee2MQTT). If your buttons don't react, check the raw value in Developer Tools → Template with `{{ state_attr('event.your_button', 'event_type') }}`.
+
 ---
 
 ## Services
@@ -214,7 +230,9 @@ data:
 | `sensor.heat_manager_energy_wasted_today` | Sensor | **on** | kWh wasted today (CO₂ + rain weighted) |
 | `sensor.heat_manager_energy_saved_today` | Sensor | **on** | kWh saved today from away mode |
 | `sensor.heat_manager_efficiency_score` | Sensor | disabled | Daily score 0–100 (DIAGNOSTIC) |
-| `sensor.heat_manager_<room>_state` | Sensor | **on** | normal / window_open / away / pre_heat / override |
+| `sensor.heat_manager_status` | Sensor | **on** | off / paused / window_open / boost / manual / auto — the house's headline status, translated *(v0.60.0)* |
+| `sensor.heat_manager_control_mode` | Sensor | **on** | auto / manual / mixed — attributes list the manual rooms, who set them and when they return to auto *(v0.59.0)* |
+| `sensor.heat_manager_<room>_state` | Sensor | **on** | normal / window_open / away / pre_heat / override — attributes `override_source`, `override_since`, `override_expires_at` |
 | `sensor.heat_manager_<room>_window_duration` | Sensor | disabled | Minutes window open today (DIAGNOSTIC) |
 | `sensor.heat_manager_<room>_pid_power` | Sensor | disabled | PID output 0–100 % — only for rooms with HomeKit entity (DIAGNOSTIC) |
 | `binary_sensor.heat_manager_any_window_open` | Binary | **on** | True when any configured window is open |

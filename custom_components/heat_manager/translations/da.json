@@ -435,12 +435,14 @@
         "data": {
           "button_temp_up_entity": "Knap: temperatur op (valgfri)",
           "button_temp_down_entity": "Knap: temperatur ned (valgfri)",
-          "button_mode_toggle_entity": "Knap: skift auto/manuel (valgfri)"
+          "button_mode_toggle_entity": "Knap: skift auto/manuel (valgfri)",
+          "remote_override_duration_min": "Tilbage til automatik efter (minutter)"
         },
         "data_description": {
           "button_temp_up_entity": "En event.*-entitet der affyres ved knaptryk — fx én knap på en Aqara Climate Sensor W100. Hæver sætpunktet i alle rum (undtagen rum med åbent vindue eller væk-tilstand) og sætter dem på manuel hvis nødvendigt.",
           "button_temp_down_entity": "En event.*-entitet der affyres ved knaptryk. Sænker sætpunktet i alle rum (undtagen rum med åbent vindue eller væk-tilstand) og sætter dem på manuel hvis nødvendigt.",
-          "button_mode_toggle_entity": "En event.*-entitet der affyres ved knaptryk. Skifter alle kvalificerende rum mellem automatisk (schedule/PID) og manuel (override) styring."
+          "button_mode_toggle_entity": "En event.*-entitet der affyres ved knaptryk. Skifter alle kvalificerende rum mellem automatisk (schedule/PID) og manuel (override) styring.",
+          "remote_override_duration_min": "Hvor længe et rum, som fjernbetjeningen har sat på manuel, forbliver manuelt. Hvert tryk starter nedtællingen forfra. 0 = forbliver manuelt, indtil auto/manuel-knappen trykkes."
         }
       }
     },
@@ -455,6 +457,25 @@
   },
   "entity": {
     "sensor": {
+      "house_status": {
+        "name": "Status",
+        "state": {
+          "off": "Varmen slukket",
+          "paused": "På pause",
+          "window_open": "Vindue åbent",
+          "boost": "Boost aktiv",
+          "manual": "Manuel styring",
+          "auto": "Automatisk"
+        }
+      },
+      "control_mode": {
+        "name": "Styringstilstand",
+        "state": {
+          "auto": "Automatisk",
+          "manual": "Manuel",
+          "mixed": "Delvist manuel"
+        }
+      },
       "pause_remaining": {
         "name": "Pause tilbage"
       },

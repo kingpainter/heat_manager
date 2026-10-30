@@ -50,6 +50,10 @@ def _make_coordinator(rooms_cfg: list[dict] | None = None) -> MagicMock:
     coord.boost_remaining_minutes = 0
     coord.boost_active_rooms = {}
     coord.remote_last_action = None
+    # v0.60.0: nothing snoozed unless a test says otherwise.
+    coord.get_issue_snoozed_until = MagicMock(return_value=None)
+    # Heat-up anomaly is a separate category these tests don't exercise.
+    coord.calibration_engine.get_room_heatup_anomaly = MagicMock(return_value=False)
 
     hass = MagicMock()
     hass.states.get = MagicMock(return_value=None)
@@ -244,6 +248,23 @@ def test_recent_remote_action_reported_as_info():
     assert "Bathroom" in issues[0]["message"]
 
 
+def test_bug_b26_remote_rooms_not_repeated_when_description_names_them():
+    """Regression: RemoteButtonEngine's descriptions already list the rooms;
+    the header used to append them a second time."""
+    coord = _make_coordinator()
+    coord.remote_last_action = {
+        "timestamp": (utcnow() - timedelta(minutes=2)).isoformat(),
+        "description": "Remote: +0.5°C — Bathroom → 21.5°C",
+        "rooms": ["Bathroom"],
+    }
+
+    issues = _build_active_issues(coord, [_room_payload("Bathroom")])
+
+    remote = [i for i in issues if i["icon"] == "📡"]
+    assert len(remote) == 1
+    assert remote[0]["message"].count("Bathroom") == 1
+
+
 def test_stale_remote_action_over_30min_not_reported():
     coord = _make_coordinator()
     coord.remote_last_action = {
@@ -281,3 +302,48 @@ def test_issues_sorted_critical_before_warning_before_info():
     assert severities == sorted(severities, key={"critical": 0, "warning": 1, "info": 2}.get)
     assert severities[0] == "critical"
     assert severities[-1] == "info"
+
+
+# ── v0.60.0: issue ids + snooze ──────────────────────────────────────────────
+
+
+def test_issues_carry_stable_ids_including_rooms():
+    coord = _make_coordinator()
+    issues = _build_active_issues(
+        coord,
+        [
+            _room_payload("Kitchen", windows_open=True),
+            _room_payload("Bathroom", windows_open=True, mold_risk=True),
+        ],
+    )
+    ids = {i["id"] for i in issues}
+    assert "window_open:Bathroom,Kitchen" in ids
+    assert "mold_risk:Bathroom" in ids
+    assert all(i["snoozed"] is False for i in issues)
+
+
+def test_snoozed_warning_is_flagged_not_removed():
+    coord = _make_coordinator()
+    until = utcnow() + timedelta(minutes=30)
+    coord.get_issue_snoozed_until = MagicMock(
+        side_effect=lambda issue_id: until if issue_id.startswith("window_open") else None
+    )
+
+    issues = _build_active_issues(coord, [_room_payload("Bathroom", windows_open=True)])
+
+    assert len(issues) == 1
+    assert issues[0]["snoozed"] is True
+    assert issues[0]["snoozed_until"] == until.isoformat()
+
+
+def test_critical_issue_ignores_snooze():
+    coord = _make_coordinator(rooms_cfg=[{"room_name": "Bathroom"}])
+    coord.get_climate_entity = MagicMock(return_value="climate.bathroom")
+    coord.hass.states.get = MagicMock(return_value=_state("unavailable"))
+    coord.get_issue_snoozed_until = MagicMock(return_value=utcnow() + timedelta(hours=1))
+
+    issues = _build_active_issues(coord, [_room_payload("Bathroom")])
+
+    critical = [i for i in issues if i["severity"] == "critical"]
+    assert critical and critical[0]["id"] == "cloud_down"
+    assert critical[0]["snoozed"] is False

@@ -45,6 +45,12 @@ def _make_coordinator(trvs: list[dict] | None = None) -> MagicMock:
     coord.get_room_trvs = MagicMock(
         return_value=trvs if trvs is not None else [{CONF_CLIMATE_ENTITY: "climate.x"}]
     )
+    # 2026-10-30: TRV writes go through async_call_climate_service()
+    # (2026-09-16 audit fix) — without these the mock silently fails every
+    # write and no source is ever recorded.
+    coord.async_call_climate_service = AsyncMock()
+    coord.trv_needs_cloud_delay = MagicMock(return_value=False)
+    coord.async_restore_room_schedule = AsyncMock(return_value="climate.x")
 
     return coord
 
@@ -145,3 +151,33 @@ def test_no_stale_source_is_a_no_op():
     coord.set_room_state("Living room", RoomState.NORMAL)  # must not raise
 
     assert "Living room" not in coord.room_override_source
+
+
+# ── B23: "back to auto" restores the schedule ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_bug_b23_disable_restores_room_schedule():
+    """Regression: enable=False used to only flip the state flag, so a
+    Netatmo TRV left on a manual setpoint by the remote's +/- buttons kept
+    that setpoint after "back to auto"."""
+    coord = _make_coordinator()
+    coord.room_states["Living room"] = RoomState.OVERRIDE
+
+    ok = await coord.async_set_room_override("Living room", False)
+
+    assert ok is True
+    coord.async_restore_room_schedule.assert_awaited_once_with("Living room")
+    assert coord.room_states["Living room"] == RoomState.NORMAL
+
+
+@pytest.mark.asyncio
+async def test_disable_still_returns_to_normal_when_restore_fails():
+    coord = _make_coordinator()
+    coord.room_states["Living room"] = RoomState.OVERRIDE
+    coord.async_restore_room_schedule = AsyncMock(side_effect=RuntimeError("429"))
+
+    ok = await coord.async_set_room_override("Living room", False)
+
+    assert ok is True
+    assert coord.room_states["Living room"] == RoomState.NORMAL

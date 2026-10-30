@@ -210,6 +210,7 @@ class HeatManagerPanel extends HTMLElement {
     if (wasNull) { this._load(); return; }
     if (!this._data) return;
     this._syncFromEntities();
+    this._checkControlModeChange();
     const newCtrl = this._data.controller_state;
     if (newCtrl !== this._lastCtrlState) {
       this._lastCtrlState = newCtrl;
@@ -226,8 +227,8 @@ class HeatManagerPanel extends HTMLElement {
       st.textContent = this._css();
       root.appendChild(st);
     }
-    // v0.32.0: close the status-center detail dropdown on any click outside
-    // it. Bound once here (not in _attachEvents(), which re-runs on every
+    // Root-level listeners (smart status line since v0.60.0; the v0.32
+    // status center before it). Bound once here (not in _attachEvents(), which re-runs on every
     // full render) — shadowRoot persists across renders, so a listener
     // added there would accumulate one extra copy per render instead of
     // being replaced with the old DOM.
@@ -237,11 +238,21 @@ class HeatManagerPanel extends HTMLElement {
     // alongside it.
     if (!this._outsideClickBound) {
       this._outsideClickBound = true;
-      root.addEventListener("click", (e) => {
-        if (this._statusCenterOpen && !e.target.closest?.("#status-center")) {
-          this._statusCenterOpen = false;
-          this._patchStatusCenter();
+      // v0.60.0: keyboard access to the smart line's toggle and "why" rows,
+      // and pausing its rotation while the pointer is over it.
+      root.addEventListener("keydown", (e) => {
+        if ((e.key === "Enter" || e.key === " ") && e.target.closest?.("[data-sl='toggle'], [data-sl-why]")
+            && !e.target.closest?.("[data-sl-act], [data-sl-dot]")) {
+          e.preventDefault();
+          this._onSmartLineClick(e);
         }
+      });
+      root.addEventListener("mouseover", (e) => { this._slHover = !!e.target.closest?.("#smart-line"); });
+      this.addEventListener("mouseleave", () => { this._slHover = false; });
+      root.addEventListener("click", (e) => {
+        // v0.60.0: smart status line — its innerHTML is rebuilt on every
+        // patch, so all of its clicks are delegated from here (bound once).
+        if (e.target.closest?.("#smart-line")) this._onSmartLineClick(e);
         const tappedIcon = e.target.closest?.(".info-icon");
         root.querySelectorAll(".info-icon.open").forEach((icon) => {
           if (icon !== tappedIcon) icon.classList.remove("open");
@@ -272,6 +283,14 @@ class HeatManagerPanel extends HTMLElement {
     clearInterval(this._interval);
     clearInterval(this._pauseTimer);
     clearInterval(this._boostTimer);
+    clearTimeout(this._pulseTimer);
+    this._pulseTimer = null;
+    clearTimeout(this._modeRefreshTimer);
+    this._modeRefreshTimer = null;
+    clearInterval(this._slTimer);
+    this._slTimer = null;
+    clearTimeout(this._slAckTimer);
+    this._slAckTimer = null;
   }
 
   _srAppendHTML(html) {
@@ -516,61 +535,11 @@ class HeatManagerPanel extends HTMLElement {
     return issues.sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3));
   }
 
-  _statusCenterHTML() {
-    return `
-      <div id="status-center" class="status-center ok" data-action="toggle-status-center"
-        role="button" tabindex="0" aria-expanded="false" aria-label="Status, advarsler og fejl">
-        <div class="status-center-main">
-          <span class="status-center-icon">✓</span>
-          <span class="status-center-text">Alt kører normalt</span>
-          <span class="status-center-count" hidden></span>
-        </div>
-        <div id="status-center-detail" class="status-center-detail" hidden></div>
-      </div>`;
-  }
-
-  _statusIssueRowHTML(issue) {
-    return `
-      <div class="status-issue-row sev-${issue.severity}">
-        <span class="status-issue-icon">${issue.icon ?? "•"}</span>
-        <span class="status-issue-text">${this._esc(issue.message)}</span>
-      </div>`;
-  }
-
+  // v0.60.0: the v0.32 status center now lives inside the smart status
+  // line (see _patchSmartLine()) — kept under its old name because both
+  // the full-render path and _patchAll() call it.
   _patchStatusCenter() {
-    const box = this.shadowRoot.querySelector("#status-center");
-    if (!box) return;
-    const issues = this._activeIssues();
-    const hasCritical = issues.some(i => i.severity === "critical");
-    const hasWarning  = issues.some(i => i.severity === "warning");
-
-    box.classList.toggle("ok", issues.length === 0);
-    box.classList.toggle("has-critical", hasCritical);
-    box.classList.toggle("has-warning", !hasCritical && hasWarning);
-    box.classList.toggle("has-info-only", !hasCritical && !hasWarning && issues.length > 0);
-    box.setAttribute("aria-expanded", String(this._statusCenterOpen && issues.length > 0));
-
-    const iconEl  = box.querySelector(".status-center-icon");
-    const textEl  = box.querySelector(".status-center-text");
-    const countEl = box.querySelector(".status-center-count");
-    if (!issues.length) {
-      iconEl.textContent  = "✓";
-      textEl.textContent  = "Alt kører normalt";
-      countEl.hidden = true;
-    } else {
-      iconEl.textContent = issues[0].icon ?? "•";
-      textEl.textContent = issues[0].message;
-      countEl.hidden = issues.length <= 1;
-      if (issues.length > 1) countEl.textContent = `+${issues.length - 1}`;
-    }
-
-    const detail = box.querySelector("#status-center-detail");
-    if (detail) {
-      detail.hidden = !(this._statusCenterOpen && issues.length > 0);
-      if (!detail.hidden) {
-        detail.innerHTML = issues.map(i => this._statusIssueRowHTML(i)).join("");
-      }
-    }
+    this._patchSmartLine();
   }
 
   // Update the version/temp/season line in the header without re-rendering topbar.
@@ -637,7 +606,7 @@ class HeatManagerPanel extends HTMLElement {
       const state   = room.state ?? "normal";
       const color   = this._stateColor(state);
       const grad    = this._stateGradient(state);
-      const label   = this._stateLabel(state, room.override_source);
+      const label   = this._stateLabel(state, room.override_source, false);
       const setpt   = this._roomSetpoint(room);
       const tempStr = room.current_temp != null ? (Math.round(room.current_temp * 10) / 10) + "°C" : "–";
       const battery = room.battery_level != null ? Math.round(room.battery_level) : null;
@@ -651,7 +620,15 @@ class HeatManagerPanel extends HTMLElement {
       // Update card styles
       card.style.background = grad;
       card.style.borderLeftColor = color;
-      card.className = `room-card state-${state}`;
+      card.className = `room-card state-${state}` + (this._remotePulseRooms().has(room.name) ? " remote-pulse" : "");
+
+      // v0.59.0: who holds the room manual, and until when
+      const info = card.querySelector(".room-override-info");
+      if (info) {
+        const txt = this._overrideInfoText(room);
+        info.textContent = txt;
+        info.hidden = !txt;
+      }
 
       // Update pill
       const pill = card.querySelector(".room-state-pill");
@@ -1381,12 +1358,41 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   // State labels & colours — heat semantics
-  // v0.14.0: source param distinguishes who engaged OVERRIDE — "remote"
-  // (RemoteButtonEngine) gets its own badge, "switch"/undefined keeps the
-  // plain "Override" label as before.
-  _stateLabel(s, source) {
-    if (s === "override" && source === "remote") return "📡 Fjernbetjening";
-    return ({ normal:"Normal", away:"Fraværende", window_open:"Vindue åbent", pre_heat:"Forvarmning", override:"Override" })[s] ?? s ?? "–";
+  // v0.59.0: "Normal" → "Auto" and "Override" → "Manuel", so the pill
+  // itself answers "is this room automatic or manual?". withSource adds
+  // who holds it manual (Rum tab); the Oversigt cards show the source on
+  // their own info line instead to keep the pill short.
+  _stateLabel(s, source, withSource = true) {
+    if (s === "override") {
+      const src = withSource ? this._overrideSourceName(source) : null;
+      return src ? `Manuel · ${src}` : "Manuel";
+    }
+    return ({ normal:"Auto", away:"Fraværende", window_open:"Vindue åbent", pre_heat:"Forvarmning" })[s] ?? s ?? "–";
+  }
+  _overrideSourceName(src) {
+    return ({ remote:"Fjernbetjening", panel:"Panel", switch:"Kontakt", trv:"Ventil" })[src] ?? null;
+  }
+  _overrideSourceIcon(src) {
+    return ({ remote:"📡", panel:"🖥", switch:"🔘", trv:"🎚" })[src] ?? "✋";
+  }
+  // "20:42" from an ISO timestamp, in the browser's local time.
+  _hhmm(iso) {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+  // One line under a manual room: who holds it manual and until when.
+  _overrideInfoText(room) {
+    if (room?.state !== "override") return "";
+    const src   = room.override_source;
+    const name  = this._overrideSourceName(src) ?? "Manuel";
+    const until = this._hhmm(room.override_expires_at);
+    const since = this._hhmm(room.override_since);
+    const parts = [`${this._overrideSourceIcon(src)} ${name}`];
+    if (since) parts.push(`siden ${since}`);
+    parts.push(until ? `auto igen kl. ${until}` : "uden udløb");
+    return parts.join(" · ");
   }
   _stateColor(s) {
     return ({ normal:"#f97316", away:"#64748b", window_open:"#ef4444", pre_heat:"#0ea5e9", override:"#a855f7" })[s] ?? "#64748b";
@@ -1753,85 +1759,6 @@ class HeatManagerPanel extends HTMLElement {
       }
       .section-box-body { padding: 14px 16px; }
 
-      /* ── Status center (v0.32.0) ──
-         Replaces the old cloud-chip / health-chip / ws-error-chip /
-         remote-last-action-box quartet with one consolidated header field.
-         Server computes almost everything into active_issues (see
-         _build_active_issues() in websocket.py); the one thing the server
-         genuinely cannot report on itself is its own dead connection, so
-         that one issue is injected client-side in _activeIssues() and
-         merged into the same sorted list before rendering here.
-
-         Deliberately no unconditional display declaration on any element
-         that also gets toggled via [hidden] below (#status-center-count,
-         #status-center-detail) — an earlier generation of these chips had
-         exactly that bug (own display rule always beats the browser's
-         default [hidden] { display:none }, regardless of specificity),
-         which permanently showed empty pills. See
-         audit/heat_manager_status_check_2026-09-11.md for the history;
-         not repeating it here. */
-      .status-center {
-        flex: 1 1 0%; max-width: 50%; min-width: 0;
-        align-self: stretch; min-height: 90%;
-        position: relative;
-        display: flex; flex-direction: column; justify-content: center;
-        padding: 6px 14px;
-        border-radius: 12px;
-        border: 1px solid var(--div);
-        background: var(--bg2);
-        cursor: pointer; font-family: 'DM Sans', sans-serif;
-        transition: background .15s, border-color .15s;
-      }
-      .status-center.ok {
-        border-color: rgba(34,197,94,0.3);
-        background: rgba(34,197,94,0.08);
-      }
-      .status-center.has-info-only {
-        border-color: rgba(148,163,184,0.35);
-        background: rgba(148,163,184,0.08);
-      }
-      .status-center.has-warning {
-        border-color: rgba(234,179,8,0.4);
-        background: rgba(234,179,8,0.12);
-      }
-      .status-center.has-critical {
-        border-color: rgba(239,68,68,0.45);
-        background: rgba(239,68,68,0.15);
-      }
-      .status-center:hover { filter: brightness(1.15); }
-      .status-center-main {
-        display: flex; align-items: center; gap: 8px; min-width: 0;
-      }
-      .status-center-icon { font-size: 14px; flex-shrink: 0; }
-      .status-center-text {
-        font-size: 12px; font-weight: 600; color: var(--fg);
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        flex: 1 1 auto; min-width: 0;
-      }
-      .status-center-count {
-        font-size: 10px; font-weight: 700; color: var(--sub);
-        background: rgba(148,163,184,0.15);
-        border-radius: 10px; padding: 1px 6px; flex-shrink: 0;
-      }
-      .status-center-detail {
-        position: absolute; top: calc(100% + 6px); left: 0; right: 0;
-        z-index: 20; max-height: 260px; overflow-y: auto;
-        background: var(--bg2); border: 1px solid var(--div);
-        border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-        padding: 6px;
-      }
-      .status-issue-row {
-        display: flex; align-items: flex-start; gap: 8px;
-        padding: 7px 8px; border-radius: 8px; font-size: 12px;
-        cursor: default; text-align: left;
-      }
-      .status-issue-row + .status-issue-row { margin-top: 2px; }
-      .status-issue-icon { flex-shrink: 0; }
-      .status-issue-text { color: var(--fg); line-height: 1.35; }
-      .status-issue-row.sev-critical { background: rgba(239,68,68,0.12); }
-      .status-issue-row.sev-warning  { background: rgba(234,179,8,0.1); }
-      .status-issue-row.sev-info     { background: rgba(148,163,184,0.08); }
-
       /* Manual TRV control */
       .room-manual {
         padding: 10px 16px 12px;
@@ -2052,6 +1979,129 @@ class HeatManagerPanel extends HTMLElement {
         font-size: 9px; font-weight: 700;
         padding: 2px 6px; border-radius: 5px; margin-top: 5px;
         background: rgba(148,163,184,0.12);
+      }
+      /* ── v0.60.0: smart status line (replaces status center + mode bar) ──
+         One tone per state; every tone sets --sl (accent) and --sl-rgb. */
+      .sl {
+        --sl: #10b981; --sl-rgb: 16,185,129;
+        position: relative;
+        margin-top: 12px; border-radius: 14px;
+        border: 1px solid rgba(var(--sl-rgb),0.45);
+        background: linear-gradient(135deg, rgba(var(--sl-rgb),0.16) 0%, rgba(var(--sl-rgb),0.04) 100%);
+        transition: background .35s, border-color .35s;
+      }
+      .sl.tone-manual   { --sl: #c084fc; --sl-rgb: 168,85,247; }
+      .sl.tone-warning  { --sl: #f59e0b; --sl-rgb: 245,158,11; }
+      .sl.tone-critical { --sl: #f87171; --sl-rgb: 239,68,68; }
+      .sl.tone-ack      { --sl: #38bdf8; --sl-rgb: 14,165,233; }
+      .sl.tone-pause    { --sl: #facc15; --sl-rgb: 234,179,8; }
+      .sl.tone-off      { --sl: #94a3b8; --sl-rgb: 148,163,184; }
+      .sl.ack { animation: hm-remote-pulse 1.2s ease-out 2; }
+      .sl-main {
+        display: flex; align-items: center; gap: 12px;
+        padding: 9px 12px; cursor: pointer; border-radius: 14px;
+      }
+      .sl-main:focus-visible { outline: 2px solid var(--sl); outline-offset: 2px; }
+      .sl-tile {
+        position: relative; flex: 0 0 44px; width: 44px; height: 44px;
+        border-radius: 12px; display: flex; align-items: center; justify-content: center;
+        background: rgba(var(--sl-rgb),0.16); color: var(--sl); font-size: 19px;
+      }
+      .sl-ring { position: absolute; inset: 0; width: 44px; height: 44px; }
+      .sl-ring-track { stroke: rgba(var(--sl-rgb),0.25); }
+      .sl-ring-fill { stroke: var(--sl); transition: stroke-dashoffset .6s ease; }
+      .sl-icon { position: relative; line-height: 1; }
+      .sl-body { flex: 1 1 auto; min-width: 0; animation: sl-in .35s ease; }
+      @keyframes sl-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+      .sl-title {
+        font-size: 15px; font-weight: 600; color: var(--sl); line-height: 1.3;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .sl.tone-ok .sl-title { color: var(--text); }
+      .sl-sub {
+        display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 3px;
+        font-size: 12px; color: var(--sub); line-height: 1.4;
+      }
+      .sl-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+      .sl-btn {
+        font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+        padding: 6px 12px; border-radius: 20px;
+        background: var(--bg2); color: var(--sl);
+        border: 1px solid rgba(var(--sl-rgb),0.45);
+        transition: background .15s;
+      }
+      .sl-btn:hover { background: rgba(var(--sl-rgb),0.18); }
+      .sl-btn.act-release { color: var(--green); border-color: rgba(16,185,129,0.5); }
+      .sl-btn.small { padding: 3px 10px; font-size: 11px; color: var(--sub); border-color: var(--div); }
+      .sl-dots { display: flex; gap: 5px; padding: 0 2px; }
+      .sl-dot {
+        width: 7px; height: 7px; padding: 0; border-radius: 50%; border: none; cursor: pointer;
+        background: rgba(148,163,184,0.35);
+      }
+      .sl-dot.on { background: var(--sl); }
+      .sl-chev { display: flex; align-items: center; gap: 6px; color: var(--sub); font-size: 12px; }
+      .sl-badge {
+        font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px;
+        background: rgba(245,158,11,0.2); color: #f59e0b;
+      }
+      /* Folds out OVER the page (like the v0.32 dropdown did) so the tabs
+         and the scroll area below never jump when it opens. */
+      .sl-detail {
+        position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 30;
+        max-height: min(70vh, 640px); overflow-y: auto;
+        background: var(--bg2); border: 1px solid rgba(var(--sl-rgb),0.45);
+        border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+        padding: 8px 16px 14px;
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 4px 28px;
+      }
+      .sl-detail[hidden] { display: none; }
+      .sl-sec-title {
+        font-size: 11px; font-weight: 700; color: var(--sub);
+        text-transform: uppercase; letter-spacing: .08em; margin: 8px 0 4px;
+      }
+      .sl-sec-hint { font-weight: 400; text-transform: none; letter-spacing: 0; opacity: .7; margin-left: 6px; }
+      .sl-row {
+        display: flex; align-items: center; gap: 8px; font-size: 12px;
+        padding: 6px 0; border-top: 1px solid var(--div);
+      }
+      .sl-row-icon { flex-shrink: 0; width: 18px; text-align: center; }
+      .sl-row-text { flex: 1 1 auto; min-width: 0; color: var(--text); line-height: 1.35; }
+      .sl-row-meta { color: var(--sub); white-space: nowrap; font-family: 'DM Mono', monospace; font-size: 11px; }
+      .sl-row.sev-critical .sl-row-text { color: #f87171; }
+      .sl-row.sev-warning .sl-row-text  { color: #f59e0b; }
+      .sl-row.snoozed { opacity: .55; }
+      .sl-time { min-width: 38px; }
+      .sl-empty { font-size: 12px; color: var(--sub); padding: 6px 0; border-top: 1px solid var(--div); }
+      .sl-why { padding: 6px 0; border-top: 1px solid var(--div); cursor: pointer; font-size: 12px; }
+      .sl-why-head { display: flex; gap: 10px; align-items: baseline; }
+      .sl-why-name { font-weight: 600; color: var(--text); min-width: 90px; }
+      .sl-why-short { color: var(--sub); }
+      .sl-why.tone-manual .sl-why-short  { color: #c084fc; }
+      .sl-why.tone-warning .sl-why-short { color: #f59e0b; }
+      .sl-why.tone-info .sl-why-short    { color: #38bdf8; }
+      .sl-why-long { margin: 5px 0 2px 100px; color: var(--sub); line-height: 1.45; }
+      .room-card.remote-pulse { animation: hm-remote-pulse 1.2s ease-out 3; }
+      @keyframes hm-remote-pulse {
+        0%   { box-shadow: 0 0 0 0 rgba(14,165,233,0.55); }
+        100% { box-shadow: 0 0 0 10px rgba(14,165,233,0); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .sl.ack, .room-card.remote-pulse, .sl-body { animation: none; }
+        .room-card.remote-pulse { outline: 2px solid var(--teal); }
+      }
+      .room-override-info {
+        font-size: 11px; font-weight: 600; color: #c084fc;
+        margin: 2px 0 6px; line-height: 1.35;
+      }
+      .room-override-info[hidden] { display: none; }
+      @media (max-width: 600px) {
+        .sl-main { flex-wrap: wrap; }
+        .sl-body { flex-basis: calc(100% - 60px); }
+        .sl-title { white-space: normal; }
+        .sl-actions { width: 100%; justify-content: flex-start; padding-left: 56px; }
+        .sl-why-long { margin-left: 0; }
+        .sl-chev { position: absolute; top: 14px; right: 12px; }
+        .sl-body { padding-right: 18px; }
       }
       .room-boost-badge {
         display: inline-flex; align-items: center; gap: 3px;
@@ -2415,7 +2465,6 @@ class HeatManagerPanel extends HTMLElement {
           <h1>Heat Manager</h1>
           <div class="version">${otemp}${season}${wxIcons ? " · " + wxIcons : ""}</div>
         </div>
-        ${this._statusCenterHTML()}
         <div id="topbar-badge" class="topbar-badge"
           style="background:${bc.bg};color:${bc.color};border-color:${bc.border}">
           <div class="badge-dot" style="background:${bc.color}"></div>
@@ -2424,6 +2473,7 @@ class HeatManagerPanel extends HTMLElement {
         <button class="header-refresh" data-action="refresh">↻ Opdater</button>
         <div class="app-version" title="Heat Manager integration version">v${this._esc(d?.version ?? "–")}</div>
       </div>
+      ${this._smartLineHTML()}
       <div class="tabs" role="tablist">${[
         { id:"overview", label:"Oversigt"  },
         { id:"rooms",    label:"Rum"       },
@@ -2542,12 +2592,501 @@ class HeatManagerPanel extends HTMLElement {
       </div>`;
   }
 
+  // ── v0.60.0: smart status line ───────────────────────────────────────────
+  //
+  // One line under the header replaces both the v0.32 status center and the
+  // v0.59 mode bar. It always shows the single most important thing right
+  // now as a plain-language sentence, with a tile (icon, or a countdown ring
+  // when something will end on its own), a sub-line with context and
+  // forecasts, and the actions that make sense for exactly that situation.
+  // Several things at once → the line rotates every 6 s (paused on hover);
+  // critical problems are pinned and never rotate away. A remote press is
+  // acknowledged for 10 s with what was done and which rooms were skipped.
+  // Clicking the line folds out everything: manual rooms, warnings (with
+  // "hide for 1 hour"), a plain-language "why" for every room, and the
+  // latest events.
+
+  _smartLineHTML() {
+    return `
+      <div id="smart-line" class="sl tone-ok">
+        <div class="sl-main" data-sl="toggle" role="button" tabindex="0" aria-expanded="false" aria-live="polite"></div>
+        <div class="sl-detail" hidden></div>
+      </div>`;
+  }
+
+  // "1 t 22 min" / "22 min" / "under 1 min"
+  _durText(ms) {
+    const min = Math.max(0, Math.round(ms / 60000));
+    if (min < 1) return "under 1 min";
+    const h = Math.floor(min / 60), m = min % 60;
+    return h ? (m ? `${h} t ${m} min` : `${h} t`) : `${m} min`;
+  }
+
+  _fmtTemp(v) {
+    return v == null || isNaN(v) ? "–" : `${(Math.round(v * 10) / 10).toString().replace(".", ",")}°`;
+  }
+
+  // Forecast for the room furthest from its target that is still heating:
+  // learned heat-up rate (°C/h, CalibrationEngine) → "Stue når 21,5° ca. kl. 19:40".
+  _heatupForecast() {
+    let best = null;
+    for (const r of this._data?.rooms ?? []) {
+      if (!r.climate_entity || r.state !== "normal") continue;
+      const cur = r.current_temp, tgt = r.target_temp;
+      if (cur == null || tgt == null || tgt - cur < 0.3) continue;
+      const rate = r.heatup_rate_door_closed ?? r.heatup_rate_door_open;
+      if (!rate || rate <= 0) continue;
+      const etaMs = ((tgt - cur) / rate) * 3600000;
+      if (etaMs > 12 * 3600000) continue;
+      if (!best || etaMs > best.etaMs) best = { room: r, etaMs };
+    }
+    if (!best) return null;
+    const at = new Date(Date.now() + best.etaMs);
+    return `${best.room.name} når ${this._fmtTemp(best.room.target_temp)} ca. kl. ${this._hhmm(at.toISOString())}`;
+  }
+
+  // "Natsænkning om 3 t 40 min" / "Natsænkning til kl. 07:00" (within 12 h).
+  _nightSetbackText() {
+    const cfg = this._data?.config ?? {};
+    if (!cfg.night_setback_enabled) return null;
+    const start = Number(cfg.night_start_hour), end = Number(cfg.night_end_hour);
+    if (isNaN(start) || isNaN(end)) return null;
+    const now = new Date();
+    const h = now.getHours() + now.getMinutes() / 60;
+    const inNight = start > end ? (h >= start || h < end) : (h >= start && h < end);
+    if (inNight) return `Natsænkning til kl. ${String(end).padStart(2, "0")}:00`;
+    const next = new Date(now);
+    next.setHours(start, 0, 0, 0);
+    if (next <= now) next.setDate(next.getDate() + 1);
+    const ms = next - now;
+    return ms <= 12 * 3600000 ? `Natsænkning om ${this._durText(ms)}` : null;
+  }
+
+  _roomStateWord(state) {
+    return ({ window_open: "vindue åbent", away: "fraværende", pre_heat: "forvarmning" })[state] ?? state;
+  }
+
+  // Plain-language "why" for one room — short line + longer explanation.
+  _roomWhy(room) {
+    const st = room.state ?? "normal";
+    const blocking = room.blocking_sources ?? [];
+    const cur = room.current_temp, tgt = room.target_temp;
+    const temps = `${this._fmtTemp(cur)} → ${this._fmtTemp(tgt)}`;
+    const valve = room.valve_position != null ? Math.round(room.valve_position) : null;
+    const facts = [];
+    if (cur != null) facts.push(`rum ${this._fmtTemp(cur)}`);
+    if (tgt != null) facts.push(`mål ${this._fmtTemp(tgt)}`);
+    if (valve != null) facts.push(`ventil ${valve}%`);
+    if (room.pid_power != null) facts.push(`PID ${Math.round(room.pid_power)}%`);
+    const factLine = facts.join(" · ");
+    if (!room.climate_entity) {
+      return { tone: "muted", short: "Kun måling — ingen radiator styres her", long: "Rummet har ingen termostat i Heat Manager, så det måles kun." };
+    }
+    if (blocking.includes("controller_off")) {
+      return { tone: "muted", short: "Varmen er slukket for hele huset", long: `Controlleren står på Sluk. ${factLine}` };
+    }
+    if (blocking.includes("controller_pause")) {
+      return { tone: "muted", short: "Hele huset er på pause", long: `Controlleren står på Pause og fortsætter af sig selv. ${factLine}` };
+    }
+    if (st === "window_open") {
+      return { tone: "warning", short: "Varmen sænket — vindue åbent", long: `Et vindue er åbent, så varmen er sænket. Den kommer igen, når vinduet har været lukket i den indstillede forsinkelse. ${factLine}` };
+    }
+    if (st === "away") {
+      return { tone: "muted", short: "Fraværstemperatur — ingen hjemme", long: `Alle er væk, så rummet holdes på fraværstemperatur. Det varmes op igen, når nogen kommer hjem. ${factLine}` };
+    }
+    if (st === "pre_heat") {
+      return { tone: "info", short: "Forvarmer — nogen er på vej hjem", long: `Rummet varmes op før ankomst ud fra rejsetiden hjem. ${factLine}` };
+    }
+    if (st === "override") {
+      const src = this._overrideSourceName(room.override_source) ?? "manuel ændring";
+      const until = this._hhmm(room.override_expires_at);
+      return { tone: "manual", short: `Manuel via ${src.toLowerCase()} — ${until ? `auto igen kl. ${until}` : "uden udløb"}`, long: `Automatikken styrer ikke rummet lige nu, fordi det er sat manuelt via ${src.toLowerCase()}. ${until ? `Det går selv tilbage til automatik kl. ${until}.` : "Det bliver manuelt, indtil nogen sætter det tilbage."} ${factLine}` };
+    }
+    if (room.boost_active) {
+      return { tone: "info", short: "Boost — kører på boost-temperatur", long: `Boost er aktivt og stopper af sig selv. ${factLine}` };
+    }
+    if (cur != null && tgt != null && tgt - cur >= 0.3) {
+      const rate = room.heatup_rate_door_closed ?? room.heatup_rate_door_open;
+      const eta = rate > 0 ? ` · ca. kl. ${this._hhmm(new Date(Date.now() + ((tgt - cur) / rate) * 3600000).toISOString())}` : "";
+      return { tone: "ok", short: `Varmer op: ${temps}${eta}`, long: `Rummet er under målet, så radiatoren åbner. ${factLine}` };
+    }
+    if (cur != null && tgt != null && cur - tgt >= 0.5) {
+      return { tone: "ok", short: `Over mål (${temps}) — radiatoren holder igen`, long: `Rummet er varmere end målet, så der varmes ikke lige nu. ${factLine}` };
+    }
+    return { tone: "ok", short: `På mål: ${this._fmtTemp(cur ?? tgt)}`, long: `Rummet holder sin temperatur. ${factLine}` };
+  }
+
+  // Acknowledgement of a remote press within the last 10 s, or null.
+  _remoteAckMessage() {
+    const age = this._remoteActionAgeMs();
+    const rla = this._data?.remote_last_action;
+    if (age == null || age >= 10000 || !rla) return null;
+    const n = rla.rooms?.length ?? 0;
+    const roomsTxt = `${n} rum`;
+    const d = rla.delta != null ? `${rla.delta > 0 ? "+" : "−"}${String(Math.abs(rla.delta)).replace(".", ",")}°` : null;
+    const title = ({
+      temp_up:   `${d ?? "Op"} modtaget · sendt til ${roomsTxt}`,
+      temp_down: `${d ?? "Ned"} modtaget · sendt til ${roomsTxt}`,
+      manual:    `Manuel styring slået til i ${roomsTxt}`,
+      auto:      `Automatik slået til igen i ${roomsTxt}`,
+      boost:     `Boost startet i ${roomsTxt}`,
+      release:   `Alle rum tilbage på automatik (${roomsTxt})`,
+    })[rla.action] ?? "Fjernbetjening modtaget";
+    const subs = [`📡 Fjernbetjening · kl. ${this._hhmm(rla.timestamp)}`];
+    const skipped = Object.entries(rla.skipped ?? {});
+    if (skipped.length) {
+      subs.push(`Sprunget over: ${skipped.map(([room, st]) => `${room} (${this._roomStateWord(st)})`).join(", ")}`);
+    }
+    return { key: `ack:${rla.timestamp}`, tone: "ack", icon: "✓", title, subs, actions: [] };
+  }
+
+  // Every message that could be shown, most important first.
+  _smartMessages() {
+    const d = this._data ?? {};
+    const rooms = d.rooms ?? [];
+    const issues = this._activeIssues();
+    const msgs = [];
+    const issueSubs = (issue) => {
+      const subs = [];
+      if (issue.id?.startsWith("window_open")) {
+        const lowered = rooms.filter(r => r.state === "window_open").map(r => r.name);
+        if (lowered.length) subs.push(`Varmen er sænket i ${lowered.join(", ")}`);
+        else subs.push("Varmen sænkes, hvis det bliver ved");
+      } else if (issue.id?.startsWith("mold_risk")) {
+        subs.push("Luft ud i 5–10 min og hold temperaturen jævn");
+      } else if (issue.id?.startsWith("heatup_anomaly")) {
+        subs.push("Tjek at ventilen ikke sidder fast");
+      } else if (issue.id?.startsWith("cloud")) {
+        subs.push("Rum med lokal (HomeKit/Zigbee) styring kører videre");
+      } else if (issue.id?.startsWith("entities_unavailable")) {
+        subs.push("Se rummets sensorer under Rum-fanen");
+      }
+      return subs;
+    };
+
+    for (const issue of issues.filter(i => i.severity === "critical")) {
+      msgs.push({ key: `issue:${issue.id ?? issue.message}`, tone: "critical", icon: issue.icon ?? "!", title: issue.message, subs: issueSubs(issue), actions: [], pinned: true });
+    }
+
+    const ctrl = d.controller_state;
+    if (ctrl === "off") {
+      msgs.push({ key: "ctrl:off", tone: "off", icon: "⏻", title: "Varmen er slukket for hele huset", subs: ["Tænd under Controller for at starte automatikken igen"], actions: [] });
+    } else if (ctrl === "pause") {
+      const left = d.pause_remaining ?? 0;
+      msgs.push({ key: "ctrl:pause", tone: "pause", icon: "⏸", title: `Varmen er sat på pause${left ? ` · ${this._durText(left * 60000)} tilbage` : ""}`, subs: ["Fortsætter af sig selv bagefter"], actions: [] });
+    }
+
+    for (const issue of issues.filter(i => i.severity === "warning" && !i.snoozed)) {
+      msgs.push({ key: `issue:${issue.id ?? issue.message}`, tone: "warning", icon: issue.icon ?? "!", title: issue.message, subs: issueSubs(issue), actions: issue.id ? [{ act: "snooze", id: issue.id, label: "🔕 Skjul 1 t" }] : [] });
+    }
+
+    const manual = rooms.filter(r => r.state === "override");
+    if (manual.length) {
+      const controllable = rooms.filter(r => r.climate_entity).length || rooms.length;
+      const exp = manual.map(r => r.override_expires_at ? Date.parse(r.override_expires_at) : NaN);
+      const allExp = exp.every(t => !isNaN(t));
+      const last = allExp ? Math.max(...exp) : NaN;
+      const countTxt = manual.length >= controllable ? "Manuel i alle rum" : `Manuel i ${manual.length} af ${controllable} rum`;
+      const title = allExp ? `${countTxt} · auto igen om ${this._durText(last - Date.now())}` : `${countTxt} · uden udløb`;
+      const sources = [...new Set(manual.map(r => r.override_source))];
+      const since = manual.map(r => r.override_since ? Date.parse(r.override_since) : NaN).filter(t => !isNaN(t));
+      const firstSince = since.length ? Math.min(...since) : NaN;
+      const srcTxt = sources.map(s => (this._overrideSourceName(s) ?? "manuel ændring").toLowerCase()).join(" og ");
+      const subs = [manual.map(r => r.name).join(", "), `sat via ${srcTxt}${!isNaN(firstSince) ? ` kl. ${this._hhmm(new Date(firstSince).toISOString())}` : ""}`];
+      let ring = null;
+      if (allExp && !isNaN(firstSince) && last > firstSince) {
+        ring = Math.min(1, Math.max(0, (last - Date.now()) / (last - firstSince)));
+      }
+      const actions = [];
+      if (exp.some(t => !isNaN(t))) actions.push({ act: "extend", label: "+1 time" });
+      actions.push({ act: "release", label: "Auto nu" });
+      msgs.push({ key: "manual", tone: "manual", icon: this._overrideSourceIcon(sources.length === 1 ? sources[0] : null), title, subs, actions, ring });
+    }
+
+    const boostLeft = d.boost_remaining_minutes ?? 0;
+    if (boostLeft > 0) {
+      const total = Number(d.config?.boost_default_minutes) || 0;
+      const boosted = rooms.filter(r => r.boost_active).map(r => r.name);
+      msgs.push({ key: "boost", tone: "ack", icon: "⚡", title: `Boost aktivt · ${this._durText(boostLeft * 60000)} tilbage`, subs: boosted.length ? [boosted.join(", ")] : [], actions: [], ring: total > 0 ? Math.min(1, boostLeft / total) : null });
+    }
+
+    if (!msgs.length) {
+      const heating = rooms.filter(r => r.climate_entity && r.valve_position != null && r.valve_position > 0).length;
+      const subs = [];
+      const fc = this._heatupForecast();
+      if (fc) subs.push(`🕒 ${fc}`);
+      const night = this._nightSetbackText();
+      if (night) subs.push(`🌙 ${night}`);
+      if (d.outdoor_temp != null) subs.push(`🌡 Ude ${this._fmtTemp(d.outdoor_temp)}`);
+      msgs.push({ key: "ok", tone: "ok", icon: "✓", title: heating ? `Alt kører automatisk · ${heating} rum varmer op` : "Alt kører automatisk · alle rum er på mål", subs, actions: [] });
+    }
+    return msgs;
+  }
+
+  _slRingSVG(fraction, tone) {
+    const c = 119.38;
+    const off = (c * (1 - fraction)).toFixed(1);
+    return `<svg class="sl-ring" viewBox="0 0 44 44" aria-hidden="true">
+      <circle cx="22" cy="22" r="19" fill="none" class="sl-ring-track" stroke-width="3"/>
+      <circle cx="22" cy="22" r="19" fill="none" class="sl-ring-fill tone-${tone}" stroke-width="3" stroke-linecap="round"
+        stroke-dasharray="${c}" stroke-dashoffset="${off}" transform="rotate(-90 22 22)"/>
+    </svg>`;
+  }
+
+  _patchSmartLine() {
+    const box = this.shadowRoot.querySelector("#smart-line");
+    if (!box) return;
+    const ack = this._remoteAckMessage();
+    const msgs = this._smartMessages();
+    const pinned = msgs.filter(m => m.pinned);
+    const pool = ack ? [ack] : (pinned.length ? pinned : msgs);
+    const sig = pool.map(m => m.key).join("|");
+    if (sig !== this._slSig) { this._slSig = sig; this._slIndex = 0; }
+    if (this._slIndex >= pool.length) this._slIndex = 0;
+    const m = pool[this._slIndex];
+
+    box.className = `sl tone-${m.tone}${this._slOpen ? " open" : ""}${ack ? " ack" : ""}`;
+    const main = box.querySelector(".sl-main");
+    main.setAttribute("aria-expanded", String(!!this._slOpen));
+    const tile = `<div class="sl-tile">${m.ring != null ? this._slRingSVG(m.ring, m.tone) : ""}<span class="sl-icon">${this._esc(m.icon)}</span></div>`;
+    const subs = m.subs?.length ? `<div class="sl-sub">${m.subs.map(s => `<span>${this._esc(s)}</span>`).join("")}</div>` : "";
+    const actions = (m.actions ?? []).map(a =>
+      `<button class="sl-btn act-${a.act}" data-sl-act="${a.act}"${a.id ? ` data-sl-id="${this._esc(a.id)}"` : ""}>${this._esc(a.label)}</button>`).join("");
+    const dots = pool.length > 1
+      ? `<div class="sl-dots">${pool.map((_, i) => `<button class="sl-dot${i === this._slIndex ? " on" : ""}" data-sl-dot="${i}" aria-label="Besked ${i + 1} af ${pool.length}"></button>`).join("")}</div>`
+      : "";
+    const others = this._activeIssues().filter(i => i.severity !== "info").length;
+    main.innerHTML = `${tile}
+      <div class="sl-body"><div class="sl-title">${this._esc(m.title)}</div>${subs}</div>
+      ${actions ? `<div class="sl-actions">${actions}</div>` : ""}
+      ${dots}
+      <span class="sl-chev" aria-hidden="true">${others && !this._slOpen ? `<span class="sl-badge">${others}</span>` : ""}${this._slOpen ? "▴" : "▾"}</span>`;
+
+    const detail = box.querySelector(".sl-detail");
+    detail.hidden = !this._slOpen;
+    if (this._slOpen) detail.innerHTML = this._smartDetailHTML();
+
+    this._startSmartRotation(pool.length > 1 && !ack);
+    if (ack) this._scheduleAckEnd();
+  }
+
+  _smartDetailHTML() {
+    const d = this._data ?? {};
+    const rooms = d.rooms ?? [];
+    const sections = [];
+
+    const manual = rooms.filter(r => r.state === "override");
+    if (manual.length) {
+      sections.push(`<div class="sl-sec"><div class="sl-sec-title">Styring</div>${manual.map(r => {
+        const since = this._hhmm(r.override_since), until = this._hhmm(r.override_expires_at);
+        return `<div class="sl-row"><span class="sl-row-icon">${this._overrideSourceIcon(r.override_source)}</span>
+          <span class="sl-row-text">${this._esc(r.name)} · ${this._esc((this._overrideSourceName(r.override_source) ?? "manuel ændring").toLowerCase())}</span>
+          <span class="sl-row-meta">${since ? `siden ${since} · ` : ""}${until ? `auto ${until}` : "uden udløb"}</span></div>`;
+      }).join("")}</div>`);
+    }
+
+    const issues = this._activeIssues().filter(i => i.severity !== "info");
+    sections.push(`<div class="sl-sec"><div class="sl-sec-title">Advarsler</div>${issues.length ? issues.map(i => `
+      <div class="sl-row sev-${i.severity}${i.snoozed ? " snoozed" : ""}">
+        <span class="sl-row-icon">${this._esc(i.icon ?? "!")}</span>
+        <span class="sl-row-text">${this._esc(i.message)}</span>
+        ${i.snoozed
+          ? `<span class="sl-row-meta">skjult til ${this._hhmm(i.snoozed_until) ?? ""}</span><button class="sl-btn small" data-sl-act="unsnooze" data-sl-id="${this._esc(i.id)}">Vis</button>`
+          : (i.severity === "warning" && i.id ? `<button class="sl-btn small" data-sl-act="snooze" data-sl-id="${this._esc(i.id)}">Skjul 1 t</button>` : "")}
+      </div>`).join("") : `<div class="sl-empty">Ingen advarsler 🎉</div>`}</div>`);
+
+    sections.push(`<div class="sl-sec"><div class="sl-sec-title">Hvorfor — rum for rum <span class="sl-sec-hint">klik for detaljer</span></div>${rooms.map(r => {
+      const why = this._roomWhy(r);
+      const open = this._slWhyOpen?.has(r.name);
+      return `<div class="sl-why tone-${why.tone}${open ? " open" : ""}" data-sl-why="${this._esc(r.name)}" role="button" tabindex="0" aria-expanded="${open}">
+        <div class="sl-why-head"><span class="sl-why-name">${this._esc(r.name)}</span><span class="sl-why-short">${this._esc(why.short)}</span></div>
+        ${open ? `<div class="sl-why-long">${this._esc(why.long)}</div>` : ""}
+      </div>`;
+    }).join("")}</div>`);
+
+    const events = (this._slEvents ?? []).slice(0, 5);
+    sections.push(`<div class="sl-sec"><div class="sl-sec-title">Seneste</div>${events.length ? events.map(e => `
+      <div class="sl-row"><span class="sl-row-meta sl-time">${this._esc(e.time ?? "")}</span><span class="sl-row-text">${this._esc(e.description ?? "")}</span></div>`).join("")
+      : `<div class="sl-empty">${this._slEventsLoading ? "Henter…" : "Ingen hændelser endnu"}</div>`}</div>`);
+
+    return sections.join("");
+  }
+
+  async _loadSmartEvents() {
+    if (this._slEventsLoading) return;
+    if (this._slEventsAt && Date.now() - this._slEventsAt < 60000) return;
+    this._slEventsLoading = true;
+    try {
+      const res = await this._hass.callWS({ type: "heat_manager/get_history", days: 1 });
+      const events = (res?.events ?? []).slice();
+      events.sort((a, b) => (Date.parse(b.timestamp) || 0) - (Date.parse(a.timestamp) || 0));
+      this._slEvents = events;
+      this._slEventsAt = Date.now();
+    } catch (e) {
+      this._slEvents = this._slEvents ?? [];
+    } finally {
+      this._slEventsLoading = false;
+    }
+    this._patchSmartLine();
+  }
+
+  _startSmartRotation(enabled) {
+    if (!enabled) {
+      clearInterval(this._slTimer);
+      this._slTimer = null;
+      return;
+    }
+    if (this._slTimer) return;
+    this._slTimer = setInterval(() => {
+      if (this._slHover || this._slOpen) return;
+      this._slIndex = (this._slIndex ?? 0) + 1;
+      this._patchSmartLine();
+    }, 6000);
+  }
+
+  _scheduleAckEnd() {
+    if (this._slAckTimer) return;
+    const remaining = 10000 - (this._remoteActionAgeMs() ?? 10000) + 200;
+    this._slAckTimer = setTimeout(() => {
+      this._slAckTimer = null;
+      this._patchSmartLine();
+    }, Math.max(remaining, 200));
+  }
+
+  // Delegated clicks on the smart line — bound once in connectedCallback,
+  // since the line's innerHTML is rebuilt on every patch.
+  async _onSmartLineClick(e) {
+    const actBtn = e.target.closest?.("[data-sl-act]");
+    if (actBtn) {
+      e.stopPropagation();
+      const act = actBtn.dataset.slAct, id = actBtn.dataset.slId;
+      try {
+        if (act === "release") {
+          await this._releaseOverrides();
+          return;
+        }
+        if (act === "extend") {
+          const res = await this._hass.callWS({ type: "heat_manager/extend_overrides", minutes: 60 });
+          this._showToast(res?.rooms_extended?.length ? "Manuel styring forlænget med 1 time" : "Intet at forlænge", "success");
+        } else if (act === "snooze" || act === "unsnooze") {
+          await this._hass.callWS({ type: "heat_manager/snooze_issue", issue_id: id, minutes: act === "snooze" ? 60 : 0 });
+          this._showToast(act === "snooze" ? "Skjult i 1 time" : "Vises igen", "success");
+        }
+      } catch (err) {
+        this._showToast("Det lykkedes ikke — prøv igen", "error");
+      }
+      this._load();
+      return;
+    }
+    const dot = e.target.closest?.("[data-sl-dot]");
+    if (dot) {
+      e.stopPropagation();
+      this._slIndex = Number(dot.dataset.slDot) || 0;
+      this._patchSmartLine();
+      return;
+    }
+    const why = e.target.closest?.("[data-sl-why]");
+    if (why) {
+      this._slWhyOpen = this._slWhyOpen ?? new Set();
+      const name = why.dataset.slWhy;
+      if (this._slWhyOpen.has(name)) this._slWhyOpen.delete(name); else this._slWhyOpen.add(name);
+      this._patchSmartLine();
+      return;
+    }
+    if (e.target.closest?.("[data-sl='toggle']")) {
+      this._slOpen = !this._slOpen;
+      this._patchSmartLine();
+      if (this._slOpen) this._loadSmartEvents();
+    }
+  }
+
+  // Age of the remote's last action in ms, or null. Allows a little clock
+  // skew between HA and the browser.
+  _remoteActionAgeMs() {
+    const ts = this._data?.remote_last_action?.timestamp;
+    const t = ts ? Date.parse(ts) : NaN;
+    if (isNaN(t)) return null;
+    const age = Date.now() - t;
+    return age > -60000 ? Math.max(age, 0) : null;
+  }
+
+  _remotePulseActive() {
+    const age = this._remoteActionAgeMs();
+    return age != null && age < 15000;
+  }
+
+  _remotePulseRooms() {
+    if (!this._remotePulseActive()) return new Set();
+    return new Set(this._data?.remote_last_action?.rooms ?? []);
+  }
+
+  // Re-patch once the pulse window has passed so the room highlight goes
+  // away without waiting for the next 60 s poll.
+  _schedulePulseEnd() {
+    if (this._pulseTimer || !this._remotePulseActive()) return;
+    const remaining = 15000 - (this._remoteActionAgeMs() ?? 15000) + 250;
+    this._pulseTimer = setTimeout(() => {
+      this._pulseTimer = null;
+      this._patchSmartLine();
+      this._patchRooms();
+    }, Math.max(remaining, 250));
+  }
+
+  // set hass() runs on every HA state change; the Hub "Control mode" and
+  // "Status" sensors change whenever a room enters/leaves manual, a window
+  // opens, boost/pause starts or the remote acts. Re-fetch right away
+  // (debounced) instead of waiting up to 60 s for the next poll.
+  _checkControlModeChange() {
+    const states = this._hass?.states ?? {};
+    // Look the entities up once they exist; while they don't (hass not set
+    // yet, or an older backend without them) retry at most every 30 s
+    // rather than scanning every state on every hass update.
+    if (!this._controlModeEntityId && Date.now() >= (this._controlModeRetryAt ?? 0)) {
+      this._controlModeEntityId = Object.keys(states).find(id =>
+        id.startsWith("sensor.") && states[id]?.attributes?.override_sources !== undefined
+          && Array.isArray(states[id]?.attributes?.manual_rooms)) ?? null;
+      this._houseStatusEntityId = Object.keys(states).find(id =>
+        id.startsWith("sensor.") && Array.isArray(states[id]?.attributes?.window_rooms)
+          && states[id]?.attributes?.boost_remaining_min !== undefined) ?? null;
+      if (!this._controlModeEntityId && this._hass) this._controlModeRetryAt = Date.now() + 30000;
+    }
+    const st = this._controlModeEntityId ? states[this._controlModeEntityId] : null;
+    if (!st) return;
+    const hs = this._houseStatusEntityId ? states[this._houseStatusEntityId] : null;
+    const sig = st.state + "|" + JSON.stringify(st.attributes?.manual_rooms ?? [])
+      + "|" + JSON.stringify(st.attributes?.override_sources ?? {})
+      + "|" + JSON.stringify(st.attributes?.override_expires_at ?? {})
+      + "|" + (st.attributes?.remote_last_action_at ?? "")
+      + "|" + (hs ? hs.state + JSON.stringify(hs.attributes?.window_rooms ?? []) : "");
+    if (this._controlModeSig === undefined) { this._controlModeSig = sig; return; }
+    if (sig === this._controlModeSig) return;
+    this._controlModeSig = sig;
+    clearTimeout(this._modeRefreshTimer);
+    this._modeRefreshTimer = setTimeout(() => {
+      this._modeRefreshTimer = null;
+      this._load();
+    }, 500);
+  }
+
+  async _releaseOverrides() {
+    try {
+      const res = await this._hass.callWS({ type: "heat_manager/release_overrides" });
+      const n = res?.rooms_released?.length ?? 0;
+      this._showToast(n ? `${n} rum tilbage på automatik` : "Alle rum kører allerede automatisk", "success");
+    } catch (e) {
+      this._showToast("Kunne ikke sætte rummene tilbage på automatik", "error");
+    }
+    this._load();
+  }
+
   // Build a single room card HTML string (with data-room-id for surgical patching).
   _roomCardHTML(room) {
     const state    = room.state ?? "normal";
     const color    = this._stateColor(state);
     const grad     = this._stateGradient(state);
-    const label    = this._stateLabel(state, room.override_source);
+    const label    = this._stateLabel(state, room.override_source, false);
+    const overrideInfo = this._overrideInfoText(room);
+    const pulseCls = this._remotePulseRooms().has(room.name) ? " remote-pulse" : "";
     const setpt    = this._roomSetpoint(room);
     const tempStr  = room.current_temp != null ? (Math.round(room.current_temp * 10) / 10) + "°C" : "–";
     const battery  = room.battery_level != null ? Math.round(room.battery_level) : null;
@@ -2643,7 +3182,7 @@ class HeatManagerPanel extends HTMLElement {
            </div>
          </div>`;
     return `
-      <div class="room-card state-${state}" data-room-id="${this._esc(room.name)}"
+      <div class="room-card state-${state}${pulseCls}" data-room-id="${this._esc(room.name)}"
            style="background:${grad};border-left-color:${color}">
         <div class="room-card-header">
           <div class="room-card-name">${this._esc(room.name)}</div>
@@ -2652,6 +3191,7 @@ class HeatManagerPanel extends HTMLElement {
             <div class="room-state-pill" style="background:${color}22;color:${color}">${label}</div>
           </div>
         </div>
+        <div class="room-override-info"${overrideInfo ? "" : " hidden"}>${this._esc(overrideInfo)}</div>
         ${tempsRowHTML}
         <div class="room-state-bar">
           <div class="room-state-fill" style="width:${fillPct}%;background:${color}"></div>
@@ -3086,6 +3626,7 @@ class HeatManagerPanel extends HTMLElement {
             </div>
             <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:${color}22;color:${color}">${this._stateLabel(state, room.override_source)}</span>
           </div>
+          ${this._overrideInfoText(room) ? `<div class="room-override-info">${this._esc(this._overrideInfoText(room))}</div>` : ""}
           ${statsRowHTML}
           ${extraSensorsHTML}
           ${netatmoHTML}
@@ -3658,6 +4199,7 @@ class HeatManagerPanel extends HTMLElement {
     // called from BOTH the full-render path here and _patchAll(), so a fresh
     // page load never sits stuck on stale/hidden status for up to a 60s poll.
     this._patchStatusCenter();
+    this._schedulePulseEnd(); // v0.59.0
     this._startPauseCountdown();
     this._startBoostCountdown();
     this._attachEvents();
@@ -3767,26 +4309,9 @@ class HeatManagerPanel extends HTMLElement {
         console.info("[HeatManager] boost WS failed:", e);
       }
     });
-    // v0.32.0: status center — click/Enter toggles the detail dropdown.
-    // Replaces the old per-chip dismiss-cloud-banner/dismiss-health-banner
-    // handlers (no per-issue dismissal now — consolidating three chips into
-    // one field already removes most of the reason to hide it). The
-    // "click elsewhere closes it" listener is attached once from
-    // connectedCallback() instead of here — this method runs on every full
-    // render (see _scheduleRender()/_render()), and shadowRoot itself is
-    // NOT recreated on a re-render, so a root-level listener added here
-    // would stack up one extra copy per render instead of replacing itself.
-    const statusCenter = root.querySelector("#status-center");
-    if (statusCenter) {
-      const toggle = () => {
-        this._statusCenterOpen = !this._statusCenterOpen;
-        this._patchStatusCenter();
-      };
-      statusCenter.addEventListener("click", toggle);
-      statusCenter.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
-      });
-    }
+    // v0.60.0: the smart status line's clicks are delegated from the root
+    // listener in connectedCallback() (bound once) — not here, since this
+    // method runs on every full render and shadowRoot is never recreated.
 
     // Manual TRV control toggle — persisted server-side since 2026-09-13
     // (was a plain JS field, reset on every page reload).

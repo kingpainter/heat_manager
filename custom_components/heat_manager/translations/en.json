@@ -423,12 +423,14 @@
         "data": {
           "button_temp_up_entity": "Temperature up button (optional)",
           "button_temp_down_entity": "Temperature down button (optional)",
-          "button_mode_toggle_entity": "Auto/manual toggle button (optional)"
+          "button_mode_toggle_entity": "Auto/manual toggle button (optional)",
+          "remote_override_duration_min": "Return to automatic after (minutes)"
         },
         "data_description": {
           "button_temp_up_entity": "An event.* entity that fires on button press \u2014 e.g. one button of an Aqara Climate Sensor W100. Raises every room's setpoint (except windows-open/away rooms) and switches them to manual if needed.",
           "button_temp_down_entity": "An event.* entity that fires on button press. Lowers every room's setpoint (except windows-open/away rooms) and switches them to manual if needed.",
-          "button_mode_toggle_entity": "An event.* entity that fires on button press. Toggles every eligible room between automatic (schedule/PID) and manual (override) control."
+          "button_mode_toggle_entity": "An event.* entity that fires on button press. Toggles every eligible room between automatic (schedule/PID) and manual (override) control.",
+          "remote_override_duration_min": "How long a room the remote put into manual stays manual. Every press restarts the countdown. 0 = stay manual until the auto/manual button is pressed."
         }
       }
     },
@@ -443,6 +445,25 @@
   },
   "entity": {
     "sensor": {
+      "house_status": {
+        "name": "Status",
+        "state": {
+          "off": "Heating off",
+          "paused": "Paused",
+          "window_open": "Window open",
+          "boost": "Boost active",
+          "manual": "Manual control",
+          "auto": "Automatic"
+        }
+      },
+      "control_mode": {
+        "name": "Control mode",
+        "state": {
+          "auto": "Automatic",
+          "manual": "Manual",
+          "mixed": "Partly manual"
+        }
+      },
       "pause_remaining": {
         "name": "Pause remaining"
       },

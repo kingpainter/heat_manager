@@ -9,6 +9,140 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.60.0] — 2026-10-30
+
+Én smart statuslinje i stedet for status-centret og AUTO/MANUEL-bjælken —
+den fortæller med én sætning, hvad der er vigtigst lige nu, kigger
+fremad og tilbyder de handlinger, der giver mening i situationen.
+
+### Added
+- **Smart statuslinje i panelet** (erstatter v0.32-status-centret og
+  v0.59-bjælken):
+  - Overskrift i hele sætninger, fx "Alt kører automatisk · 2 rum varmer
+    op" eller "Manuel i 3 af 7 rum · auto igen om 1 t 22 min".
+  - Prognoser: hvornår det koldeste rum når målet (ud fra rummets lærte
+    opvarmningshastighed), tid til natsænkning og udetemperatur.
+  - Nedtællingsring i ikonfeltet, når noget slutter af sig selv
+    (manuel styring, boost).
+  - Kvittering i 10 sek. efter et tryk på fjernbetjeningen — hvad der
+    skete, og hvilke rum der blev sprunget over og hvorfor.
+  - Handlinger efter situationen: "+1 time" og "Auto nu" ved manuel,
+    "Skjul 1 t" ved advarsler.
+  - Roterer hvert 6. sek. mellem flere beskeder (pauser ved hover);
+    kritiske fejl bliver stående.
+  - Fold ud for Styring, Advarsler (skjulte vises nedtonet med "Vis"),
+    **Hvorfor — rum for rum** (klik for den lange forklaring) og de
+    seneste hændelser.
+- **Kompakt smart linje i kortet** med ring, overskrift og "Auto nu";
+  tryk folder detaljer ud. Opdaterer straks via Status-sensoren.
+- **Lange tryk på fjernbetjeningen:** hold op-knappen = start boost, hold
+  auto/manuel-knappen = alle rum tilbage på automatik (uanset hvem der
+  satte dem på manuel). `long_release` udløser aldrig noget.
+- **Status-sensor** (`sensor.heat_manager_status`): slukket / pause /
+  vindue åbent / boost / manuel / automatisk med oversatte tilstande og
+  attributter for manuelle rum, åbne vinduer og tidspunkt for automatik.
+- **WebSocket:** `heat_manager/extend_overrides` (+N min på alle
+  tidsbegrænsede manuelle rum) og `heat_manager/snooze_issue` (skjul en
+  advarsel i N min; kritiske kan ikke skjules).
+- Advarsler i `active_issues` har nu et fast `id` (kategori + rum), så en
+  skjult advarsel kommer igen, hvis et nyt rum bliver ramt.
+- `remote_last_action` har nu `action`, `delta` og `skipped`.
+
+### Changed
+- Panelets header har ikke længere et separat status-felt — alt ligger i
+  statuslinjen under headeren.
+
+### Tests
+- Ny `test_status_line.py` (forlæng, skjul, husstatus, lange tryk,
+  sprungne rum, WebSocket). `test_websocket_active_issues.py`'s mock
+  manglede `calibration_engine` — 5 gamle fejl rettet samtidig.
+
+## [0.59.0] — 2026-10-30
+
+Det skal altid være tydeligt, om huset kører automatisk eller manuelt — og
+om det var fjernbetjeningen, der overstyrede.
+
+### Added
+- **Styringstilstand-sensor** (`sensor.heat_manager_control_mode`) under
+  Hub-enheden: `auto`, `manual` eller `mixed`. Attributterne viser de
+  manuelle rum, hvem der satte dem på manuel, og hvornår de går tilbage til
+  automatik. Kan bruges direkte i automatiseringer.
+- **Statusbjælke i panelet** lige under headeren, synlig fra alle faner.
+  Grøn AUTO når intet er overstyret; lilla MANUEL med antal rum, kilde
+  (📡 fjernbetjening, 🖥 panel, 🔘 kontakt, 🎚 ventil) og tidspunkt for
+  automatisk tilbagevenden — plus en "Tilbage til auto"-knap.
+- **WebSocket-kommandoen `heat_manager/release_overrides`** bag knappen —
+  sætter alle manuelle rum tilbage på automatik via samme vej som
+  override-kontakten (inkl. gendannelse af planen, B23).
+- **Fjernbetjeningens overstyring udløber nu af sig selv** efter 2 timer
+  (ny indstilling i Fjernbetjening-trinnet, 0 = aldrig). Hvert tryk starter
+  nedtællingen forfra. Før holdt ét tryk hele huset på manuel, indtil
+  nogen trykkede på auto/manuel-knappen.
+- **"Siden"/"auto igen kl."** pr. rum i panel (Oversigt og Rum) og i
+  kortets rum-ark. `override_since`/`override_expires_at` er tilføjet til
+  rummenes state-sensor og `get_state`-payloaden.
+- **Kortet** har fået samme AUTO/MANUEL-linje under headeren.
+- **Bekræftelse af knaptryk:** statusbjælken og de berørte rumkort pulserer
+  i ~15 sekunder efter et tryk på fjernbetjeningen.
+
+### Changed
+- Rum-pillen viser nu **Auto** i stedet for "Normal" og **Manuel** i
+  stedet for "Override" (med kildens ikon på kortet og kildens navn på
+  Rum-fanen).
+- Et tryk på fjernbetjeningen på et rum, der allerede var manuelt fra
+  panelet, overdrager rummet til fjernbetjeningen (kilde og nedtælling).
+- Manuel ændring direkte på ventilen (sync-tilstand `mirror`) registreres
+  nu med kilden `trv`, så den vises som "🎚 Ventil" i stedet for en
+  umærket overstyring.
+
+### Fixed
+- **Panelet var op til 60 sekunder om at vise et knaptryk**, fordi det kun
+  hentede status hvert minut. Det lytter nu på Styringstilstand-sensoren og
+  henter med det samme, når den ændrer sig.
+- **Kortets boost-nedtælling blev ikke stoppet**, når kortet blev fjernet
+  fra siden (`disconnectedCallback`).
+
+### Tests
+- Ny `test_control_mode.py` (udløb, siden-tidspunkt, auto/manuel/blandet,
+  release, sensor, WebSocket) samt tests for fjernbetjeningens nedtælling
+  og sync-kilden `trv`.
+
+## [0.58.4] — 2026-10-30
+
+Fjernbetjeningen (Aqara W100 via Matter) virkede slet ikke — og et par
+fejl omkring den, der først blev synlige da den gjorde.
+
+### Fixed
+- **B22 — Fjernbetjeningens knapper blev altid ignoreret.** Motoren
+  accepterede kun `event_type == "single"`, men en W100 parret via Matter
+  sender `multi_press_1` ved et enkelt tryk. Nu accepteres `multi_press_1`
+  samt `single`/`single_<knap>` (Zigbee2MQTT). Langt tryk ignoreres stadig.
+- **B22 — Dobbelttryk på op/ned gav ingenting.** `multi_press_2`/`double`
+  på op- eller ned-knappen justerer nu to trin (±1,0 °C). Dobbelttryk på
+  auto/manuel-knappen ignoreres fortsat.
+- **B23 — "Tilbage til auto" gendannede ikke planen.** `async_set_room_override(False)`
+  ændrede kun rummets tilstand og sendte ingen kommando til ventilerne, så
+  en Netatmo-ventil kunne blive hængende på fjernbetjeningens manuelle
+  setpunkt. Kalder nu `async_restore_room_schedule()` som panelets nulstil
+  og udløb af manuel override gør. Gælder også override-kontakten.
+- **B24 — Hurtige tryk gik tabt.** Netatmo melder først det nye setpunkt
+  tilbage efter flere sekunder, så to hurtige tryk startede fra samme gamle
+  værdi. Tryk behandles nu ét ad gangen, og fjernbetjeningens eget seneste
+  setpunkt pr. rum bruges i 60 sekunder. Et rum hvor ingen ventil modtog
+  kommandoen rapporteres ikke længere som justeret.
+- **B25 — Risiko for spøgelsestryk ved genstart.** En tilstandsændring hvor
+  den forrige tilstand mangler eller er `unavailable`, eller hvor
+  tidsstemplet er uændret, tæller ikke længere som et tryk.
+- **B26 — Rumnavne vist to gange i statuslinjen.** Fjernbetjeningens
+  beskrivelse indeholder allerede rummene; `websocket.py` tilføjer nu kun
+  rum der ikke allerede er nævnt.
+
+### Tests
+- Fjernbetjenings- og override-source-testene brugte stadig
+  `hass.services.async_call`, som koden ikke har kaldt siden 2026-09-16 —
+  6 tests fejlede derfor. Opdateret til `async_call_climate_service()` og
+  udvidet med regressionstests for B22–B26.
+
 ## [0.58.3] — 2026-09-19
 
 Tilføjet den manglende introduktions-tekst i kroppen af de fem sektioner,

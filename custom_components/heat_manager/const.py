@@ -500,6 +500,63 @@ BUTTON_TEMP_STEP: float = 0.5
 BUTTON_TEMP_MIN: float = 15.0
 BUTTON_TEMP_MAX: float = DEFAULT_TRV_MAX_TEMP
 
+# 2026-10-30 (B22): raw `event_type` values that count as one or two
+# deliberate presses. Matter (e.g. the Aqara W100 paired via Matter) reports
+# "multi_press_1"/"multi_press_2"; Zigbee2MQTT-style integrations report
+# "single"/"double", optionally suffixed with the button ("single_plus").
+# Anything else (long_press, long_release, hold, ...) is ignored.
+REMOTE_SINGLE_PRESS_TYPES: frozenset[str] = frozenset({"single", "multi_press_1"})
+REMOTE_DOUBLE_PRESS_TYPES: frozenset[str] = frozenset({"double", "multi_press_2"})
+# v0.60.0: a long press — Matter fires "long_press" when the hold starts
+# (and "long_release" when it ends, which is ignored); Zigbee2MQTT-style
+# integrations report "hold"/"hold_<button>". Temp up long = boost, auto/
+# manual long = every room back to automatic, temp down long = unused.
+REMOTE_LONG_PRESS_TYPES: frozenset[str] = frozenset({"long_press", "hold", "long"})
+
+# 2026-10-30 (B24): how long the remote trusts its own last-written setpoint
+# for a room over the TRV's reported one. Netatmo reports a new setpoint back
+# only after several seconds, so a second press read from state would start
+# from the stale value and the first press would be lost.
+REMOTE_PENDING_SETPOINT_TTL_S: float = 60.0
+
+# 2026-10-30 (v0.59.0): how long a room the remote put into manual stays
+# manual before Heat Manager restores its schedule on its own. Every remote
+# press on a room restarts the countdown. 0 = never expire (the pre-0.59
+# behaviour, where one press kept the whole house manual until someone
+# pressed the auto/manual button again).
+CONF_REMOTE_OVERRIDE_DURATION_MIN = "remote_override_duration_min"
+DEFAULT_REMOTE_OVERRIDE_DURATION_MIN: int = 120
+
+# 2026-10-30 (v0.59.0): house-wide control mode, exposed by the Hub
+# "Control mode" sensor and the panel's mode bar. AUTO = no room in
+# OVERRIDE; MANUAL = every room with a TRV is in OVERRIDE; MIXED otherwise.
+CONTROL_MODE_AUTO = "auto"
+CONTROL_MODE_MANUAL = "manual"
+CONTROL_MODE_MIXED = "mixed"
+CONTROL_MODES: tuple[str, ...] = (
+    CONTROL_MODE_AUTO,
+    CONTROL_MODE_MANUAL,
+    CONTROL_MODE_MIXED,
+)
+
+# v0.60.0: the Hub "Status" sensor — the status line's headline as one
+# translated entity state, for other dashboards, notifications and voice.
+# Listed in priority order: the first that applies wins.
+HOUSE_STATUS_OFF = "off"
+HOUSE_STATUS_PAUSED = "paused"
+HOUSE_STATUS_WINDOW_OPEN = "window_open"
+HOUSE_STATUS_BOOST = "boost"
+HOUSE_STATUS_MANUAL = "manual"
+HOUSE_STATUS_AUTO = "auto"
+HOUSE_STATUSES: tuple[str, ...] = (
+    HOUSE_STATUS_OFF,
+    HOUSE_STATUS_PAUSED,
+    HOUSE_STATUS_WINDOW_OPEN,
+    HOUSE_STATUS_BOOST,
+    HOUSE_STATUS_MANUAL,
+    HOUSE_STATUS_AUTO,
+)
+
 # ── Device calibration (v0.9.0) ──────────────────────────────────────────────
 # See engine/calibration_engine.py and CONF_CALIBRATION_ENTITY above.
 

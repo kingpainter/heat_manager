@@ -81,6 +81,7 @@ from .const import (
     CONF_PID_KP,
     CONF_PID_SETPOINT_MARGIN,
     CONF_PRECIPITATION_SENSOR,
+    CONF_REMOTE_OVERRIDE_DURATION_MIN,
     CONF_ROOM_TEMP_SENSOR,
     CONF_ROOMS,
     CONF_SOLAR_GAIN_ENABLED,
@@ -94,6 +95,9 @@ from .const import (
     CONF_WEATHER_ENTITY,
     CONF_WIND_SPEED_SENSOR,
     CONF_WINDOW_SENSORS,
+    CONTROL_MODE_AUTO,
+    CONTROL_MODE_MANUAL,
+    CONTROL_MODE_MIXED,
     DEFAULT_BOOST_MINUTES,
     DEFAULT_BOOST_TEMP,
     DEFAULT_COMFORT_TEMP,
@@ -102,17 +106,24 @@ from .const import (
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
+    DEFAULT_REMOTE_OVERRIDE_DURATION_MIN,
     DEFAULT_SOLAR_GAIN_ENABLED,
     DEFAULT_TRV_MAX_TEMP,
     DEFAULT_WEATHER_COMPENSATION_ENABLED,
     DOMAIN,
-    FF_MAX_CONTRIBUTION,
-    FF_REFERENCE_OUTDOOR_TEMP,
-    FF_WEIGHT,
     DOOR_HEAT_SHARE_MAX_REDUCTION,
     DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
     DOOR_HEAT_SHARE_MIN_TEMP_DIFF,
     DOOR_HEAT_SHARE_WEIGHT,
+    FF_MAX_CONTRIBUTION,
+    FF_REFERENCE_OUTDOOR_TEMP,
+    FF_WEIGHT,
+    HOUSE_STATUS_AUTO,
+    HOUSE_STATUS_BOOST,
+    HOUSE_STATUS_MANUAL,
+    HOUSE_STATUS_OFF,
+    HOUSE_STATUS_PAUSED,
+    HOUSE_STATUS_WINDOW_OPEN,
     HOUSE_VOICE_DOMAIN,
     HOUSE_VOICE_SERVICE_SAY,
     NETATMO_API_CALL_DELAY_SEC,
@@ -431,6 +442,14 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Popped automatically by set_room_state() whenever a room leaves
         # OVERRIDE for any reason, exactly like room_override_source.
         self.room_override_expires_at: dict[str, datetime] = {}
+        # v0.59.0: UTC time each room entered OVERRIDE, from any code path
+        # (see set_room_state()) — lets the panel/card show "manual since
+        # 17:42". In-memory only: after a restart a restored override has
+        # no known start time and the frontend simply omits it.
+        self.room_override_since: dict[str, datetime] = {}
+        # v0.60.0: status-line issue id -> UTC time until which it is hidden
+        # ("Skjul 1 t"). In-memory only — a restart simply shows it again.
+        self._issue_snoozed_until: dict[str, datetime] = {}
 
         # v0.15.0: last action taken by the global physical remote (any of
         # the 3 configurable button entities — see
@@ -721,10 +740,13 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if state != RoomState.OVERRIDE:
             self.room_override_source.pop(room_name, None)
             self.room_override_expires_at.pop(room_name, None)
+            self.room_override_since.pop(room_name, None)
 
         old = self.room_states.get(room_name)
         if old == state:
             return
+        if state == RoomState.OVERRIDE:
+            self.room_override_since[room_name] = utcnow()
         _LOGGER.debug("Room '%s': %s → %s", room_name, old, state.value)
         self.room_states[room_name] = state
         self.async_update_listeners()
@@ -911,15 +933,29 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         `source` is purely informational ("switch" or "remote") — recorded
         in room_override_source for the frontend badge, see set_room_state().
 
-        enable=False mirrors async_turn_off(): only marks the room NORMAL.
-        No TRV commands are sent — the coordinator's normal schedule/PID
-        sync resumes control on its next tick.
+        enable=False mirrors async_turn_off(): restores the room's TRVs to
+        their schedule/heat mode via async_restore_room_schedule(), then
+        marks the room NORMAL. B23 (2026-10-30): this used to only flip the
+        state flag — a Netatmo TRV left on a manual setpoint (e.g. by the
+        remote's +/- buttons, which write set_temperature) kept that
+        setpoint after "back to auto", because nothing ever told it to
+        return to its schedule. Same restore path as ws_set_room_temp's
+        reset and _async_check_room_override_expiry().
 
         Returns True if the room's state actually changed the physical
         TRVs (enable=True: at least one TRV command succeeded; enable=False:
         always True), so a caller can decide whether to log/notify.
         """
         if not enable:
+            try:
+                await self.async_restore_room_schedule(room_name)
+            # broad-except-rationale: a failed restore must not leave the room stuck in OVERRIDE
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Override turn_off: schedule restore failed for %s: %s",
+                    room_name,
+                    err,
+                )
             self.set_room_state(room_name, RoomState.NORMAL)
             return True
 
@@ -965,18 +1001,198 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.room_override_source[room_name] = source
         return any_ok
 
-    def set_remote_last_action(self, description: str, rooms: list[str]) -> None:
+    def set_remote_override_expiry(self, room_name: str) -> None:
+        """(Re)start the auto-restore countdown for a room the remote holds
+        in OVERRIDE (v0.59.0) — called by RemoteButtonEngine after every
+        press that touched the room, so each press extends it.
+
+        Uses the same room_override_expires_at mechanism as the panel's
+        duration-limited manual temperature, so expiry, persistence across
+        restarts and the frontend's "until HH:MM" all come for free.
+        CONF_REMOTE_OVERRIDE_DURATION_MIN == 0 means never expire. The
+        room's source becomes "remote" too: a press on a room someone set
+        manual from the panel hands it over to the remote's countdown, and
+        the badge should say so.
+        """
+        if self.get_room_state(room_name) != RoomState.OVERRIDE:
+            return
+        self.room_override_source[room_name] = "remote"
+        try:
+            duration = int(
+                self.config.get(
+                    CONF_REMOTE_OVERRIDE_DURATION_MIN,
+                    DEFAULT_REMOTE_OVERRIDE_DURATION_MIN,
+                )
+            )
+        except (TypeError, ValueError):
+            duration = DEFAULT_REMOTE_OVERRIDE_DURATION_MIN
+        if duration > 0:
+            self.room_override_expires_at[room_name] = utcnow() + timedelta(
+                minutes=duration
+            )
+        else:
+            self.room_override_expires_at.pop(room_name, None)
+
+    def extend_overrides(self, minutes: int) -> list[str]:
+        """Push every time-limited manual override's auto-restore time back
+        by `minutes` (v0.60.0 — the status line's "+1 time"). An override
+        that already expired-but-not-yet-restored counts from now. Rooms
+        with a permanent override (no expiry) are left alone."""
+        now = utcnow()
+        extended: list[str] = []
+        for room_name, expires_at in list(self.room_override_expires_at.items()):
+            if self.get_room_state(room_name) != RoomState.OVERRIDE:
+                continue
+            self.room_override_expires_at[room_name] = max(
+                expires_at, now
+            ) + timedelta(minutes=minutes)
+            extended.append(room_name)
+        if extended:
+            self.log_event(
+                f"Manual override extended by {minutes} min — {', '.join(extended)}",
+                "Panel",
+                "override",
+            )
+            self.async_update_listeners()
+        return extended
+
+    def snooze_issue(self, issue_id: str, minutes: int) -> datetime | None:
+        """Hide one status-line issue for `minutes` (v0.60.0); 0 un-hides
+        it. Returns the new hidden-until time, or None when un-hidden."""
+        if minutes <= 0:
+            self._issue_snoozed_until.pop(issue_id, None)
+            self.async_update_listeners()
+            return None
+        until = utcnow() + timedelta(minutes=minutes)
+        self._issue_snoozed_until[issue_id] = until
+        self.async_update_listeners()
+        return until
+
+    def get_issue_snoozed_until(self, issue_id: str) -> datetime | None:
+        """Hidden-until time for an issue id, or None when it isn't hidden
+        (expired snoozes are dropped on read)."""
+        until = self._issue_snoozed_until.get(issue_id)
+        if until is None:
+            return None
+        if utcnow() >= until:
+            self._issue_snoozed_until.pop(issue_id, None)
+            return None
+        return until
+
+    def get_control_mode(self) -> tuple[str, list[str]]:
+        """House-wide control mode (v0.59.0) and the rooms in OVERRIDE.
+
+        AUTO when no room is in OVERRIDE, MANUAL when every room with at
+        least one TRV is, MIXED otherwise. Monitoring-only rooms (no TRV)
+        are never counted — nothing is being controlled there.
+        """
+        controllable = [
+            room.get("room_name", "")
+            for room in self.rooms
+            if room.get("room_name") and self.get_all_room_trvs(room["room_name"])
+        ]
+        manual = [
+            name
+            for name in controllable
+            if self.get_room_state(name) == RoomState.OVERRIDE
+        ]
+        if not manual:
+            return CONTROL_MODE_AUTO, []
+        if len(manual) == len(controllable):
+            return CONTROL_MODE_MANUAL, manual
+        return CONTROL_MODE_MIXED, manual
+
+    def get_house_status(self) -> dict[str, Any]:
+        """Headline status of the whole house (v0.60.0) — the Hub "Status"
+        sensor's state and attributes. State priority: off > paused >
+        window open > boost > manual > auto (HOUSE_STATUSES)."""
+        _mode, manual = self.get_control_mode()
+        window_rooms = [
+            name
+            for name, state in self.room_states.items()
+            if state == RoomState.WINDOW_OPEN
+        ]
+        boost_min = self.boost_remaining_minutes or 0
+        ctrl = self.controller_state
+        if ctrl == ControllerState.OFF:
+            status = HOUSE_STATUS_OFF
+        elif ctrl == ControllerState.PAUSE:
+            status = HOUSE_STATUS_PAUSED
+        elif window_rooms:
+            status = HOUSE_STATUS_WINDOW_OPEN
+        elif boost_min > 0:
+            status = HOUSE_STATUS_BOOST
+        elif manual:
+            status = HOUSE_STATUS_MANUAL
+        else:
+            status = HOUSE_STATUS_AUTO
+        expiries = [self.room_override_expires_at.get(name) for name in manual]
+        auto_returns_at = (
+            max(e for e in expiries if e is not None)
+            if manual and all(e is not None for e in expiries)
+            else None
+        )
+        return {
+            "status": status,
+            "manual_rooms": manual,
+            "window_rooms": window_rooms,
+            "auto_returns_at": auto_returns_at,
+            "boost_remaining_min": boost_min,
+            "pause_remaining_min": self.pause_remaining_minutes
+            if ctrl == ControllerState.PAUSE
+            else 0,
+        }
+
+    async def async_release_all_overrides(self, reason: str = "Panel") -> list[str]:
+        """Return every room in OVERRIDE to automatic control (v0.59.0) —
+        the panel's "Tilbage til auto" button. Same per-room path as the
+        override switch and the remote's auto/manual button
+        (async_set_room_override(False), which also restores the TRVs'
+        schedule — see B23)."""
+        released: list[str] = []
+        for room_name in list(self.room_states):
+            if self.get_room_state(room_name) != RoomState.OVERRIDE:
+                continue
+            await self.async_set_room_override(room_name, False)
+            released.append(room_name)
+        if released:
+            self.log_event(
+                f"Manual override released — {', '.join(released)}",
+                reason,
+                "normal",
+            )
+        return released
+
+    def set_remote_last_action(
+        self,
+        description: str,
+        rooms: list[str],
+        *,
+        action: str | None = None,
+        delta: float | None = None,
+        skipped: dict[str, str] | None = None,
+    ) -> None:
         """Record the most recent action taken by the global physical
         remote (v0.14.0's temp up/down/mode toggle buttons) — called from
         engine/remote_button_engine.py after a successful action.
 
         Purely informational: read by sensor.py's RemoteLastActionSensor
         (Hub device). Never gates any control-flow decision.
+
+        v0.60.0: also records a machine-readable `action` ("temp_up",
+        "temp_down", "manual", "auto", "boost", "release"), the applied
+        `delta` in °C, and `skipped` (room -> RoomState value) for rooms the
+        remote left alone — the panel's status line builds its "received,
+        sent to 7 rooms, Bad skipped (window open)" acknowledgement from
+        these instead of parsing the English description.
         """
         self.remote_last_action = {
             "description": description,
             "rooms": rooms,
             "timestamp": utcnow().isoformat(),
+            "action": action,
+            "delta": delta,
+            "skipped": dict(skipped or {}),
         }
         self.async_update_listeners()
 

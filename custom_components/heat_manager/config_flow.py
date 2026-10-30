@@ -39,14 +39,14 @@ from .const import (
     CONF_CO2_SENSOR,
     CONF_CO2_THRESHOLD,
     CONF_COMFORT_TEMP,
-    CONF_DOOR_ROOM_A,
-    CONF_DOOR_ROOM_B,
-    CONF_DOOR_SENSOR,
     CONF_DOOR_HEAT_SHARE_ENABLED,
     CONF_DOOR_HEAT_SHARE_MAX_REDUCTION,
     CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
     CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF,
     CONF_DOOR_HEAT_SHARE_WEIGHT,
+    CONF_DOOR_ROOM_A,
+    CONF_DOOR_ROOM_B,
+    CONF_DOOR_SENSOR,
     CONF_DOOR_STYLED_SENSORS,
     CONF_DOORS,
     CONF_FF_MAX_CONTRIBUTION,
@@ -87,6 +87,7 @@ from .const import (
     CONF_PID_SETPOINT_MARGIN,
     CONF_PRECIPITATION_SENSOR,
     CONF_PREHEAT_LEAD_TIME_MIN,
+    CONF_REMOTE_OVERRIDE_DURATION_MIN,
     CONF_ROOM_NAME,
     CONF_ROOM_TEMP_SENSOR,
     CONF_ROOMS,
@@ -128,6 +129,7 @@ from .const import (
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
     DEFAULT_PREHEAT_LEAD_TIME_MIN,
+    DEFAULT_REMOTE_OVERRIDE_DURATION_MIN,
     DEFAULT_SOLAR_GAIN_ENABLED,
     DEFAULT_SYNC_MODE,
     DEFAULT_TRV_MAX_TEMP,
@@ -138,13 +140,13 @@ from .const import (
     DEFAULT_WINDOW_OFF_TEMP,
     DEFAULT_WINDOW_WARNING_MIN,
     DOMAIN,
-    FF_MAX_CONTRIBUTION,
-    FF_REFERENCE_OUTDOOR_TEMP,
-    FF_WEIGHT,
     DOOR_HEAT_SHARE_MAX_REDUCTION,
     DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
     DOOR_HEAT_SHARE_MIN_TEMP_DIFF,
     DOOR_HEAT_SHARE_WEIGHT,
+    FF_MAX_CONTRIBUTION,
+    FF_REFERENCE_OUTDOOR_TEMP,
+    FF_WEIGHT,
     PID_SETPOINT_MARGIN,
     SOLAR_GAIN_LUX_THRESHOLD,
     SOLAR_GAIN_MAX_REDUCTION,
@@ -939,6 +941,25 @@ def _remote_control_schema(defaults: dict[str, Any] | None = None) -> vol.Schema
                 CONF_BUTTON_MODE_TOGGLE_ENTITY,
                 default=defaults.get(CONF_BUTTON_MODE_TOGGLE_ENTITY) or vol.UNDEFINED,
             ): selector.selector({"entity": {"domain": "event"}}),
+            # v0.59.0: auto-restore countdown for rooms the remote put into
+            # manual — see coordinator.set_remote_override_expiry().
+            vol.Optional(
+                CONF_REMOTE_OVERRIDE_DURATION_MIN,
+                default=defaults.get(
+                    CONF_REMOTE_OVERRIDE_DURATION_MIN,
+                    DEFAULT_REMOTE_OVERRIDE_DURATION_MIN,
+                ),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": 0,
+                        "max": 720,
+                        "step": 15,
+                        "unit_of_measurement": "min",
+                        "mode": "box",
+                    }
+                }
+            ),
         }
     )
 

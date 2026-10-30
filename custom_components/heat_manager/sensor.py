@@ -58,6 +58,8 @@ from .const import (
     CONF_WEATHER_ENTITY,
     CONF_WIND_SPEED_SENSOR,
     CONF_WINDOW_SENSORS,
+    CONTROL_MODES,
+    HOUSE_STATUSES,
     RoomState,
 )
 from .coordinator import HeatManagerCoordinator
@@ -76,6 +78,8 @@ async def async_setup_entry(
 
     entities: list[SensorEntity] = [
         PauseRemainingSensor(coordinator, entry),
+        ControlModeSensor(coordinator, entry),
+        HouseStatusSensor(coordinator, entry),
     ]
 
     for room in coordinator.rooms:
@@ -324,6 +328,92 @@ class _TextMirrorSensor(_MirrorSensorBase):
 # ── Global sensors ────────────────────────────────────────────────────────────
 
 
+def _iso_or_none(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+class ControlModeSensor(CoordinatorEntity[HeatManagerCoordinator], SensorEntity):
+    """House-wide control mode — auto / manual / mixed (v0.59.0).
+
+    One glanceable entity (and automation trigger) for "is anything being
+    held in manual right now, by whom, and until when". The panel and the
+    mobile card also watch this entity's attributes to refresh the moment a
+    remote press, the override switch or a panel action changes anything.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "control_mode"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(CONTROL_MODES)
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        # Strict-typing re-annotation — see the identical note on
+        # PauseRemainingSensor below.
+        self.coordinator: HeatManagerCoordinator = coordinator
+        self._attr_unique_id = f"{entry.entry_id}_control_mode"
+        self._attr_device_info = coordinator.global_device_info()
+
+    @property
+    def native_value(self) -> str:
+        mode, _manual = self.coordinator.get_control_mode()
+        return mode
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        _mode, manual = self.coordinator.get_control_mode()
+        c = self.coordinator
+        remote = c.remote_last_action or {}
+        return {
+            "manual_rooms": manual,
+            "override_sources": {
+                room: c.room_override_source.get(room) for room in manual
+            },
+            "override_expires_at": {
+                room: _iso_or_none(c.room_override_expires_at.get(room))
+                for room in manual
+            },
+            "remote_last_action_at": remote.get("timestamp"),
+        }
+
+
+class HouseStatusSensor(CoordinatorEntity[HeatManagerCoordinator], SensorEntity):
+    """The house's headline status as one translated state (v0.60.0) —
+    off / paused / window open / boost / manual / auto, in that priority
+    (see coordinator.get_house_status()). The panel's status line says the
+    same thing in a full sentence; this entity makes it usable on other
+    dashboards, in notifications and by voice assistants."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "house_status"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(HOUSE_STATUSES)
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, coordinator: HeatManagerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        # Strict-typing re-annotation — see PauseRemainingSensor below.
+        self.coordinator: HeatManagerCoordinator = coordinator
+        self._attr_unique_id = f"{entry.entry_id}_house_status"
+        self._attr_device_info = coordinator.global_device_info()
+
+    @property
+    def native_value(self) -> str:
+        return str(self.coordinator.get_house_status()["status"])
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        info = self.coordinator.get_house_status()
+        return {
+            "manual_rooms": info["manual_rooms"],
+            "window_rooms": info["window_rooms"],
+            "auto_returns_at": _iso_or_none(info["auto_returns_at"]),
+            "boost_remaining_min": info["boost_remaining_min"],
+            "pause_remaining_min": info["pause_remaining_min"],
+        }
+
+
 class PauseRemainingSensor(CoordinatorEntity[HeatManagerCoordinator], SensorEntity):
     """Minutes remaining in the current pause. 0 when not paused."""
 
@@ -421,6 +511,14 @@ class RoomStateSensor(CoordinatorEntity[HeatManagerCoordinator], SensorEntity):
             # _roomOverrideSource()).
             "override_source": self.coordinator.room_override_source.get(
                 self._room_name
+            ),
+            # v0.59.0: "manual until"/"manual since" for the mobile card,
+            # which reads these off this entity (no websocket of its own).
+            "override_expires_at": _iso_or_none(
+                self.coordinator.room_override_expires_at.get(self._room_name)
+            ),
+            "override_since": _iso_or_none(
+                self.coordinator.room_override_since.get(self._room_name)
             ),
         }
 

@@ -241,6 +241,24 @@ async def test_async_act_mirror_switches_to_override():
     coord.hass.services.async_call.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_async_act_mirror_records_trv_as_override_source():
+    """v0.59.0: a manual change on the radiator itself is labelled as such
+    in the panel/card instead of showing an unlabelled override."""
+    coord = _make_coordinator(rooms=[_room(sync_mode=SYNC_MODE_MIRROR)])
+    coord.room_override_source = {}
+    coord.last_expected_setpoint = {"living_room": 20.0}
+    state = MagicMock()
+    state.state = "heat"
+    state.attributes = {"temperature": 22.0}
+    coord.hass.states.get = MagicMock(return_value=state)
+    engine = SyncEngine(coord)
+
+    await engine._async_act("living_room", "climate.living_room")
+
+    assert coord.room_override_source["living_room"] == "trv"
+
+
 # ── _async_act: lock mode ───────────────────────────────────────────────────
 
 

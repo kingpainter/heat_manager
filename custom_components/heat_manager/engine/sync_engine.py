@@ -223,6 +223,9 @@ class SyncEngine:
 
         if sync_mode == SYNC_MODE_MIRROR:
             self.coordinator.set_room_state(room_name, RoomState.OVERRIDE)
+            # v0.59.0: record who engaged OVERRIDE so the panel/card can
+            # show "manual on the radiator" instead of an unlabelled override.
+            self.coordinator.room_override_source[room_name] = "trv"
             self.coordinator.log_event(
                 f"Manuel ændring accepteret — {room_name} ({observed:.1f}°C)",
                 "sync_mode: mirror",
