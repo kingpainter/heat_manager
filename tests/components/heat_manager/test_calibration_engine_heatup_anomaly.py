@@ -19,7 +19,7 @@ engine's [_HEATUP_MIN_SAMPLE_SEC, _HEATUP_MAX_SAMPLE_SEC] sampling window.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 from custom_components.heat_manager.const import RoomState
@@ -28,7 +28,7 @@ from custom_components.heat_manager.engine.calibration_engine import (
     CalibrationEngine,
 )
 
-_START = datetime(2026, 9, 13, 8, 0, 0, tzinfo=timezone.utc)
+_START = datetime(2026, 9, 13, 8, 0, 0, tzinfo=UTC)
 _STEP = timedelta(seconds=600)  # 10 min — within the engine's sampling window
 
 

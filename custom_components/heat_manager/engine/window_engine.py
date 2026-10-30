@@ -110,7 +110,7 @@ class WindowEngine:
     # loses heat exactly like a window; only its name in the log differs).
 
     def _sensor_label(self, room_name: str, sensor_id: str) -> str:
-        """"Door" or "Window" for a specific sensor that just triggered an
+        """ "Door" or "Window" for a specific sensor that just triggered an
         event — the common case, since every open/close handler already
         knows which sensor fired."""
         door_styled = self.coordinator.get_room_door_styled_sensors(room_name)

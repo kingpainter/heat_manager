@@ -207,7 +207,9 @@ class CalibrationEngine:
         # not enough variance in mean_x) is exactly the old flat EMA
         # behaviour — see _heatup_regression_coeffs()/_predict_heatup_rate().
         self._heatup_mean_x: dict[tuple[str, bool], float] = {}  # outdoor temp EMA
-        self._heatup_mean_y: dict[tuple[str, bool], float] = {}  # rate EMA (was _heatup_rate_ema)
+        self._heatup_mean_y: dict[
+            tuple[str, bool], float
+        ] = {}  # rate EMA (was _heatup_rate_ema)
         self._heatup_mean_xy: dict[tuple[str, bool], float] = {}
         self._heatup_mean_xx: dict[tuple[str, bool], float] = {}
         # 2026-09-13 anomaly detection — how many valid samples have gone
@@ -342,7 +344,10 @@ class CalibrationEngine:
                 # a room heating slower purely because it's much colder out
                 # right now is no longer mistaken for an anomaly.
                 predicted = self._predict_heatup_rate(key, outdoor_temp)
-                if predicted is not None and sample_count >= _HEATUP_ANOMALY_MIN_SAMPLES:
+                if (
+                    predicted is not None
+                    and sample_count >= _HEATUP_ANOMALY_MIN_SAMPLES
+                ):
                     if rate_per_hour < predicted * _HEATUP_ANOMALY_RATIO:
                         self._heatup_anomaly_streak[room_name] = (
                             self._heatup_anomaly_streak.get(room_name, 0) + 1
@@ -385,7 +390,9 @@ class CalibrationEngine:
         """
         mean_y = self._heatup_mean_y.get(key)
         self._heatup_mean_y[key] = (
-            rate_per_hour if mean_y is None else mean_y + _HEATUP_EMA_ALPHA * (rate_per_hour - mean_y)
+            rate_per_hour
+            if mean_y is None
+            else mean_y + _HEATUP_EMA_ALPHA * (rate_per_hour - mean_y)
         )
         if outdoor_temp is None:
             return  # no x sample this tick — regression state untouched
@@ -395,7 +402,9 @@ class CalibrationEngine:
             self._heatup_mean_xy[key] = outdoor_temp * self._heatup_mean_y[key]
             self._heatup_mean_xx[key] = outdoor_temp * outdoor_temp
             return
-        mean_xy = self._heatup_mean_xy.get(key, mean_x * mean_y if mean_y is not None else 0.0)
+        mean_xy = self._heatup_mean_xy.get(
+            key, mean_x * mean_y if mean_y is not None else 0.0
+        )
         mean_xx = self._heatup_mean_xx.get(key, mean_x * mean_x)
         self._heatup_mean_x[key] = mean_x + _HEATUP_EMA_ALPHA * (outdoor_temp - mean_x)
         self._heatup_mean_xy[key] = mean_xy + _HEATUP_EMA_ALPHA * (

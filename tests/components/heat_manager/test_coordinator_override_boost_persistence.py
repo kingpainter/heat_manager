@@ -21,13 +21,13 @@ touches is an explicitly-configured MagicMock/plain attribute.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 from custom_components.heat_manager.const import RoomState
 from custom_components.heat_manager.coordinator import HeatManagerCoordinator
 
-_NOW = datetime(2026, 9, 13, 12, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime(2026, 9, 13, 12, 0, 0, tzinfo=UTC)
 
 
 def _make_coordinator(entry_options: dict | None = None) -> MagicMock:
@@ -72,9 +72,10 @@ def test_persist_snapshot_captures_active_override_with_expiry():
 
     snap = _persisted_snapshot(coord)
     assert snap["overrides"]["Bathroom"]["source"] == "panel"
-    assert snap["overrides"]["Bathroom"]["expires_at"] == (
-        _NOW + timedelta(hours=1)
-    ).isoformat()
+    assert (
+        snap["overrides"]["Bathroom"]["expires_at"]
+        == (_NOW + timedelta(hours=1)).isoformat()
+    )
 
 
 def test_persist_snapshot_permanent_override_has_no_expiry():

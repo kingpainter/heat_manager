@@ -304,9 +304,7 @@ def _door_heat_share_reduction(
         return 0.0
     weight = float(config.get(CONF_DOOR_HEAT_SHARE_WEIGHT, DOOR_HEAT_SHARE_WEIGHT))
     max_reduction = float(
-        config.get(
-            CONF_DOOR_HEAT_SHARE_MAX_REDUCTION, DOOR_HEAT_SHARE_MAX_REDUCTION
-        )
+        config.get(CONF_DOOR_HEAT_SHARE_MAX_REDUCTION, DOOR_HEAT_SHARE_MAX_REDUCTION)
     )
     return min(max_reduction, temp_diff * weight)
 
@@ -612,7 +610,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if neighbor_power is None:
                 continue
             neighbor_climate_id = self.get_climate_entity(neighbor_name) or ""
-            neighbor_temp = self.get_room_current_temp(neighbor_name, neighbor_climate_id)
+            neighbor_temp = self.get_room_current_temp(
+                neighbor_name, neighbor_climate_id
+            )
             if neighbor_temp is None:
                 continue
             diff = neighbor_temp - current_temp
@@ -874,9 +874,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         if isinstance(snap, dict):
             self.room_group_enabled = {k: bool(v) for k, v in snap.items()}
-            _LOGGER.info(
-                "Restored room group-toggle state for %d room(s)", len(snap)
-            )
+            _LOGGER.info("Restored room group-toggle state for %d room(s)", len(snap))
 
     @staticmethod
     def get_trv_climate_entity(trv: dict[str, Any]) -> str | None:
@@ -1043,9 +1041,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for room_name, expires_at in list(self.room_override_expires_at.items()):
             if self.get_room_state(room_name) != RoomState.OVERRIDE:
                 continue
-            self.room_override_expires_at[room_name] = max(
-                expires_at, now
-            ) + timedelta(minutes=minutes)
+            self.room_override_expires_at[room_name] = max(expires_at, now) + timedelta(
+                minutes=minutes
+            )
             extended.append(room_name)
         if extended:
             self.log_event(
@@ -1908,9 +1906,10 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         threshold_min = self.config.get(
             CONF_ISSUE_ESCALATION_MINUTES, DEFAULT_ISSUE_ESCALATION_MINUTES
         )
-        persistent = started_at is not None and (
-            utcnow() - started_at
-        ).total_seconds() >= threshold_min * 60
+        persistent = (
+            started_at is not None
+            and (utcnow() - started_at).total_seconds() >= threshold_min * 60
+        )
 
         # 2026-09-14 (punkt 2, gruppe B — "Udvid HA Repairs-integrationen"):
         # once a repair-worthy category has been continuously active past
@@ -1960,7 +1959,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         safe_key = key.lower().replace(":", "_").replace(" ", "_")
         return f"persistent_{safe_key}_{self.entry.entry_id[:8]}"
 
-    async def _notify_issue_escalation(self, message: str, threshold_min: float) -> None:
+    async def _notify_issue_escalation(
+        self, message: str, threshold_min: float
+    ) -> None:
         service = self.config.get(CONF_NOTIFY_SERVICE, "")
         if not service:
             return

@@ -23,7 +23,6 @@ from __future__ import annotations
 from datetime import timedelta
 from unittest.mock import MagicMock
 
-import pytest
 from homeassistant.util.dt import utcnow
 
 from custom_components.heat_manager import websocket
@@ -87,14 +86,21 @@ def test_no_issues_when_everything_normal():
 
 
 def test_all_rooms_unavailable_is_critical():
-    coord = _make_coordinator(rooms_cfg=[{"room_name": "Bathroom"}, {"room_name": "Kitchen"}])
+    coord = _make_coordinator(
+        rooms_cfg=[{"room_name": "Bathroom"}, {"room_name": "Kitchen"}]
+    )
     coord.get_climate_entity = MagicMock(
-        side_effect=lambda name: {"Bathroom": "climate.bathroom", "Kitchen": "climate.kitchen"}[name]
+        side_effect=lambda name: {
+            "Bathroom": "climate.bathroom",
+            "Kitchen": "climate.kitchen",
+        }[name]
     )
     coord.get_homekit_climate_entity = MagicMock(return_value="")
     coord.hass.states.get = MagicMock(return_value=_state("unavailable"))
 
-    issues = _build_active_issues(coord, [_room_payload("Bathroom"), _room_payload("Kitchen")])
+    issues = _build_active_issues(
+        coord, [_room_payload("Bathroom"), _room_payload("Kitchen")]
+    )
 
     assert len(issues) == 1
     assert issues[0]["severity"] == "critical"
@@ -102,9 +108,14 @@ def test_all_rooms_unavailable_is_critical():
 
 
 def test_some_rooms_unavailable_is_warning_and_names_rooms():
-    coord = _make_coordinator(rooms_cfg=[{"room_name": "Bathroom"}, {"room_name": "Kitchen"}])
+    coord = _make_coordinator(
+        rooms_cfg=[{"room_name": "Bathroom"}, {"room_name": "Kitchen"}]
+    )
     coord.get_climate_entity = MagicMock(
-        side_effect=lambda name: {"Bathroom": "climate.bathroom", "Kitchen": "climate.kitchen"}[name]
+        side_effect=lambda name: {
+            "Bathroom": "climate.bathroom",
+            "Kitchen": "climate.kitchen",
+        }[name]
     )
     coord.get_homekit_climate_entity = MagicMock(return_value="")
 
@@ -115,7 +126,9 @@ def test_some_rooms_unavailable_is_warning_and_names_rooms():
 
     coord.hass.states.get = MagicMock(side_effect=_states)
 
-    issues = _build_active_issues(coord, [_room_payload("Bathroom"), _room_payload("Kitchen")])
+    issues = _build_active_issues(
+        coord, [_room_payload("Bathroom"), _room_payload("Kitchen")]
+    )
 
     assert len(issues) == 1
     assert issues[0]["severity"] == "warning"
@@ -128,7 +141,9 @@ def test_stale_room_is_warning():
     coord.get_climate_entity = MagicMock(return_value="climate.bathroom")
     coord.get_homekit_climate_entity = MagicMock(return_value="")
     stale_time = utcnow() - timedelta(minutes=15)
-    coord.hass.states.get = MagicMock(return_value=_state("heat", last_updated=stale_time))
+    coord.hass.states.get = MagicMock(
+        return_value=_state("heat", last_updated=stale_time)
+    )
 
     issues = _build_active_issues(coord, [_room_payload("Bathroom")])
 
@@ -142,7 +157,9 @@ def test_fresh_room_reports_no_cloud_issue():
     coord.get_climate_entity = MagicMock(return_value="climate.bathroom")
     coord.get_homekit_climate_entity = MagicMock(return_value="")
     fresh_time = utcnow() - timedelta(minutes=2)
-    coord.hass.states.get = MagicMock(return_value=_state("heat", last_updated=fresh_time))
+    coord.hass.states.get = MagicMock(
+        return_value=_state("heat", last_updated=fresh_time)
+    )
 
     issues = _build_active_issues(coord, [_room_payload("Bathroom")])
     assert issues == []
@@ -154,7 +171,9 @@ def test_homekit_twin_excluded_from_cloud_check():
     briefly unavailable is not a cloud/gateway problem."""
     coord = _make_coordinator(rooms_cfg=[{"room_name": "Bathroom"}])
     coord.get_climate_entity = MagicMock(return_value="climate.bathroom_homekit")
-    coord.get_homekit_climate_entity = MagicMock(return_value="climate.bathroom_homekit")
+    coord.get_homekit_climate_entity = MagicMock(
+        return_value="climate.bathroom_homekit"
+    )
     coord.hass.states.get = MagicMock(return_value=_state("unavailable"))
 
     issues = _build_active_issues(coord, [_room_payload("Bathroom")])
@@ -166,7 +185,9 @@ def test_homekit_twin_excluded_from_cloud_check():
 
 def test_non_climate_unavailable_entities_reported_as_warning():
     coord = _make_coordinator()
-    room = _room_payload("Bathroom", unavailable_entities=["binary_sensor.bathroom_window"])
+    room = _room_payload(
+        "Bathroom", unavailable_entities=["binary_sensor.bathroom_window"]
+    )
     issues = _build_active_issues(coord, [room])
 
     assert len(issues) == 1
@@ -299,7 +320,9 @@ def test_issues_sorted_critical_before_warning_before_info():
     issues = _build_active_issues(coord, [room])
 
     severities = [i["severity"] for i in issues]
-    assert severities == sorted(severities, key={"critical": 0, "warning": 1, "info": 2}.get)
+    assert severities == sorted(
+        severities, key={"critical": 0, "warning": 1, "info": 2}.get
+    )
     assert severities[0] == "critical"
     assert severities[-1] == "info"
 
@@ -326,7 +349,9 @@ def test_snoozed_warning_is_flagged_not_removed():
     coord = _make_coordinator()
     until = utcnow() + timedelta(minutes=30)
     coord.get_issue_snoozed_until = MagicMock(
-        side_effect=lambda issue_id: until if issue_id.startswith("window_open") else None
+        side_effect=lambda issue_id: (
+            until if issue_id.startswith("window_open") else None
+        )
     )
 
     issues = _build_active_issues(coord, [_room_payload("Bathroom", windows_open=True)])
@@ -340,7 +365,9 @@ def test_critical_issue_ignores_snooze():
     coord = _make_coordinator(rooms_cfg=[{"room_name": "Bathroom"}])
     coord.get_climate_entity = MagicMock(return_value="climate.bathroom")
     coord.hass.states.get = MagicMock(return_value=_state("unavailable"))
-    coord.get_issue_snoozed_until = MagicMock(return_value=utcnow() + timedelta(hours=1))
+    coord.get_issue_snoozed_until = MagicMock(
+        return_value=utcnow() + timedelta(hours=1)
+    )
 
     issues = _build_active_issues(coord, [_room_payload("Bathroom")])
 

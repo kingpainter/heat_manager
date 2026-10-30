@@ -152,14 +152,10 @@ class DoorEngine:
                 else entity_id
             )
             if new == "on":
-                _LOGGER.info(
-                    "Heated-area door opened: %s (%s)", friendly, heated_room
-                )
+                _LOGGER.info("Heated-area door opened: %s (%s)", friendly, heated_room)
                 self.coordinator.log_event(f"Dør åbnet: {friendly}", "Dør", "door")
             else:
-                _LOGGER.info(
-                    "Heated-area door closed: %s (%s)", friendly, heated_room
-                )
+                _LOGGER.info("Heated-area door closed: %s (%s)", friendly, heated_room)
                 self.coordinator.log_event(f"Dør lukket: {friendly}", "Dør", "door")
 
     async def async_shutdown(self) -> None:

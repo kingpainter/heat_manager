@@ -200,7 +200,10 @@ def _build_active_issues(
         if state is None or state.state in ("unavailable", "unknown"):
             unavailable_rooms.append(room_name)
             continue
-        if state.last_updated and (utcnow() - state.last_updated).total_seconds() >= 600:
+        if (
+            state.last_updated
+            and (utcnow() - state.last_updated).total_seconds() >= 600
+        ):
             stale_rooms.append(room_name)
 
     if total and unavailable_rooms and len(unavailable_rooms) == total:
@@ -241,7 +244,9 @@ def _build_active_issues(
     unavailable_entity_rooms: list[tuple[str, int]] = []
     for room in rooms:
         others = [
-            e for e in room.get("unavailable_entities", []) if not e.startswith("climate.")
+            e
+            for e in room.get("unavailable_entities", [])
+            if not e.startswith("climate.")
         ]
         if others:
             unavailable_entity_rooms.append((room["name"], len(others)))
@@ -321,7 +326,9 @@ def _build_active_issues(
         room.get("room_name", "")
         for room in coordinator.rooms
         if room.get("room_name")
-        and coordinator.calibration_engine.get_room_heatup_anomaly(room.get("room_name", ""))
+        and coordinator.calibration_engine.get_room_heatup_anomaly(
+            room.get("room_name", "")
+        )
     ]
     if len(anomaly_rooms) == 1:
         issues.append(
@@ -368,7 +375,9 @@ def _build_active_issues(
     if rla and rla.get("timestamp"):
         age_min: float | None = None
         with contextlib.suppress(TypeError, ValueError):
-            age_min = (utcnow() - datetime.fromisoformat(rla["timestamp"])).total_seconds() / 60
+            age_min = (
+                utcnow() - datetime.fromisoformat(rla["timestamp"])
+            ).total_seconds() / 60
         if age_min is not None and 0 <= age_min < 30:
             description = rla.get("description", "")
             # B26: RemoteButtonEngine's own descriptions already list the
@@ -518,7 +527,9 @@ async def ws_snooze_issue(
     )
 
 
-@websocket_api.websocket_command({vol.Required("type"): "heat_manager/release_overrides"})
+@websocket_api.websocket_command(
+    {vol.Required("type"): "heat_manager/release_overrides"}
+)
 @websocket_api.async_response
 async def ws_release_overrides(
     hass: HomeAssistant,
@@ -534,9 +545,7 @@ async def ws_release_overrides(
         return
     coordinator: HeatManagerCoordinator = entry.runtime_data
     released = await coordinator.async_release_all_overrides()
-    connection.send_result(
-        msg["id"], {"success": True, "rooms_released": released}
-    )
+    connection.send_result(msg["id"], {"success": True, "rooms_released": released})
 
 
 @websocket_api.websocket_command(
@@ -765,7 +774,9 @@ async def ws_get_state(
         # which writes CONF_TRVS only. Reading the flat fields directly
         # left climate_id empty for any such room, which cascaded into
         # missing setpoint/TRV-temp/valve % in the panel.
-        primary_trv: dict[str, Any] = next(iter(coordinator.get_all_room_trvs(name)), {})
+        primary_trv: dict[str, Any] = next(
+            iter(coordinator.get_all_room_trvs(name)), {}
+        )
         climate_id = primary_trv.get(CONF_CLIMATE_ENTITY, "")
         sensors = room.get(CONF_WINDOW_SENSORS, [])
         room_state = coordinator.get_room_state(name)
@@ -1006,9 +1017,11 @@ async def ws_get_state(
         # hotfix) — an earlier revision referenced it before this point,
         # which raised NameError and took down ws_get_state() entirely (see
         # CHANGELOG [0.41.1]).
-        heatup_anomaly = bool(
-            coordinator.calibration_engine.get_room_heatup_anomaly(name)
-        ) if name else False
+        heatup_anomaly = (
+            bool(coordinator.calibration_engine.get_room_heatup_anomaly(name))
+            if name
+            else False
+        )
         _health_penalty = 0
         if battery_level is not None:
             if battery_level < 20:
@@ -1242,9 +1255,7 @@ async def ws_get_state(
         "pid_kp": cfg.get(CONF_PID_KP, DEFAULT_PID_KP),
         "pid_ki": cfg.get(CONF_PID_KI, DEFAULT_PID_KI),
         "pid_kd": cfg.get(CONF_PID_KD, DEFAULT_PID_KD),
-        "pid_setpoint_margin": cfg.get(
-            CONF_PID_SETPOINT_MARGIN, PID_SETPOINT_MARGIN
-        ),
+        "pid_setpoint_margin": cfg.get(CONF_PID_SETPOINT_MARGIN, PID_SETPOINT_MARGIN),
         "boost_default_temp": cfg.get(CONF_BOOST_DEFAULT_TEMP, DEFAULT_BOOST_TEMP),
         "boost_default_minutes": cfg.get(
             CONF_BOOST_DEFAULT_MINUTES, DEFAULT_BOOST_MINUTES
@@ -1454,7 +1465,10 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
     CONF_SOLAR_GAIN_LUX_THRESHOLD: (float, SOLAR_GAIN_LUX_THRESHOLD),
     CONF_SOLAR_GAIN_WEIGHT: (float, SOLAR_GAIN_WEIGHT),
     CONF_SOLAR_GAIN_MAX_REDUCTION: (float, SOLAR_GAIN_MAX_REDUCTION),
-    CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER: (float, DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER),
+    CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER: (
+        float,
+        DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
+    ),
     CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF: (float, DOOR_HEAT_SHARE_MIN_TEMP_DIFF),
     CONF_DOOR_HEAT_SHARE_WEIGHT: (float, DOOR_HEAT_SHARE_WEIGHT),
     CONF_DOOR_HEAT_SHARE_MAX_REDUCTION: (float, DOOR_HEAT_SHARE_MAX_REDUCTION),

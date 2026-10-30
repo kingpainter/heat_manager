@@ -119,9 +119,7 @@ class ControllerEngine:
 
         snap = {
             "state": self._state.value,
-            "pause_until": self._pause_until.isoformat()
-            if self._pause_until
-            else None,
+            "pause_until": self._pause_until.isoformat() if self._pause_until else None,
             "auto_off_reason": self._auto_off_reason.value,
         }
         options = dict(self.coordinator.entry.options)
@@ -175,9 +173,7 @@ class ControllerEngine:
             except ValueError:
                 self._auto_off_reason = AutoOffReason.NONE
             self._state = ControllerState.OFF
-            _LOGGER.info(
-                "Restored OFF state (reason=%s)", self._auto_off_reason.value
-            )
+            _LOGGER.info("Restored OFF state (reason=%s)", self._auto_off_reason.value)
 
     # ── Public properties ─────────────────────────────────────────────────────
 

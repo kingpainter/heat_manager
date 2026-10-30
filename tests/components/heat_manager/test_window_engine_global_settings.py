@@ -83,7 +83,9 @@ def test_open_delay_reads_global_default_when_configured():
 
 def test_open_delay_falls_back_to_default_when_unset():
     engine = _fake_engine({})
-    assert _get_open_delay(engine, "binary_sensor.x") == DEFAULT_WINDOW_DELAY_DEFAULT_MIN
+    assert (
+        _get_open_delay(engine, "binary_sensor.x") == DEFAULT_WINDOW_DELAY_DEFAULT_MIN
+    )
 
 
 def test_open_delay_ignores_per_room_config_entirely():
@@ -111,9 +113,7 @@ def test_open_delay_reduced_when_raining():
 
 @pytest.mark.asyncio
 async def test_window_open_writes_global_off_temp():
-    engine = _fake_engine(
-        {CONF_WINDOW_OFF_TEMP: 8.0, CONF_NOTIFY_WINDOWS: False}
-    )
+    engine = _fake_engine({CONF_WINDOW_OFF_TEMP: 8.0, CONF_NOTIFY_WINDOWS: False})
     await _open_after_delay(engine, "binary_sensor.x", "Bathroom", 0)
 
     args, kwargs = engine.coordinator.hass.services.async_call.call_args
