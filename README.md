@@ -139,7 +139,7 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 |--------|------|---------|-------------|
 | `room_name` | string | — | Display name (e.g. "Stue") |
 | `climate_entity` | entity | — | Primary (cloud) climate entity — schedule setpoint source |
-| `homekit_climate_entity` | entity | — | **Optional.** HomeKit local entity. PID and window setpoints written here (local LAN, <100 ms, no rate limits) |
+| `homekit_climate_entity` | entity | — | HomeKit local entity. PID and window setpoints written here (local LAN, <100 ms, no rate limits). **Required for PID on Netatmo valves** *(v0.61.2)* — without it the valve follows its Netatmo schedule and PID never writes via the cloud |
 | `window_sensors` | entity list | [] | Window/door sensors for this room |
 | `window_delay_min` | min | 5 | Minutes open before heating drops (auto-reduced by rain/wind) |
 | `away_temp_override` | °C | 10.0 | Frost-guard floor when window opens |

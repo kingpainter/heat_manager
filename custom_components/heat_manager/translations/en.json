@@ -105,14 +105,14 @@
         "title": "Add a TRV",
         "data": {
           "climate_entity": "Climate entity",
-          "homekit_climate_entity": "HomeKit climate entity (optional)",
+          "homekit_climate_entity": "HomeKit climate entity (required for PID on Netatmo)",
           "trv_type": "TRV type",
           "pi_demand_entity": "PI demand entity (optional)",
           "calibration_entity": "TRV calibration entity (optional)",
           "sync_mode": "Sync mode"
         },
         "data_description": {
-          "homekit_climate_entity": "The HomeKit-bridged climate entity for this TRV, if it differs from the entity above (relevant for some Netatmo/Homebridge setups). Leave blank if not applicable.",
+          "homekit_climate_entity": "The local HomeKit climate entity for this valve (e.g. climate.netatmo_valve_1 from the HomeKit Controller pairing of the Netatmo relay). Required for PID control of a Netatmo valve: PID setpoints are only ever written locally via HomeKit, never via the Netatmo cloud. Without it the valve follows its Netatmo schedule, while presets, windows and away still work. Leave blank for Zigbee TRVs.",
           "trv_type": "Netatmo NRVs use preset_mode (away/schedule) to enable or disable heating. Zigbee TRVs (via Zigbee2MQTT) use hvac_mode (off/heat) instead.",
           "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand, used for waste and efficiency calculations.",
           "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor.",
@@ -123,14 +123,14 @@
         "title": "Edit TRV",
         "data": {
           "climate_entity": "Climate entity",
-          "homekit_climate_entity": "HomeKit climate entity (optional)",
+          "homekit_climate_entity": "HomeKit climate entity (required for PID on Netatmo)",
           "trv_type": "TRV type",
           "pi_demand_entity": "PI demand entity (optional)",
           "calibration_entity": "TRV calibration entity (optional)",
           "sync_mode": "Sync mode"
         },
         "data_description": {
-          "homekit_climate_entity": "The HomeKit-bridged climate entity for this TRV, if it differs from the entity above (relevant for some Netatmo/Homebridge setups). Leave blank if not applicable.",
+          "homekit_climate_entity": "The local HomeKit climate entity for this valve (e.g. climate.netatmo_valve_1 from the HomeKit Controller pairing of the Netatmo relay). Required for PID control of a Netatmo valve: PID setpoints are only ever written locally via HomeKit, never via the Netatmo cloud. Without it the valve follows its Netatmo schedule, while presets, windows and away still work. Leave blank for Zigbee TRVs.",
           "trv_type": "Netatmo NRVs use preset_mode (away/schedule) to enable or disable heating. Zigbee TRVs (via Zigbee2MQTT) use hvac_mode (off/heat) instead.",
           "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand, used for waste and efficiency calculations.",
           "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor.",
@@ -321,14 +321,14 @@
         "title": "Add a TRV",
         "data": {
           "climate_entity": "Climate entity",
-          "homekit_climate_entity": "HomeKit climate entity (optional)",
+          "homekit_climate_entity": "HomeKit climate entity (required for PID on Netatmo)",
           "trv_type": "TRV type",
           "pi_demand_entity": "PI demand entity (optional)",
           "calibration_entity": "TRV calibration entity (optional)",
           "sync_mode": "Sync mode"
         },
         "data_description": {
-          "homekit_climate_entity": "The HomeKit-bridged climate entity for this TRV, if it differs from the entity above (relevant for some Netatmo/Homebridge setups). Leave blank if not applicable.",
+          "homekit_climate_entity": "The local HomeKit climate entity for this valve (e.g. climate.netatmo_valve_1 from the HomeKit Controller pairing of the Netatmo relay). Required for PID control of a Netatmo valve: PID setpoints are only ever written locally via HomeKit, never via the Netatmo cloud. Without it the valve follows its Netatmo schedule, while presets, windows and away still work. Leave blank for Zigbee TRVs.",
           "trv_type": "Netatmo NRVs use preset_mode (away/schedule) to enable or disable heating. Zigbee TRVs (via Zigbee2MQTT) use hvac_mode (off/heat) instead.",
           "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand, used for waste and efficiency calculations.",
           "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor.",
@@ -339,14 +339,14 @@
         "title": "Edit TRV",
         "data": {
           "climate_entity": "Climate entity",
-          "homekit_climate_entity": "HomeKit climate entity (optional)",
+          "homekit_climate_entity": "HomeKit climate entity (required for PID on Netatmo)",
           "trv_type": "TRV type",
           "pi_demand_entity": "PI demand entity (optional)",
           "calibration_entity": "TRV calibration entity (optional)",
           "sync_mode": "Sync mode"
         },
         "data_description": {
-          "homekit_climate_entity": "The HomeKit-bridged climate entity for this TRV, if it differs from the entity above (relevant for some Netatmo/Homebridge setups). Leave blank if not applicable.",
+          "homekit_climate_entity": "The local HomeKit climate entity for this valve (e.g. climate.netatmo_valve_1 from the HomeKit Controller pairing of the Netatmo relay). Required for PID control of a Netatmo valve: PID setpoints are only ever written locally via HomeKit, never via the Netatmo cloud. Without it the valve follows its Netatmo schedule, while presets, windows and away still work. Leave blank for Zigbee TRVs.",
           "trv_type": "Netatmo NRVs use preset_mode (away/schedule) to enable or disable heating. Zigbee TRVs (via Zigbee2MQTT) use hvac_mode (off/heat) instead.",
           "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand, used for waste and efficiency calculations.",
           "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor.",

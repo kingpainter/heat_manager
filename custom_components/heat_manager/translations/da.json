@@ -109,14 +109,14 @@
         "title": "Tilføj en TRV",
         "data": {
           "climate_entity": "Klimaenhed",
-          "homekit_climate_entity": "HomeKit-klimaenhed (valgfrit)",
+          "homekit_climate_entity": "HomeKit-klimaenhed (krævet for PID på Netatmo)",
           "trv_type": "TRV-type",
           "pi_demand_entity": "PI-behovsentitet (valgfrit)",
           "calibration_entity": "TRV-kalibreringsentitet (valgfrit)",
           "sync_mode": "Synkroniseringstilstand"
         },
         "data_description": {
-          "homekit_climate_entity": "Den HomeKit-broede klimaenhed for denne TRV, hvis den afviger fra enheden ovenfor (relevant for visse Netatmo-/Homebridge-opsætninger). Lad stå tomt, hvis ikke relevant.",
+          "homekit_climate_entity": "Den lokale HomeKit-klimaenhed for denne ventil (fx climate.netatmo_valve_1 fra HomeKit Controller-parringen af Netatmo-relæet). Krævet for PID-styring af en Netatmo-ventil: PID-setpunkter skrives kun lokalt via HomeKit, aldrig via Netatmo-skyen. Uden den følger ventilen sin Netatmo-tidsplan, mens forvalg, vinduer og væk stadig virker. Lad stå tomt for Zigbee-ventiler.",
           "trv_type": "Netatmo NRV'er bruger preset_mode (away/schedule) til at aktivere/deaktivere opvarmning. Zigbee-TRV'er (via Zigbee2MQTT) bruger i stedet hvac_mode (off/heat).",
           "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov, brugt til spild- og effektivitetsberegninger.",
           "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren.",
@@ -127,14 +127,14 @@
         "title": "Rediger TRV",
         "data": {
           "climate_entity": "Klimaenhed",
-          "homekit_climate_entity": "HomeKit-klimaenhed (valgfrit)",
+          "homekit_climate_entity": "HomeKit-klimaenhed (krævet for PID på Netatmo)",
           "trv_type": "TRV-type",
           "pi_demand_entity": "PI-behovsentitet (valgfrit)",
           "calibration_entity": "TRV-kalibreringsentitet (valgfrit)",
           "sync_mode": "Synkroniseringstilstand"
         },
         "data_description": {
-          "homekit_climate_entity": "Den HomeKit-broede klimaenhed for denne TRV, hvis den afviger fra enheden ovenfor (relevant for visse Netatmo-/Homebridge-opsætninger). Lad stå tomt, hvis ikke relevant.",
+          "homekit_climate_entity": "Den lokale HomeKit-klimaenhed for denne ventil (fx climate.netatmo_valve_1 fra HomeKit Controller-parringen af Netatmo-relæet). Krævet for PID-styring af en Netatmo-ventil: PID-setpunkter skrives kun lokalt via HomeKit, aldrig via Netatmo-skyen. Uden den følger ventilen sin Netatmo-tidsplan, mens forvalg, vinduer og væk stadig virker. Lad stå tomt for Zigbee-ventiler.",
           "trv_type": "Netatmo NRV'er bruger preset_mode (away/schedule) til at aktivere/deaktivere opvarmning. Zigbee-TRV'er (via Zigbee2MQTT) bruger i stedet hvac_mode (off/heat).",
           "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov, brugt til spild- og effektivitetsberegninger.",
           "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren.",
@@ -333,14 +333,14 @@
         "title": "Tilføj en TRV",
         "data": {
           "climate_entity": "Klimaenhed",
-          "homekit_climate_entity": "HomeKit-klimaenhed (valgfrit)",
+          "homekit_climate_entity": "HomeKit-klimaenhed (krævet for PID på Netatmo)",
           "trv_type": "TRV-type",
           "pi_demand_entity": "PI-behovsentitet (valgfrit)",
           "calibration_entity": "TRV-kalibreringsentitet (valgfrit)",
           "sync_mode": "Synkroniseringstilstand"
         },
         "data_description": {
-          "homekit_climate_entity": "Den HomeKit-broede klimaenhed for denne TRV, hvis den afviger fra enheden ovenfor (relevant for visse Netatmo-/Homebridge-opsætninger). Lad stå tomt, hvis ikke relevant.",
+          "homekit_climate_entity": "Den lokale HomeKit-klimaenhed for denne ventil (fx climate.netatmo_valve_1 fra HomeKit Controller-parringen af Netatmo-relæet). Krævet for PID-styring af en Netatmo-ventil: PID-setpunkter skrives kun lokalt via HomeKit, aldrig via Netatmo-skyen. Uden den følger ventilen sin Netatmo-tidsplan, mens forvalg, vinduer og væk stadig virker. Lad stå tomt for Zigbee-ventiler.",
           "trv_type": "Netatmo NRV'er bruger preset_mode (away/schedule) til at aktivere/deaktivere opvarmning. Zigbee-TRV'er (via Zigbee2MQTT) bruger i stedet hvac_mode (off/heat).",
           "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov, brugt til spild- og effektivitetsberegninger.",
           "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren.",
@@ -351,14 +351,14 @@
         "title": "Rediger TRV",
         "data": {
           "climate_entity": "Klimaenhed",
-          "homekit_climate_entity": "HomeKit-klimaenhed (valgfrit)",
+          "homekit_climate_entity": "HomeKit-klimaenhed (krævet for PID på Netatmo)",
           "trv_type": "TRV-type",
           "pi_demand_entity": "PI-behovsentitet (valgfrit)",
           "calibration_entity": "TRV-kalibreringsentitet (valgfrit)",
           "sync_mode": "Synkroniseringstilstand"
         },
         "data_description": {
-          "homekit_climate_entity": "Den HomeKit-broede klimaenhed for denne TRV, hvis den afviger fra enheden ovenfor (relevant for visse Netatmo-/Homebridge-opsætninger). Lad stå tomt, hvis ikke relevant.",
+          "homekit_climate_entity": "Den lokale HomeKit-klimaenhed for denne ventil (fx climate.netatmo_valve_1 fra HomeKit Controller-parringen af Netatmo-relæet). Krævet for PID-styring af en Netatmo-ventil: PID-setpunkter skrives kun lokalt via HomeKit, aldrig via Netatmo-skyen. Uden den følger ventilen sin Netatmo-tidsplan, mens forvalg, vinduer og væk stadig virker. Lad stå tomt for Zigbee-ventiler.",
           "trv_type": "Netatmo NRV'er bruger preset_mode (away/schedule) til at aktivere/deaktivere opvarmning. Zigbee-TRV'er (via Zigbee2MQTT) bruger i stedet hvac_mode (off/heat).",
           "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov, brugt til spild- og effektivitetsberegninger.",
           "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren.",

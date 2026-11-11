@@ -105,3 +105,18 @@ def summarize_backends(backends: Iterable[NetatmoBackend | None]) -> str:
     if len(found) > 1:
         return BACKEND_SUMMARY_MIXED
     return next(iter(found)).value
+
+
+def trv_pid_writable(trv_type: str | None, has_homekit: bool) -> bool:
+    """v0.61.2: may the PID write setpoints to this TRV?
+
+    A Netatmo valve is only PID-driven through its local HomeKit entity —
+    never through the cloud entity (core or NET-TRV), where a PID tick every
+    60 s for several rooms would burn Netatmo's 500 calls/hour budget.
+    Netatmo TRVs without HomeKit follow the Netatmo schedule instead.
+    Non-Netatmo TRVs (Zigbee, ...) are local and always writable. A missing
+    trv_type counts as Netatmo, matching the default used everywhere else.
+    """
+    if (trv_type or "netatmo") == "netatmo":
+        return has_homekit
+    return True

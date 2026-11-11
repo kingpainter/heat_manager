@@ -90,6 +90,10 @@ def make_coordinator(
     _trv = {"climate_entity": climate_id}
     if homekit_entity:
         _trv["homekit_climate_entity"] = homekit_entity
+    else:
+        # v0.61.2: the local (no-HomeKit) path is the Zigbee path — a Netatmo
+        # TRV without HomeKit is no longer PID-driven at all.
+        _trv["trv_type"] = "zigbee"
     coord.get_room_trvs = MagicMock(return_value=[_trv])
     pid = PidController(kp=0.5, ki=0.02, kd=0.0, room_name=room_name)
     coord.pid_controllers = {room_name: pid}
@@ -159,6 +163,11 @@ def _wire_tick_dependencies(coord: MagicMock, climate_id: str) -> None:
     # B27 (v0.60.3): cloud-down/HomeKit-alive fallback — bind the real
     # helpers so the tick's availability logic is actually exercised.
     coord._pid_cloud_degraded = set()
+    # v0.61.2: bind the real HomeKit-required gate.
+    coord.is_trv_pid_writable = HeatManagerCoordinator.is_trv_pid_writable.__get__(
+        coord, type(coord)
+    )
+    coord.get_trv_homekit_entity = HeatManagerCoordinator.get_trv_homekit_entity
     coord._entity_unavailable = HeatManagerCoordinator._entity_unavailable.__get__(
         coord, type(coord)
     )
@@ -635,7 +644,10 @@ async def test_multi_trv_room_sends_same_setpoint_to_every_trv():
                 "climate_entity": "climate.living_room",
                 "homekit_climate_entity": "climate.living_room_homekit",
             },
-            {"climate_entity": "climate.living_room_zigbee_trv2"},
+            {
+                "climate_entity": "climate.living_room_zigbee_trv2",
+                "trv_type": "zigbee",
+            },
         ]
     )
     base_get = coord.hass.states.get
@@ -684,7 +696,10 @@ async def test_multi_trv_room_skips_trv_already_at_setpoint():
                 "climate_entity": "climate.living_room",
                 "homekit_climate_entity": "climate.living_room_homekit",
             },
-            {"climate_entity": "climate.living_room_zigbee_trv2"},
+            {
+                "climate_entity": "climate.living_room_zigbee_trv2",
+                "trv_type": "zigbee",
+            },
         ]
     )
     primary_state = MagicMock()
@@ -740,7 +755,10 @@ async def test_multi_trv_room_secondary_unavailable_does_not_reset_pid():
                 "climate_entity": "climate.living_room",
                 "homekit_climate_entity": "climate.living_room_homekit",
             },
-            {"climate_entity": "climate.living_room_zigbee_trv2"},
+            {
+                "climate_entity": "climate.living_room_zigbee_trv2",
+                "trv_type": "zigbee",
+            },
         ]
     )
     primary_state = MagicMock()
@@ -784,7 +802,10 @@ async def test_multi_trv_room_primary_unavailable_resets_pid_skips_all():
                 "climate_entity": "climate.living_room",
                 "homekit_climate_entity": "climate.living_room_homekit",
             },
-            {"climate_entity": "climate.living_room_zigbee_trv2"},
+            {
+                "climate_entity": "climate.living_room_zigbee_trv2",
+                "trv_type": "zigbee",
+            },
         ]
     )
     second_state = MagicMock()
@@ -889,3 +910,77 @@ async def test_bug_b27_cloud_down_logs_warning_once_and_info_on_recovery(caplog)
     infos = [r for r in caplog.records if "available again" in r.getMessage()]
     assert len(infos) == 1
     assert "living_room" not in coord._pid_cloud_degraded
+
+
+# ── v0.61.2: HomeKit required for PID on Netatmo valves ───────────────────────
+
+
+@pytest.mark.asyncio
+async def test_netatmo_trv_without_homekit_is_not_pid_driven():
+    """A Netatmo valve with no HomeKit entity gets no PID setpoint (never via
+    the cloud) and the room's PID is reset so it can't wind up."""
+    coord = make_coordinator(current_temp=20.0, target_temp=22.0, homekit_entity=None)
+    coord.get_room_trvs = MagicMock(
+        return_value=[{"climate_entity": "climate.living_room", "trv_type": "netatmo"}]
+    )
+    pid = coord.pid_controllers["living_room"]
+    pid.update(22.0, 20.0)
+
+    await _pid_tick(coord)
+
+    assert pid.integral == pytest.approx(0.0)
+    coord.hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_missing_trv_type_counts_as_netatmo():
+    """Old configs without trv_type default to netatmo everywhere — same here."""
+    coord = make_coordinator(current_temp=20.0, target_temp=22.0, homekit_entity=None)
+    coord.get_room_trvs = MagicMock(
+        return_value=[{"climate_entity": "climate.living_room"}]
+    )
+    await _pid_tick(coord)
+    coord.hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_mixed_room_skips_only_the_netatmo_trv_without_homekit():
+    """Zigbee TRV still gets the PID setpoint; the Netatmo-without-HomeKit
+    TRV in the same room is skipped."""
+    coord = make_coordinator(current_temp=20.0, target_temp=22.0, homekit_entity=None)
+    coord.get_room_trvs = MagicMock(
+        return_value=[
+            {"climate_entity": "climate.living_room", "trv_type": "zigbee"},
+            {"climate_entity": "climate.living_room_nrv", "trv_type": "netatmo"},
+        ]
+    )
+    nrv = MagicMock()
+    nrv.state = "heat"
+    nrv.attributes = {"temperature": 10.0}
+    default = coord.hass.states.get.return_value
+    coord.hass.states.get = MagicMock(
+        side_effect=lambda eid: nrv if eid == "climate.living_room_nrv" else default
+    )
+
+    await _pid_tick(coord)
+
+    written = [
+        c[0][2]["entity_id"] for c in coord.hass.services.async_call.call_args_list
+    ]
+    assert written == ["climate.living_room"]
+
+
+@pytest.mark.asyncio
+async def test_netatmo_trv_with_homekit_still_pid_driven():
+    coord = make_coordinator(current_temp=20.0, target_temp=22.0)
+    coord.get_room_trvs = MagicMock(
+        return_value=[
+            {
+                "climate_entity": "climate.living_room",
+                "homekit_climate_entity": "climate.living_room_homekit",
+                "trv_type": "netatmo",
+            }
+        ]
+    )
+    await _pid_tick(coord)
+    coord.hass.services.async_call.assert_called_once()

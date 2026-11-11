@@ -53,6 +53,8 @@ def _make_coordinator(rooms_cfg: list[dict] | None = None) -> MagicMock:
     coord.get_issue_snoozed_until = MagicMock(return_value=None)
     # Heat-up anomaly is a separate category these tests don't exercise.
     coord.calibration_engine.get_room_heatup_anomaly = MagicMock(return_value=False)
+    # v0.61.2: no room is waiting for a HomeKit entity unless a test says so.
+    coord.get_rooms_pid_needs_homekit = MagicMock(return_value=[])
 
     hass = MagicMock()
     hass.states.get = MagicMock(return_value=None)
@@ -374,3 +376,16 @@ def test_critical_issue_ignores_snooze():
     critical = [i for i in issues if i["severity"] == "critical"]
     assert critical and critical[0]["id"] == "cloud_down"
     assert critical[0]["snoozed"] is False
+
+
+# ── v0.61.2: PID needs HomeKit ────────────────────────────────────────────────
+
+
+def test_pid_needs_homekit_reported_as_info_with_rooms():
+    coord = _make_coordinator()
+    coord.get_rooms_pid_needs_homekit = MagicMock(return_value=["Kitchen", "Bath"])
+    issues = _build_active_issues(coord, [])
+    hk = [i for i in issues if i["id"].startswith("pid_needs_homekit")]
+    assert len(hk) == 1
+    assert hk[0]["severity"] == "info"
+    assert "Kitchen" in hk[0]["message"] and "Bath" in hk[0]["message"]

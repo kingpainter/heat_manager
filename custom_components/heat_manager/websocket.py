@@ -367,6 +367,20 @@ def _build_active_issues(
             }
         )
 
+    # 5b. v0.61.2: PID enabled but a room's Netatmo valves have no HomeKit
+    # entity — the room follows the Netatmo schedule instead of the PID.
+    pid_hk_rooms = coordinator.get_rooms_pid_needs_homekit()
+    if pid_hk_rooms:
+        issues.append(
+            {
+                "id": _issue_id("pid_needs_homekit", pid_hk_rooms),
+                "severity": "info",
+                "icon": "🏠",
+                "message": "PID kræver HomeKit — følger Netatmo-tidsplanen:"
+                f" {', '.join(pid_hk_rooms)}",
+            }
+        )
+
     # 6. Remote last action (info, < 30 min old) — folds the removed
     # Oversigt-only #remote-last-action-box into the header so it's visible
     # from every tab, not just Oversigt (same 30-min freshness window the

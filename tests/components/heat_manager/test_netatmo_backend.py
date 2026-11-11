@@ -18,6 +18,7 @@ from custom_components.heat_manager.engine.netatmo_backend import (
     effective_backend,
     resolve_backend,
     summarize_backends,
+    trv_pid_writable,
 )
 
 CORE = NetatmoBackend.CORE
@@ -169,3 +170,42 @@ def test_room_backend_summary_mixed():
 def test_installed_backends_from_config_entries():
     coord = _coordinator({}, {"net_trv"})
     assert coord.get_installed_netatmo_backends() == {NET_TRV}
+
+
+# ── trv_pid_writable (v0.61.2) ────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("trv_type", "has_homekit", "expected"),
+    [
+        ("netatmo", True, True),
+        ("netatmo", False, False),
+        (None, False, False),
+        ("zigbee", False, True),
+        ("zigbee", True, True),
+    ],
+)
+def test_trv_pid_writable(trv_type, has_homekit, expected):
+    assert trv_pid_writable(trv_type, has_homekit) is expected
+
+
+def test_rooms_pid_needs_homekit():
+    coord = MagicMock()
+    coord.pid_enabled = True
+    coord.rooms = [{"room_name": "Kitchen"}, {"room_name": "Hall"}, {"room_name": "Z"}]
+    trvs = {
+        "Kitchen": [{"climate_entity": "climate.kitchen", "trv_type": "netatmo"}],
+        "Hall": [],
+        "Z": [{"climate_entity": "climate.z", "trv_type": "zigbee"}],
+    }
+    coord.get_room_trvs = MagicMock(side_effect=lambda n: trvs[n])
+    coord.get_trv_homekit_entity = HeatManagerCoordinator.get_trv_homekit_entity
+    for name in ("is_trv_pid_writable", "get_rooms_pid_needs_homekit"):
+        setattr(
+            coord,
+            name,
+            getattr(HeatManagerCoordinator, name).__get__(coord, type(coord)),
+        )
+    assert coord.get_rooms_pid_needs_homekit() == ["Kitchen"]
+    coord.pid_enabled = False
+    assert coord.get_rooms_pid_needs_homekit() == []

@@ -9,6 +9,22 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.61.2] — 2026-11-11
+
+### Changed
+- **HomeKit er nu et krav for PID på Netatmo-ventiler.** En Netatmo-ventil
+  uden HomeKit-klimaenhed får ikke længere PID-setpunkter via skyen (core
+  eller NET-TRV) — det kunne bruge op til 300 af Netatmos 500 API-kald i
+  timen. Ventilen følger i stedet sin Netatmo-tidsplan; forvalg, vinduer, væk
+  og boost virker som før. Er alle rummets ventiler sådan, nulstilles rummets
+  PID, så integralet ikke vokser, mens intet skrives. Zigbee-ventiler og
+  Netatmo-ventiler med HomeKit er uændrede. Ventiler uden `trv_type` regnes
+  som Netatmo, som alle andre steder i koden.
+- **Synligt i panelet:** statuslinjen viser "PID kræver HomeKit — følger
+  Netatmo-tidsplanen: <rum>" (info), når PID er slået til.
+- **HomeKit-feltet i ventilopsætningen** hedder nu "HomeKit-klimaenhed
+  (krævet for PID på Netatmo)" med en forklaring.
+
 ## [0.61.1] — 2026-11-11
 
 ### Added

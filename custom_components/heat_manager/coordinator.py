@@ -155,6 +155,7 @@ from .engine.netatmo_backend import (
     effective_backend,
     resolve_backend,
     summarize_backends,
+    trv_pid_writable,
 )
 from .engine.pid_controller import PidController
 from .engine.preheat_engine import PreheatEngine
@@ -928,6 +929,25 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for backend in NetatmoBackend
             if self.hass.config_entries.async_entries(backend.value)
         )
+
+    def is_trv_pid_writable(self, trv: dict[str, Any]) -> bool:
+        """v0.61.2: see engine/netatmo_backend.trv_pid_writable()."""
+        return trv_pid_writable(
+            trv.get(CONF_TRV_TYPE), bool(self.get_trv_homekit_entity(trv))
+        )
+
+    def get_rooms_pid_needs_homekit(self) -> list[str]:
+        """Rooms where PID is enabled but no TRV can be PID-driven because
+        every Netatmo valve lacks a HomeKit entity (v0.61.2)."""
+        if not self.pid_enabled:
+            return []
+        out: list[str] = []
+        for room in self.rooms:
+            name = room.get("room_name", "")
+            trvs = self.get_room_trvs(name) if name else []
+            if trvs and not any(self.is_trv_pid_writable(t) for t in trvs):
+                out.append(name)
+        return out
 
     @property
     def netatmo_backend_choice(self) -> str:
@@ -2700,6 +2720,17 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     pid.reset()
                     continue
 
+                # v0.61.2: HomeKit is required for PID on Netatmo valves. A
+                # room whose TRVs are all Netatmo-without-HomeKit is left to
+                # the Netatmo schedule — reset so the integral can't wind up
+                # while nothing is written. See trv_pid_writable().
+                room_trvs = self.get_room_trvs(room_name)
+                if room_trvs and not any(
+                    self.is_trv_pid_writable(t) for t in room_trvs
+                ):
+                    pid.reset()
+                    continue
+
                 # ── Read current temperature via unified helper ────────────────
                 # Preference: room_temp_sensor → HomeKit entity → cloud entity
                 hk_id = self.get_homekit_climate_entity(room_name)
@@ -2883,6 +2914,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # TRV can sit at a different current setpoint than the room's
                 # primary one.
                 for trv in self.get_room_trvs(room_name):
+                    # v0.61.2: never PID-write a Netatmo valve via the cloud.
+                    if not self.is_trv_pid_writable(trv):
+                        continue
                     trv_write_id = trv.get(CONF_HOMEKIT_CLIMATE_ENTITY) or trv.get(
                         CONF_CLIMATE_ENTITY
                     )
