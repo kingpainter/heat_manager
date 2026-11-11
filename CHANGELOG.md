@@ -9,6 +9,26 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.61.1] — 2026-11-11
+
+### Added
+- **Valg af Netatmo-integration.** Nyt felt "Netatmo-integration" øverst i
+  de globale indstillinger (opsætning og Konfigurer): *Auto* (anbefalet —
+  NET-TRV hvis installeret, ellers core), *NET-TRV* eller *Netatmo (core)*.
+  Feltet vises kun, når begge integrationer er installeret, eller når et
+  eksplicit valg allerede er gemt.
+- **Validering af ventiler.** Med et eksplicit valg afvises en Netatmo-ventil,
+  hvis klimaenheden tilhører den anden integration (fejl
+  `netatmo_backend_mismatch`). Ejeren læses fra entity registry, ikke fra
+  navnet. Zigbee-ventiler og *Auto* påvirkes ikke.
+- **Reparation, når den valgte integration mangler.** Er der valgt core
+  eller NET-TRV, og integrationen ikke er installeret, oprettes et repair
+  issue under Reparationer. Det ryddes, så snart valget kan opfyldes igen
+  eller der skiftes til *Auto*. Tjekkes ved opstart og når de globale
+  indstillinger gemmes.
+- **Diagnostics** viser `netatmo_backend_choice` og
+  `netatmo_backend_effective`.
+
 ## [0.61.0] — 2026-11-11
 
 ### Added

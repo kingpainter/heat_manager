@@ -4,6 +4,7 @@
       "user": {
         "title": "Season & global settings",
         "data": {
+          "netatmo_backend": "Netatmo integration",
           "weather_entity": "Weather entity",
           "outdoor_temp_sensor": "Outdoor temperature sensor (optional)",
           "outdoor_humidity_sensor": "Outdoor humidity sensor (optional)",
@@ -39,6 +40,7 @@
           "wake_setback_temp": "Wake phase setback (°C to reduce)"
         },
         "data_description": {
+          "netatmo_backend": "Which integration controls your Netatmo valves. Auto uses NET-TRV when it is installed and core Netatmo otherwise. Only shown when both are installed.",
           "weather_compensation_enabled": "Adds a proactive power contribution based on outdoor temperature, on top of PID's reactive correction (a classic “heating curve”) — was always on before this setting existed, so it defaults to enabled.",
           "ff_reference_outdoor_temp": "Outdoor temperature at/above which weather compensation contributes nothing. Default 15°C.",
           "ff_weight": "Extra power fraction added per °C the outdoor temperature is below the reference. Default 0.02.",
@@ -171,7 +173,8 @@
     "error": {
       "entity_not_found": "Entity not found — check the entity ID.",
       "duplicate_room": "A room with this name already exists.",
-      "duplicate_person": "This person is already added."
+      "duplicate_person": "This person is already added.",
+      "netatmo_backend_mismatch": "This climate entity belongs to a different Netatmo integration than the one chosen in the global settings."
     },
     "abort": {
       "already_configured": "Heat Manager is already configured."
@@ -188,6 +191,7 @@
       "global": {
         "title": "Season & global settings",
         "data": {
+          "netatmo_backend": "Netatmo integration",
           "weather_entity": "Weather entity",
           "outdoor_temp_sensor": "Outdoor temperature sensor (optional)",
           "outdoor_humidity_sensor": "Outdoor humidity sensor (optional)",
@@ -223,6 +227,7 @@
           "wake_setback_temp": "Wake phase setback (°C to reduce)"
         },
         "data_description": {
+          "netatmo_backend": "Which integration controls your Netatmo valves. Auto uses NET-TRV when it is installed and core Netatmo otherwise. Only shown when both are installed.",
           "weather_compensation_enabled": "Adds a proactive power contribution based on outdoor temperature, on top of PID's reactive correction (a classic “heating curve”) — was always on before this setting existed, so it defaults to enabled.",
           "ff_reference_outdoor_temp": "Outdoor temperature at/above which weather compensation contributes nothing. Default 15°C.",
           "ff_weight": "Extra power fraction added per °C the outdoor temperature is below the reference. Default 0.02.",
@@ -452,7 +457,8 @@
       "duplicate_person": "This person is already added.",
       "same_room": "The two rooms must be different.",
       "duplicate_door_pair": "A door already connects these two rooms.",
-      "duplicate_door_sensor": "This sensor is already used by another door."
+      "duplicate_door_sensor": "This sensor is already used by another door.",
+      "netatmo_backend_mismatch": "This climate entity belongs to a different Netatmo integration than the one chosen in the global settings."
     }
   },
   "entity": {
@@ -550,6 +556,10 @@
     "persistent_issue": {
       "title": "Heat Manager: {message}",
       "description": "{message}\n\nThis has been continuously active for at least {duration_min} minutes. It will clear automatically once the underlying condition resolves."
+    },
+    "netatmo_backend_missing": {
+      "title": "Heat Manager: chosen Netatmo integration is not installed",
+      "description": "Heat Manager is set to use the Netatmo integration `{backend}`, but it is not installed. Netatmo valves cannot be controlled through it.\n\nTo resolve: reinstall `{backend}`, or open Heat Manager → Configure → Global settings and choose another Netatmo integration (or Auto). Then update the rooms whose valves used it."
     }
   },
   "exceptions": {
@@ -561,6 +571,15 @@
     },
     "setup_failed": {
       "message": "Heat Manager could not complete startup — no climate entities are reachable yet."
+    }
+  },
+  "selector": {
+    "netatmo_backend": {
+      "options": {
+        "auto": "Auto (recommended)",
+        "net_trv": "NET-TRV",
+        "netatmo": "Netatmo (core)"
+      }
     }
   }
 }

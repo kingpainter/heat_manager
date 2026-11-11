@@ -43,7 +43,7 @@ Off shuts everything down permanently — with the correct fallback per season.
 - **PID controller** — discrete-time PI controller sends proportional setpoints every 60 s via HomeKit (local LAN)
 - **Night setback** — optional: reduce PID target by N°C during configured night hours (default 23:00–07:00, disabled by default)
 - **HomeKit-first write routing** — all `set_temperature` writes prefer the local HomeKit entity over the Netatmo cloud, eliminating 429 rate-limit errors for those calls
-- **Netatmo backend detection** *(v0.61.0)* — detects whether each Netatmo valve is owned by the core `netatmo` integration or by NET-TRV (`net_trv`), read from the entity registry, and shows it in diagnostics and the panel data. Choosing a backend follows in a later version
+- **Netatmo backend detection** *(v0.61.0)* — detects whether each Netatmo valve is owned by the core `netatmo` integration or by NET-TRV (`net_trv`), read from the entity registry, and shows it in diagnostics and the panel data. Global choice Auto / NET-TRV / core *(v0.61.1)*
 - **Zigbee TRV support** — full TRV-type routing (Netatmo vs Z2M) throughout all engines
 - **Energy waste tracking** — `heating_power_request` × room wattage; CO₂-weighted (ventilation = 50 % waste); rain overrides CO₂ → always full waste
 - **Energy savings tracking** — estimated kWh saved from away mode
@@ -113,6 +113,7 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
+| `netatmo_backend` | select | `auto` | *(v0.61.1)* Which integration controls Netatmo valves: `auto` (NET-TRV if installed, else core), `net_trv` or `netatmo`. Only shown when both are installed. An explicit choice rejects Netatmo valves from the other integration and raises a repair if the chosen one is removed |
 | `weather_entity` | entity | — | Weather entity for outdoor temperature and season detection |
 | `outdoor_temp_sensor` | sensor | — | **Optional.** Local outdoor temperature sensor. Overrides weather entity |
 | `outdoor_humidity_sensor` | sensor | — | **Optional.** Outdoor humidity (%). Used for mold risk context |

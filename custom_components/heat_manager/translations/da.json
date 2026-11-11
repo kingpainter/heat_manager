@@ -4,6 +4,7 @@
       "user": {
         "title": "Sæson & globale indstillinger",
         "data": {
+          "netatmo_backend": "Netatmo-integration",
           "weather_entity": "Vejr-entitet",
           "outdoor_temp_sensor": "Udendørs temperatursensor (valgfrit)",
           "outdoor_humidity_sensor": "Udendørs fugtighedssensor (valgfrit)",
@@ -39,6 +40,7 @@
           "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)"
         },
         "data_description": {
+          "netatmo_backend": "Hvilken integration der styrer dine Netatmo-ventiler. Auto bruger NET-TRV, når den er installeret, og ellers core Netatmo. Vises kun, når begge er installeret.",
           "weather_compensation_enabled": "Tilføjer et proaktivt effektbidrag baseret på udetemperaturen, oven i PID'ens reaktive korrektion (en klassisk “varmekurve”) — var altid slået til før denne indstilling fandtes, så den er som standard aktiveret.",
           "ff_reference_outdoor_temp": "Udetemperatur ved/over hvilken vejrkompensationen bidrager med 0. Standard 15°C.",
           "ff_weight": "Ekstra effektandel tilføjet pr. °C udetemperaturen er under referencen. Standard 0,02.",
@@ -171,7 +173,8 @@
     "error": {
       "entity_not_found": "Entitet ikke fundet — kontrollér ID.",
       "duplicate_room": "Et rum med dette navn eksisterer allerede.",
-      "duplicate_person": "Denne person er allerede tilføjet."
+      "duplicate_person": "Denne person er allerede tilføjet.",
+      "netatmo_backend_mismatch": "Denne klimaenhed hører til en anden Netatmo-integration end den, der er valgt i de globale indstillinger."
     },
     "abort": {
       "already_configured": "Heat Manager er allerede konfigureret."
@@ -188,6 +191,7 @@
       "global": {
         "title": "Sæson & globale indstillinger",
         "data": {
+          "netatmo_backend": "Netatmo-integration",
           "weather_entity": "Vejr-entitet",
           "outdoor_temp_sensor": "Udendørs temperatursensor (valgfrit)",
           "outdoor_humidity_sensor": "Udendørs fugtighedssensor (valgfrit)",
@@ -223,6 +227,7 @@
           "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)"
         },
         "data_description": {
+          "netatmo_backend": "Hvilken integration der styrer dine Netatmo-ventiler. Auto bruger NET-TRV, når den er installeret, og ellers core Netatmo. Vises kun, når begge er installeret.",
           "weather_compensation_enabled": "Tilføjer et proaktivt effektbidrag baseret på udetemperaturen, oven i PID'ens reaktive korrektion (en klassisk “varmekurve”) — var altid slået til før denne indstilling fandtes, så den er som standard aktiveret.",
           "ff_reference_outdoor_temp": "Udetemperatur ved/over hvilken vejrkompensationen bidrager med 0. Standard 15°C.",
           "ff_weight": "Ekstra effektandel tilføjet pr. °C udetemperaturen er under referencen. Standard 0,02.",
@@ -452,7 +457,8 @@
       "duplicate_person": "Denne person er allerede tilføjet.",
       "same_room": "De to rum skal være forskellige.",
       "duplicate_door_pair": "En dør forbinder allerede disse to rum.",
-      "duplicate_door_sensor": "Denne sensor bruges allerede af en anden dør."
+      "duplicate_door_sensor": "Denne sensor bruges allerede af en anden dør.",
+      "netatmo_backend_mismatch": "Denne klimaenhed hører til en anden Netatmo-integration end den, der er valgt i de globale indstillinger."
     }
   },
   "entity": {
@@ -550,6 +556,10 @@
     "persistent_issue": {
       "title": "Heat Manager: {message}",
       "description": "{message}\n\nDette har været aktivt uafbrudt i mindst {duration_min} minutter. Det rydder automatisk når årsagen er løst."
+    },
+    "netatmo_backend_missing": {
+      "title": "Heat Manager: valgt Netatmo-integration er ikke installeret",
+      "description": "Heat Manager er sat til at bruge Netatmo-integrationen `{backend}`, men den er ikke installeret. Netatmo-ventiler kan ikke styres gennem den.\n\nLøsning: Geninstallér `{backend}`, eller åbn Heat Manager → Konfigurer → Globale indstillinger og vælg en anden Netatmo-integration (eller Auto). Opdatér derefter de rum, hvis ventiler brugte den."
     }
   },
   "exceptions": {
@@ -561,6 +571,15 @@
     },
     "setup_failed": {
       "message": "Heat Manager kunne ikke fuldføre opstart — ingen klimaenheder er tilgængelige endnu."
+    }
+  },
+  "selector": {
+    "netatmo_backend": {
+      "options": {
+        "auto": "Auto (anbefalet)",
+        "net_trv": "NET-TRV",
+        "netatmo": "Netatmo (core)"
+      }
     }
   }
 }

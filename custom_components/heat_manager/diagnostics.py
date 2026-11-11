@@ -129,6 +129,12 @@ async def async_get_config_entry_diagnostics(
             "netatmo_backends_installed": sorted(
                 b.value for b in coordinator.get_installed_netatmo_backends()
             ),
+            "netatmo_backend_choice": coordinator.netatmo_backend_choice,
+            "netatmo_backend_effective": (
+                effective.value
+                if (effective := coordinator.get_effective_netatmo_backend())
+                else None
+            ),
             "rooms": rooms_diag,
             "persons": persons_diag,
         },

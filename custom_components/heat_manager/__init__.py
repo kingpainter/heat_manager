@@ -23,8 +23,10 @@ from .const import (
     CONTROLLER_STATE_OPTIONS,
     DEFAULT_PAUSE_DURATION_MIN,
     DOMAIN,
+    NETATMO_BACKEND_AUTO,
     PLATFORMS,
     REPAIR_ISSUE_MISSING_CLIMATE,
+    REPAIR_ISSUE_NETATMO_BACKEND_MISSING,
     SERVICE_BOOST_START,
     SERVICE_BOOST_STOP,
     SERVICE_FORCE_ROOM_ON,
@@ -154,6 +156,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # F-3: raise RepairIssue for rooms whose climate entity is missing
     _async_check_repair_issues(hass, entry)
+    _async_check_netatmo_backend(hass, entry)
 
     # Remove device registry entries for rooms that no longer exist
     _async_remove_stale_devices(hass, entry)
@@ -258,6 +261,8 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         # unsub+resubscribe operations, harmless when nothing changed.
         coordinator.presence_engine.rebuild_alarm_listener()
         coordinator.remote_button_engine.rebuild_listeners()
+        # v0.61.1: a changed Netatmo backend choice is applied live too.
+        _async_check_netatmo_backend(hass, entry)
         _LOGGER.debug(
             "Heat Manager: entry.options changed but rooms/persons unchanged — "
             "skipping full reload (alarm/remote-button listeners rebuilt live)"
@@ -266,6 +271,38 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
     _LOGGER.debug("Heat Manager: rooms/persons changed — reloading entry")
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+def _async_check_netatmo_backend(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """v0.61.1: RepairIssue when the explicitly chosen Netatmo backend (core
+    netatmo or NET-TRV) has no config entry any more — e.g. core removed after
+    the user picked "Core". Cleared as soon as the choice resolves again
+    (integration re-added, or the user switches back to Auto).
+    """
+    coordinator: HeatManagerCoordinator = entry.runtime_data
+    choice = coordinator.netatmo_backend_choice
+    issue_id = f"{REPAIR_ISSUE_NETATMO_BACKEND_MISSING}_{entry.entry_id[:8]}"
+    if (
+        choice != NETATMO_BACKEND_AUTO
+        and coordinator.get_effective_netatmo_backend() is None
+    ):
+        _LOGGER.warning(
+            "Heat Manager: chosen Netatmo backend '%s' is not installed —"
+            " raised RepairIssue '%s'",
+            choice,
+            issue_id,
+        )
+        async_create_issue(
+            hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            severity=IssueSeverity.WARNING,
+            translation_key=REPAIR_ISSUE_NETATMO_BACKEND_MISSING,
+            translation_placeholders={"backend": choice},
+        )
+    else:
+        async_delete_issue(hass, DOMAIN, issue_id)
 
 
 def _async_check_repair_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:

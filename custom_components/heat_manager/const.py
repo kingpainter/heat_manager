@@ -161,6 +161,22 @@ TRV_TYPE_NETATMO = "netatmo"
 TRV_TYPE_ZIGBEE = "zigbee"
 TRV_TYPE_OPTIONS = [TRV_TYPE_NETATMO, TRV_TYPE_ZIGBEE]
 
+# ── Netatmo backend choice (v0.61.1) ─────────────────────────────────────────
+# Global choice of which integration owns Netatmo valves: core `netatmo` or
+# NET-TRV (`net_trv`). "auto" accepts either and prefers NET-TRV — see
+# engine/netatmo_backend.py. The two explicit values are the integrations'
+# domains (= entity-registry platforms), so they map 1:1 onto NetatmoBackend.
+CONF_NETATMO_BACKEND = "netatmo_backend"
+NETATMO_BACKEND_AUTO = "auto"
+NETATMO_BACKEND_CORE = "netatmo"
+NETATMO_BACKEND_NET_TRV = "net_trv"
+NETATMO_BACKEND_OPTIONS = [
+    NETATMO_BACKEND_AUTO,
+    NETATMO_BACKEND_NET_TRV,
+    NETATMO_BACKEND_CORE,
+]
+DEFAULT_NETATMO_BACKEND = NETATMO_BACKEND_AUTO
+
 # Per-room Z2M pi_heating_demand sensor entity (optional)
 CONF_PI_DEMAND_ENTITY = "pi_demand_entity"
 
@@ -607,6 +623,10 @@ SCHEDULE_TEMP_MAX: float = 30.0
 # Raised when a configured climate entity does not exist in HA at startup.
 # Cleared automatically when the entity becomes available on next reload.
 REPAIR_ISSUE_MISSING_CLIMATE = "missing_climate_entity"
+
+# v0.61.1: raised when the user explicitly chose a Netatmo backend (core or
+# NET-TRV) that has no config entry any more — e.g. core netatmo removed.
+REPAIR_ISSUE_NETATMO_BACKEND_MISSING = "netatmo_backend_missing"
 
 # 2026-09-14 (implementeringsplan punkt 2, gruppe B) — generic repair issue
 # for a status-center category (see coordinator.py's _report_issue()) that

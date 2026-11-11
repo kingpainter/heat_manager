@@ -72,6 +72,7 @@ from .const import (
     CONF_HUMIDITY_SENSOR,
     CONF_ISSUE_ESCALATION_MINUTES,
     CONF_LUX_SENSOR,
+    CONF_NETATMO_BACKEND,
     CONF_NOTIFY_ISSUE_ESCALATION,
     CONF_NOTIFY_MOLD_RISK,
     CONF_NOTIFY_SERVICE,
@@ -106,6 +107,7 @@ from .const import (
     DEFAULT_COMFORT_TEMP,
     DEFAULT_DOOR_HEAT_SHARE_ENABLED,
     DEFAULT_ISSUE_ESCALATION_MINUTES,
+    DEFAULT_NETATMO_BACKEND,
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
@@ -150,6 +152,7 @@ from .engine.door_engine import DoorEngine
 from .engine.netatmo_backend import (
     NetatmoBackend,
     available_backends,
+    effective_backend,
     resolve_backend,
     summarize_backends,
 )
@@ -924,6 +927,21 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             backend.value
             for backend in NetatmoBackend
             if self.hass.config_entries.async_entries(backend.value)
+        )
+
+    @property
+    def netatmo_backend_choice(self) -> str:
+        """Global Netatmo backend choice: "auto", "netatmo" or "net_trv"."""
+        return str(self.config.get(CONF_NETATMO_BACKEND, DEFAULT_NETATMO_BACKEND))
+
+    def get_effective_netatmo_backend(self) -> NetatmoBackend | None:
+        """Backend the choice resolves to with what is installed right now.
+
+        None means an explicit choice whose integration is gone (repair) or
+        no Netatmo integration installed at all.
+        """
+        return effective_backend(
+            self.netatmo_backend_choice, self.get_installed_netatmo_backends()
         )
 
     def get_trv_write_entity(self, trv: dict[str, Any]) -> str | None:

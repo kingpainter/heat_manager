@@ -20,7 +20,8 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 
 from .const import (
@@ -62,6 +63,7 @@ from .const import (
     CONF_INDOOR_WAKE_THRESHOLD,
     CONF_ISSUE_ESCALATION_MINUTES,
     CONF_LUX_SENSOR,
+    CONF_NETATMO_BACKEND,
     CONF_NIGHT_END_HOUR,
     CONF_NIGHT_SETBACK_ENABLED,
     CONF_NIGHT_SETBACK_TEMP,
@@ -120,6 +122,7 @@ from .const import (
     DEFAULT_GRACE_NIGHT_MIN,
     DEFAULT_INDOOR_WAKE_THRESHOLD,
     DEFAULT_ISSUE_ESCALATION_MINUTES,
+    DEFAULT_NETATMO_BACKEND,
     DEFAULT_NIGHT_END_HOUR,
     DEFAULT_NIGHT_SETBACK_ENABLED,
     DEFAULT_NIGHT_SETBACK_TEMP,
@@ -147,6 +150,8 @@ from .const import (
     FF_MAX_CONTRIBUTION,
     FF_REFERENCE_OUTDOOR_TEMP,
     FF_WEIGHT,
+    NETATMO_BACKEND_AUTO,
+    NETATMO_BACKEND_OPTIONS,
     PID_SETPOINT_MARGIN,
     SOLAR_GAIN_LUX_THRESHOLD,
     SOLAR_GAIN_MAX_REDUCTION,
@@ -156,6 +161,11 @@ from .const import (
     SYNC_MODE_MIRROR,
     TRV_TYPE_NETATMO,
 )
+from .engine.netatmo_backend import (
+    NetatmoBackend,
+    available_backends,
+    resolve_backend,
+)
 from .migrations import migrate_room_to_trvs
 
 _LOGGER = logging.getLogger(__name__)
@@ -164,10 +174,72 @@ _LOGGER = logging.getLogger(__name__)
 # ── Shared schemas ────────────────────────────────────────────────────────────
 
 
-def _step1_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+def _installed_netatmo_backends(hass: HomeAssistant) -> set[NetatmoBackend]:
+    """Netatmo integrations (core / NET-TRV) with at least one config entry."""
+    return available_backends(
+        backend.value
+        for backend in NetatmoBackend
+        if hass.config_entries.async_entries(backend.value)
+    )
+
+
+def _show_netatmo_backend_choice(hass: HomeAssistant, current: dict[str, Any]) -> bool:
+    """v0.61.1: only ask when there is something to choose — both core and
+    NET-TRV installed — or when an explicit choice is already stored (so the
+    user can switch back to Auto after one integration is removed)."""
+    stored = current.get(CONF_NETATMO_BACKEND, DEFAULT_NETATMO_BACKEND)
+    return len(_installed_netatmo_backends(hass)) > 1 or (
+        stored != NETATMO_BACKEND_AUTO
+    )
+
+
+def _validate_trv_input(
+    hass: HomeAssistant, user_input: dict[str, Any], backend_choice: str | None
+) -> dict[str, str]:
+    """Validate one TRV form submission (shared by all four TRV steps).
+
+    v0.61.1: with an explicit Netatmo backend choice, a Netatmo TRV must use
+    a climate entity owned by that integration — read from the entity
+    registry platform, never the entity name. "auto" accepts either.
+    """
+    climate = user_input.get(CONF_CLIMATE_ENTITY, "")
+    if hass.states.get(climate) is None:
+        return {CONF_CLIMATE_ENTITY: "entity_not_found"}
+    if user_input.get(CONF_TRV_TYPE, TRV_TYPE_NETATMO) != TRV_TYPE_NETATMO:
+        return {}
+    wanted = resolve_backend(backend_choice)
+    if wanted is None:
+        return {}
+    entry = er.async_get(hass).async_get(climate)
+    actual = resolve_backend(entry.platform if entry else None)
+    if actual is not None and actual is not wanted:
+        return {CONF_CLIMATE_ENTITY: "netatmo_backend_mismatch"}
+    return {}
+
+
+def _step1_schema(
+    defaults: dict[str, Any] | None = None, *, show_netatmo_backend: bool = False
+) -> vol.Schema:
     defaults = defaults or {}
+    fields: dict[Any, Any] = {}
+    if show_netatmo_backend:
+        fields[
+            vol.Optional(
+                CONF_NETATMO_BACKEND,
+                default=defaults.get(CONF_NETATMO_BACKEND, DEFAULT_NETATMO_BACKEND),
+            )
+        ] = selector.selector(
+            {
+                "select": {
+                    "options": NETATMO_BACKEND_OPTIONS,
+                    "translation_key": CONF_NETATMO_BACKEND,
+                    "mode": "list",
+                }
+            }
+        )
     return vol.Schema(
         {
+            **fields,
             # default=vol.UNDEFINED (not "") — the entity selector rejects ""
             # as an invalid entity ID, which blocked saving whenever this
             # optional field was left empty. See B17.
@@ -1002,7 +1074,12 @@ class HeatManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=_step1_schema(user_input or {}),
+            data_schema=_step1_schema(
+                user_input or {},
+                show_netatmo_backend=_show_netatmo_backend_choice(
+                    self.hass, user_input or {}
+                ),
+            ),
             errors=errors,
         )
 
@@ -1140,10 +1217,10 @@ class HeatManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            climate = user_input.get(CONF_CLIMATE_ENTITY, "")
-            if self.hass.states.get(climate) is None:
-                errors[CONF_CLIMATE_ENTITY] = "entity_not_found"
-            else:
+            errors = _validate_trv_input(
+                self.hass, user_input, self._data.get(CONF_NETATMO_BACKEND)
+            )
+            if not errors:
                 self._trv_draft.append(user_input)
                 return await self.async_step_room_trvs_menu()
 
@@ -1159,10 +1236,10 @@ class HeatManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         assert idx is not None
 
         if user_input is not None:
-            climate = user_input.get(CONF_CLIMATE_ENTITY, "")
-            if self.hass.states.get(climate) is None:
-                errors[CONF_CLIMATE_ENTITY] = "entity_not_found"
-            else:
+            errors = _validate_trv_input(
+                self.hass, user_input, self._data.get(CONF_NETATMO_BACKEND)
+            )
+            if not errors:
                 self._trv_draft[idx] = user_input
                 return await self.async_step_room_trvs_menu()
 
@@ -1340,9 +1417,13 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         if user_input is not None:
             return self.async_create_entry(data={**self._current(), **user_input})
+        current = self._current()
         return self.async_show_form(
             step_id="global",
-            data_schema=_step1_schema(self._current()),
+            data_schema=_step1_schema(
+                current,
+                show_netatmo_backend=_show_netatmo_backend_choice(self.hass, current),
+            ),
         )
 
     async def async_step_rooms_menu(
@@ -1561,10 +1642,10 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            climate = user_input.get(CONF_CLIMATE_ENTITY, "")
-            if self.hass.states.get(climate) is None:
-                errors[CONF_CLIMATE_ENTITY] = "entity_not_found"
-            else:
+            errors = _validate_trv_input(
+                self.hass, user_input, self._current().get(CONF_NETATMO_BACKEND)
+            )
+            if not errors:
                 self._trv_draft.append(user_input)
                 return await self.async_step_room_trvs_menu()
 
@@ -1580,10 +1661,10 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
         assert idx is not None
 
         if user_input is not None:
-            climate = user_input.get(CONF_CLIMATE_ENTITY, "")
-            if self.hass.states.get(climate) is None:
-                errors[CONF_CLIMATE_ENTITY] = "entity_not_found"
-            else:
+            errors = _validate_trv_input(
+                self.hass, user_input, self._current().get(CONF_NETATMO_BACKEND)
+            )
+            if not errors:
                 self._trv_draft[idx] = user_input
                 return await self.async_step_room_trvs_menu()
 
