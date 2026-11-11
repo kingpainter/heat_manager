@@ -354,6 +354,7 @@ logger:
 - Pre-heat requires a `sensor.<person>_travel_time_home` sensor in HA (e.g. from Google Maps or Waze integration).
 - Energy waste uses Netatmo's `heating_power_request` when available; falls back to Δtemp × 0.1 kWh/°C/h for other rooms.
 - PID writes via HomeKit require the Netatmo Relay paired as HomeKit Controller in HA.
+- If the Netatmo cloud entity goes unavailable (internet or cloud outage), the PID keeps running on the HomeKit entity alone; presets, schedules and cloud-only features pause until the cloud entity is back.
 - Valve protection fires once per ISO week at 02:00–03:00 local time, only when the controller is OFF.
 - Daily energy totals reset on HA restart (persistent storage not implemented).
 

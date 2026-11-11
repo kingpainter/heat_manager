@@ -156,6 +156,15 @@ def _wire_tick_dependencies(coord: MagicMock, climate_id: str) -> None:
     coord.get_sun_elevation = MagicMock(return_value=None)
     coord.get_door_heat_share_inputs = MagicMock(return_value=(None, None))
     coord.trv_needs_cloud_delay = MagicMock(return_value=False)
+    # B27 (v0.60.3): cloud-down/HomeKit-alive fallback — bind the real
+    # helpers so the tick's availability logic is actually exercised.
+    coord._pid_cloud_degraded = set()
+    coord._entity_unavailable = HeatManagerCoordinator._entity_unavailable.__get__(
+        coord, type(coord)
+    )
+    coord._track_cloud_degraded = HeatManagerCoordinator._track_cloud_degraded.__get__(
+        coord, type(coord)
+    )
 
     async def _climate_service(service, entity_id, data=None, *, needs_delay):
         await coord.hass.services.async_call(
@@ -805,3 +814,78 @@ async def test_no_schedule_override_uses_normal_target():
     await _pid_tick(coord)
     call_args = coord.hass.services.async_call.call_args
     assert call_args[0][2]["temperature"] > 22.0
+
+
+# ── B27: cloud entity down, HomeKit reachable ─────────────────────────────────
+
+
+def _cloud_down_hk_alive(coord: MagicMock, hk_setpoint: float = 10.0) -> None:
+    """Cloud climate entity unavailable, HomeKit entity healthy."""
+    cloud = MagicMock()
+    cloud.state = "unavailable"
+    cloud.attributes = {}
+    hk = MagicMock()
+    hk.state = "heat"
+    hk.attributes = {"current_temperature": 20.0, "temperature": hk_setpoint}
+
+    def _get(entity_id):
+        return hk if entity_id == "climate.living_room_homekit" else cloud
+
+    coord.hass.states.get = MagicMock(side_effect=_get)
+
+
+@pytest.mark.asyncio
+async def test_bug_b27_cloud_unavailable_homekit_alive_keeps_pid_running():
+    """Internet/cloud outage: the PID keeps its integral and still writes
+    the setpoint to the local HomeKit entity."""
+    coord = make_coordinator(current_temp=20.0, target_temp=22.0)
+    _cloud_down_hk_alive(coord)
+    pid = coord.pid_controllers["living_room"]
+    pid.update(22.0, 20.0)
+    integral_before = pid.integral
+
+    await _pid_tick(coord)
+
+    assert pid.integral > integral_before
+    coord.hass.services.async_call.assert_called_once()
+    args = coord.hass.services.async_call.call_args[0]
+    assert args[1] == "set_temperature"
+    assert args[2]["entity_id"] == "climate.living_room_homekit"
+
+
+@pytest.mark.asyncio
+async def test_bug_b27_cloud_and_homekit_unavailable_still_resets():
+    """No reachable write path at all → reset, nothing sent (unchanged)."""
+    coord = make_coordinator(climate_unavailable=True)
+    pid = coord.pid_controllers["living_room"]
+    pid.update(22.0, 20.0)
+
+    await _pid_tick(coord)
+
+    assert pid.integral == pytest.approx(0.0)
+    coord.hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_bug_b27_cloud_down_logs_warning_once_and_info_on_recovery(caplog):
+    coord = make_coordinator(current_temp=20.0, target_temp=22.0)
+    _cloud_down_hk_alive(coord)
+
+    with caplog.at_level("INFO"):
+        await _pid_tick(coord)
+        await _pid_tick(coord)
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "HomeKit only" in warnings[0].getMessage()
+
+    caplog.clear()
+    healthy = MagicMock()
+    healthy.state = "heat"
+    healthy.attributes = {"current_temperature": 20.0, "temperature": 22.0}
+    coord.hass.states.get = MagicMock(return_value=healthy)
+    with caplog.at_level("INFO"):
+        await _pid_tick(coord)
+        await _pid_tick(coord)
+    infos = [r for r in caplog.records if "available again" in r.getMessage()]
+    assert len(infos) == 1
+    assert "living_room" not in coord._pid_cloud_degraded

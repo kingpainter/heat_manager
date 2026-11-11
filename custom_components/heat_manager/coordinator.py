@@ -491,6 +491,10 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # change apart from Heat Manager's own last write, without having
         # to instrument every write call-site individually.
         self.last_expected_setpoint: dict[str, float] = {}
+        # B27 (v0.60.3): rooms whose PID is currently running on HomeKit
+        # alone because the cloud climate entity is unavailable — used only
+        # to log one WARNING on entry and one INFO on recovery.
+        self._pid_cloud_degraded: set[str] = set()
         # Per-room target-temperature override from an active schedule/
         # calendar block — see engine/schedule_engine.py. Absent (no key)
         # for a room with no CONF_SCHEDULE_ENTITY configured, or whose
@@ -1205,6 +1209,29 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if state and state.state not in ("unavailable", "unknown", "off"):
                 return False
         return True
+
+    def _entity_unavailable(self, entity_id: str) -> bool:
+        """True if entity_id is missing or not usable as a write target."""
+        state = self.hass.states.get(entity_id)
+        return state is None or state.state in ("unavailable", "unknown", "off")
+
+    def _track_cloud_degraded(
+        self, room_name: str, cloud_id: str, *, cloud_up: bool, hk_alive: bool
+    ) -> None:
+        """B27: log once when a room's PID falls back to HomeKit-only
+        control (cloud entity down, HomeKit reachable) and once when the
+        cloud entity is back — never on every tick."""
+        degraded = not cloud_up and hk_alive
+        if degraded and room_name not in self._pid_cloud_degraded:
+            self._pid_cloud_degraded.add(room_name)
+            _LOGGER.warning(
+                "PID '%s': %s is unavailable — continuing on HomeKit only",
+                room_name,
+                cloud_id,
+            )
+        elif cloud_up and room_name in self._pid_cloud_degraded:
+            self._pid_cloud_degraded.discard(room_name)
+            _LOGGER.info("PID '%s': %s is available again", room_name, cloud_id)
 
     def _init_pid_controllers(self) -> None:
         kp = float(self.config.get(CONF_PID_KP, DEFAULT_PID_KP))
@@ -2621,24 +2648,34 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
                 # ── Read current temperature via unified helper ────────────────
                 # Preference: room_temp_sensor → HomeKit entity → cloud entity
+                hk_id = self.get_homekit_climate_entity(room_name)
+                primary_state = self.hass.states.get(primary_id)
+                primary_down = primary_state is None or primary_state.state in (
+                    "unavailable",
+                    "unknown",
+                )
+                # B27 (v0.60.3): a Netatmo room whose cloud entity is down
+                # (internet / Netatmo cloud / NET-TRV outage) can still be
+                # driven locally through its HomeKit entity, which talks to
+                # the relay over the LAN. Treat the cloud entity being
+                # unavailable as "no new information", not as the room being
+                # gone — only reset when there is no reachable write path.
+                hk_alive = bool(hk_id) and not self._entity_unavailable(hk_id)
+                self._track_cloud_degraded(
+                    room_name, primary_id, cloud_up=not primary_down, hk_alive=hk_alive
+                )
+
                 current_temp = self.get_room_current_temp(room_name, primary_id)
                 if current_temp is None:
                     # 2026-10-30: a brief loss of every temperature reading
                     # (room sensor / HomeKit / cloud dropout) only skips this
                     # tick — the PID keeps its integral, so the room doesn't
                     # lose the heat demand it had built up over a one-tick
-                    # gap. The PID is still reset when the room's primary
-                    # climate entity itself is gone, same policy as the
-                    # unavailable checks further down.
-                    primary_state = self.hass.states.get(primary_id)
-                    if primary_state is None or primary_state.state in (
-                        "unavailable",
-                        "unknown",
-                    ):
+                    # gap. The PID is still reset when the room has no
+                    # reachable climate entity at all.
+                    if primary_down and not hk_alive:
                         pid.reset()
                     continue
-
-                hk_id = self.get_homekit_climate_entity(room_name)
 
                 if hk_id:
                     # ── Netatmo split-entity path ────────────────────────────
@@ -2646,18 +2683,16 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # CONF_COMFORT_TEMP base as the local path below) — see
                     # docstring above. The cloud entity is still read here for
                     # availability/health and the heating_power_request demand
-                    # percentage, not for the target itself.
+                    # percentage, not for the target itself. B27: a down cloud
+                    # entity no longer resets the PID — the HomeKit write
+                    # entity's own availability check below decides that.
                     write_id = hk_id
-                    primary_state = self.hass.states.get(primary_id)
-                    if primary_state is None or primary_state.state in (
-                        "unavailable",
-                        "unknown",
-                    ):
-                        pid.reset()
-                        continue
-                    demand_pct = primary_state.attributes.get(
-                        "heating_power_request", "?"
-                    )
+                    if primary_down:
+                        demand_pct = "n/a (cloud unavailable)"
+                    else:
+                        demand_pct = primary_state.attributes.get(
+                            "heating_power_request", "?"
+                        )
                 else:
                     # ── Local TRV path (Zigbee today, Matter/Thread later) ──
                     # Write directly to the room's own climate_entity:

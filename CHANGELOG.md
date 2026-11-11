@@ -9,6 +9,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.60.3] — 2026-11-11
+
+### Fixed
+- **PID fortsætter via HomeKit, når Netatmo-skyen er nede (B27).** Var
+  rummets cloud-entitet (NET-TRV eller core `netatmo`) `unavailable` — fx ved
+  internet- eller Netatmo-udfald — nulstillede PID'en og sprang rummet over,
+  selvom HomeKit-entiteten stadig virkede lokalt via relæet. Nu behandles en
+  utilgængelig cloud-entitet som "ingen ny viden": PID'en beholder sit
+  integral og skriver fortsat setpunkter via HomeKit. Den nulstilles kun,
+  når rummet ikke har nogen tilgængelig skrivevej. Loggen får én advarsel,
+  når et rum går over til kun-HomeKit, og én info-linje, når skyen er
+  tilbage.
+
 ## [0.60.2] — 2026-10-30
 
 ### Fixed
