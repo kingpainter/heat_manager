@@ -16,7 +16,12 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_NOTIFY_SERVICE
+from .const import (
+    CONF_CLIMATE_ENTITY,
+    CONF_HOMEKIT_CLIMATE_ENTITY,
+    CONF_NOTIFY_SERVICE,
+    CONF_TRV_TYPE,
+)
 
 
 async def async_get_config_entry_diagnostics(
@@ -51,12 +56,29 @@ async def async_get_config_entry_diagnostics(
                 "hvac_action": cs.attributes.get("hvac_action"),
             }
 
+        # v0.61.0: which integration owns each TRV (entity-registry platform)
+        trvs_diag = [
+            {
+                "climate_entity": trv.get(CONF_CLIMATE_ENTITY, ""),
+                "homekit_climate_entity": trv.get(CONF_HOMEKIT_CLIMATE_ENTITY, ""),
+                "trv_type": trv.get(CONF_TRV_TYPE),
+                "netatmo_backend": (
+                    backend.value
+                    if (backend := coordinator.get_trv_netatmo_backend(trv))
+                    else None
+                ),
+            }
+            for trv in coordinator.get_room_trvs(room_name)
+        ]
+
         rooms_diag.append(
             {
                 "room_name": room_name,
                 "climate_entity": climate_id,
                 "room_state": room_state.value,
                 "climate": climate_attrs,
+                "netatmo_backend": coordinator.get_room_netatmo_backend(room_name),
+                "trvs": trvs_diag,
             }
         )
 
@@ -104,6 +126,9 @@ async def async_get_config_entry_diagnostics(
         "config": cfg_redacted,
         "runtime": {
             "outdoor_temperature": coordinator.outdoor_temperature,
+            "netatmo_backends_installed": sorted(
+                b.value for b in coordinator.get_installed_netatmo_backends()
+            ),
             "rooms": rooms_diag,
             "persons": persons_diag,
         },

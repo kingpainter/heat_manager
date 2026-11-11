@@ -35,6 +35,7 @@ from typing import Any, cast
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.issue_registry import (
     IssueSeverity,
@@ -146,6 +147,12 @@ from .const import (
 from .engine.calibration_engine import CalibrationEngine
 from .engine.controller import ControllerEngine
 from .engine.door_engine import DoorEngine
+from .engine.netatmo_backend import (
+    NetatmoBackend,
+    available_backends,
+    resolve_backend,
+    summarize_backends,
+)
 from .engine.pid_controller import PidController
 from .engine.preheat_engine import PreheatEngine
 from .engine.presence_engine import PresenceEngine
@@ -889,6 +896,35 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @staticmethod
     def get_trv_homekit_entity(trv: dict[str, Any]) -> str | None:
         return trv.get(CONF_HOMEKIT_CLIMATE_ENTITY) or None
+
+    def get_trv_netatmo_backend(self, trv: dict[str, Any]) -> NetatmoBackend | None:
+        """Netatmo integration owning this TRV's climate entity (v0.61.0).
+
+        Read from the entity registry's `platform`, never from the entity_id
+        — the 2026-11-11 migration swapped entity names between core netatmo
+        and NET-TRV, so names say nothing about the owner. None for a
+        non-Netatmo TRV (Zigbee, ...) or an entity missing from the registry.
+        """
+        entity_id = self.get_trv_climate_entity(trv)
+        if not entity_id:
+            return None
+        entry = er.async_get(self.hass).async_get(entity_id)
+        return resolve_backend(entry.platform if entry else None)
+
+    def get_room_netatmo_backend(self, room_name: str) -> str:
+        """Summary of the room's Netatmo backends: "net_trv", "netatmo",
+        "mixed" or "none" — see engine/netatmo_backend.summarize_backends."""
+        return summarize_backends(
+            self.get_trv_netatmo_backend(trv) for trv in self.get_room_trvs(room_name)
+        )
+
+    def get_installed_netatmo_backends(self) -> set[NetatmoBackend]:
+        """Netatmo integrations that have at least one config entry."""
+        return available_backends(
+            backend.value
+            for backend in NetatmoBackend
+            if self.hass.config_entries.async_entries(backend.value)
+        )
 
     def get_trv_write_entity(self, trv: dict[str, Any]) -> str | None:
         """Preferred write entity for one physical TRV — same

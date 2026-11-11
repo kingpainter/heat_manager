@@ -43,6 +43,7 @@ Off shuts everything down permanently — with the correct fallback per season.
 - **PID controller** — discrete-time PI controller sends proportional setpoints every 60 s via HomeKit (local LAN)
 - **Night setback** — optional: reduce PID target by N°C during configured night hours (default 23:00–07:00, disabled by default)
 - **HomeKit-first write routing** — all `set_temperature` writes prefer the local HomeKit entity over the Netatmo cloud, eliminating 429 rate-limit errors for those calls
+- **Netatmo backend detection** *(v0.61.0)* — detects whether each Netatmo valve is owned by the core `netatmo` integration or by NET-TRV (`net_trv`), read from the entity registry, and shows it in diagnostics and the panel data. Choosing a backend follows in a later version
 - **Zigbee TRV support** — full TRV-type routing (Netatmo vs Z2M) throughout all engines
 - **Energy waste tracking** — `heating_power_request` × room wattage; CO₂-weighted (ventilation = 50 % waste); rain overrides CO₂ → always full waste
 - **Energy savings tracking** — estimated kWh saved from away mode

@@ -9,6 +9,22 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.61.0] — 2026-11-11
+
+### Added
+- **Heat Manager ved nu, hvilken Netatmo-integration hver ventil hører til.**
+  Nyt rent engine-modul `engine/netatmo_backend.py` kender forskellen på core
+  `netatmo` og NET-TRV (`net_trv`). Ejeren læses fra entity registry
+  (`platform`), aldrig fra entitetsnavnet — navnebyttet 2026-11-11 gjorde
+  navnene upålidelige. Første skridt mod understøttelse af begge
+  integrationer; ingen styring ændres i denne version.
+- **Diagnostics** viser installerede Netatmo-integrationer
+  (`netatmo_backends_installed`) og for hver ventil `netatmo_backend`, samt
+  et samlet `netatmo_backend` pr. rum (`net_trv`, `netatmo`, `mixed` eller
+  `none`).
+- **Panelets rumdata** (`heat_manager/get_state`) har det samme felt
+  `netatmo_backend` pr. rum. Frontend bruger det ikke endnu.
+
 ## [0.60.3] — 2026-11-11
 
 ### Fixed

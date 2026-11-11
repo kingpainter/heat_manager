@@ -1053,6 +1053,9 @@ async def ws_get_state(
                 "trv_type": primary_trv.get(CONF_TRV_TYPE, "netatmo")
                 if primary_trv
                 else None,
+                # v0.61.0: integration owning the room's Netatmo valves —
+                # "net_trv" / "netatmo" / "mixed" / "none".
+                "netatmo_backend": coordinator.get_room_netatmo_backend(name),
                 "state": room_state.value,
                 "current_temp": current_temp,
                 # 2026-09 audit fix (frontend dead-code sweep): "heating_power"
