@@ -55,6 +55,14 @@ def _make_coordinator(rooms_cfg: list[dict] | None = None) -> MagicMock:
     coord.calibration_engine.get_room_heatup_anomaly = MagicMock(return_value=False)
     # v0.61.2: no room is waiting for a HomeKit entity unless a test says so.
     coord.get_rooms_pid_needs_homekit = MagicMock(return_value=[])
+    # v0.62.0: healthy valves, webhook up, unless a test says otherwise.
+    coord.get_netatmo_health = MagicMock(
+        return_value={
+            "offline_rooms": [],
+            "low_battery_rooms": [],
+            "webhook_down": False,
+        }
+    )
 
     hass = MagicMock()
     hass.states.get = MagicMock(return_value=None)

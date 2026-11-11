@@ -322,21 +322,22 @@ class PresenceEngine:
                     message="Heating off — alarm armed.",
                 )
 
-        elif alarm_state in ("disarmed", "armed_home"):
+        elif alarm_state in ("disarmed", "armed_home") and (
+            self.coordinator.someone_home()
+        ):
             # B4 FIX: re-evaluate presence on alarm disarm
-            if self.coordinator.someone_home():
-                if self.coordinator.any_window_open():
-                    await self._notify_windows_blocking_heat()
-                else:
-                    self.coordinator.log_event(
-                        "Heating resumed — alarm disarmed", "Alarm", "normal"
+            if self.coordinator.any_window_open():
+                await self._notify_windows_blocking_heat()
+            else:
+                self.coordinator.log_event(
+                    "Heating resumed — alarm disarmed", "Alarm", "normal"
+                )
+                await self._restore_all_schedule()
+                if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
+                    await self._notify(
+                        title="Heat Manager",
+                        message="Heating resumed — alarm disarmed, someone home.",
                     )
-                    await self._restore_all_schedule()
-                    if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
-                        await self._notify(
-                            title="Heat Manager",
-                            message="Heating resumed — alarm disarmed, someone home.",
-                        )
 
     # ── Climate control ───────────────────────────────────────────────────────
 

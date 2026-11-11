@@ -24,6 +24,7 @@ a feature later just works.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from enum import StrEnum
 
 
@@ -120,3 +121,66 @@ def trv_pid_writable(trv_type: str | None, has_homekit: bool) -> bool:
     if (trv_type or "netatmo") == "netatmo":
         return has_homekit
     return True
+
+
+# ── Valve health (v0.62.0) ────────────────────────────────────────────────────
+# Sibling entities on the same device as a Netatmo climate entity, recognised
+# by domain + device class / unique-id suffix rather than entity name. NET-TRV
+# puts per-valve "<valve>-connectivity", "<valve>-battery_state" and
+# "<valve>-battery" on the room device; core netatmo exposes fewer, and a
+# role that is not found simply means that check is skipped.
+
+HEALTH_CONNECTIVITY = "connectivity"
+HEALTH_BATTERY_STATE = "battery_state"
+HEALTH_BATTERY = "battery"
+
+# Netatmo battery_state values that warrant a warning, and the percentage
+# threshold used when only a % battery sensor exists.
+LOW_BATTERY_STATES = frozenset({"low", "very_low"})
+LOW_BATTERY_PERCENT = 20.0
+
+
+@dataclass(frozen=True)
+class SiblingEntity:
+    """The registry fields of a sibling entity that role detection needs."""
+
+    entity_id: str
+    domain: str
+    unique_id: str
+    device_class: str | None
+
+
+def pick_health_entities(siblings: Iterable[SiblingEntity]) -> dict[str, list[str]]:
+    """Group sibling entities into health roles (connectivity, battery).
+
+    A room device can hold several valves, so each role is a list.
+    """
+    roles: dict[str, list[str]] = {}
+    for s in siblings:
+        if s.domain == "binary_sensor" and s.device_class == "connectivity":
+            # The relay's webhook sensor is also a connectivity sensor, but
+            # it lives on the relay device, not on a room device.
+            if s.unique_id.endswith("-webhook"):
+                continue
+            roles.setdefault(HEALTH_CONNECTIVITY, []).append(s.entity_id)
+        elif s.domain == "sensor" and s.unique_id.endswith("-battery_state"):
+            roles.setdefault(HEALTH_BATTERY_STATE, []).append(s.entity_id)
+        elif s.domain == "sensor" and s.device_class == "battery":
+            roles.setdefault(HEALTH_BATTERY, []).append(s.entity_id)
+    return roles
+
+
+def battery_is_low(battery_state: str | None, battery_percent: str | None) -> bool:
+    """True when the valve battery needs attention.
+
+    The coarse Netatmo battery_state is the truth when present; the % value
+    is only Netatmo's rough mapping of it and is used as a fallback.
+    """
+    if battery_state:
+        return battery_state in LOW_BATTERY_STATES
+    try:
+        return battery_percent is not None and float(battery_percent) < (
+            LOW_BATTERY_PERCENT
+        )
+    except (TypeError, ValueError):
+        return False

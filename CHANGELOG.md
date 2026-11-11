@@ -9,6 +9,28 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.62.0] — 2026-11-11
+
+### Added
+- **Advarsler om Netatmo-ventilernes sundhed i statuslinjen.** Heat Manager
+  finder Netatmo-integrationens egne forbindelses- og batterisensorer på
+  samme enhed som ventilens klimaenhed (ud fra domæne, enhedsklasse og
+  unique id — ikke navn) og viser:
+  - **"Ventil offline: <rum>"** (advarsel), når integrationen melder
+    ventilen afbrudt. Rummet vises så ikke længere også under den generelle
+    "Netatmo utilgængelig"-linje.
+  - **"Lavt batteri: <rum>"** (advarsel) ved `low`/`very_low` — eller under
+    20 %, hvis der kun findes en %-sensor.
+  - **"Netatmo-realtid (webhook) nede"** (info), når NET-TRV's webhook er
+    slået fra, og data kun hentes hvert minut.
+  Kan snoozes som de øvrige advarsler. Integrationer uden disse sensorer
+  (fx core netatmo) giver blot ingen advarsel.
+
+### Changed
+- **PID springer offline ventiler over.** Meldes en ventil offline, skrives
+  der ikke setpunkt til den; er alle rummets ventiler offline, nulstilles
+  rummets PID. Ukendt eller manglende forbindelsessensor ændrer intet.
+
 ## [0.61.2] — 2026-11-11
 
 ### Changed

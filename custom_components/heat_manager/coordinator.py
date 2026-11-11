@@ -35,6 +35,7 @@ from typing import Any, cast
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.issue_registry import (
@@ -150,9 +151,15 @@ from .engine.calibration_engine import CalibrationEngine
 from .engine.controller import ControllerEngine
 from .engine.door_engine import DoorEngine
 from .engine.netatmo_backend import (
+    HEALTH_BATTERY,
+    HEALTH_BATTERY_STATE,
+    HEALTH_CONNECTIVITY,
     NetatmoBackend,
+    SiblingEntity,
     available_backends,
+    battery_is_low,
     effective_backend,
+    pick_health_entities,
     resolve_backend,
     summarize_backends,
     trv_pid_writable,
@@ -935,6 +942,101 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return trv_pid_writable(
             trv.get(CONF_TRV_TYPE), bool(self.get_trv_homekit_entity(trv))
         )
+
+    def get_trv_health_entities(self, trv: dict[str, Any]) -> dict[str, list[str]]:
+        """v0.62.0: connectivity/battery entities on the same device as this
+        Netatmo TRV's climate entity — see pick_health_entities(). Empty for
+        non-Netatmo TRVs and when the integration exposes none of them."""
+        entity_id = self.get_trv_climate_entity(trv)
+        if not entity_id:
+            return {}
+        ent_reg = er.async_get(self.hass)
+        entry = ent_reg.async_get(entity_id)
+        if (
+            entry is None
+            or not entry.device_id
+            or resolve_backend(entry.platform) is None
+        ):
+            return {}
+        return pick_health_entities(
+            SiblingEntity(
+                entity_id=e.entity_id,
+                domain=e.domain,
+                unique_id=e.unique_id or "",
+                device_class=e.device_class or e.original_device_class,
+            )
+            for e in er.async_entries_for_device(ent_reg, entry.device_id)
+        )
+
+    def _state_value(self, entity_id: str) -> str | None:
+        """State string, or None while unknown/unavailable/missing."""
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        return str(state.state)
+
+    def is_trv_reachable(self, trv: dict[str, Any]) -> bool:
+        """v0.62.0: False only when the integration says the valve itself is
+        offline (connectivity sensor "off"). No sensor / unknown = reachable,
+        so integrations without the sensor behave exactly as before."""
+        return not any(
+            self._state_value(eid) == "off"
+            for eid in self.get_trv_health_entities(trv).get(HEALTH_CONNECTIVITY, [])
+        )
+
+    def _trv_battery_low(self, trv: dict[str, Any]) -> bool:
+        roles = self.get_trv_health_entities(trv)
+        for state_id in roles.get(HEALTH_BATTERY_STATE, []):
+            if battery_is_low(self._state_value(state_id), None):
+                return True
+        if roles.get(HEALTH_BATTERY_STATE):
+            return False  # battery_state is the truth when it exists
+        return any(
+            battery_is_low(None, self._state_value(pct_id))
+            for pct_id in roles.get(HEALTH_BATTERY, [])
+        )
+
+    def get_netatmo_webhook_entity(self) -> str | None:
+        """NET-TRV's webhook binary_sensor, found on the relay device that the
+        room devices hang off (via_device). None for core netatmo."""
+        ent_reg = er.async_get(self.hass)
+        dev_reg = dr.async_get(self.hass)
+        for room in self.rooms:
+            for trv in self.get_room_trvs(room.get("room_name", "")):
+                entity_id = self.get_trv_climate_entity(trv)
+                entry = ent_reg.async_get(entity_id) if entity_id else None
+                if entry is None or entry.platform != NetatmoBackend.NET_TRV:
+                    continue
+                device = dev_reg.async_get(entry.device_id) if entry.device_id else None
+                if device is None or not device.via_device_id:
+                    continue
+                for sib in er.async_entries_for_device(ent_reg, device.via_device_id):
+                    if sib.domain == "binary_sensor" and (sib.unique_id or "").endswith(
+                        "-webhook"
+                    ):
+                        return sib.entity_id
+        return None
+
+    def get_netatmo_health(self) -> dict[str, Any]:
+        """v0.62.0: rooms with an offline valve / low battery, and whether
+        NET-TRV's realtime webhook is down (state "off")."""
+        offline: list[str] = []
+        low_battery: list[str] = []
+        for room in self.rooms:
+            name = room.get("room_name", "")
+            if not name:
+                continue
+            trvs = self.get_room_trvs(name)
+            if any(not self.is_trv_reachable(t) for t in trvs):
+                offline.append(name)
+            if any(self._trv_battery_low(t) for t in trvs):
+                low_battery.append(name)
+        webhook = self.get_netatmo_webhook_entity()
+        return {
+            "offline_rooms": offline,
+            "low_battery_rooms": low_battery,
+            "webhook_down": bool(webhook) and self._state_value(webhook) == "off",
+        }
 
     def get_rooms_pid_needs_homekit(self) -> list[str]:
         """Rooms where PID is enabled but no TRV can be PID-driven because
@@ -2724,9 +2826,12 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # room whose TRVs are all Netatmo-without-HomeKit is left to
                 # the Netatmo schedule — reset so the integral can't wind up
                 # while nothing is written. See trv_pid_writable().
+                # v0.62.0: a valve the integration reports offline counts as
+                # not writable too — writes would go nowhere.
                 room_trvs = self.get_room_trvs(room_name)
                 if room_trvs and not any(
-                    self.is_trv_pid_writable(t) for t in room_trvs
+                    self.is_trv_pid_writable(t) and self.is_trv_reachable(t)
+                    for t in room_trvs
                 ):
                     pid.reset()
                     continue
@@ -2916,6 +3021,9 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 for trv in self.get_room_trvs(room_name):
                     # v0.61.2: never PID-write a Netatmo valve via the cloud.
                     if not self.is_trv_pid_writable(trv):
+                        continue
+                    # v0.62.0: skip a valve its integration reports offline.
+                    if not self.is_trv_reachable(trv):
                         continue
                     trv_write_id = trv.get(CONF_HOMEKIT_CLIMATE_ENTITY) or trv.get(
                         CONF_CLIMATE_ENTITY

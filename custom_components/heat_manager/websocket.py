@@ -206,6 +206,14 @@ def _build_active_issues(
         ):
             stale_rooms.append(room_name)
 
+    # v0.62.0: valve health from the Netatmo integration's own sensors. A
+    # room whose valve is reported offline gets that precise cause below
+    # instead of the generic "Netatmo utilgængelig" line.
+    health = coordinator.get_netatmo_health()
+    offline_rooms: list[str] = list(health.get("offline_rooms", []))
+    if offline_rooms and len(unavailable_rooms) < total:
+        unavailable_rooms = [r for r in unavailable_rooms if r not in offline_rooms]
+
     if total and unavailable_rooms and len(unavailable_rooms) == total:
         issues.append(
             {
@@ -231,6 +239,35 @@ def _build_active_issues(
                 "severity": "warning",
                 "icon": "☁️",
                 "message": f"Netatmo-data ikke opdateret i 10+ min: {', '.join(stale_rooms)}",
+            }
+        )
+
+    if offline_rooms:
+        issues.append(
+            {
+                "id": _issue_id("valve_offline", offline_rooms),
+                "severity": "warning",
+                "icon": "📡",
+                "message": f"Ventil offline: {', '.join(offline_rooms)}",
+            }
+        )
+    low_battery_rooms: list[str] = list(health.get("low_battery_rooms", []))
+    if low_battery_rooms:
+        issues.append(
+            {
+                "id": _issue_id("battery_low", low_battery_rooms),
+                "severity": "warning",
+                "icon": "🪫",
+                "message": f"Lavt batteri: {', '.join(low_battery_rooms)}",
+            }
+        )
+    if health.get("webhook_down"):
+        issues.append(
+            {
+                "id": "webhook_down",
+                "severity": "info",
+                "icon": "⏱️",
+                "message": "Netatmo-realtid (webhook) nede — opdateres hvert minut",
             }
         )
 
