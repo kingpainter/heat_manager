@@ -176,6 +176,11 @@ NETATMO_BACKEND_OPTIONS = [
     NETATMO_BACKEND_CORE,
 ]
 DEFAULT_NETATMO_BACKEND = NETATMO_BACKEND_AUTO
+# v0.63.0: per-room "back to schedule" service. Same name and behaviour in
+# core netatmo and NET-TRV (room → home mode, home mode untouched), unlike
+# preset_mode: schedule / hvac_mode: auto, which in core netatmo set the
+# HOME's thermmode and so cancel away / frost guard for every room.
+SERVICE_CLEAR_TEMPERATURE_SETTING = "clear_temperature_setting"
 
 # Per-room Z2M pi_heating_demand sensor entity (optional)
 CONF_PI_DEMAND_ENTITY = "pi_demand_entity"

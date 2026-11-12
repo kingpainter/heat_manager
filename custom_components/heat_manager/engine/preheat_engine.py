@@ -178,6 +178,9 @@ class PreheatEngine:
             return  # Already handled (e.g. person arrived in the meantime)
 
         rooms_preheated: list[str] = []
+        # v0.63.0 (F6): the Netatmo schedule preset is HOME-level — one call
+        # lifts away for every room, so send it once per sweep.
+        home_schedule_sent = False
 
         for room in self.coordinator.rooms:
             room_name = room.get("room_name", "")
@@ -216,13 +219,14 @@ class PreheatEngine:
                             {"hvac_mode": "heat"},
                             needs_delay=delay,
                         )
-                    else:
+                    elif not home_schedule_sent:
                         await self.coordinator.async_call_climate_service(
                             "set_preset_mode",
                             climate_id,
                             {"preset_mode": PRESET_SCHEDULE},
                             needs_delay=delay,
                         )
+                        home_schedule_sent = True
                     room_ok = True
                 # broad-except-rationale: one entity failing must not abort the others in this loop
                 except Exception as err:  # noqa: BLE001

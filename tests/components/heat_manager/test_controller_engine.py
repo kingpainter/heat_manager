@@ -42,6 +42,19 @@ def _make_coordinator(rooms=None, effective_season=EffectiveSeason.DORMANT):
         side_effect=_async_call_climate_service
     )
 
+    # v0.63.0: per-room Netatmo restore goes through
+    # async_release_netatmo_room() (clear_temperature_setting on the owning
+    # integration) instead of the home-level preset_mode: schedule.
+    async def _release(entity_id):
+        return await coordinator.hass.services.async_call(
+            "net_trv",
+            "clear_temperature_setting",
+            {"entity_id": entity_id},
+            blocking=True,
+        )
+
+    coordinator.async_release_netatmo_room = AsyncMock(side_effect=_release)
+
     coordinator.rooms = rooms or []
     coordinator.effective_season = effective_season
     coordinator.config = {}
@@ -137,9 +150,9 @@ async def test_active_restores_preset_schedule_on_cloud_entity():
     await engine._apply_off_fallback()
 
     coordinator.hass.services.async_call.assert_awaited_once_with(
-        "climate",
-        "set_preset_mode",
-        {"entity_id": "climate.kitchen", "preset_mode": "schedule"},
+        "net_trv",
+        "clear_temperature_setting",
+        {"entity_id": "climate.kitchen"},
         blocking=True,
     )
 
@@ -173,7 +186,7 @@ async def test_dormant_multi_trv_room_sends_hvac_off_to_every_trv():
 
 
 @pytest.mark.asyncio
-async def test_active_multi_trv_room_sends_preset_schedule_to_every_trv():
+async def test_active_multi_trv_room_releases_every_trv_to_schedule():
     room = _make_room_with_trvs(
         "Living room",
         [
@@ -193,8 +206,8 @@ async def test_active_multi_trv_room_sends_preset_schedule_to_every_trv():
     entity_ids = {c.args[2]["entity_id"] for c in calls}
     assert entity_ids == {"climate.living_room", "climate.living_room_trv2"}
     for c in calls:
-        assert c.args[1] == "set_preset_mode"
-        assert c.args[2]["preset_mode"] == "schedule"
+        # v0.63.0: per-room clear_temperature_setting, not the home preset
+        assert c.args[1] == "clear_temperature_setting"
 
 
 @pytest.mark.asyncio

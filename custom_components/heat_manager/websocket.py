@@ -678,12 +678,8 @@ async def ws_set_room_temp(
                     entity_id = trv.get(CONF_CLIMATE_ENTITY)
                     if not entity_id:
                         continue
-                    await coordinator.async_call_climate_service(
-                        "set_preset_mode",
-                        entity_id,
-                        {"preset_mode": "schedule"},
-                        needs_delay=True,
-                    )
+                    # v0.63.0: per-room release, never the home-level preset
+                    await coordinator.async_release_netatmo_room(entity_id)
                 if write_entity is None:
                     write_entity = entity_id
             coordinator.log_event(

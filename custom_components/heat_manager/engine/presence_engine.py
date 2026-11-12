@@ -365,6 +365,9 @@ class PresenceEngine:
         notify=False for the equivalent presence-side case.
         """
         hass = self.coordinator.hass
+        # v0.63.0 (F6): Netatmo's away preset is HOME-level — one call sets
+        # every room. Send it once and only mark the remaining rooms.
+        home_away_sent = False
         for room in self.coordinator.rooms:
             room_name = room.get("room_name", room.get(CONF_CLIMATE_ENTITY, ""))
             for trv in self.coordinator.get_room_trvs(room_name):
@@ -373,6 +376,9 @@ class PresenceEngine:
                     continue
                 trv_type = trv.get(CONF_TRV_TYPE, "netatmo")
                 state = hass.states.get(entity_id)
+                if trv_type != TRV_TYPE_ZIGBEE and home_away_sent:
+                    self.coordinator.set_room_state(room_name, RoomState.AWAY)
+                    continue
                 if trv_type == TRV_TYPE_ZIGBEE:
                     # Skip if already off
                     if state and state.state == HVAC_OFF:
@@ -412,6 +418,7 @@ class PresenceEngine:
                             {"preset_mode": PRESET_AWAY},
                             needs_delay=True,
                         )
+                        home_away_sent = True
                         self.coordinator.set_room_state(room_name, RoomState.AWAY)
                         if log:
                             self.coordinator.log_event(
@@ -478,6 +485,9 @@ class PresenceEngine:
             return
         async with self._restore_lock:
             any_restored = False
+            # v0.63.0 (F6): preset_mode: schedule is HOME-level in Netatmo —
+            # one call lifts away/frost guard for every room. Send it once.
+            home_schedule_sent = False
             for room in self.coordinator.rooms:
                 room_name = room.get("room_name", room.get(CONF_CLIMATE_ENTITY, ""))
                 if self.coordinator.get_room_state(room_name) == RoomState.WINDOW_OPEN:
@@ -512,13 +522,14 @@ class PresenceEngine:
                                 {"hvac_mode": "heat"},
                                 needs_delay=delay,
                             )
-                        else:
+                        elif not home_schedule_sent:
                             await self.coordinator.async_call_climate_service(
                                 "set_preset_mode",
                                 entity_id,
                                 {"preset_mode": PRESET_SCHEDULE},
                                 needs_delay=delay,
                             )
+                            home_schedule_sent = True
                         room_restored = True
                     # broad-except-rationale: one entity failing must not abort the others in this loop
                     except Exception as err:  # noqa: BLE001

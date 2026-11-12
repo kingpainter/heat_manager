@@ -154,6 +154,19 @@ def _make_coordinator(rooms=None, persons=None) -> MagicMock:
         )
 
     coord.async_call_climate_service = AsyncMock(side_effect=_climate_service)
+
+    # v0.63.0: per-room Netatmo restore goes through
+    # async_release_netatmo_room() (clear_temperature_setting on the owning
+    # integration) instead of the home-level preset_mode: schedule.
+    async def _release(entity_id):
+        return await coord.hass.services.async_call(
+            "net_trv",
+            "clear_temperature_setting",
+            {"entity_id": entity_id},
+            blocking=True,
+        )
+
+    coord.async_release_netatmo_room = AsyncMock(side_effect=_release)
     # ws_get_state() reads the integration version off the event loop.
     hass.async_add_executor_job = AsyncMock(return_value="0.0.0")
     # v0.59.0: ws_get_state() adds the auto/manual summary.
@@ -1054,9 +1067,9 @@ async def test_set_room_temp_none_restores_netatmo_schedule_preset():
     await ws_set_room_temp(hass, conn, _msg(room_name="Bathroom", temperature=None))
 
     hass.services.async_call.assert_awaited_once_with(
-        "climate",
-        "set_preset_mode",
-        {"entity_id": "climate.bathroom", "preset_mode": "schedule"},
+        "net_trv",
+        "clear_temperature_setting",
+        {"entity_id": "climate.bathroom"},
         blocking=True,
     )
 
@@ -1134,7 +1147,7 @@ async def test_set_room_temp_none_multi_trv_room_restores_each_by_own_trv_type()
     calls = hass.services.async_call.await_args_list
     assert len(calls) == 2
     by_entity = {c.args[2]["entity_id"]: c for c in calls}
-    assert by_entity["climate.living_room"].args[1] == "set_preset_mode"
+    assert by_entity["climate.living_room"].args[1] == "clear_temperature_setting"
     assert by_entity["climate.living_room_trv2"].args[1] == "set_hvac_mode"
 
 

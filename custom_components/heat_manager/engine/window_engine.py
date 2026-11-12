@@ -51,7 +51,6 @@ from ..const import (
     DEFAULT_WINDOW_DELAY_WIND_MIN,
     DEFAULT_WINDOW_OFF_TEMP,
     DEFAULT_WINDOW_WARNING_MIN,
-    PRESET_SCHEDULE,
     TRV_TYPE_ZIGBEE,
     WIND_FAST_MS,
     RoomState,
@@ -429,12 +428,10 @@ class WindowEngine:
                         needs_delay=delay,
                     )
                 else:
-                    await self.coordinator.async_call_climate_service(
-                        "set_preset_mode",
-                        entity_id,
-                        {"preset_mode": PRESET_SCHEDULE},
-                        needs_delay=delay,
-                    )
+                    # v0.63.0: per-room release — the home-level schedule
+                    # preset used to cancel away/frost guard for every room
+                    # when one window closed.
+                    await self.coordinator.async_release_netatmo_room(entity_id)
                 room_restored = True
             # broad-except-rationale: one entity failing must not abort the others in this loop
             except Exception as err:  # noqa: BLE001

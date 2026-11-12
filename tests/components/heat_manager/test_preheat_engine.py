@@ -259,8 +259,12 @@ async def test_start_preheat_sets_rooms_to_schedule():
 
     await engine._start_preheat("person.flemming")
 
-    assert coord.hass.services.async_call.call_count == 2
+    # v0.63.0 (F6): the Netatmo schedule preset is HOME-level — one call
+    # lifts away for both rooms; both are still marked PRE_HEAT.
+    assert coord.hass.services.async_call.call_count == 1
     assert engine._preheat_armed is False
+    marked = {c.args[0] for c in coord.set_room_state.call_args_list}
+    assert marked == {"Kitchen", "Living"}
 
 
 @pytest.mark.asyncio

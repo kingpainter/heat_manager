@@ -9,6 +9,30 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.63.0] — 2026-11-12
+
+### Fixed
+- **Et enkelt rum, der gives tilbage til tidsplanen, ophæver ikke længere
+  væk/frostsikring for hele huset (F5).** Heat Manager brugte
+  `preset_mode: schedule` til at give ét rum tilbage til Netatmo-tidsplanen
+  (vindue lukket, override udløbet/slået fra i panelet eller på kontakten,
+  controller OFF). I Netatmo er det en kommando for hele hjemmet — så fx et
+  vindue, der blev lukket, mens huset stod i væk, satte alle rum tilbage
+  til tidsplan. Nu bruges den ejende integrations
+  `clear_temperature_setting` (core `netatmo.` eller `net_trv.`), som kun
+  fjerner rummets manuelle setpunkt. Kaldet springes over, hvis rummet
+  allerede følger tidsplanen (NET-TRV's `netatmo_setpoint_mode`). Ukendt
+  ejer bruger det gamle kald.
+  `hvac_mode: auto` blev fravalgt: core netatmo oversætter det til samme
+  hjem-niveau-kommando (verificeret i HA-kildekoden).
+
+### Changed
+- **Væk og tilbage-til-tidsplan for hele huset sendes én gang (F6).**
+  Når alle forlader huset, ved hjemkomst og ved forvarmning blev Netatmos
+  hjem-niveau-forvalg sendt én gang pr. ventil (op til 5 kald). Nu sendes
+  det én gang, og de øvrige rum markeres blot. Zigbee-ventiler er uændrede.
+  `force_room_on` er bevidst uændret.
+
 ## [0.62.1] — 2026-11-12
 
 ### Changed

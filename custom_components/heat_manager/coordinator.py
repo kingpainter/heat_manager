@@ -137,6 +137,7 @@ from .const import (
     PRESET_SCHEDULE,
     REPAIR_ISSUE_PERSISTENT,
     SCAN_INTERVAL_SECONDS,
+    SERVICE_CLEAR_TEMPERATURE_SETTING,
     SOLAR_GAIN_LUX_THRESHOLD,
     SOLAR_GAIN_MAX_REDUCTION,
     SOLAR_GAIN_WEIGHT,
@@ -1162,12 +1163,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         needs_delay=self.trv_needs_cloud_delay(trv),
                     )
                 else:
-                    await self.async_call_climate_service(
-                        "set_preset_mode",
-                        climate_id,
-                        {"preset_mode": PRESET_SCHEDULE},
-                        needs_delay=True,
-                    )
+                    await self.async_release_netatmo_room(climate_id)
                 any_ok = True
                 _LOGGER.info("Override ON: %s \u2192 heating (%s)", room_name, trv_type)
             # broad-except-rationale: one entity failing must not abort the others in this loop
@@ -1524,6 +1520,59 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "climate", service, call_data, blocking=True
             )
             await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
+
+    async def async_call_netatmo_service(
+        self,
+        domain: str,
+        service: str,
+        entity_id: str,
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        """Call <domain>.<service> (core netatmo / NET-TRV) on entity_id.
+
+        Always a cloud call, so always under the same lock + pacing as
+        async_call_climate_service(needs_delay=True).
+        """
+        async with self._netatmo_call_lock:
+            await self.hass.services.async_call(
+                domain,
+                service,
+                {"entity_id": entity_id, **(data or {})},
+                blocking=True,
+            )
+            await asyncio.sleep(NETATMO_API_CALL_DELAY_SEC)
+
+    async def async_release_netatmo_room(self, entity_id: str) -> None:
+        """v0.63.0: hand ONE Netatmo room back to its schedule without
+        touching the home's mode.
+
+        preset_mode: schedule is a HOME-level command in Netatmo (core and
+        NET-TRV), and core maps hvac_mode: auto onto it too — so using
+        either to restore one room after an override/window/controller-OFF
+        cancelled away or frost guard for the whole house. The owning
+        integration's clear_temperature_setting drops only this room's
+        manual setpoint. Skipped when the room already follows the schedule
+        (NET-TRV's netatmo_setpoint_mode). An entity whose owner is unknown
+        keeps the old preset_mode: schedule call.
+        """
+        backend = self._entity_netatmo_backend(entity_id)
+        if backend is None:
+            await self.async_call_climate_service(
+                "set_preset_mode",
+                entity_id,
+                {"preset_mode": PRESET_SCHEDULE},
+                needs_delay=True,
+            )
+            return
+        state = self.hass.states.get(entity_id)
+        if state is not None and state.attributes.get("netatmo_setpoint_mode") in (
+            "schedule",
+            "home",
+        ):
+            return
+        await self.async_call_netatmo_service(
+            backend.value, SERVICE_CLEAR_TEMPERATURE_SETTING, entity_id
+        )
 
     def any_window_open(self) -> bool:
         for room in self.rooms:
@@ -1969,12 +2018,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 entity_id = trv.get(CONF_CLIMATE_ENTITY)
                 if not entity_id:
                     continue
-                await self.async_call_climate_service(
-                    "set_preset_mode",
-                    entity_id,
-                    {"preset_mode": "schedule"},
-                    needs_delay=True,
-                )
+                await self.async_release_netatmo_room(entity_id)
             if write_entity is None:
                 write_entity = entity_id
         return write_entity

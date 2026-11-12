@@ -49,6 +49,19 @@ def _make_coordinator(trvs: list[dict] | None = None) -> MagicMock:
     # (2026-09-16 audit fix) — without these the mock silently fails every
     # write and no source is ever recorded.
     coord.async_call_climate_service = AsyncMock()
+
+    # v0.63.0: per-room Netatmo restore goes through
+    # async_release_netatmo_room() (clear_temperature_setting on the owning
+    # integration) instead of the home-level preset_mode: schedule.
+    async def _release(entity_id):
+        return await coord.hass.services.async_call(
+            "net_trv",
+            "clear_temperature_setting",
+            {"entity_id": entity_id},
+            blocking=True,
+        )
+
+    coord.async_release_netatmo_room = AsyncMock(side_effect=_release)
     coord.trv_needs_cloud_delay = MagicMock(return_value=False)
     coord.async_restore_room_schedule = AsyncMock(return_value="climate.x")
 

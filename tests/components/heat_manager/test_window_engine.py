@@ -42,6 +42,19 @@ def _make_coordinator(rooms=None, someone_home=True, config=None):
         side_effect=_async_call_climate_service
     )
 
+    # v0.63.0: per-room Netatmo restore goes through
+    # async_release_netatmo_room() (clear_temperature_setting on the owning
+    # integration) instead of the home-level preset_mode: schedule.
+    async def _release(entity_id):
+        return await coordinator.hass.services.async_call(
+            "net_trv",
+            "clear_temperature_setting",
+            {"entity_id": entity_id},
+            blocking=True,
+        )
+
+    coordinator.async_release_netatmo_room = AsyncMock(side_effect=_release)
+
     coordinator.rooms = rooms or []
     coordinator.config = config or {
         "notify_service": "",
@@ -269,9 +282,9 @@ async def test_bug_b3_window_close_restores_schedule_when_someone_home():
     await engine._close_after_delay("binary_sensor.kitchen_window", "Kitchen", 0)
 
     coordinator.hass.services.async_call.assert_awaited_once_with(
-        "climate",
-        "set_preset_mode",
-        {"entity_id": "climate.kitchen", "preset_mode": "schedule"},
+        "net_trv",
+        "clear_temperature_setting",
+        {"entity_id": "climate.kitchen"},
         blocking=True,
     )
     coordinator.set_room_state.assert_called_once_with("Kitchen", RoomState.NORMAL)
@@ -458,9 +471,9 @@ async def test_bug_b16_close_restores_once_all_sensors_closed():
     await engine._close_after_delay("binary_sensor.kitchen_window_b", "Kitchen", 0)
 
     coordinator.hass.services.async_call.assert_awaited_once_with(
-        "climate",
-        "set_preset_mode",
-        {"entity_id": "climate.kitchen", "preset_mode": "schedule"},
+        "net_trv",
+        "clear_temperature_setting",
+        {"entity_id": "climate.kitchen"},
         blocking=True,
     )
     coordinator.set_room_state.assert_called_once_with("Kitchen", RoomState.NORMAL)
@@ -640,6 +653,6 @@ async def test_close_after_delay_sends_to_every_trv_in_multi_trv_room():
     calls = coordinator.hass.services.async_call.await_args_list
     assert len(calls) == 2
     by_entity = {c.args[2]["entity_id"]: c for c in calls}
-    assert by_entity["climate.living_room"].args[1] == "set_preset_mode"
+    assert by_entity["climate.living_room"].args[1] == "clear_temperature_setting"
     assert by_entity["climate.living_room_trv2"].args[1] == "set_hvac_mode"
     coordinator.set_room_state.assert_called_once_with("Living room", RoomState.NORMAL)

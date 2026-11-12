@@ -32,7 +32,6 @@ from ..const import (
     HV_EVENT_CONTROLLER_OFF,
     HV_EVENT_CONTROLLER_PAUSED,
     HVAC_OFF,
-    PRESET_SCHEDULE,
     AutoOffReason,
     ControllerState,
     EffectiveSeason,
@@ -370,18 +369,10 @@ class ControllerEngine:
                             needs_delay=self.coordinator.trv_needs_cloud_delay(trv),
                         )
                     else:
-                        # preset_mode: schedule must go to cloud — not
-                        # supported via HomeKit, so this call always needs
-                        # the lock+delay regardless of this TRV's HomeKit
-                        # reachability (2026-09 fix: needs_cloud_delay(room)
-                        # could wrongly say False here if the room's primary
-                        # TRV's HomeKit entity happened to be reachable).
-                        await self.coordinator.async_call_climate_service(
-                            "set_preset_mode",
-                            cloud_id,
-                            {"preset_mode": PRESET_SCHEDULE},
-                            needs_delay=True,
-                        )
+                        # Hand the room back to its Netatmo schedule — a
+                        # cloud call (always locked + paced), and per room
+                        # only (v0.63.0: never the home-level preset).
+                        await self.coordinator.async_release_netatmo_room(cloud_id)
                 # broad-except-rationale: one entity failing must not abort the others in this loop
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning(

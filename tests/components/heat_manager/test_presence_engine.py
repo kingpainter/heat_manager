@@ -197,7 +197,9 @@ async def test_departure_does_not_start_timer_if_someone_home():
 
 
 @pytest.mark.asyncio
-async def test_set_all_away_calls_preset_on_all_rooms():
+async def test_set_all_away_sends_home_preset_once_and_marks_all_rooms():
+    """v0.63.0 (F6): away is a HOME-level Netatmo preset — one call, but
+    every room is marked AWAY."""
     rooms = [
         _make_room("Kitchen", "climate.kitchen"),
         _make_room("Living room", "climate.living_room"),
@@ -211,7 +213,9 @@ async def test_set_all_away_calls_preset_on_all_rooms():
     engine = PresenceEngine(coordinator)
     await engine._set_all_away()
 
-    assert coordinator.hass.services.async_call.await_count == 2
+    assert coordinator.hass.services.async_call.await_count == 1
+    marked = {c.args[0] for c in coordinator.set_room_state.call_args_list}
+    assert marked == {"Kitchen", "Living room"}
 
 
 # ── restore_all_schedule: skips WINDOW_OPEN rooms ────────────────────────────
