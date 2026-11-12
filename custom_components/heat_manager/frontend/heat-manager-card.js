@@ -1,97 +1,8 @@
-// Heat Manager — Custom Lovelace Card
-// Version: 0.17.2 (comment log below is stale — see manifest.json for the
-// actual running version. See CHANGELOG.md for everything since v0.17.2.)
+// Heat Manager — Lovelace card (custom element "heat-manager-card").
 //
-// v0.22.0 (2026-09-11 — "Energi i dag" removed):
-//   • The Hub-level "Energi i dag" section (added in v0.17.2) is removed
-//     entirely, at the user's request — see manifest.json/CHANGELOG.md for
-//     the full reasoning (the underlying WasteCalculator model assumes an
-//     electric radiator's rated wattage, which doesn't apply to a
-//     district-heating/fjernvarme system). Removed _hubEnergyWasted()/
-//     _hubEnergySaved()/_hubEfficiency(), _patchEnergy(), the energyHTML
-//     block in _cardHTML(), and the related CSS.
-//
-// v0.21.1 (2026-09-11 mobil-sætpunkt fix):
-//   • Fixed the "known still-open item" from v0.21.0 below: room setpoint
-//     display now prefers Heat Manager's own resolved target_temp (same
-//     value the PID chases, fetched via a new heat_manager/get_state
-//     WS poll every 60s — see _loadTargetTemps()/_roomSetpoint()) over the
-//     raw Netatmo cloud-entity temperature attribute. Falls back to the old
-//     direct read whenever the fetch hasn't completed yet or a room's
-//     config name isn't found in the backend's room list. This card always
-//     had the same full hass object (and thus callWS()) a panel gets —
-//     the earlier "no websocket access" framing in
-//     audit/heat_manager_fixes_2026-09-11_fase2.md was a scope choice for
-//     that round, not a hard technical limitation.
-//
-// v0.21.0 (2026-09-11 statustjek):
-//   • New #cloud-status-row: this card previously had per-room "TRV
-//     offline" badges (_roomTrvUnavailable) but nothing at the card level
-//     distinguishing "one room's device has a flat battery" from "the
-//     whole house's Netatmo connection is down" — those looked identical,
-//     one badge at a time, unless you counted them. New
-//     _netatmoCloudStatus()/_netatmoCloudStatusHTML() mirror the panel's
-//     _cloudStatus() logic (all rooms down at once → cloud/gateway; some
-//     rooms down → single device; stale-but-available → cloud not
-//     updating), computed client-side from hass.states like every other
-//     mirror helper on this card, since the card has no get_state() access.
-//   • Setpoint-source divergence noted here — fixed in v0.21.1 above.
-//
-// v0.17.2:
-//   • Mobile parity pass: room cards now also show PID-power/calibration-
-//     offset/window-duration-today chips (same friendly-name discovery as
-//     the existing humidity/CO2/battery mirrors) and a "TRV offline" badge
-//     when the room's own climate_entity is unavailable/unknown — a
-//     lighter version of the panel's health check, scoped to what this
-//     card's own per-instance config actually stores (climate_entity only;
-//     window_sensors etc. live in the backend config entry, not here).
-//     New Hub-level "Energi i dag" section (wasted/saved kWh + efficiency
-//     %), discovered the same way against the global "Heat Manager" device.
-//
-// v0.17.0:
-//   • Room cards now show humidity/CO2/battery chips, a valve-% badge and a
-//     mold-risk badge — read via the room's own v0.15.0 mirror sensors and
-//     climate_entity attributes (friendly_name discovery, same pattern this
-//     card already used for the group-toggle switch), no new card config
-//     needed. Brings the mobile card closer to Oversigt-fane parity.
-//
-// v0.16.0:
-//   • Version banner corrected — this file had said 0.4.3 since before
-//     v0.9.0's frontend surfacing work, several releases out of date.
-//   • Removed the dead .room-homekit-lytter listener in the card editor
-//     (2.3): the corresponding input field was removed from _render() long
-//     ago, so the field was never rendered and the listener never fired.
-//
-// v0.4.3:
-//   • Boost button now delegates to heat_manager/boost_start|stop WS
-//     commands (coordinator.async_boost_start/stop) instead of writing
-//     climate.set_temperature / calling force_room_on directly. Fixes three
-//     things: card and panel/service boosts no longer conflict or double up;
-//     the backend's own boost_expires_at auto-restore now applies to
-//     card-started boosts too (previously only this card's own JS timer
-//     tracked expiry, which stopped the moment the tab closed); and boost
-//     now applies to ALL of Heat Manager's configured rooms, not just the
-//     subset listed in this particular card instance's config.
-//
-// UI-CARD: Rooms section now renders as a 2-column grid instead of a
-// single stacked column. Grid-auto-flow fills row-wise, so odd room
-// counts (e.g. 5 rooms) naturally land as 3-over-2 without any manual
-// splitting logic. Falls back to 1 column via a container query when
-// the card itself is narrow (sidebar / small mobile width).
-//
-// Fix B-CARD-IAH: _render() used optional-chaining syntax on replaceWith()
-// that is invalid in some JS engines. Replaced with explicit null check.
-// Also adds _srAppendHTML() helper (WebKit-safe, same as panel) so the
-// first-render path never calls insertAdjacentHTML on a ShadowRoot.
-//
-// Fix B-CARD-PANEL: card did not fill a `type: panel` view correctly on
-// tablet dashboards (e.g. 7" Lenovo, landscape) — :host lacked an explicit
-// height, the ha-card/.card wrapper used fixed content flow instead of a
-// column flexbox, and the rooms list had no flex-grow/scroll region.
-// Aligned with secure_me_alarm_tab_card.js's panel-sizing pattern.
-//
-// Design: Unified with Indeklima — DM Sans/DM Mono, section-box system,
-// SVG efficiency ring, amber/orange heat palette.
+// Version: follows manifest.json. Change history: CHANGELOG.md.
+// Design: unified with Indeklima — DM Sans/DM Mono, section-box system,
+// amber/orange heat palette.
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -626,20 +537,6 @@ class HeatManagerCard extends HTMLElement {
   _roomWindowDurationToday(roomName){ return this._roomMirrorNumeric(roomName, "Window duration"); }
   _roomCalibrationOffset(roomName)  { return this._roomMirrorNumeric(roomName, "Calibration offset"); }
 
-  // Hub-level equivalent of _roomMirrorNumeric() — same friendly-name
-  // discovery, against the global "Heat Manager" device instead of a
-  // per-room one (coordinator.global_device_info()'s name is hardcoded
-  // "Heat Manager", so this string is safe to match literally).
-  _hubMirrorNumeric(label) {
-    const states = this._hass?.states ?? {};
-    for (const id of Object.keys(states)) {
-      if (id.startsWith("sensor.") && states[id]?.attributes?.friendly_name === `Heat Manager ${label}`) {
-        const v = parseFloat(states[id].state);
-        return Number.isNaN(v) ? null : v;
-      }
-    }
-    return null;
-  }
   // 2026-09 audit fix (UI/UX #8) mobile follow-up: minimal per-room health
   // check using only what this card's own config actually stores per room
   // — climate_entity. Unlike the panel (which gets a full

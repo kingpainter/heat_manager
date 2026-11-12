@@ -150,33 +150,6 @@ def test_only_configured_entities_get_a_listener():
     assert len(engine._unsubs) == 1
 
 
-# ── _is_single_press ──────────────────────────────────────────────────────────
-
-
-@pytest.mark.parametrize(
-    ("event_type", "expected"),
-    [
-        ("single", True),
-        ("SINGLE", True),
-        ("single_plus", True),
-        ("multi_press_1", True),
-        ("double", False),
-        ("multi_press_2", False),
-        ("hold", False),
-        ("long_press", False),
-        ("long_release", False),
-    ],
-)
-def test_is_single_press(event_type, expected):
-    new_state = MagicMock()
-    new_state.attributes = {"event_type": event_type}
-    assert RemoteButtonEngine._is_single_press(new_state) is expected
-
-
-def test_is_single_press_none_state_is_false():
-    assert RemoteButtonEngine._is_single_press(None) is False
-
-
 # ── callback guards: only "single" schedules a task ──────────────────────────
 
 

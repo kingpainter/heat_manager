@@ -87,7 +87,7 @@
         "data_description": {
           "window_delay_min": "No longer read since v0.33.0 \u2014 every room's window open-delay now uses the single global setting instead (Season & global settings step). Left here only so a value already saved for this room isn't silently discarded; safe to ignore.",
           "comfort_temp": "PID target temperature for this room \u2014 authoritative for every TRV type, Netatmo included. Default 20\u00b0C.",
-          "co2_sensor": "Used for context-aware window notifications and energy waste classification. When CO\u2082 is high, an open window is marked as ventilation rather than heat loss.",
+          "co2_sensor": "Used for context-aware window notifications. When CO\u2082 is high, an open window is described as ventilation rather than heat loss.",
           "co2_threshold": "CO\u2082 level above which an open window is classified as intentional ventilation. Default is 900 ppm. Increase for bedrooms (higher tolerance) or decrease for seldom-occupied rooms.",
           "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1\u20133\u00b0C too high).",
           "battery_sensor": "TRV battery level sensor (sensor.* reporting %). Recommended for Zigbee TRVs, whose battery is usually its own entity rather than an attribute on the climate entity. Leave blank to fall back to the climate entity's own battery_level attribute, if it has one.",
@@ -116,7 +116,7 @@
         "data_description": {
           "homekit_climate_entity": "The local HomeKit climate entity for this valve (e.g. climate.netatmo_valve_1 from the HomeKit Controller pairing of the Netatmo relay). Required for PID control of a Netatmo valve: PID setpoints are only ever written locally via HomeKit, never via the Netatmo cloud. Without it the valve follows its Netatmo schedule, while presets, windows and away still work. Leave blank for Zigbee TRVs.",
           "trv_type": "Netatmo NRVs use preset_mode (away/schedule) to enable or disable heating. Zigbee TRVs (via Zigbee2MQTT) use hvac_mode (off/heat) instead.",
-          "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand, used for waste and efficiency calculations.",
+          "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand (e.g. Zigbee2MQTT pi_heating_demand). Shown as the room's valve demand in the panel and card.",
           "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor.",
           "sync_mode": "What happens when this TRV is changed manually or by another automation. Disabled: ignore. Mirror: accept the change and switch the room to override. Lock: revert it back to Heat Manager's own setpoint."
         }
@@ -134,7 +134,7 @@
         "data_description": {
           "homekit_climate_entity": "The local HomeKit climate entity for this valve (e.g. climate.netatmo_valve_1 from the HomeKit Controller pairing of the Netatmo relay). Required for PID control of a Netatmo valve: PID setpoints are only ever written locally via HomeKit, never via the Netatmo cloud. Without it the valve follows its Netatmo schedule, while presets, windows and away still work. Leave blank for Zigbee TRVs.",
           "trv_type": "Netatmo NRVs use preset_mode (away/schedule) to enable or disable heating. Zigbee TRVs (via Zigbee2MQTT) use hvac_mode (off/heat) instead.",
-          "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand, used for waste and efficiency calculations.",
+          "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand (e.g. Zigbee2MQTT pi_heating_demand). Shown as the room's valve demand in the panel and card.",
           "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor.",
           "sync_mode": "What happens when this TRV is changed manually or by another automation. Disabled: ignore. Mirror: accept the change and switch the room to override. Lock: revert it back to Heat Manager's own setpoint."
         }
@@ -278,7 +278,7 @@
         "data_description": {
           "window_delay_min": "No longer read since v0.33.0 \u2014 every room's window open-delay now uses the single global setting instead (Season & global settings step). Left here only so a value already saved for this room isn't silently discarded; safe to ignore.",
           "comfort_temp": "PID target temperature for this room \u2014 authoritative for every TRV type, Netatmo included. Default 20\u00b0C.",
-          "co2_sensor": "Used for context-aware window notifications and energy waste classification. When CO\u2082 is high, an open window is marked as ventilation rather than heat loss.",
+          "co2_sensor": "Used for context-aware window notifications. When CO\u2082 is high, an open window is described as ventilation rather than heat loss.",
           "co2_threshold": "CO\u2082 level above which an open window is classified as intentional ventilation. Default is 900 ppm. Increase for bedrooms (higher tolerance) or decrease for seldom-occupied rooms.",
           "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1\u20133\u00b0C too high).",
           "battery_sensor": "TRV battery level sensor (sensor.* reporting %). Recommended for Zigbee TRVs, whose battery is usually its own entity rather than an attribute on the climate entity. Leave blank to fall back to the climate entity's own battery_level attribute, if it has one.",
@@ -307,7 +307,7 @@
         "data_description": {
           "window_delay_min": "No longer read since v0.33.0 \u2014 every room's window open-delay now uses the single global setting instead (Season & global settings step). Left here only so a value already saved for this room isn't silently discarded; safe to ignore.",
           "comfort_temp": "PID target temperature for this room \u2014 authoritative for every TRV type, Netatmo included. Default 20\u00b0C.",
-          "co2_sensor": "Used for context-aware window notifications and energy waste classification. When CO\u2082 is high, an open window is marked as ventilation rather than heat loss.",
+          "co2_sensor": "Used for context-aware window notifications. When CO\u2082 is high, an open window is described as ventilation rather than heat loss.",
           "co2_threshold": "CO\u2082 level above which an open window is classified as intentional ventilation. Default is 900 ppm. Increase for bedrooms (higher tolerance) or decrease for seldom-occupied rooms.",
           "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1\u20133\u00b0C too high).",
           "battery_sensor": "TRV battery level sensor (sensor.* reporting %). Recommended for Zigbee TRVs, whose battery is usually its own entity rather than an attribute on the climate entity. Leave blank to fall back to the climate entity's own battery_level attribute, if it has one.",
@@ -336,7 +336,7 @@
         "data_description": {
           "homekit_climate_entity": "The local HomeKit climate entity for this valve (e.g. climate.netatmo_valve_1 from the HomeKit Controller pairing of the Netatmo relay). Required for PID control of a Netatmo valve: PID setpoints are only ever written locally via HomeKit, never via the Netatmo cloud. Without it the valve follows its Netatmo schedule, while presets, windows and away still work. Leave blank for Zigbee TRVs.",
           "trv_type": "Netatmo NRVs use preset_mode (away/schedule) to enable or disable heating. Zigbee TRVs (via Zigbee2MQTT) use hvac_mode (off/heat) instead.",
-          "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand, used for waste and efficiency calculations.",
+          "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand (e.g. Zigbee2MQTT pi_heating_demand). Shown as the room's valve demand in the panel and card.",
           "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor.",
           "sync_mode": "What happens when this TRV is changed manually or by another automation. Disabled: ignore. Mirror: accept the change and switch the room to override. Lock: revert it back to Heat Manager's own setpoint."
         }
@@ -354,7 +354,7 @@
         "data_description": {
           "homekit_climate_entity": "The local HomeKit climate entity for this valve (e.g. climate.netatmo_valve_1 from the HomeKit Controller pairing of the Netatmo relay). Required for PID control of a Netatmo valve: PID setpoints are only ever written locally via HomeKit, never via the Netatmo cloud. Without it the valve follows its Netatmo schedule, while presets, windows and away still work. Leave blank for Zigbee TRVs.",
           "trv_type": "Netatmo NRVs use preset_mode (away/schedule) to enable or disable heating. Zigbee TRVs (via Zigbee2MQTT) use hvac_mode (off/heat) instead.",
-          "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand, used for waste and efficiency calculations.",
+          "pi_demand_entity": "Optional sensor.* entity reporting this TRV's own PI/valve demand (e.g. Zigbee2MQTT pi_heating_demand). Shown as the room's valve demand in the panel and card.",
           "calibration_entity": "A number.* entity the TRV's own integration exposes to correct its internal reading (e.g. Zigbee2MQTT local_temperature_calibration). Only used together with the room temperature sensor.",
           "sync_mode": "What happens when this TRV is changed manually or by another automation. Disabled: ignore. Mirror: accept the change and switch the room to override. Lock: revert it back to Heat Manager's own setpoint."
         }
@@ -478,15 +478,6 @@
       },
       "pause_remaining": {
         "name": "Pause remaining"
-      },
-      "energy_wasted_today": {
-        "name": "Energy wasted today"
-      },
-      "energy_saved_today": {
-        "name": "Energy saved today"
-      },
-      "efficiency_score": {
-        "name": "Efficiency score"
       }
     },
     "select": {
@@ -523,9 +514,6 @@
     "binary_sensor": {
       "any_window_open": {
         "name": "Any window open"
-      },
-      "heating_wasted": {
-        "name": "Heating wasted"
       }
     },
     "switch": {

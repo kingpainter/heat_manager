@@ -163,7 +163,6 @@ CONF_HOMEKIT_CLIMATE_ENTITY = "homekit_climate_entity"
 CONF_TRV_TYPE = "trv_type"
 TRV_TYPE_NETATMO = "netatmo"
 TRV_TYPE_ZIGBEE = "zigbee"
-TRV_TYPE_OPTIONS = [TRV_TYPE_NETATMO, TRV_TYPE_ZIGBEE]
 
 # ── Netatmo backend choice (v0.61.1) ─────────────────────────────────────────
 # Global choice of which integration owns Netatmo valves: core `netatmo` or
@@ -205,7 +204,6 @@ CONF_SYNC_MODE = "sync_mode"
 SYNC_MODE_DISABLED = "disabled"
 SYNC_MODE_MIRROR = "mirror"
 SYNC_MODE_LOCK = "lock"
-SYNC_MODE_OPTIONS = [SYNC_MODE_DISABLED, SYNC_MODE_MIRROR, SYNC_MODE_LOCK]
 DEFAULT_SYNC_MODE = SYNC_MODE_DISABLED
 
 # Per-room schedule/calendar entity — see engine/schedule_engine.py. When
@@ -219,9 +217,9 @@ CONF_SCHEDULE_ENTITY = "schedule_entity"
 
 # ── Sensor inputs (optional, per-room) ───────────────────────────────────────
 
-# CO₂ sensor — used for context-aware window notifications and waste
-# classification.  When set, Heat Manager knows whether an open window is
-# purposeful ventilation (high CO₂) or unnecessary heat loss (low CO₂).
+# CO₂ sensor — used for context-aware window notifications. When set, Heat
+# Manager can describe an open window as purposeful ventilation (high CO₂) or
+# unnecessary heat loss (low CO₂).
 CONF_CO2_SENSOR = "co2_sensor"
 
 # Humidity sensor — used for mold risk detection (F6).
@@ -647,6 +645,16 @@ REPAIR_ISSUE_NETATMO_BACKEND_MISSING = "netatmo_backend_missing"
 # future category. Cleared automatically the moment the category's own
 # active/inactive check reports it inactive again.
 REPAIR_ISSUE_PERSISTENT = "persistent_issue"
+# v0.65.2: issue_id prefix of the repair issues raised by
+# coordinator._report_issue() (see coordinator._repair_issue_id()).
+REPAIR_ISSUE_ID_PREFIX = "persistent_"
+
+# v0.65.2: config keys left behind by removed features. Stripped from stored
+# config entries at setup (migrations.strip_stale_config()).
+# energy_tracking / _energy_history / room_wattage — energy feature, removed
+# 2026-09-11 (meaningless on district heating).
+STALE_CONFIG_KEYS = ("energy_tracking", "_energy_history")
+STALE_ROOM_KEYS = ("room_wattage",)
 
 # ── Effective season (resolved — three-tier) ─────────────────────────────────
 
@@ -766,8 +774,6 @@ NETATMO_PRESET_MODE_FALLBACK_OPTIONS = [
 ACTION_FORCE_HEATING_ON = "HM_FORCE_HEATING_ON"
 ACTION_VIEW_WINDOWS = "HM_VIEW_WINDOWS"
 ACTION_DISMISS = "HM_DISMISS"
-ACTION_PAUSE_1H = "HM_PAUSE_1H"
-ACTION_PAUSE_TODAY = "HM_PAUSE_TODAY"
 
 # ── House Voice integration ──────────────────────────────────────────────────
 
@@ -800,7 +806,3 @@ SCAN_INTERVAL_SECONDS = 60
 
 # Netatmo cloud API — stagger multi-room calls to avoid 429 rate-limit errors
 NETATMO_API_CALL_DELAY_SEC: float = 0.6
-
-# ── Lovelace card resource path ───────────────────────────────────────────────
-
-LOVELACE_RESOURCE_PATH = "/heat_manager/heat-manager-card.js"

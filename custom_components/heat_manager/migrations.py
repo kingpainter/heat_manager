@@ -18,6 +18,8 @@ from .const import (
     CONF_SYNC_MODE,
     CONF_TRV_TYPE,
     CONF_TRVS,
+    STALE_CONFIG_KEYS,
+    STALE_ROOM_KEYS,
 )
 
 # Fields that moved from the room level into each TRV dict when CONF_TRVS
@@ -82,3 +84,27 @@ def migrate_room_to_trvs(room: dict[str, Any]) -> dict[str, Any]:
 def migrate_rooms_to_trvs(rooms: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Apply migrate_room_to_trvs() to every room in the list."""
     return [migrate_room_to_trvs(room) for room in rooms]
+
+
+def strip_stale_config(config: dict[str, Any]) -> dict[str, Any] | None:
+    """v0.65.2: return a copy of a stored config dict (entry.data or
+    entry.options) without keys left behind by removed features, or None
+    when there is nothing to remove — so the caller only writes the entry
+    when it actually changes.
+
+    Top-level: STALE_CONFIG_KEYS. Per room in CONF_ROOMS: STALE_ROOM_KEYS.
+    """
+    changed = False
+    out = {k: v for k, v in config.items() if k not in STALE_CONFIG_KEYS}
+    if len(out) != len(config):
+        changed = True
+    rooms = out.get("rooms")
+    if isinstance(rooms, list):
+        new_rooms = []
+        for room in rooms:
+            if isinstance(room, dict) and any(k in room for k in STALE_ROOM_KEYS):
+                room = {k: v for k, v in room.items() if k not in STALE_ROOM_KEYS}
+                changed = True
+            new_rooms.append(room)
+        out["rooms"] = new_rooms
+    return out if changed else None

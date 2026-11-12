@@ -5,9 +5,9 @@
 Heat Manager replaces manual YAML automations with a fully configurable
 custom integration. It manages presence-based heating, open window detection,
 pre-heating on arrival, seasonal on/off control, mold risk monitoring, and
-weather-aware energy tracking — all from the UI.
+weather-aware PID control — all from the UI.
 
-[![Version](https://img.shields.io/badge/version-0.9.4-blue)](https://github.com/kingpainter/heat-manager/releases)
+[![Version](https://img.shields.io/badge/version-0.65.2-blue)](https://github.com/kingpainter/heat-manager/releases)
 [![HA min version](https://img.shields.io/badge/Home%20Assistant-%3E%3D2025.1-blue)](https://www.home-assistant.io)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange)](https://hacs.xyz)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -49,9 +49,6 @@ Off shuts everything down permanently — with the correct fallback per season.
 - **Netatmo valve health** *(v0.62.0)* — the status line warns about an offline valve, a low battery and a NET-TRV webhook that is down (polling only), using the Netatmo integration's own connectivity/battery sensors found on the valve's device; offline valves are skipped by the PID
 - **Netatmo backend detection** *(v0.61.0)* — detects whether each Netatmo valve is owned by the core `netatmo` integration or by NET-TRV (`net_trv`), read from the entity registry, and shows it in diagnostics and the panel data. Global choice Auto / NET-TRV / core *(v0.61.1)*
 - **Zigbee TRV support** — full TRV-type routing (Netatmo vs Z2M) throughout all engines
-- **Energy waste tracking** — `heating_power_request` × room wattage; CO₂-weighted (ventilation = 50 % waste); rain overrides CO₂ → always full waste
-- **Energy savings tracking** — estimated kWh saved from away mode
-- **Efficiency score** — daily 0–100 score
 - **Valve protection** — weekly valve exercise at 02:00–03:00 when controller is OFF, prevents calcification
 - **Mold risk sensor** — per-room binary sensor, DIN 4108-2 (Magnus dewpoint formula); outdoor humidity shown as context attribute
 - **Repair issues** — HA Repairs panel shows a warning when a configured climate entity is missing at startup
@@ -62,7 +59,7 @@ Off shuts everything down permanently — with the correct fallback per season.
 - **Cloud status banner** — panel auto-detects Netatmo outages via entity state and staleness; links to health.netatmo.com
 - **Inline config editing** — alarm panel and notify service editable directly in the panel's Konfiguration tab
 - **Season mode persistence** — manual season override survives HA restarts
-- **Sidebar panel** — Indeklima design language: SVG controller ring, room state grid, efficiency ring, event log
+- **Sidebar panel** — Indeklima design language: SVG controller ring, room state grid, smart status line, event log
 - **Lovelace card** — matching design: amber heat palette, SVG ring, room state chips
 - **Diagnostics** — downloadable snapshot from Settings → Heat Manager → ⋮ → Download diagnostics
 - **Full English + Danish translations**
@@ -121,7 +118,7 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 | `weather_entity` | entity | — | Weather entity for outdoor temperature and season detection |
 | `outdoor_temp_sensor` | sensor | — | **Optional.** Local outdoor temperature sensor. Overrides weather entity |
 | `outdoor_humidity_sensor` | sensor | — | **Optional.** Outdoor humidity (%). Used for mold risk context |
-| `precipitation_sensor` | sensor | — | **Optional.** Precipitation (mm/h). Triggers faster window delay and disables CO₂ waste reduction |
+| `precipitation_sensor` | sensor | — | **Optional.** Precipitation (mm/h). Triggers faster window delay |
 | `wind_speed_sensor` | sensor | — | **Optional.** Wind speed (m/s). Triggers faster window delay above 6 m/s |
 | `notify_service` | string | — | HA notify service, e.g. `notify.mobile_app_my_phone`. Also editable in panel |
 | `alarm_panel` | entity | — | `alarm_control_panel.*` — armed_away triggers instant away mode. Also editable in panel |
@@ -148,10 +145,9 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 | `trv_window_detection` | boolean | `false` | *(v0.64.0)* Also use the Netatmo valve's own open-window detection (`open_window`, NET-TRV) as a window sensor for this room |
 | `window_delay_min` | min | 5 | Minutes open before heating drops (auto-reduced by rain/wind) |
 | `away_temp_override` | °C | 10.0 | Frost-guard floor when window opens |
-| `room_wattage` | W | 1000 | Rated heating power for energy calculations |
 | `trv_type` | select | netatmo | `netatmo` (preset_mode) or `zigbee` (hvac_mode) |
-| `pi_demand_entity` | sensor | — | **Optional.** Z2M `pi_heating_demand` sensor for Zigbee energy tracking |
-| `co2_sensor` | sensor | — | **Optional.** CO₂ (ppm) — context-aware window notifications; CO₂ ≥ threshold = 50 % waste reduction (overridden by rain) |
+| `pi_demand_entity` | sensor | — | **Optional.** Z2M `pi_heating_demand` sensor, shown as the room's valve demand |
+| `co2_sensor` | sensor | — | **Optional.** CO₂ (ppm) — context-aware window notifications |
 | `co2_threshold` | ppm | 900 | **Optional.** Per-room CO₂ ventilation threshold. Overrides global 900 ppm default. Higher = more tolerant (e.g. bedrooms) |
 | `room_temp_sensor` | sensor | — | **Optional.** Wall probe for PID feedback — avoids radiator-body bias of TRV built-in sensor |
 | `humidity_sensor` | sensor | — | **Optional.** Indoor humidity (%) for mold risk detection |
@@ -173,7 +169,6 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 | `notify_windows` | bool | true | Notify when a window drops heating |
 | `notify_window_warning_30` | bool | true | Warning if window open 30+ minutes |
 | `notify_preheat` | bool | true | Notify when pre-heat starts |
-| `energy_tracking` | bool | true | Enable energy waste sensor |
 
 ### Remote control (options flow)
 
@@ -234,9 +229,6 @@ data:
 | `select.heat_manager_season_mode` | Select | disabled | Auto / Winter / Spring / Summer / Autumn — persists across restarts |
 | `select.heat_manager_<room>_netatmo_preset_mode` | Select | **on** | Netatmo away/frost_guard/boost/schedule — one per room with a Netatmo TRV *(v0.27.0)* |
 | `sensor.heat_manager_pause_remaining` | Sensor | disabled | Minutes left in pause (DIAGNOSTIC) |
-| `sensor.heat_manager_energy_wasted_today` | Sensor | **on** | kWh wasted today (CO₂ + rain weighted) |
-| `sensor.heat_manager_energy_saved_today` | Sensor | **on** | kWh saved today from away mode |
-| `sensor.heat_manager_efficiency_score` | Sensor | disabled | Daily score 0–100 (DIAGNOSTIC) |
 | `sensor.heat_manager_status` | Sensor | **on** | off / paused / window_open / boost / manual / auto — the house's headline status, translated *(v0.60.0)* |
 | `sensor.heat_manager_control_mode` | Sensor | **on** | auto / manual / mixed — attributes list the manual rooms, who set them and when they return to auto *(v0.59.0)* |
 | `sensor.heat_manager_<room>_state` | Sensor | **on** | normal / window_open / away / pre_heat / override — attributes `override_source`, `override_since`, `override_expires_at` |
@@ -244,7 +236,6 @@ data:
 | `sensor.heat_manager_<room>_pid_power` | Sensor | disabled | PID output 0–100 % — only for rooms with HomeKit entity (DIAGNOSTIC) |
 | `binary_sensor.heat_manager_any_window_open` | Binary | **on** | True when any configured window is open |
 | `binary_sensor.heat_manager_cloud_available` | Binary | **on** | False when Netatmo cloud is unavailable or data stale ≥ 10 min |
-| `binary_sensor.heat_manager_heating_wasted` | Binary | disabled | Window open + heating running (DIAGNOSTIC) |
 | `binary_sensor.heat_manager_<room>_window` | Binary | disabled | Per-room window open (DIAGNOSTIC) |
 | `binary_sensor.heat_manager_<room>_mold_risk` | Binary | **on** | Mold risk: RH ≥ 70 % AND T ≤ dewpoint + 1 °C — requires `humidity_sensor` |
 | `switch.heat_manager_<room>_override` | Switch | disabled | Manual heating override per room (CONFIG) |
@@ -310,15 +301,9 @@ today.
 ```
 1. homekit_climate_entity — local LAN, no rate limits  ← preferred
 2. climate_entity         — Netatmo cloud              ← fallback
-preset_mode writes (away/schedule) always go to cloud entity
-```
-
-### CO₂ waste weighting
-```
-is_raining()     → waste_weight = 1.00  (overrides CO₂)
-co2 ≥ 900 ppm    → waste_weight = 0.50  (ventilation justified)
-co2 < 900 ppm    → waste_weight = 1.00
-no sensor        → waste_weight = 1.00
+Home-level presets (away / frost guard / schedule) go to the cloud entity,
+once per sweep. Handing one room back to its schedule uses the owning
+integration's clear_temperature_setting (room only), never a home preset.
 ```
 
 ---
@@ -359,11 +344,9 @@ logger:
 ## Known limitations
 
 - Pre-heat requires a `sensor.<person>_travel_time_home` sensor in HA (e.g. from Google Maps or Waze integration).
-- Energy waste uses Netatmo's `heating_power_request` when available; falls back to Δtemp × 0.1 kWh/°C/h for other rooms.
 - PID writes via HomeKit require the Netatmo Relay paired as HomeKit Controller in HA.
 - If the Netatmo cloud entity goes unavailable (internet or cloud outage), the PID keeps running on the HomeKit entity alone; presets, schedules and cloud-only features pause until the cloud entity is back.
 - Valve protection fires once per ISO week at 02:00–03:00 local time, only when the controller is OFF. From v0.65.0 a valve whose motor moved within the last week (NET-TRV `valve_position` sensor, `netatmo_ts`) is skipped; without that sensor every valve is exercised.
-- Daily energy totals reset on HA restart (persistent storage not implemented).
 
 ---
 

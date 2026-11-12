@@ -91,7 +91,7 @@
           "heated_door_sensors": "En SEPARAT liste fra Vindue- / dørsensorer ovenfor — yderdøre der fører til et opvarmet/lukket område (fx en fordør til en opvarmet opgang), ikke den udendørs luft. Disse har INGEN varme-dæmpende effekt overhovedet: ingen grace-periode, ingen sluk-temperatur, ingen advarsel — kun synlighed og hændelseslog. Tilføj ikke en sensor her I STEDET FOR Vindue- / dørsensorer, hvis du vil have, at det reelt reducerer opvarmningen, når den åbnes.",
           "window_delay_min": "Læses ikke længere siden v0.33.0 — alle rums vinduesforsinkelse bruger nu i stedet den ene globale indstilling (trinnet Sæson & globale indstillinger). Stående her kun så en allerede gemt værdi for dette rum ikke tabes; kan trygt ignoreres.",
           "comfort_temp": "PID-måltemperatur for dette rum — gælder for alle TRV-typer, inklusive Netatmo. Standard 20°C.",
-          "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO₂ er høj, registreres et åbent vindue som ventilation frem for varmespild.",
+          "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger. Når CO₂ er høj, beskrives et åbent vindue som udluftning frem for varmetab.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som bevidst ventilation. Standard er 900 ppm. Hæv for soveværelser eller sænk for sjældent benyttede rum.",
           "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering. Anbefales til Zigbee TRV'er, hvis indbyggede sensor sidder på radiatorlegemet (typisk 1–3°C for høj).",
           "battery_sensor": "TRV-batteriniveau (sensor.* der rapporterer %). Anbefales til Zigbee-TRV'er, hvor batteriet normalt er sin egen entity frem for en attribut på climate-entiteten. Lad stå tomt for at falde tilbage på climate-entitetens egen battery_level-attribut, hvis den har en.",
@@ -120,7 +120,7 @@
         "data_description": {
           "homekit_climate_entity": "Den lokale HomeKit-klimaenhed for denne ventil (fx climate.netatmo_valve_1 fra HomeKit Controller-parringen af Netatmo-relæet). Krævet for PID-styring af en Netatmo-ventil: PID-setpunkter skrives kun lokalt via HomeKit, aldrig via Netatmo-skyen. Uden den følger ventilen sin Netatmo-tidsplan, mens forvalg, vinduer og væk stadig virker. Lad stå tomt for Zigbee-ventiler.",
           "trv_type": "Netatmo NRV'er bruger preset_mode (away/schedule) til at aktivere/deaktivere opvarmning. Zigbee-TRV'er (via Zigbee2MQTT) bruger i stedet hvac_mode (off/heat).",
-          "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov, brugt til spild- og effektivitetsberegninger.",
+          "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov (fx Zigbee2MQTT pi_heating_demand). Vises som rummets ventilbehov i panel og kort.",
           "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren.",
           "sync_mode": "Hvad der sker, når denne TRV ændres manuelt eller af en anden automatisering. Deaktiveret: ignorer. Spejl: acceptér ændringen og skift rummet til tilsidesættelse. Lås: gendan til Heat Managers eget setpunkt."
         }
@@ -138,7 +138,7 @@
         "data_description": {
           "homekit_climate_entity": "Den lokale HomeKit-klimaenhed for denne ventil (fx climate.netatmo_valve_1 fra HomeKit Controller-parringen af Netatmo-relæet). Krævet for PID-styring af en Netatmo-ventil: PID-setpunkter skrives kun lokalt via HomeKit, aldrig via Netatmo-skyen. Uden den følger ventilen sin Netatmo-tidsplan, mens forvalg, vinduer og væk stadig virker. Lad stå tomt for Zigbee-ventiler.",
           "trv_type": "Netatmo NRV'er bruger preset_mode (away/schedule) til at aktivere/deaktivere opvarmning. Zigbee-TRV'er (via Zigbee2MQTT) bruger i stedet hvac_mode (off/heat).",
-          "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov, brugt til spild- og effektivitetsberegninger.",
+          "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov (fx Zigbee2MQTT pi_heating_demand). Vises som rummets ventilbehov i panel og kort.",
           "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren.",
           "sync_mode": "Hvad der sker, når denne TRV ændres manuelt eller af en anden automatisering. Deaktiveret: ignorer. Spejl: acceptér ændringen og skift rummet til tilsidesættelse. Lås: gendan til Heat Managers eget setpunkt."
         }
@@ -286,7 +286,7 @@
           "heated_door_sensors": "En SEPARAT liste fra Vindue- / dørsensorer ovenfor — yderdøre der fører til et opvarmet/lukket område (fx en fordør til en opvarmet opgang), ikke den udendørs luft. Disse har INGEN varme-dæmpende effekt overhovedet: ingen grace-periode, ingen sluk-temperatur, ingen advarsel — kun synlighed og hændelseslog. Tilføj ikke en sensor her I STEDET FOR Vindue- / dørsensorer, hvis du vil have, at det reelt reducerer opvarmningen, når den åbnes.",
           "window_delay_min": "Læses ikke længere siden v0.33.0 — alle rums vinduesforsinkelse bruger nu i stedet den ene globale indstilling (trinnet Sæson & globale indstillinger). Stående her kun så en allerede gemt værdi for dette rum ikke tabes; kan trygt ignoreres.",
           "comfort_temp": "PID-måltemperatur for dette rum — gælder for alle TRV-typer, inklusive Netatmo. Standard 20°C.",
-          "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO₂ er høj, registreres et åbent vindue som ventilation frem for varmespild.",
+          "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger. Når CO₂ er høj, beskrives et åbent vindue som udluftning frem for varmetab.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som bevidst ventilation. Standard er 900 ppm. Hæv for soveværelser eller sænk for sjældent benyttede rum.",
           "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering. Anbefales til Zigbee TRV'er, hvis indbyggede sensor sidder på radiatorlegemet (typisk 1–3°C for høj).",
           "battery_sensor": "TRV-batteriniveau (sensor.* der rapporterer %). Anbefales til Zigbee-TRV'er, hvor batteriet normalt er sin egen entity frem for en attribut på climate-entiteten. Lad stå tomt for at falde tilbage på climate-entitetens egen battery_level-attribut, hvis den har en.",
@@ -319,7 +319,7 @@
           "heated_door_sensors": "En SEPARAT liste fra Vindue- / dørsensorer ovenfor — yderdøre der fører til et opvarmet/lukket område (fx en fordør til en opvarmet opgang), ikke den udendørs luft. Disse har INGEN varme-dæmpende effekt overhovedet: ingen grace-periode, ingen sluk-temperatur, ingen advarsel — kun synlighed og hændelseslog. Tilføj ikke en sensor her I STEDET FOR Vindue- / dørsensorer, hvis du vil have, at det reelt reducerer opvarmningen, når den åbnes.",
           "window_delay_min": "Læses ikke længere siden v0.33.0 — alle rums vinduesforsinkelse bruger nu i stedet den ene globale indstilling (trinnet Sæson & globale indstillinger). Stående her kun så en allerede gemt værdi for dette rum ikke tabes; kan trygt ignoreres.",
           "comfort_temp": "PID-måltemperatur for dette rum — gælder for alle TRV-typer, inklusive Netatmo. Standard 20°C.",
-          "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger og energispildsklassificering. Når CO₂ er høj, registreres et åbent vindue som ventilation frem for varmespild.",
+          "co2_sensor": "Bruges til kontekstbevidste vinduesmeldinger. Når CO₂ er høj, beskrives et åbent vindue som udluftning frem for varmetab.",
           "co2_threshold": "CO₂-niveau over hvilket et åbent vindue klassificeres som bevidst ventilation. Standard er 900 ppm. Hæv for soveværelser eller sænk for sjældent benyttede rum.",
           "room_temp_sensor": "Uafhængig rumføler til PID-temperaturregulering. Anbefales til Zigbee TRV'er, hvis indbyggede sensor sidder på radiatorlegemet (typisk 1–3°C for høj).",
           "battery_sensor": "TRV-batteriniveau (sensor.* der rapporterer %). Anbefales til Zigbee-TRV'er, hvor batteriet normalt er sin egen entity frem for en attribut på climate-entiteten. Lad stå tomt for at falde tilbage på climate-entitetens egen battery_level-attribut, hvis den har en.",
@@ -348,7 +348,7 @@
         "data_description": {
           "homekit_climate_entity": "Den lokale HomeKit-klimaenhed for denne ventil (fx climate.netatmo_valve_1 fra HomeKit Controller-parringen af Netatmo-relæet). Krævet for PID-styring af en Netatmo-ventil: PID-setpunkter skrives kun lokalt via HomeKit, aldrig via Netatmo-skyen. Uden den følger ventilen sin Netatmo-tidsplan, mens forvalg, vinduer og væk stadig virker. Lad stå tomt for Zigbee-ventiler.",
           "trv_type": "Netatmo NRV'er bruger preset_mode (away/schedule) til at aktivere/deaktivere opvarmning. Zigbee-TRV'er (via Zigbee2MQTT) bruger i stedet hvac_mode (off/heat).",
-          "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov, brugt til spild- og effektivitetsberegninger.",
+          "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov (fx Zigbee2MQTT pi_heating_demand). Vises som rummets ventilbehov i panel og kort.",
           "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren.",
           "sync_mode": "Hvad der sker, når denne TRV ændres manuelt eller af en anden automatisering. Deaktiveret: ignorer. Spejl: acceptér ændringen og skift rummet til tilsidesættelse. Lås: gendan til Heat Managers eget setpunkt."
         }
@@ -366,7 +366,7 @@
         "data_description": {
           "homekit_climate_entity": "Den lokale HomeKit-klimaenhed for denne ventil (fx climate.netatmo_valve_1 fra HomeKit Controller-parringen af Netatmo-relæet). Krævet for PID-styring af en Netatmo-ventil: PID-setpunkter skrives kun lokalt via HomeKit, aldrig via Netatmo-skyen. Uden den følger ventilen sin Netatmo-tidsplan, mens forvalg, vinduer og væk stadig virker. Lad stå tomt for Zigbee-ventiler.",
           "trv_type": "Netatmo NRV'er bruger preset_mode (away/schedule) til at aktivere/deaktivere opvarmning. Zigbee-TRV'er (via Zigbee2MQTT) bruger i stedet hvac_mode (off/heat).",
-          "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov, brugt til spild- og effektivitetsberegninger.",
+          "pi_demand_entity": "Valgfri sensor.*-entitet der rapporterer denne TRV's eget PI-/ventilbehov (fx Zigbee2MQTT pi_heating_demand). Vises som rummets ventilbehov i panel og kort.",
           "calibration_entity": "En number.*-entitet som TRV'ens egen integration eksponerer til at rette dens interne aflæsning (fx Zigbee2MQTT local_temperature_calibration). Bruges kun sammen med rumtemperatursensoren.",
           "sync_mode": "Hvad der sker, når denne TRV ændres manuelt eller af en anden automatisering. Deaktiveret: ignorer. Spejl: acceptér ændringen og skift rummet til tilsidesættelse. Lås: gendan til Heat Managers eget setpunkt."
         }
@@ -490,15 +490,6 @@
       },
       "pause_remaining": {
         "name": "Pause tilbage"
-      },
-      "energy_wasted_today": {
-        "name": "Energi spildt i dag"
-      },
-      "energy_saved_today": {
-        "name": "Energi sparet i dag"
-      },
-      "efficiency_score": {
-        "name": "Effektivitetsscore"
       }
     },
     "select": {
@@ -535,9 +526,6 @@
     "binary_sensor": {
       "any_window_open": {
         "name": "Et eller flere vinduer åbne"
-      },
-      "heating_wasted": {
-        "name": "Opvarmning spildt"
       }
     },
     "switch": {

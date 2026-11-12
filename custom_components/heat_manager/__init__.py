@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.issue_registry import (
     IssueSeverity,
     async_create_issue,
@@ -25,6 +26,7 @@ from .const import (
     DOMAIN,
     NETATMO_BACKEND_AUTO,
     PLATFORMS,
+    REPAIR_ISSUE_ID_PREFIX,
     REPAIR_ISSUE_MISSING_CLIMATE,
     REPAIR_ISSUE_NETATMO_BACKEND_MISSING,
     SERVICE_BOOST_START,
@@ -36,7 +38,7 @@ from .const import (
     ControllerState,
 )
 from .coordinator import HeatManagerCoordinator
-from .migrations import migrate_rooms_to_trvs
+from .migrations import migrate_rooms_to_trvs, strip_stale_config
 from .panel import (
     async_register_panel,
     async_register_static_paths,
@@ -84,6 +86,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Heat Manager from a config entry."""
+    # v0.65.2: drop config keys from removed features and repair issues left
+    # over from earlier runs, before anything reads them. Runs before the
+    # update listener is attached, so this write never triggers a reload.
+    _async_strip_stale_config(hass, entry)
+    _async_clear_stale_persistent_issues(hass, entry)
+
     coordinator = HeatManagerCoordinator(hass, entry)
 
     try:
@@ -171,6 +179,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+def _async_strip_stale_config(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """v0.65.2: remove keys of removed features (energy tracking) from the
+    stored entry — see migrations.strip_stale_config()."""
+    new_data = strip_stale_config(dict(entry.data))
+    new_options = strip_stale_config(dict(entry.options))
+    if new_data is None and new_options is None:
+        return
+    hass.config_entries.async_update_entry(
+        entry,
+        data=new_data if new_data is not None else entry.data,
+        options=new_options if new_options is not None else entry.options,
+    )
+    _LOGGER.info("Heat Manager: removed stale config keys from removed features")
+
+
+def _async_clear_stale_persistent_issues(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """v0.65.2: delete this entry's "persistent_*" repair issues at setup.
+
+    coordinator._report_issue() only remembers in memory which repair
+    issues it raised, so after a restart it never cleared an old one —
+    a long-gone cloud outage stayed in the issue registry forever. A
+    condition that is still present raises its issue again once it has
+    been active past the escalation threshold.
+    """
+    suffix = f"_{entry.entry_id[:8]}"
+    stale = [
+        issue_id
+        for (domain, issue_id) in ir.async_get(hass).issues
+        if domain == DOMAIN
+        and issue_id.startswith(REPAIR_ISSUE_ID_PREFIX)
+        and issue_id.endswith(suffix)
+    ]
+    for issue_id in stale:
+        async_delete_issue(hass, DOMAIN, issue_id)
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
@@ -214,9 +260,8 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
     BUGFIX (2026-09): this listener previously reloaded the *entire*
     integration on every single entry.options write — including purely
-    internal writes the coordinator makes itself: the midnight energy-
-    history snapshot (coordinator._persist_energy_snapshot), a season_mode
-    change from the select entity, and an alarm_panel/notify_service save
+    internal writes the coordinator makes itself: a season_mode change
+    from the select entity, and an alarm_panel/notify_service save
     from the sidebar panel's config tab. None of those values need a reload
     to take effect — the coordinator already reads entry.data/entry.options
     live on every tick via its `config` property.

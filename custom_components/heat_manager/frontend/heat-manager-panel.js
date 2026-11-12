@@ -1,172 +1,9 @@
-// Heat Manager Panel
-// Version: 0.17.2 (comment log below is stale — see manifest.json for the
-// actual running version; panel.py reads it from there at runtime, not
-// from this comment. See CHANGELOG.md for everything since v0.17.2.)
+// Heat Manager — sidebar panel (custom element "heat-manager-panel").
 //
-// v0.22.0 (2026-09-11 — "Energi i dag" removed):
-//   • The waste-calculator-based "Energi i dag" section (spildt/sparet kWh,
-//     efficiency ring) and the Historik tab's "Energi — sidste 7 dage" bar
-//     chart are removed entirely, at the user's request: the whole model
-//     estimates kWh from an assumed electrical radiator wattage
-//     (CONF_ROOM_WATTAGE), which has no meaning for a district-heating
-//     (fjernvarme) system with no water/heat metering — the numbers were
-//     never real. Removed backend-side too: WasteCalculator, its 5
-//     coordinator properties/tick/shutdown hooks, the 3 sensor entities
-//     (EnergyWastedSensor/EnergySavedSensor/EfficiencyScoreSensor), the
-//     HeatingWastedSensor binary sensor, CONF_ENERGY_TRACKING/
-//     CONF_ROOM_WATTAGE config, and the ws_get_state()/get_history() fields.
-//     engine/waste_calculator.py is left in place but fully disconnected —
-//     safe to delete manually.
-//   • Fixed a third instance of the display-vs-[hidden] bug (see v0.21.0
-//     below): #remote-last-action-box (the "📡" pill) used an inline
-//     style="display:flex", which beats every stylesheet rule including the
-//     [hidden] override added in v0.21.0 — so it was PERMANENTLY visible as
-//     an empty pill whenever there was no recent remote-control action.
-//     Moved the layout into a .remote-last-action-box class covered by the
-//     same [hidden] override.
-//
-// v0.21.0 (2026-09-11 statustjek):
-//   • Fixed a real, confirmed-by-screenshot bug: #cloud-chip, #health-chip
-//     and #ws-error-chip all set `display` unconditionally in their own
-//     CSS class, which — because author CSS always wins over the browser's
-//     default `[hidden] { display: none }` rule, regardless of selector
-//     specificity — completely neutralised `chip.hidden = true/false`.
-//     #cloud-chip/#health-chip were permanently visible as empty pills
-//     (label only ever gets text when there's an issue) and #ws-error-chip
-//     was very likely showing "Ingen forbindelse" all the time, defeating
-//     the 2026-09-07 UI/UX-2 fix it exists for. Added the missing
-//     `.cloud-chip[hidden], .ws-error-chip[hidden] { display: none; }`.
-//   • _cloudStatus() previously only flagged "Netatmo cloud nede" when
-//     EVERY configured room's climate entity was unavailable at once — a
-//     partial outage (2 of 5 rooms down, say) silently reported `ok: true`
-//     and never showed anything. Now three distinct, separately-worded
-//     states: all rooms down (cloud/gateway — see docstring), some rooms
-//     down (single device, more likely battery/RF), or stale-but-available
-//     (cloud responding, not updating).
-//   • #ws-error-chip now shows the last-known-good time ("Ingen forbindelse
-//     — sidst OK kl. HH:MM") instead of a static, undated message.
-//   • _render() (the full first-load render path) was missing the
-//     _patchWsErrorChip()/_patchRemoteLastAction() calls that _patchAll()
-//     already had — both could sit stuck in their template-default hidden
-//     state for up to a 60s poll cycle after a fresh page load.
-//   • See audit/heat_manager_status_check_2026-09-11.md for the full
-//     analysis, including why a true "gateway" layer distinct from
-//     "cloud" isn't observable from HA's own Netatmo integration for
-//     thermostat/valve devices.
-//
-// v0.17.2:
-//   • Frontend-parity + health-check pass. New per-room "Rum detaljer" chips
-//     for PID power, calibration offset and window-open-minutes-today (all
-//     3 computed by the backend already but only ever visible via HA's own
-//     entity page — see sensor.py's enabled_default flip and websocket.py's
-//     ws_get_state() this same session). New "entity health" topbar chip
-//     (#health-chip/_patchHealthChip()), separate from the existing Netatmo
-//     cloud chip — covers every entity a room actually depends on (all
-//     TRVs, not just the primary; window/humidity/CO2/battery sensors too),
-//     not just Netatmo cloud staleness. Removed the dead full-width
-//     _cloudBannerHTML() (superseded by the topbar chip since v0.16.0,
-//     never actually called).
-//
-// v0.17.0:
-//   • Oversigt-cards now show humidity/CO2 chips, a mold-risk badge, and a
-//     sync-mode/schedule/TRV-count meta row — data that already existed in
-//     the get_state payload but was only ever shown in the Rum-detaljer tab.
-//
-// v0.16.0:
-//   • Version banner corrected — this file had said 0.3.10 since before
-//     v0.9.1's frontend surfacing work, several releases out of date.
-//   • Removed dead code left over from the removed "Energi i dag" card:
-//     _patchEnergyToday(), _reasonLabel(), _seasonTriggerLabel(),
-//     _energyTodaySectionHTML() (2.2).
-//   • Backend/frontend audit fix pass — see CHANGELOG.md.
-//
-// Design: Unified visual language with Indeklima — same font (DM Sans/DM Mono),
-// same card system, same section-box pattern, same score ring, same chip/badge
-// components. Palette shifted to heat semantics: amber/orange for active heating,
-// teal for normal/schedule, red for waste/window-open, blue for away/pre-heat.
-//
-// v0.3.3:
-//   • Header logo now served from /api/heat_manager-logo (static HTTP path,
-//     registered in panel.py) instead of an inline base64 JPEG. Avoids the
-//     shadow DOM data-URI-in-src stripping issue and keeps the file lean.
-//   • "Energi i dag" overview section removed — the waste calculator is
-//     still active under the hood (it drives the weekly chart on the Rum tab),
-//     but the overview card was rarely non-zero in practice and added noise.
-//
-// Architecture: same blink-free guards as 0.2.x —
-//   _loadInFlight, _lastCtrlState diff, setTimeout(0) render debounce,
-//   _srAppendHTML for WebKit/iOS, surgical _patchController().
-//
-// v0.3.4:
-//   • Cloud status banner — detects Netatmo cloud outages by inspecting
-//     HA climate entity availability and last_updated staleness.
-//     Shown across all tabs when cloud is degraded. Configurable via
-//     _showCloudBanner flag (can be disabled in config tab).
-//
-// v0.3.5:
-//   • Scroll-position preserved on auto-refresh. _load() now calls
-//     _patchAll() instead of _scheduleRender() when the panel is already
-//     rendered. Full _render() only runs on initial mount and tab switches.
-//   • Surgical patches: _patchRooms(), _patchPersons(), _patchQuickStats(),
-//     _patchAutoOff(), _patchTopbarVersion() — all update DOM nodes in-place.
-//   • Room cards carry data-room-id attribute; QS cells carry data-qs-* ids;
-//     persons/autooff sections carry wrapper IDs for targeted updates.
-//
-// v0.3.6:
-//   A) Controller ring + title + ringColor patched surgically on state change.
-//   B) Pause countdown ticks locally every 60 s — no WS poll needed.
-//   C) Room cards show valve position badge when available.
-//   D) Boost button added to controller row (greyed when unavailable).
-//   E) Refresh button shows spinner animation during _load().
-//   F) Rooms tab differentiated: valve %, boost status, last-updated per room.
-//   G) History tab shows last-fetched timestamp + manual refresh button.
-//   H) History loading skeleton shown while WS call is in-flight.
-//
-// v0.3.7 — Frontend UX fixes:
-//   UX1) Controller ring SVG transition fixed: use style.strokeDashoffset
-//        (triggers CSS transition) instead of setAttribute (doesn't).
-//   UX2) Rooms tab patched by _patchAll() via new _patchRoomsTab().
-//   UX3) "Synkroniseret kl. HH:MM" timestamp in header refresh button.
-//   UX4) Boost button active state set on initial render from backend data.
-//   Backend data: valve_position + boost_active now in room payload.
-//
-// v0.3.8:
-//   • Cloud banner moved into topbar — compact inline chip instead of
-//     full-width banner. Dismissing hides chip without re-render.
-//   • _patchCloudChip() updates topbar chip surgically.
-//   • Manual TRV control in Rum tab — per-room temp slider + Send button.
-//     Calls heat_manager/set_room_temp WS. Duration: 30/60/120 min or permanent.
-//   • Config tab toggle: "Manuel TRV-kontrol" (session-scoped).
-//
-// v0.3.9 — UI/UX pass:
-//   • Overview: new "Energi i dag" card (sparet/spildt kWh + efficiency ring),
-//     using energy_saved_today/energy_wasted_today/efficiency_score (already
-//     in the get_state payload).
-//   • Controller hero: third meta-chip shows the *effective* season
-//     (Dvale/Opvågning/Aktiv) with icon. Also fixes a pre-existing bug where
-//     "Effektiv sæson" on the auto-off card always showed "–" because it was
-//     looked up in the calendar-season label map (winter/summer/...) instead
-//     of the DORMANT/WAKING/ACTIVE map.
-//   • Rum tab: TRV-type badge (Netatmo/Zigbee) per room detail row. Backend
-//     now includes "trv_type" in the room payload (websocket.py).
-//   • Historik tab: weekly energy chart (existing _energyChartHTML, formerly
-//     only on Rum tab) moved above the event log, plus filter chips to show
-//     only one event type (alle/normal/away/window/boost/manual/override).
-//   • Toast notifications: action failures (boost, manual TRV, config save)
-//     now surface a dismissible toast instead of only console.error.
-//   • a11y: cloud-status dismiss button gets aria-label; tab buttons get
-//     role="tab"/aria-selected.
-//
-// v0.3.10:
-//   • Boost button active/countdown state was only ever synced once, at the
-//     panel's very first render (_attachEvents()) — every later 30 s refresh
-//     went through _patchAll() instead, which never touched it. A boost
-//     stopped externally (backend auto-expiry, the heat_manager.boost_stop
-//     service, another client) left the button stuck "active" until a full
-//     reload. Sync moved into _patchControllerHero(), called every refresh.
-//   • Boost button now shows a live "⚡ Boost (N min)" countdown using
-//     boost_remaining_minutes from the WS payload. New _startBoostCountdown()
-//     mirrors the existing _startPauseCountdown() 60 s local-tick pattern.
+// Version: follows manifest.json (panel.py serves this file with the
+// integration's version as cache-buster). Change history: CHANGELOG.md.
+// Design: Indeklima Designer reference (DM Sans/DM Mono, section-box system,
+// amber/orange heat palette).
 
 class HeatManagerPanel extends HTMLElement {
   constructor() {
@@ -1341,11 +1178,6 @@ class HeatManagerPanel extends HTMLElement {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   _esc(s) { return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
-  _fmt(val, unit, decimals = 0) {
-    if (val == null) return "–";
-    const n = parseFloat(val);
-    return isNaN(n) ? "–" : n.toFixed(decimals) + "\u00a0" + unit;
-  }
 
   // State labels & colours — heat semantics
   // v0.59.0: "Normal" → "Auto" and "Override" → "Manuel", so the pill
@@ -3762,15 +3594,6 @@ class HeatManagerPanel extends HTMLElement {
   // constructor and the toggle-section click handler in _attachEvents().
   _cfgSectionClass(id) {
     return "section-box" + (this._expandedConfigSections.has(id) ? "" : " collapsed");
-  }
-
-  // 2026-09-19 (endelig tredelt struktur, efter brugerens egen illustration
-  // med grøn/rød/blå markering): titel står nu ALENE i headeren — denne
-  // bygger i stedet den altid-synlige bund-beskrivelse
-  // (.section-box-footer), placeret efter alle indstillings-rækkerne. Ikke
-  // påvirket af .collapsed, uanset om sektionen er foldet ud eller ej.
-  _cfgSectionFooter(text) {
-    return `<div class="section-box-footer">${this._esc(text)}</div>`;
   }
 
   // 2026-09-19 (ønske #2): a small colour dot alongside the existing

@@ -136,6 +136,7 @@ from .const import (
     NETATMO_API_CALL_DELAY_SEC,
     PID_SETPOINT_MARGIN,
     PRESET_SCHEDULE,
+    REPAIR_ISSUE_ID_PREFIX,
     REPAIR_ISSUE_PERSISTENT,
     SCAN_INTERVAL_SECONDS,
     SERVICE_CLEAR_TEMPERATURE_SETTING,
@@ -2280,7 +2281,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Stable, registry-safe issue_id for a status-center key, scoped to
         this config entry so two Heat Manager entries never collide."""
         safe_key = key.lower().replace(":", "_").replace(" ", "_")
-        return f"persistent_{safe_key}_{self.entry.entry_id[:8]}"
+        return f"{REPAIR_ISSUE_ID_PREFIX}{safe_key}_{self.entry.entry_id[:8]}"
 
     async def _notify_issue_escalation(
         self, message: str, threshold_min: float
@@ -2661,14 +2662,13 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
           3. Controller (pause expiry, auto-off, auto-resume)
           4. Presence engine (grace period countdowns)
           5. Window engine (open-window escalation warnings)
-          6. Waste calculator (energy accounting)
-          7. Preheat engine (travel_time polling no-op)
-          8. Valve protection (weekly exercise)
-          9. Calibration engine (write external sensor delta to TRV calibration)
-          10. Schedule engine (resolve active schedule/calendar block overrides)
-          11. PID tick (proportional TRV setpoints for NORMAL rooms)
-          12. Boost expiry check (auto-restore once boost duration elapses)
-          13. Mold risk check (push notification on False → True edge)
+          6. Preheat engine (travel_time polling no-op)
+          7. Valve protection (weekly exercise)
+          8. Calibration engine (write external sensor delta to TRV calibration)
+          9. Schedule engine (resolve active schedule/calendar block overrides)
+          10. PID tick (proportional TRV setpoints for NORMAL rooms)
+          11. Boost expiry check (auto-restore once boost duration elapses)
+          12. Mold risk check (push notification on False → True edge)
 
         SyncEngine is event-driven (state-change listeners registered in its
         own constructor), not part of this polling tick.

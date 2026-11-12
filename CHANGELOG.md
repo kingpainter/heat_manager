@@ -9,6 +9,38 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.65.2] — 2026-11-12
+
+### Removed
+- **Rester fra den fjernede energifunktion.** `energy_tracking`,
+  `_energy_history` og `room_wattage` fjernes automatisk fra den gemte
+  opsætning ved opstart (engangsoprydning, ingen genindlæsning). Navne og
+  ikoner for de fire sensorer, der ikke længere findes
+  (`energy_wasted_today`, `energy_saved_today`, `efficiency_score`,
+  `heating_wasted`), er fjernet fra `strings.json`, oversættelserne og
+  `icons.json`. README og `hacs.json` beskriver ikke længere energifunktionen.
+- **Død kode:** `RemoteButtonEngine._is_single_press()` (erstattet i
+  v0.58.4) med tilhørende tests, de ubrugte konstanter `TRV_TYPE_OPTIONS`,
+  `SYNC_MODE_OPTIONS`, `ACTION_PAUSE_1H`, `ACTION_PAUSE_TODAY` og
+  `LOVELACE_RESOURCE_PATH`, samt de ubrugte frontend-funktioner
+  `_hubMirrorNumeric()` (kort), `_fmt()` og `_cfgSectionFooter()` (panel).
+- **Forældede kommentarhoveder** i panel (170 linjer) og kort (97 linjer):
+  gammel ændringslog og et forkert "Version: 0.17.2" er erstattet af et kort
+  hoved, der henviser til `CHANGELOG.md`.
+
+### Fixed
+- **Gamle reparationsbeskeder blev aldrig ryddet efter en genstart.**
+  Heat Manager huskede kun i hukommelsen, hvilke "persistent_*"-beskeder
+  den havde oprettet, så fx en løst cloud-udfald fra oktober blev liggende
+  i HA's register. Nu slettes integrationens egne "persistent_*"-beskeder
+  ved opstart; en tilstand, der stadig er aktiv, opretter sin besked igen
+  efter den normale tærskel.
+- **Forkerte hjælpetekster:** `pi_demand_entity` ("used for waste and
+  efficiency calculations") og `co2_sensor` ("energy waste
+  classification") beskriver nu, hvad felterne faktisk bruges til. README:
+  forkert versions-badge (0.9.4) og beskrivelse af tidsplan-skrivninger
+  rettet.
+
 ## [0.65.1] — 2026-11-12
 
 ### Fixed

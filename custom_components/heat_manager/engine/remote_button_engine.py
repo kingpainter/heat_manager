@@ -156,15 +156,6 @@ class RemoteButtonEngine:
         return 0
 
     @staticmethod
-    def _is_single_press(new_state: Any) -> bool:
-        """True only for a plain single press (Matter "multi_press_1" or
-        Zigbee2MQTT-style "single"/"single_<button>")."""
-        if new_state is None:
-            return False
-        event_type = new_state.attributes.get("event_type")
-        return RemoteButtonEngine._press_type_count(event_type) == 1
-
-    @staticmethod
     def _press_type_is_long(event_type: Any) -> bool:
         """True for the start of a long press (v0.60.0) — Matter
         "long_press", Zigbee2MQTT-style "hold"/"hold_<button>". The matching
