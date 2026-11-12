@@ -9,6 +9,30 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.67.2] — 2026-11-12
+
+### Changed
+- **Mobilkortets rum-ark (tryk og hold på et rum) følger panelets
+  rumkort.** Rækkerne er delt i sektionerne *Temperatur*, *Ventil*,
+  *Indeklima* og *Status* med de samme danske navne som panelet: *I
+  rummet*, *Mål nu*, *Komforttemperatur*, *Sendt til ventil*, *Ved
+  radiatoren*, *Varmebehov (PID)* osv. Netatmo-linjen er en sætning
+  ("Følger tidsplan «Vinter» · varmer ikke"), og en afvigelse mellem
+  Netatmos sætpunkt og det Heat Manager har sendt, skrives ud. Døre vises
+  pr. dør med navn. *Manuel temperatur* hedder *Midlertidig ændring* med
+  knapperne *Sæt* og *Tilbage til automatik*; varigheden "Permanent" hedder
+  "Indtil videre". Gruppering hedder *Ventilgruppe*.
+- **Rumfliserne viser rummets egen temperatur** (fra rumsensoren, når
+  rummet har en) i stedet for ventilens måling ved radiatoren, når
+  backend-data er hentet.
+- "TRV offline" hedder nu "Ventil offline".
+
+### Fixed
+- **Rum uden ventil på mobilkortet.** Gang, Walk in og andre rum med kun
+  sensorer viste "Auto" og en streg i stedet for temperaturen. De vises nu
+  med en neutral "Sensorer"-mærkat, deres temperatur og uden mål; rum-arket
+  viser kun målinger — ingen PID, Netatmo-rækker eller manuel styring.
+
 ## [0.67.1] — 2026-11-12
 
 ### Changed

@@ -42,6 +42,28 @@ function _hmHhmm(iso) {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+// v0.67.2: Netatmo's own view of a room as one Danish phrase — same wording
+// as the panel ("Følger tidsplan «Vinter» · varmer ikke").
+function _hmNetatmoModeText(rd) {
+  if (!rd) return "";
+  const parts = [];
+  const mode  = rd.cloud_setpoint_mode;
+  const sched = rd.cloud_selected_schedule;
+  const until = _hmHhmm(rd.cloud_setpoint_end_time);
+  if (mode === "schedule" || mode === "home") {
+    parts.push(sched ? `Følger tidsplan «${sched}»` : "Følger tidsplan");
+  } else if (mode) {
+    const label = ({ manual: "Manuel", max: "Boost", away: "Væk", hg: "Frostsikring", off: "Slukket" })[mode] ?? mode;
+    parts.push(until && (mode === "manual" || mode === "max") ? `${label} til ${until}` : label);
+  } else if (rd.cloud_preset_mode) {
+    parts.push(sched ? `Forvalg: ${rd.cloud_preset_mode} («${sched}»)` : `Forvalg: ${rd.cloud_preset_mode}`);
+  }
+  if (rd.cloud_hvac_action) {
+    parts.push(({ heating: "varmer", idle: "varmer ikke", off: "slukket" })[rd.cloud_hvac_action] ?? rd.cloud_hvac_action);
+  }
+  return parts.join(" · ");
+}
+
 function _hmCtrlColor(s) {
   return ({ on:"#f97316", pause:"#eab308", off:"#64748b" })[s] ?? "#64748b";
 }
@@ -252,6 +274,24 @@ class HeatManagerCard extends HTMLElement {
     const t = name ? this._targetTemps?.[name] : null;
     if (t != null) return (Math.round(t * 10) / 10) + "°C";
     return this._climateSetpoint(room?.climate_entity ?? "");
+  }
+
+  // v0.67.2: a room with a valve (climate entity) can be controlled; a room
+  // with only sensors cannot. Prefer the backend snapshot, fall back to this
+  // card's own room config before the first get_state poll has landed.
+  _roomHasValve(room) {
+    const rd = this._roomData?.[room?.room_name ?? ""];
+    if (rd) return !!rd.climate_entity;
+    return !!room?.climate_entity;
+  }
+
+  // v0.67.2: the room's own temperature (external room sensor when set) from
+  // the backend snapshot; the valve's reading only as a fallback — it sits on
+  // the radiator and typically reads 1-3 °C high.
+  _roomTempText(room) {
+    const t = this._roomData?.[room?.room_name ?? ""]?.current_temp;
+    if (t != null) return (Math.round(t * 10) / 10) + "°C";
+    return this._climateTemp(room?.climate_entity ?? "");
   }
 
   async _loadTargetTemps() {
@@ -1203,10 +1243,13 @@ class HeatManagerCard extends HTMLElement {
       ? rooms.map(room => {
           const roomName = room.room_name ?? "";
           const state = this._roomState(roomName);
-          const color = _hmStateColor(state);
-          const label = _hmStateLabel(state, this._roomOverrideSource(roomName));
-          const temp  = this._climateTemp(room.climate_entity ?? "");
-          const setpt = this._roomSetpoint(room);
+          const hasValve = this._roomHasValve(room);
+          // Sensor-only rooms have no heating state to colour by: neutral slate.
+          const color = hasValve ? _hmStateColor(state) : "#64748b";
+          // Short pill on the narrow tile; the sheet says "Kun sensorer".
+          const label = hasValve ? _hmStateLabel(state, this._roomOverrideSource(roomName)) : "Sensorer";
+          const temp  = this._roomTempText(room);
+          const setpt = hasValve ? this._roomSetpoint(room) : null;
           // 2026-09-07 audit fix (5.1-5.3 mobile): valve % straight off
           // climate_entity — see the discovery helpers above for why/how.
           const valve     = this._roomValvePosition(room.climate_entity ?? "");
@@ -1222,7 +1265,7 @@ class HeatManagerCard extends HTMLElement {
           // not .room-mold-badge: a room can show both badges at once, and
           // _updateInPlace() manages each badge class independently.
           const trvDownBadge = trvDown
-            ? `<div class="room-health-badge" title="Rummets klima-/TRV-entitet er unavailable/unknown">⚠️ TRV offline</div>`
+            ? `<div class="room-health-badge" title="Rummets ventil (klimaentitet) svarer ikke">⚠️ Ventil offline</div>`
             : "";
           // Fase 2, del 2 (2026-09-13) — humidity/CO2/battery/PID/calibration/
           // window-duration chips and the blocking-sources/ungrouped badges
@@ -1237,7 +1280,7 @@ class HeatManagerCard extends HTMLElement {
             <div class="room-card state-${state}" data-room-name="${_hmEsc(roomName)}"
               style="border-left-color:${color};background-image:linear-gradient(90deg,${color}0e 0%,transparent 40%);">
               <div class="room-card-name">${_hmEsc(roomName)}</div>
-              <div class="room-state-pill" style="background:${color}22;color:${color}">${label}</div>
+              <div class="room-state-pill" style="${hasValve ? `background:${color}22;color:${color}` : "background:rgba(148,163,184,0.15);color:var(--sub)"}">${label}</div>
               <div class="room-temps">
                 <div class="room-temp-current">${temp}</div>
                 ${setpt ? `<div class="room-temp-setpoint">→ ${setpt}</div>` : ""}
@@ -1411,15 +1454,20 @@ class HeatManagerCard extends HTMLElement {
       const cards = root.querySelectorAll(".room-card");
       if (!cards[i]) return;
       const state = this._roomState(room.room_name ?? "");
-      const color = _hmStateColor(state);
-      const label = _hmStateLabel(state, this._roomOverrideSource(room.room_name ?? ""));
-      const temp  = this._climateTemp(room.climate_entity ?? "");
-      const setpt = this._roomSetpoint(room);
+      const hasValve = this._roomHasValve(room);
+      const color = hasValve ? _hmStateColor(state) : "#64748b";
+      const label = hasValve ? _hmStateLabel(state, this._roomOverrideSource(room.room_name ?? "")) : "Sensorer";
+      const temp  = this._roomTempText(room);
+      const setpt = hasValve ? this._roomSetpoint(room) : null;
       cards[i].style.borderLeftColor = color;
       cards[i].style.backgroundImage = `linear-gradient(90deg,${color}0e 0%,transparent 40%)`;
       cards[i].className = "room-card state-" + state;
       const pill = cards[i].querySelector(".room-state-pill");
-      if (pill) { pill.textContent = label; pill.style.background = color + "22"; pill.style.color = color; }
+      if (pill) {
+        pill.textContent = label;
+        pill.style.background = hasValve ? color + "22" : "rgba(148,163,184,0.15)";
+        pill.style.color = hasValve ? color : "var(--sub)";
+      }
       const tc = cards[i].querySelector(".room-temp-current");
       if (tc) tc.textContent = temp;
       const ts = cards[i].querySelector(".room-temp-setpoint");
@@ -1468,8 +1516,8 @@ class HeatManagerCard extends HTMLElement {
         if (!hb) {
           hb = document.createElement("div");
           hb.className = "room-health-badge";
-          hb.title = "Rummets klima-/TRV-entitet er unavailable/unknown";
-          hb.textContent = "⚠️ TRV offline";
+          hb.title = "Rummets ventil (klimaentitet) svarer ikke";
+          hb.textContent = "⚠️ Ventil offline";
           tempsBox?.appendChild(hb);
         }
       } else if (hb) { hb.remove(); }
@@ -1595,113 +1643,126 @@ class HeatManagerCard extends HTMLElement {
   }
 
   _roomSheetHTML(roomName) {
+    // v0.67.2: same structure and Danish names as the panel's room card
+    // (v0.66.0) — named sections, one distinct name per value. Rooms without
+    // a valve ("Kun sensorer") show measurements only: no PID, target,
+    // Netatmo rows or manual controls.
     const rd    = this._roomData?.[roomName] ?? null;
+    const room  = (this._config.rooms ?? []).find(r => r.room_name === roomName) ?? { room_name: roomName };
+    const hasValve = this._roomHasValve(room);
     const state = this._roomState(roomName);
     const color = _hmStateColor(state);
-    const label = _hmStateLabel(state, rd?.override_source ?? this._roomOverrideSource(roomName));
+    const label = hasValve
+      ? _hmStateLabel(state, rd?.override_source ?? this._roomOverrideSource(roomName))
+      : "Kun sensorer";
+    const pillStyle = hasValve
+      ? `background:${color}22;color:${color}`
+      : "background:rgba(148,163,184,0.15);color:var(--sub)";
+    const fmt = (v, unit = "°C") => v != null ? `${Math.round(v * 10) / 10}${unit}` : null;
 
     const humidity  = rd?.humidity ?? this._roomHumidity(roomName);
     const co2       = rd?.co2 ?? this._roomCo2(roomName);
-    const battery   = rd?.battery_level ?? this._roomBattery(roomName);
-    const pidPower  = rd?.pid_power ?? this._roomPidPower(roomName);
-    const calib     = rd?.calibration_offset ?? this._roomCalibrationOffset(roomName);
+    const battery   = rd?.battery_level ?? (hasValve ? this._roomBattery(roomName) : null);
+    const pidPower  = hasValve ? (rd?.pid_power ?? this._roomPidPower(roomName)) : null;
+    const calib     = hasValve ? (rd?.calibration_offset ?? this._roomCalibrationOffset(roomName)) : null;
     const windowDur = rd?.window_duration_today ?? this._roomWindowDurationToday(roomName);
 
-    const rows = [];
-    if (humidity != null)   rows.push(["💧 Fugt", Math.round(humidity) + "%"]);
-    if (co2 != null)        rows.push(["🫧 CO₂", Math.round(co2) + " ppm"]);
-    if (battery != null)    rows.push(["🔋 Batteri", Math.round(battery) + "%"]);
-    if (pidPower != null)   rows.push(["⚙️ PID-effekt", Math.round(pidPower) + "%"]);
-    if (calib != null)      rows.push(["🎯 Kalibrering", (calib >= 0 ? "+" : "") + calib.toFixed(1) + "°C"]);
-    if (windowDur != null)  rows.push(["🪟 Vindue åbent i dag", Math.round(windowDur) + " min"]);
+    const sections = [];
+    const add = (title, rows) => {
+      const kept = rows.filter(r => r && r[1] != null);
+      if (kept.length) sections.push([title, kept]);
+    };
 
-    // Interior doors (2026-09-11) — only ever available via the backend
-    // get_state snapshot (rd); this card has no states-based way to
-    // discover door linkage or the learned heat-up-rate at all.
-    if (rd?.door_open != null) {
-      rows.push(["🚪 Dør", rd.door_open ? "Åben" : "Lukket"]);
-    }
-    if (rd?.heatup_rate_door_open != null || rd?.heatup_rate_door_closed != null) {
-      const parts = [];
-      if (rd.heatup_rate_door_open != null)   parts.push(`åben: ${rd.heatup_rate_door_open.toFixed(1)}°C/t`);
-      if (rd.heatup_rate_door_closed != null) parts.push(`lukket: ${rd.heatup_rate_door_closed.toFixed(1)}°C/t`);
-      rows.push(["📈 Opvarmningshastighed", parts.join(" · ")]);
+    // Temperatur
+    const roomTemp = rd?.current_temp ?? null;
+    add("Temperatur", [
+      ["I rummet", fmt(roomTemp) ?? (hasValve ? this._climateTemp(room.climate_entity ?? "") : null)],
+      hasValve ? ["Mål nu", fmt(rd?.target_temp ?? this._targetTemps?.[roomName])] : null,
+      hasValve && rd?.comfort_temp != null ? ["Komforttemperatur", fmt(rd.comfort_temp)] : null,
+      hasValve ? ["Sendt til ventil", fmt(rd?.trv_setpoint)] : null,
+      hasValve ? ["Ved radiatoren", this._climateTemp(room.climate_entity ?? rd?.climate_entity ?? "")] : null,
+    ]);
+
+    // Ventil
+    if (hasValve) {
+      const valve = rd?.valve_position ?? this._roomValvePosition(room.climate_entity ?? "");
+      const netatmo = [];
+      const mode = _hmNetatmoModeText(rd);
+      if (mode) netatmo.push(["Netatmo", mode]);
+      if (rd?.cloud_temperature != null) {
+        netatmo.push(["Sætpunkt i Netatmo", fmt(rd.cloud_temperature)]);
+        const ref = rd.trv_setpoint ?? rd.target_temp;
+        if (ref != null && Math.abs(rd.cloud_temperature - ref) >= 0.5) {
+          netatmo.push(["⚠ Afviger", `Heat Manager ${rd.trv_setpoint != null ? "har sendt" : "vil have"} ${fmt(ref)}`]);
+        }
+      }
+      add("Ventil", [
+        ["Åbning", valve != null ? `${Math.round(valve)}%` : null],
+        ["Varmebehov (PID)", pidPower != null ? `${Math.round(pidPower)}%` : null],
+        ["Kalibrering", calib != null ? `${calib >= 0 ? "+" : ""}${calib.toFixed(1)}°C` : null],
+        ["Batteri", battery != null ? `${Math.round(battery)}%` : null],
+        rd?.trv_count > 1 ? ["Ventiler i rummet", String(rd.trv_count)] : null,
+        ...netatmo,
+      ]);
     }
 
-    // Card/panel data-parity (2026-09-13) — sync_mode and schedule_entity
-    // are config-only strings this card's own instance config never stores
-    // (they live in the backend config entry), so — same as door_open/
-    // heatup_rate/trv_count above — the get_state snapshot (rd) is the only
-    // way to show them at all. Mirrors panel.js's Rum-detaljer meta-badge
-    // row (same _syncModeLabel() labels, same "schedule configured" wording
-    // rather than the raw entity_id, which the panel doesn't show either).
-    if (rd?.sync_mode && rd.sync_mode !== "disabled") {
-      rows.push(["🔄 Sync", _hmSyncModeLabel(rd.sync_mode)]);
-    }
-    if (rd?.schedule_entity) {
-      rows.push(["🗓 Schedule", "Konfigureret"]);
-    }
+    // Indeklima
+    const doors = (this._wsData?.doors ?? []).filter(d => d.room_a === roomName || d.room_b === roomName);
+    const doorRows = doors.map(d => {
+      const other = d.room_a === roomName ? d.room_b : d.room_a;
+      return [`Dør til ${other}`, d.available === false ? "utilgængelig" : (d.is_open ? "Åben" : "Lukket")];
+    });
+    if (!doors.length && rd?.door_open != null) doorRows.push(["Dør", rd.door_open ? "Åben" : "Lukket"]);
+    add("Indeklima", [
+      ["Luftfugtighed", humidity != null ? `${Math.round(humidity)}%` : null],
+      ["CO₂", co2 != null ? `${Math.round(co2)} ppm` : null],
+      ["Vindue åbent i dag", windowDur != null ? `${Math.round(windowDur)} min` : null],
+      ...doorRows,
+      rd?.has_heated_doors ? ["Yderdør", rd.heated_door_open ? "Åben" : "Lukket"] : null,
+    ]);
 
-    // Punkt 12 (2026-09-14, card/panel data-parity) — target_temp read-out
-    // (the per-room away_temp_override row was removed in v0.67.0; it is the
-    // global min_room_temp now). Only present once get_state has completed.
-    // v0.59.0: who holds the room manual, since/until when.
-    if (state === "override") {
+    // Status
+    const status = [];
+    if (hasValve && state === "override") {
       const src   = rd?.override_source ?? this._roomOverrideSource(roomName);
       const since = _hmHhmm(rd?.override_since ?? this._roomStateAttr(roomName, "override_since"));
       const until = _hmHhmm(rd?.override_expires_at ?? this._roomStateAttr(roomName, "override_expires_at"));
       const parts = [`${_hmOverrideSourceIcon(src) ?? "✋"} ${_hmOverrideSourceName(src) ?? "Manuel"}`];
       if (since) parts.push(`siden ${since}`);
-      parts.push(until ? `auto igen kl. ${until}` : "uden udløb");
-      rows.push(["✋ Manuel", parts.join(" · ")]);
+      parts.push(until ? `automatik igen kl. ${until}` : "uden udløb");
+      status.push(["Manuel styring", parts.join(" · ")]);
     }
-    if (rd?.target_temp != null) {
-      rows.push(["🎯 Mål-temp", rd.target_temp.toFixed(1) + "°C"]);
-    }
-
-    // Punkt 12 — Netatmo cloud-diagnostik, mirroring the panel's
-    // Rum-detaljer "🛰️ Netatmo:" row (_roomDetailRowHTML's netatmoHTML) — only
-    // present for rooms with a Netatmo cloud climate entity (None for
-    // Zigbee/local rooms, same as the panel). Shows what Netatmo's OWN
-    // cloud entity currently reports, separate from Heat Manager's
-    // resolved Mål-temp above — the exact distinction the B21 target-temp
-    // bug (2026-09-11) made worth surfacing on both surfaces, not just the
-    // panel.
-    if (rd?.cloud_preset_mode || rd?.cloud_selected_schedule || rd?.cloud_temperature != null) {
-      const parts = [];
-      if (rd.cloud_preset_mode) parts.push(rd.cloud_preset_mode);
-      if (rd.cloud_selected_schedule) parts.push(`(${rd.cloud_selected_schedule})`);
-      if (parts.length) rows.push(["🛰️ Netatmo", parts.join(" ")]);
-      if (rd.cloud_temperature != null) {
-        rows.push(["🛰️ Netatmo sætpunkt", (Math.round(rd.cloud_temperature * 10) / 10) + "°C"]);
-      }
-      if (rd.cloud_hvac_action) {
-        rows.push(["🛰️ Netatmo hvac", rd.cloud_hvac_action]);
-      }
-    }
-
-    // Punkt 4/12 — combined per-room health score, same weighting as the
-    // panel's 🩺 badge (websocket.py's health_score/health_label) — only
-    // shown when below 100, same threshold the panel badge uses.
-    if (rd?.health_score != null && rd.health_score < 100) {
-      rows.push(["🩺 Sundhed", `${Math.round(rd.health_score)}% (${rd.health_label ?? "–"})`]);
-    }
-
     const extraBlocking = rd?.blocking_sources
       ? rd.blocking_sources.filter(s => !((s === "window" && state === "window_open") || (s === "presence" && state === "away")))
       : this._roomExtraBlocking(roomName, state);
-    if (extraBlocking.length) {
-      rows.push(["⛔ Blokeret af", extraBlocking.map(s => _hmBlockingLabel(s)).join(", ")]);
+    if (hasValve && extraBlocking.length) {
+      status.push(["Blokeret af", extraBlocking.map(s => _hmBlockingLabel(s)).join(", ")]);
     }
+    if (rd?.health_score != null && rd.health_score < 100) {
+      status.push(["Sundhed", `${Math.round(rd.health_score)}% (${rd.health_label ?? "–"})`]);
+    }
+    if (hasValve && rd?.sync_mode && rd.sync_mode !== "disabled") {
+      status.push(["Sync", _hmSyncModeLabel(rd.sync_mode)]);
+    }
+    if (rd?.heatup_rate_door_open != null || rd?.heatup_rate_door_closed != null) {
+      const parts = [];
+      if (rd.heatup_rate_door_open != null)   parts.push(`dør åben ${rd.heatup_rate_door_open.toFixed(1)}°C/t`);
+      if (rd.heatup_rate_door_closed != null) parts.push(`lukket ${rd.heatup_rate_door_closed.toFixed(1)}°C/t`);
+      status.push(["Opvarmning", parts.join(" · ")]);
+    }
+    add("Status", status);
+
+    const sectionsHTML = sections.length
+      ? sections.map(([title, rows]) => `
+        <div class="sheet-section">
+          <div class="sheet-section-title">${_hmEsc(title)}</div>
+          ${rows.map(([k, v]) => `<div class="sheet-row"><span class="sheet-row-k">${_hmEsc(k)}</span><span class="sheet-row-v">${_hmEsc(v)}</span></div>`).join("")}
+        </div>`).join("")
+      : `<div class="sheet-section"><div class="sheet-empty">Ingen yderligere data for dette rum</div></div>`;
 
     const trvCount     = rd?.trv_count ?? 1;
     const groupEnabled = rd?.group_enabled ?? this._roomGroupEnabled(roomName);
-    const showGrouping = trvCount > 1;
-
-    const rowsHTML = rows.length
-      ? rows.map(([k, v]) => `<div class="sheet-row"><span class="sheet-row-k">${_hmEsc(k)}</span><span class="sheet-row-v">${_hmEsc(v)}</span></div>`).join("")
-      : `<div class="sheet-empty">Ingen yderligere data for dette rum</div>`;
-
+    const showGrouping = hasValve && trvCount > 1;
     const currentSetpoint = rd?.target_temp ?? this._targetTemps?.[roomName] ?? null;
 
     return `
@@ -1710,34 +1771,36 @@ class HeatManagerCard extends HTMLElement {
         <div class="sheet-header">
           <div>
             <div class="sheet-title">${_hmEsc(roomName)}</div>
-            <div class="room-state-pill" style="background:${color}22;color:${color}">${_hmEsc(label)}</div>
+            <div class="room-state-pill" style="${pillStyle}">${_hmEsc(label)}</div>
           </div>
-          <button class="sheet-close-btn" data-action="close-sheet">✕</button>
+          <button class="sheet-close-btn" data-action="close-sheet" aria-label="Luk">✕</button>
         </div>
 
-        <div class="sheet-section">${rowsHTML}</div>
+        ${sectionsHTML}
 
+        ${hasValve ? `
         <div class="sheet-section">
-          <div class="sheet-section-title">Manuel temperatur</div>
+          <div class="sheet-section-title">Midlertidig ændring</div>
           <div class="sheet-manual-row">
             <input type="number" class="sheet-temp-input" id="sheet-temp-input" min="10" max="30" step="0.5"
+              aria-label="Temperatur"
               placeholder="${currentSetpoint != null ? currentSetpoint.toFixed(1) : "—"}">
-            <select class="sheet-dur-select" id="sheet-dur-select">
+            <select class="sheet-dur-select" id="sheet-dur-select" aria-label="Varighed">
               <option value="60" selected>1 time</option>
               <option value="120">2 timer</option>
               <option value="240">4 timer</option>
-              <option value="0">Permanent</option>
+              <option value="0">Indtil videre</option>
             </select>
-            <button class="sheet-send-btn" data-action="sheet-send-temp">Send</button>
+            <button class="sheet-send-btn" data-action="sheet-send-temp">Sæt</button>
           </div>
-          <button class="sheet-reset-btn" data-action="sheet-reset-temp">↺ Gendan schedule</button>
-        </div>
+          <button class="sheet-reset-btn" data-action="sheet-reset-temp">↺ Tilbage til automatik</button>
+        </div>` : ""}
 
         ${showGrouping ? `
         <div class="sheet-section">
-          <div class="sheet-section-title">Gruppering (${trvCount} TRV'er)</div>
+          <div class="sheet-section-title">Ventilgruppe (${trvCount} ventiler)</div>
           <div class="sheet-manual-row" style="justify-content:space-between">
-            <span style="font-size:12px;color:var(--sub)">Ekstra TRV'er følger gruppen</span>
+            <span style="font-size:12px;color:var(--sub)">Ekstra ventiler følger gruppen</span>
             <button class="toggle-btn${groupEnabled ? " active" : ""}" data-action="sheet-toggle-group">
               ${groupEnabled ? "Slå fra" : "Slå til"}
             </button>
@@ -1767,7 +1830,7 @@ class HeatManagerCard extends HTMLElement {
           temperature: temp,
           duration_min: parseInt(dur?.value ?? "60", 10),
         });
-        this._showToast(`${roomName}: ${temp}°C sendt`, "success");
+        this._showToast(`${roomName}: ${temp}°C sat`, "success");
         setTimeout(() => this._loadTargetTemps(), 300);
       } catch (e) {
         console.error("Heat Manager: sheet send temp failed", e);
@@ -1782,11 +1845,11 @@ class HeatManagerCard extends HTMLElement {
           room_name: roomName,
           temperature: null,
         });
-        this._showToast(`${roomName}: schedule gendannet`, "success");
+        this._showToast(`${roomName}: tilbage til automatik`, "success");
         setTimeout(() => this._loadTargetTemps(), 300);
       } catch (e) {
         console.error("Heat Manager: sheet reset temp failed", e);
-        this._showToast("Kunne ikke gendanne schedule", "error");
+        this._showToast("Kunne ikke gå tilbage til automatik", "error");
       }
     });
 
