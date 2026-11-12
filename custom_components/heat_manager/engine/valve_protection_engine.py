@@ -18,6 +18,9 @@ Behaviour
 - For each room: sends set_temperature to a low "exercise" setpoint, waits
   EXERCISE_DURATION_SEC, then restores the previous setpoint.
 - Prefers the HomeKit entity (local, fast); falls back to cloud climate entity.
+- v0.65.0: skips a valve whose motor moved within the last week, read from
+  NET-TRV's valve_position sensor (`netatmo_ts`). Without that sensor or
+  a recent report the valve is exercised as before.
 - Logs every exercise cycle to the coordinator event log.
 - Sends a notification after the full sweep (optional, uses notify_service).
 
@@ -133,6 +136,8 @@ class ValveProtectionEngine:
         """
         hass = self.coordinator.hass
         rooms_done: list[str] = []
+        rooms_skipped: list[str] = []
+        now_ts = ha_now().timestamp()
 
         for room in self.coordinator.rooms:
             room_name = room.get("room_name", "")
@@ -142,6 +147,20 @@ class ValveProtectionEngine:
             for trv in self.coordinator.get_room_trvs(room_name):
                 climate_id = trv.get(CONF_CLIMATE_ENTITY, "")
                 if not climate_id:
+                    continue
+
+                # v0.65.0: a valve whose motor demonstrably moved within the
+                # last week (NET-TRV valve_position / netatmo_ts) is already
+                # free — skip the open/close pulse and its two writes.
+                if self.coordinator.trv_valve_recently_moved(trv, now_ts):
+                    _LOGGER.debug(
+                        "ValveProtectionEngine: skipping %s (%s) — valve moved"
+                        " within the last week",
+                        room_name,
+                        climate_id,
+                    )
+                    if room_name not in rooms_skipped:
+                        rooms_skipped.append(room_name)
                     continue
 
                 # Prefer HomeKit entity (local, <100 ms) over cloud entity
@@ -241,6 +260,12 @@ class ValveProtectionEngine:
             )
         else:
             _LOGGER.info("ValveProtectionEngine: no rooms exercised this week")
+        if rooms_skipped:
+            self.coordinator.log_event(
+                f"Valve exercise skipped (moved recently) — {', '.join(rooms_skipped)}",
+                "Valve protection",
+                "normal",
+            )
 
     # ── Notification ──────────────────────────────────────────────────────────
 

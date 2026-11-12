@@ -54,6 +54,8 @@ def _make_coordinator(rooms=None):
         return migrate_room_to_trvs(room).get(CONF_TRVS, [])
 
     coordinator.get_room_trvs = MagicMock(side_effect=_room_trvs)
+    # v0.65.0: no valve has a recent motor report unless a test says so.
+    coordinator.trv_valve_recently_moved = MagicMock(return_value=False)
     return coordinator
 
 
@@ -192,3 +194,37 @@ async def test_multi_trv_room_second_trv_still_exercised_when_first_unavailable(
     assert len(calls) == 2  # only the second TRV
     assert all(c.args[2]["entity_id"] == "climate.living_room_trv2" for c in calls)
     coordinator.log_event.assert_called_once()
+
+
+# ── v0.65.0: skip valves that moved within the last week ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_recently_moved_valve_is_skipped_and_logged():
+    rooms = [
+        _make_room("Kitchen", "climate.kitchen"),
+        _make_room("Bath", "climate.bath"),
+    ]
+    coordinator = _make_coordinator(rooms=rooms)
+    coordinator.hass.states.get = MagicMock(return_value=_state(19.5))
+    coordinator.trv_valve_recently_moved = MagicMock(
+        side_effect=lambda trv, now_ts: trv["climate_entity"] == "climate.kitchen"
+    )
+    engine = ValveProtectionEngine(coordinator)
+
+    import custom_components.heat_manager.engine.valve_protection_engine as vpe
+
+    orig_sleep = vpe.asyncio.sleep
+    vpe.asyncio.sleep = AsyncMock()
+    try:
+        await engine._exercise_all_valves()
+    finally:
+        vpe.asyncio.sleep = orig_sleep
+
+    written = {
+        c.args[2]["entity_id"]
+        for c in coordinator.hass.services.async_call.await_args_list
+    }
+    assert written == {"climate.bath"}
+    messages = [c.args[0] for c in coordinator.log_event.call_args_list]
+    assert any("skipped" in m and "Kitchen" in m for m in messages)

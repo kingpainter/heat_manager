@@ -156,6 +156,7 @@ from .engine.netatmo_backend import (
     HEALTH_BATTERY,
     HEALTH_BATTERY_STATE,
     HEALTH_CONNECTIVITY,
+    HEALTH_VALVE_POSITION,
     TEMP_SOURCE_HOMEKIT,
     NetatmoBackend,
     SiblingEntity,
@@ -167,6 +168,7 @@ from .engine.netatmo_backend import (
     summarize_backends,
     temp_source_order,
     trv_pid_writable,
+    valve_recently_moved,
     window_source_open,
 )
 from .engine.pid_controller import PidController
@@ -996,6 +998,21 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             battery_is_low(None, self._state_value(pct_id))
             for pct_id in roles.get(HEALTH_BATTERY, [])
         )
+
+    def trv_valve_recently_moved(self, trv: dict[str, Any], now_ts: float) -> bool:
+        """v0.65.0: True when every valve_position sensor of this TRV shows a
+        Netatmo motor report within the last week (NET-TRV `netatmo_ts`).
+        No sensor, a disabled sensor or no report since NET-TRV started →
+        False, so ValveProtectionEngine exercises the valve as before."""
+        sensors = self.get_trv_health_entities(trv).get(HEALTH_VALVE_POSITION, [])
+        if not sensors:
+            return False
+        for eid in sensors:
+            state = self.hass.states.get(eid)
+            ts = state.attributes.get("netatmo_ts") if state is not None else None
+            if not valve_recently_moved(ts, now_ts):
+                return False
+        return True
 
     def get_netatmo_webhook_entity(self) -> str | None:
         """NET-TRV's webhook binary_sensor, found on the relay device that the

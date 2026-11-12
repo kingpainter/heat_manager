@@ -279,3 +279,81 @@ def test_battery_and_webhook_issues():
     issues = {i["id"]: i for i in _build_active_issues(coord, [])}
     assert issues["battery_low:Bath"]["severity"] == "warning"
     assert issues["webhook_down"]["severity"] == "info"
+
+
+# ── Valve movement (v0.65.0) ──────────────────────────────────────────────────
+
+from custom_components.heat_manager.engine.netatmo_backend import (  # noqa: E402
+    HEALTH_VALVE_POSITION,
+    VALVE_RECENT_MOVE_SECONDS,
+    valve_recently_moved,
+)
+
+NOW = 1_800_000_000.0
+
+
+@pytest.mark.parametrize(
+    ("ts", "expected"),
+    [
+        (NOW - 3600, True),
+        (int(NOW - VALVE_RECENT_MOVE_SECONDS + 1), True),
+        (NOW - VALVE_RECENT_MOVE_SECONDS - 1, False),
+        (NOW + 60, False),  # future → unknown
+        (None, False),
+        ("1799990000", False),  # not numeric
+        (True, False),
+    ],
+)
+def test_valve_recently_moved(ts, expected):
+    assert valve_recently_moved(ts, NOW) is expected
+
+
+def test_pick_health_entities_finds_valve_position():
+    roles = pick_health_entities(
+        [
+            SiblingEntity(
+                "sensor.kitchen_valve_position", "sensor", "09:00-valve_position", None
+            )
+        ]
+    )
+    assert roles == {HEALTH_VALVE_POSITION: ["sensor.kitchen_valve_position"]}
+
+
+def _moved_coordinator(
+    ts_by_entity: dict[str, object], sensors: list[str]
+) -> MagicMock:
+    coord = MagicMock()
+    coord.get_trv_health_entities = MagicMock(
+        return_value={HEALTH_VALVE_POSITION: sensors} if sensors else {}
+    )
+    coord.hass.states.get = MagicMock(
+        side_effect=lambda eid: (
+            SimpleNamespace(
+                state="2100", attributes={"netatmo_ts": ts_by_entity.get(eid)}
+            )
+            if eid in ts_by_entity
+            else None
+        )
+    )
+    coord.trv_valve_recently_moved = (
+        HeatManagerCoordinator.trv_valve_recently_moved.__get__(coord, type(coord))
+    )
+    return coord
+
+
+def test_trv_moved_requires_every_valve_sensor_recent():
+    trv = {"climate_entity": "climate.kitchen"}
+    recent, old = NOW - 3600, NOW - 30 * 24 * 3600
+    assert _moved_coordinator(
+        {"sensor.a": recent}, ["sensor.a"]
+    ).trv_valve_recently_moved(trv, NOW)
+    assert not _moved_coordinator(
+        {"sensor.a": recent, "sensor.b": old}, ["sensor.a", "sensor.b"]
+    ).trv_valve_recently_moved(trv, NOW)
+
+
+def test_trv_without_position_sensor_is_never_skipped():
+    trv = {"climate_entity": "climate.kitchen"}
+    assert not _moved_coordinator({}, []).trv_valve_recently_moved(trv, NOW)
+    # sensor registered but disabled / not in the state machine
+    assert not _moved_coordinator({}, ["sensor.a"]).trv_valve_recently_moved(trv, NOW)

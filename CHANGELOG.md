@@ -9,6 +9,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.65.0] — 2026-11-12
+
+### Changed
+- **Ventilbeskyttelse springer ventiler over, der har bevæget sig.** Den
+  ugentlige motionering om natten (kun når controlleren er OFF) springer nu
+  en ventil over, hvis NET-TRV's `valve_position`-sensor har en
+  motorrapport fra Netatmo inden for den seneste uge (attributten
+  `netatmo_ts`). Ventilen er så beviseligt fri, og to setpunkt-skrivninger
+  spares. Har et rum flere ventiler, skal alle have bevæget sig. Uden
+  sensoren (slået fra som standard på nye NET-TRV-installationer, ikke i
+  core netatmo) eller uden rapport siden NET-TRV startede, motioneres
+  ventilen som før. Overspringene logges i hændelsesloggen.
+
 ## [0.64.0] — 2026-11-12
 
 ### Added

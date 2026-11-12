@@ -151,6 +151,7 @@ def trv_pid_writable(trv_type: str | None, has_homekit: bool) -> bool:
 HEALTH_CONNECTIVITY = "connectivity"
 HEALTH_BATTERY_STATE = "battery_state"
 HEALTH_BATTERY = "battery"
+HEALTH_VALVE_POSITION = "valve_position"
 
 # Netatmo battery_state values that warrant a warning, and the percentage
 # threshold used when only a % battery sensor exists.
@@ -181,6 +182,8 @@ def pick_health_entities(siblings: Iterable[SiblingEntity]) -> dict[str, list[st
             if s.unique_id.endswith("-webhook"):
                 continue
             roles.setdefault(HEALTH_CONNECTIVITY, []).append(s.entity_id)
+        elif s.domain == "sensor" and s.unique_id.endswith("-valve_position"):
+            roles.setdefault(HEALTH_VALVE_POSITION, []).append(s.entity_id)
         elif s.domain == "sensor" and s.unique_id.endswith("-battery_state"):
             roles.setdefault(HEALTH_BATTERY_STATE, []).append(s.entity_id)
         elif s.domain == "sensor" and s.device_class == "battery":
@@ -228,3 +231,27 @@ def window_source_open(
     if state == "off":
         return False
     return None
+
+
+# ── Valve movement (v0.65.0) ──────────────────────────────────────────────────
+
+# A valve whose motor moved within this window needs no exercise this week.
+VALVE_RECENT_MOVE_SECONDS = 7 * 24 * 3600
+
+
+def valve_recently_moved(
+    netatmo_ts: object,
+    now_ts: float,
+    window_s: float = VALVE_RECENT_MOVE_SECONDS,
+) -> bool:
+    """True if a motor report timestamp lies within window_s before now.
+
+    netatmo_ts is NET-TRV's `netatmo_ts` attribute on the valve_position
+    sensor (epoch seconds of Netatmo's last motor_data_event). Missing,
+    non-numeric or future timestamps mean "unknown" → False, so the valve is
+    exercised as before.
+    """
+    if isinstance(netatmo_ts, bool) or not isinstance(netatmo_ts, int | float):
+        return False
+    age = now_ts - float(netatmo_ts)
+    return 0 <= age <= window_s
