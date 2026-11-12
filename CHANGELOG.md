@@ -9,6 +9,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.67.6] — 2026-11-12
+
+### Changed
+- **Alle engines er nu rene (arkitekturregel 3.1 opfyldt, trin T2c).**
+  `remote_button_engine`, `sync_engine` og `window_engine` abonnerer på
+  tilstandsændringer via `coordinator.track_state_changes()`, og
+  `sync_engine`'s forsinkede bekræftelse kører via det nye
+  `coordinator.call_later(delay, action)` (pakket i `@callback`, returnerer
+  en annulleringsfunktion). `window_engine` læser tiden via
+  `engine/clock.py`. Ingen af de 15 moduler i `engine/` importerer længere
+  `homeassistant`, og en ny test fejler, hvis et engine-modul gør det igen.
+  Ingen adfærdsændring.
+
 ## [0.67.5] — 2026-11-12
 
 ### Changed

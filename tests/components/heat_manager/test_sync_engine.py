@@ -97,18 +97,14 @@ def test_enabled_room_maps_climate_entity():
 
 def test_no_entities_registers_no_listener():
     coord = _make_coordinator(rooms=[_room(sync_mode=SYNC_MODE_DISABLED)])
-    with patch(
-        "custom_components.heat_manager.engine.sync_engine.async_track_state_change_event"
-    ) as mock_track:
+    with patch.object(coord, "track_state_changes") as mock_track:
         SyncEngine(coord)
         mock_track.assert_not_called()
 
 
 def test_entities_present_registers_listener():
     coord = _make_coordinator(rooms=[_room()])
-    with patch(
-        "custom_components.heat_manager.engine.sync_engine.async_track_state_change_event"
-    ) as mock_track:
+    with patch.object(coord, "track_state_changes") as mock_track:
         SyncEngine(coord)
         mock_track.assert_called_once()
 
@@ -119,9 +115,7 @@ def test_entities_present_registers_listener():
 def test_unmapped_entity_is_ignored():
     coord = _make_coordinator(rooms=[_room()])
     engine = SyncEngine(coord)
-    with patch(
-        "custom_components.heat_manager.engine.sync_engine.async_call_later"
-    ) as mock_later:
+    with patch.object(coord, "call_later") as mock_later:
         engine._handle_entity_change(_event("climate.other_room", 25.0))
         mock_later.assert_not_called()
 
@@ -130,9 +124,7 @@ def test_unavailable_state_is_ignored():
     coord = _make_coordinator(rooms=[_room()])
     coord.last_expected_setpoint = {"living_room": 20.0}
     engine = SyncEngine(coord)
-    with patch(
-        "custom_components.heat_manager.engine.sync_engine.async_call_later"
-    ) as mock_later:
+    with patch.object(coord, "call_later") as mock_later:
         engine._handle_entity_change(
             _event("climate.living_room", 25.0, state="unavailable")
         )
@@ -145,9 +137,7 @@ def test_inactive_write_entity_is_ignored():
     coord.get_trv_write_entity = MagicMock(return_value="climate.living_room_homekit")
     coord.last_expected_setpoint = {"living_room": 20.0}
     engine = SyncEngine(coord)
-    with patch(
-        "custom_components.heat_manager.engine.sync_engine.async_call_later"
-    ) as mock_later:
+    with patch.object(coord, "call_later") as mock_later:
         engine._handle_entity_change(_event("climate.living_room", 25.0))
         mock_later.assert_not_called()
 
@@ -156,9 +146,7 @@ def test_controller_not_on_is_ignored():
     coord = _make_coordinator(rooms=[_room()], controller_state=ControllerState.PAUSE)
     coord.last_expected_setpoint = {"living_room": 20.0}
     engine = SyncEngine(coord)
-    with patch(
-        "custom_components.heat_manager.engine.sync_engine.async_call_later"
-    ) as mock_later:
+    with patch.object(coord, "call_later") as mock_later:
         engine._handle_entity_change(_event("climate.living_room", 25.0))
         mock_later.assert_not_called()
 
@@ -168,9 +156,7 @@ def test_room_not_normal_is_ignored():
     coord.get_room_state = MagicMock(return_value=RoomState.AWAY)
     coord.last_expected_setpoint = {"living_room": 20.0}
     engine = SyncEngine(coord)
-    with patch(
-        "custom_components.heat_manager.engine.sync_engine.async_call_later"
-    ) as mock_later:
+    with patch.object(coord, "call_later") as mock_later:
         engine._handle_entity_change(_event("climate.living_room", 25.0))
         mock_later.assert_not_called()
 
@@ -179,9 +165,7 @@ def test_no_expected_setpoint_yet_is_ignored():
     coord = _make_coordinator(rooms=[_room()])
     # last_expected_setpoint stays empty — PID hasn't ticked yet.
     engine = SyncEngine(coord)
-    with patch(
-        "custom_components.heat_manager.engine.sync_engine.async_call_later"
-    ) as mock_later:
+    with patch.object(coord, "call_later") as mock_later:
         engine._handle_entity_change(_event("climate.living_room", 25.0))
         mock_later.assert_not_called()
 
@@ -190,9 +174,7 @@ def test_delta_below_threshold_is_ignored():
     coord = _make_coordinator(rooms=[_room()])
     coord.last_expected_setpoint = {"living_room": 20.0}
     engine = SyncEngine(coord)
-    with patch(
-        "custom_components.heat_manager.engine.sync_engine.async_call_later"
-    ) as mock_later:
+    with patch.object(coord, "call_later") as mock_later:
         engine._handle_entity_change(_event("climate.living_room", 20.2))
         mock_later.assert_not_called()
 
@@ -201,9 +183,7 @@ def test_delta_above_threshold_schedules_confirm():
     coord = _make_coordinator(rooms=[_room()])
     coord.last_expected_setpoint = {"living_room": 20.0}
     engine = SyncEngine(coord)
-    with patch(
-        "custom_components.heat_manager.engine.sync_engine.async_call_later"
-    ) as mock_later:
+    with patch.object(coord, "call_later") as mock_later:
         mock_later.return_value = MagicMock()
         engine._handle_entity_change(_event("climate.living_room", 22.0))
         mock_later.assert_called_once()
@@ -215,9 +195,7 @@ def test_already_pending_does_not_schedule_again():
     coord.last_expected_setpoint = {"living_room": 20.0}
     engine = SyncEngine(coord)
     engine._pending_confirm["living_room"] = MagicMock()
-    with patch(
-        "custom_components.heat_manager.engine.sync_engine.async_call_later"
-    ) as mock_later:
+    with patch.object(coord, "call_later") as mock_later:
         engine._handle_entity_change(_event("climate.living_room", 22.0))
         mock_later.assert_not_called()
 
@@ -474,9 +452,7 @@ def test_rebuild_entity_map_drops_a_now_ungrouped_trv():
         )
     )
 
-    with patch(
-        "custom_components.heat_manager.engine.sync_engine.async_track_state_change_event"
-    ) as mock_track:
+    with patch.object(coord, "track_state_changes") as mock_track:
         engine.rebuild_entity_map()
         mock_track.assert_called_once()
 
@@ -490,9 +466,7 @@ def test_rebuild_entity_map_unsubscribes_old_listener():
     old_unsub = MagicMock()
     engine._unsubs = [old_unsub]
 
-    with patch(
-        "custom_components.heat_manager.engine.sync_engine.async_track_state_change_event"
-    ):
+    with patch.object(coord, "track_state_changes"):
         engine.rebuild_entity_map()
 
     old_unsub.assert_called_once()

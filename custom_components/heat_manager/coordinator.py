@@ -45,7 +45,10 @@ from homeassistant.core import (
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import (
+    async_call_later,
+    async_track_state_change_event,
+)
 from homeassistant.helpers.issue_registry import (
     IssueSeverity,
     async_create_issue,
@@ -1080,6 +1083,22 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             handler(event)
 
         return async_track_state_change_event(self.hass, entity_ids, _forward)
+
+    def call_later(
+        self, delay_seconds: float, action: Callable[[], None]
+    ) -> Callable[[], None]:
+        """v0.67.6 (T2c): run an engine action once after ``delay_seconds``.
+
+        Same reason as track_state_changes(): engines stay free of Home
+        Assistant imports, and the action runs in the event loop
+        (``@callback``). Returns the cancel function.
+        """
+
+        @callback
+        def _run(_now: Any) -> None:
+            action()
+
+        return async_call_later(self.hass, delay_seconds, _run)
 
     def get_netatmo_webhook_entity(self) -> str | None:
         """NET-TRV's webhook binary_sensor on the relay device. None for core

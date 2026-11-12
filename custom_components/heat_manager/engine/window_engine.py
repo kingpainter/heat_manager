@@ -31,10 +31,6 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import callback
-from homeassistant.helpers.event import async_track_state_change_event
-from homeassistant.util.dt import utcnow
-
 from ..const import (
     CONF_CLIMATE_ENTITY,
     CONF_NOTIFY_SERVICE,
@@ -55,6 +51,7 @@ from ..const import (
     WIND_FAST_MS,
     RoomState,
 )
+from .clock import utcnow
 from .controller import guarded
 from .netatmo_backend import window_source_open
 
@@ -153,12 +150,9 @@ class WindowEngine:
             _LOGGER.debug("No window sensors configured — window engine idle")
             return
         self._unsubs.append(
-            async_track_state_change_event(
-                self.coordinator.hass, sensors, self._handle_sensor_change
-            )
+            self.coordinator.track_state_changes(sensors, self._handle_sensor_change)
         )
 
-    @callback
     def _handle_sensor_change(self, event: Any) -> None:
         new_state = event.data.get("new_state")
         old_state = event.data.get("old_state")

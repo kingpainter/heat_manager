@@ -59,9 +59,6 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import callback
-from homeassistant.helpers.event import async_track_state_change_event
-
 from ..const import (
     BUTTON_TEMP_MAX,
     BUTTON_TEMP_MIN,
@@ -100,7 +97,6 @@ class RemoteButtonEngine:
         self._register_listeners()
 
     def _register_listeners(self) -> None:
-        hass = self.coordinator.hass
         config = self.coordinator.config
 
         up_id = config.get(CONF_BUTTON_TEMP_UP_ENTITY, "")
@@ -109,16 +105,16 @@ class RemoteButtonEngine:
 
         if up_id:
             self._unsubs.append(
-                async_track_state_change_event(hass, [up_id], self._handle_temp_up)
+                self.coordinator.track_state_changes([up_id], self._handle_temp_up)
             )
         if down_id:
             self._unsubs.append(
-                async_track_state_change_event(hass, [down_id], self._handle_temp_down)
+                self.coordinator.track_state_changes([down_id], self._handle_temp_down)
             )
         if mode_id:
             self._unsubs.append(
-                async_track_state_change_event(
-                    hass, [mode_id], self._handle_mode_toggle
+                self.coordinator.track_state_changes(
+                    [mode_id], self._handle_mode_toggle
                 )
             )
 
@@ -222,7 +218,6 @@ class RemoteButtonEngine:
 
     # ── Temp up / down ──────────────────────────────────────────────────────
 
-    @callback
     def _handle_temp_up(self, event: Any) -> None:
         if self._is_long_press(event):
             self.coordinator.hass.async_create_task(
@@ -237,7 +232,6 @@ class RemoteButtonEngine:
             name="heat_manager_remote_temp_up",
         )
 
-    @callback
     def _handle_temp_down(self, event: Any) -> None:
         count = self._press_count(event)
         if not count:
@@ -380,7 +374,6 @@ class RemoteButtonEngine:
 
     # ── Mode toggle ───────────────────────────────────────────────────────────
 
-    @callback
     def _handle_mode_toggle(self, event: Any) -> None:
         if self._is_long_press(event):
             self.coordinator.hass.async_create_task(

@@ -41,9 +41,6 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import callback
-from homeassistant.helpers.event import async_call_later, async_track_state_change_event
-
 from ..const import (
     CONF_CLIMATE_ENTITY,
     CONF_HOMEKIT_CLIMATE_ENTITY,
@@ -128,12 +125,9 @@ class SyncEngine:
             _LOGGER.debug("Sync engine: no rooms have sync_mode enabled — idle")
             return
         self._unsubs.append(
-            async_track_state_change_event(
-                self.coordinator.hass, entities, self._handle_entity_change
-            )
+            self.coordinator.track_state_changes(entities, self._handle_entity_change)
         )
 
-    @callback
     def _handle_entity_change(self, event: Any) -> None:
         entity_id = event.data.get("entity_id")
         new_state = event.data.get("new_state")
@@ -159,8 +153,11 @@ class SyncEngine:
         if expected is None:
             return  # PID hasn't established an expectation yet — nothing to compare
 
+        raw_temp = new_state.attributes.get("temperature")
+        if raw_temp is None:
+            return
         try:
-            observed = float(new_state.attributes.get("temperature"))
+            observed = float(raw_temp)
         except (TypeError, ValueError):
             return
 
@@ -171,17 +168,15 @@ class SyncEngine:
         if room_name in self._pending_confirm:
             return  # already waiting to confirm this mismatch
 
-        self._pending_confirm[room_name] = async_call_later(
-            self.coordinator.hass,
+        self._pending_confirm[room_name] = self.coordinator.call_later(
             SYNC_CONFIRM_DELAY_SEC,
             self._make_confirm_callback(room_name, entity_id),
         )
 
     def _make_confirm_callback(
         self, room_name: str, entity_id: str
-    ) -> Callable[[Any], None]:
-        @callback
-        def _confirm(_now: Any) -> None:
+    ) -> Callable[[], None]:
+        def _confirm() -> None:
             self._pending_confirm.pop(room_name, None)
             self.coordinator.hass.async_create_task(
                 self._async_act(room_name, entity_id)

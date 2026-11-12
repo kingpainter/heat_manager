@@ -54,6 +54,10 @@ def test_pure_engines_do_not_import_homeassistant():
         "door_engine",
         "preheat_engine",
         "presence_engine",
+        # v0.67.6 (T2c): the last three — every engine is pure now
+        "remote_button_engine",
+        "sync_engine",
+        "window_engine",
     ):
         assert not _imports_homeassistant(ENGINE_DIR / f"{name}.py"), name
 
@@ -82,3 +86,33 @@ def test_track_state_changes_wraps_handler_as_callback():
     assert getattr(forward, "_hass_callback", False) is True
     forward("event")
     handler.assert_called_once_with("event")
+
+
+def test_every_engine_module_is_pure():
+    """v0.67.6: architecture rule 3.1 holds for the whole engine package —
+    a new engine module that imports homeassistant fails here."""
+    offenders = [
+        p.name for p in sorted(ENGINE_DIR.glob("*.py")) if _imports_homeassistant(p)
+    ]
+    assert offenders == []
+
+
+def test_call_later_wraps_action_as_callback():
+    from unittest.mock import MagicMock, patch
+
+    from custom_components.heat_manager.coordinator import HeatManagerCoordinator
+
+    coord = MagicMock()
+    action = MagicMock()
+    with patch(
+        "custom_components.heat_manager.coordinator.async_call_later",
+        return_value="cancel",
+    ) as later:
+        cancel = HeatManagerCoordinator.call_later(coord, 30, action)
+    assert cancel == "cancel"
+    hass_arg, delay, run = later.call_args[0]
+    assert hass_arg is coord.hass
+    assert delay == 30
+    assert getattr(run, "_hass_callback", False) is True
+    run("now")
+    action.assert_called_once_with()
