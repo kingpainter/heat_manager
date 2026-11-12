@@ -43,6 +43,7 @@ Off shuts everything down permanently — with the correct fallback per season.
 - **PID controller** — discrete-time PI controller sends proportional setpoints every 60 s via HomeKit (local LAN)
 - **Night setback** — optional: reduce PID target by N°C during configured night hours (default 23:00–07:00, disabled by default)
 - **HomeKit-first write routing** — all `set_temperature` writes prefer the local HomeKit entity over the Netatmo cloud, eliminating 429 rate-limit errors for those calls
+- **Netatmo open-window detection** *(v0.64.0, opt-in per room)* — the valve's own `open_window` (NET-TRV) can count as a window sensor for rooms without a contact sensor; same suppression, warning and restore as a contact sensor, no extra delay
 - **Room-only schedule restore** *(v0.63.0)* — handing one room back to its Netatmo schedule (window closed, override ended, controller OFF) uses the owning integration's `clear_temperature_setting`, so away / frost guard for the rest of the house is never cancelled; home-level away/schedule is sent once instead of once per valve
 - **Best room temperature source** *(v0.62.1)* — without an external room sensor, NET-TRV rooms read the cloud entity first (webhook push, 0.1 °C) and fall back to HomeKit; core netatmo rooms keep HomeKit first (local, live)
 - **Netatmo valve health** *(v0.62.0)* — the status line warns about an offline valve, a low battery and a NET-TRV webhook that is down (polling only), using the Netatmo integration's own connectivity/battery sensors found on the valve's device; offline valves are skipped by the PID
@@ -144,6 +145,7 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 | `climate_entity` | entity | — | Primary (cloud) climate entity — schedule setpoint source |
 | `homekit_climate_entity` | entity | — | HomeKit local entity. PID and window setpoints written here (local LAN, <100 ms, no rate limits). **Required for PID on Netatmo valves** *(v0.61.2)* — without it the valve follows its Netatmo schedule and PID never writes via the cloud |
 | `window_sensors` | entity list | [] | Window/door sensors for this room |
+| `trv_window_detection` | boolean | `false` | *(v0.64.0)* Also use the Netatmo valve's own open-window detection (`open_window`, NET-TRV) as a window sensor for this room |
 | `window_delay_min` | min | 5 | Minutes open before heating drops (auto-reduced by rain/wind) |
 | `away_temp_override` | °C | 10.0 | Frost-guard floor when window opens |
 | `room_wattage` | W | 1000 | Rated heating power for energy calculations |

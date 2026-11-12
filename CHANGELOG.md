@@ -9,6 +9,23 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.64.0] — 2026-11-12
+
+### Added
+- **Netatmos egen registrering af åbent vindue som valgfri vindueskilde.**
+  Ny indstilling pr. rum: "Brug ventilens egen registrering af åbent
+  vindue" (slået fra som standard). Når den er slået til, tæller
+  Netatmo-ventilens `open_window`-attribut (NET-TRV) som en vinduessensor
+  for rummet — med præcis samme adfærd som en kontaktsensor: sænkning til
+  vindues-temperaturen, rumtilstand `WINDOW_OPEN`, 30-minutters advarsel og
+  gendannelse, når vinduet lukkes. Tænkt til rum uden kontaktsensor; den
+  kan kombineres med kontaktsensorer (rummet er åbent, hvis én af dem er).
+  Der lægges ingen ekstra forsinkelse oveni, da Netatmo først melder åbent
+  vindue efter sin egen registrering. Kun Netatmo-ventiler; integrationer
+  uden attributten giver blot ingen hændelser.
+- Rummets "Vindue"-sensor oprettes nu også for rum, der kun bruger
+  Netatmos registrering, og "noget vindue åbent" og panelet medregner den.
+
 ## [0.63.0] — 2026-11-12
 
 ### Fixed

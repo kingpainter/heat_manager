@@ -53,6 +53,10 @@ CONF_DOOR_STYLED_SENSORS = "door_styled_sensors"
 # two sensors need opposite window_engine.py handling (full grace/warning
 # vs. none at all), not just a different icon.
 CONF_HEATED_DOOR_SENSORS = "heated_door_sensors"
+# v0.64.0: per-room opt-in — also treat the Netatmo valve's own open-window
+# detection (climate attribute `open_window`, NET-TRV) as a window sensor for
+# this room. Meant for rooms without a contact sensor. Off by default.
+CONF_TRV_WINDOW_DETECTION = "trv_window_detection"
 # Per-room field, set only via the options-flow room step. v0.33.0: no
 # longer read by window_engine.py — see CONF_WINDOW_DELAY_DEFAULT_MIN below.
 # Left in place (not migrated away) so nothing is lost for anyone who did

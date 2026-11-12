@@ -83,7 +83,8 @@
           "room_temp_sensor": "Room temperature sensor (optional)",
           "battery_sensor": "Battery sensor (optional)",
           "humidity_sensor": "Humidity sensor (optional)",
-          "schedule_entity": "Schedule / calendar entity (optional)"
+          "schedule_entity": "Schedule / calendar entity (optional)",
+          "trv_window_detection": "Use the valve's own open-window detection"
         },
         "data_description": {
           "door_styled_sensors": "Optional subset of the Window / door sensors above that should be labelled and logged as a door instead of a window — purely cosmetic, the exact same grace period / off-temperature / 30-minute warning behaviour applies either way (e.g. a balcony door still loses heat like a window). A sensor must ALSO be selected above in Window / door sensors for this to have any effect — selecting it ONLY here does nothing.",
@@ -95,7 +96,8 @@
           "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1–3°C too high).",
           "battery_sensor": "TRV battery level sensor (sensor.* reporting %). Recommended for Zigbee TRVs, whose battery is usually its own entity rather than an attribute on the climate entity. Leave blank to fall back to the climate entity's own battery_level attribute, if it has one.",
           "humidity_sensor": "Relative humidity sensor (%) for this room. Used together with the room temperature sensor to calculate mold risk (dewpoint vs. surface temperature).",
-          "schedule_entity": "A schedule.* helper or calendar.* entity. While a time block or event is active, its temperature overrides this room's normal target."
+          "schedule_entity": "A schedule.* helper or calendar.* entity. While a time block or event is active, its temperature overrides this room's normal target.",
+          "trv_window_detection": "Off by default. When on, Netatmo's own open-window detection (the `open_window` attribute, NET-TRV) counts as a window sensor for this room — useful for rooms without a contact sensor. Netatmo detects an open window from a sudden temperature drop, so it reacts slower than a contact sensor and can miss or misjudge; no extra delay is added."
         }
       },
       "room_trvs_menu": {
@@ -276,7 +278,8 @@
           "room_temp_sensor": "Room temperature sensor (optional)",
           "battery_sensor": "Battery sensor (optional)",
           "humidity_sensor": "Humidity sensor (optional)",
-          "schedule_entity": "Schedule / calendar entity (optional)"
+          "schedule_entity": "Schedule / calendar entity (optional)",
+          "trv_window_detection": "Use the valve's own open-window detection"
         },
         "data_description": {
           "door_styled_sensors": "Optional subset of the Window / door sensors above that should be labelled and logged as a door instead of a window — purely cosmetic, the exact same grace period / off-temperature / 30-minute warning behaviour applies either way (e.g. a balcony door still loses heat like a window). A sensor must ALSO be selected above in Window / door sensors for this to have any effect — selecting it ONLY here does nothing.",
@@ -288,7 +291,8 @@
           "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1–3°C too high).",
           "battery_sensor": "TRV battery level sensor (sensor.* reporting %). Recommended for Zigbee TRVs, whose battery is usually its own entity rather than an attribute on the climate entity. Leave blank to fall back to the climate entity's own battery_level attribute, if it has one.",
           "humidity_sensor": "Relative humidity sensor (%) for this room. Used together with the room temperature sensor to calculate mold risk (dewpoint vs. surface temperature).",
-          "schedule_entity": "A schedule.* helper or calendar.* entity. While a time block or event is active, its temperature overrides this room's normal target."
+          "schedule_entity": "A schedule.* helper or calendar.* entity. While a time block or event is active, its temperature overrides this room's normal target.",
+          "trv_window_detection": "Off by default. When on, Netatmo's own open-window detection (the `open_window` attribute, NET-TRV) counts as a window sensor for this room — useful for rooms without a contact sensor. Netatmo detects an open window from a sudden temperature drop, so it reacts slower than a contact sensor and can miss or misjudge; no extra delay is added."
         }
       },
       "room_edit": {
@@ -307,7 +311,8 @@
           "room_temp_sensor": "Room temperature sensor (optional)",
           "battery_sensor": "Battery sensor (optional)",
           "humidity_sensor": "Humidity sensor (optional)",
-          "schedule_entity": "Schedule / calendar entity (optional)"
+          "schedule_entity": "Schedule / calendar entity (optional)",
+          "trv_window_detection": "Use the valve's own open-window detection"
         },
         "data_description": {
           "door_styled_sensors": "Optional subset of the Window / door sensors above that should be labelled and logged as a door instead of a window — purely cosmetic, the exact same grace period / off-temperature / 30-minute warning behaviour applies either way (e.g. a balcony door still loses heat like a window). A sensor must ALSO be selected above in Window / door sensors for this to have any effect — selecting it ONLY here does nothing.",
@@ -319,7 +324,8 @@
           "room_temp_sensor": "Independent room probe for PID temperature feedback. Recommended for Zigbee TRVs whose built-in sensor sits on the radiator body (typically reads 1–3°C too high).",
           "battery_sensor": "TRV battery level sensor (sensor.* reporting %). Recommended for Zigbee TRVs, whose battery is usually its own entity rather than an attribute on the climate entity. Leave blank to fall back to the climate entity's own battery_level attribute, if it has one.",
           "humidity_sensor": "Relative humidity sensor (%) for this room. Used together with the room temperature sensor to calculate mold risk (dewpoint vs. surface temperature).",
-          "schedule_entity": "A schedule.* helper or calendar.* entity. While a time block or event is active, its temperature overrides this room's normal target."
+          "schedule_entity": "A schedule.* helper or calendar.* entity. While a time block or event is active, its temperature overrides this room's normal target.",
+          "trv_window_detection": "Off by default. When on, Netatmo's own open-window detection (the `open_window` attribute, NET-TRV) counts as a window sensor for this room — useful for rooms without a contact sensor. Netatmo detects an open window from a sudden temperature drop, so it reacts slower than a contact sensor and can miss or misjudge; no extra delay is added."
         }
       },
       "room_trvs_menu": {

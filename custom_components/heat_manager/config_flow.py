@@ -101,6 +101,7 @@ from .const import (
     CONF_SYNC_MODE,
     CONF_TRV_MAX_TEMP,
     CONF_TRV_TYPE,
+    CONF_TRV_WINDOW_DETECTION,
     CONF_TRVS,
     CONF_WAKE_SETBACK_TEMP,
     CONF_WEATHER_COMPENSATION_ENABLED,
@@ -788,6 +789,13 @@ def _room_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             ): selector.selector(
                 {"entity": {"domain": "binary_sensor", "multiple": True}}
             ),
+            # v0.64.0 -- opt-in: use the Netatmo valve's own open-window
+            # detection (NET-TRV `open_window`) as a window sensor for rooms
+            # without a contact sensor. See const.py.
+            vol.Optional(
+                CONF_TRV_WINDOW_DETECTION,
+                default=defaults.get(CONF_TRV_WINDOW_DETECTION, False),
+            ): selector.selector({"boolean": {}}),
             vol.Optional(
                 CONF_WINDOW_DELAY_MIN,
                 default=defaults.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN),

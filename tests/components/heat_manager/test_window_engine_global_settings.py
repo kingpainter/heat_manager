@@ -54,6 +54,15 @@ def _fake_engine(config: dict | None = None) -> MagicMock:
     auto-mocks harmlessly via MagicMock, since none of it is asserted on by
     these tests."""
     coord = MagicMock()
+
+    # v0.64.0: window sources (contact sensors + opt-in Netatmo open_window)
+    # are resolved by the coordinator — bind the real helpers.
+    from custom_components.heat_manager.coordinator import (
+        HeatManagerCoordinator as _HMC,
+    )
+
+    for _name in ("get_room_window_sources", "is_window_source_open"):
+        setattr(coord, _name, getattr(_HMC, _name).__get__(coord, type(coord)))
     coord.config = config if config is not None else {}
     coord.controller.state = ControllerState.ON
     coord.get_wind_speed = MagicMock(return_value=0.0)

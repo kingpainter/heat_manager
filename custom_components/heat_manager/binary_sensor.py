@@ -44,8 +44,9 @@ async def async_setup_entry(
         CloudAvailableSensor(coordinator, entry),
     ]
     for room in coordinator.rooms:
-        if room.get(CONF_WINDOW_SENSORS):
+        if coordinator.get_room_window_sources(room):
             entities.append(RoomWindowSensor(coordinator, entry, room))
+        if room.get(CONF_WINDOW_SENSORS):
             # v0.15.0 — mirror each individual raw window/door contact
             # under the room's device too (RoomWindowSensor above only
             # exposes the aggregated "any open" state) — see sensor.py's
@@ -234,7 +235,8 @@ class RoomWindowSensor(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEn
         # purely a typing fix, coordinator is the same object either way.
         self.coordinator: HeatManagerCoordinator = coordinator
         self._room_name = room["room_name"]
-        self._sensors = room.get(CONF_WINDOW_SENSORS, [])
+        # v0.64.0: contact sensors + opt-in Netatmo open-window detection
+        self._sensors = coordinator.get_room_window_sources(room)
         safe_name = self._room_name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry.entry_id}_{safe_name}_window"
         # has_entity_name=True + device.name == room_name means HA itself
@@ -248,10 +250,7 @@ class RoomWindowSensor(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEn
 
     @property
     def is_on(self) -> bool:
-        return any(
-            (s := self.coordinator.hass.states.get(sid)) is not None and s.state == "on"
-            for sid in self._sensors
-        )
+        return any(self.coordinator.is_window_source_open(sid) for sid in self._sensors)
 
 
 class MoldRiskSensor(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEntity):

@@ -907,9 +907,10 @@ async def ws_get_state(
         boost_state = getattr(coordinator, "boost_active_rooms", {})
         boost_active = bool(boost_state.get(name, False))
 
+        # v0.64.0: includes opt-in Netatmo open-window detection
         windows_open = any(
-            (s := hass.states.get(sid)) is not None and s.state == "on"
-            for sid in sensors
+            coordinator.is_window_source_open(sid)
+            for sid in coordinator.get_room_window_sources(room)
         )
 
         # Room detail cards: TRV battery (%), humidity (%) and CO2 (ppm) —

@@ -23,6 +23,19 @@ def _make_coordinator(rooms=None, someone_home=True, config=None):
     coordinator.hass = MagicMock()
     coordinator.hass.services.async_call = AsyncMock()
 
+    # v0.64.0: window sources (contact sensors + opt-in Netatmo open_window)
+    # are resolved by the coordinator — bind the real helpers.
+    from custom_components.heat_manager.coordinator import (
+        HeatManagerCoordinator as _HMC,
+    )
+
+    for _name in ("get_room_window_sources", "is_window_source_open"):
+        setattr(
+            coordinator,
+            _name,
+            getattr(_HMC, _name).__get__(coordinator, type(coordinator)),
+        )
+
     # 2026-09: production code now routes every climate service call through
     # coordinator.async_call_climate_service() (shared Netatmo lock/pacing —
     # see coordinator.py) instead of calling hass.services.async_call

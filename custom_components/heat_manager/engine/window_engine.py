@@ -56,11 +56,26 @@ from ..const import (
     RoomState,
 )
 from .controller import guarded
+from .netatmo_backend import window_source_open
 
 if TYPE_CHECKING:
     from ..coordinator import HeatManagerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _open_as_state(entity_id: str, state: Any) -> str | None:
+    """Map a window source's state object to "on"/"off"/None (v0.64.0)."""
+    if state is None:
+        return None
+    is_open = window_source_open(
+        entity_id.split(".", 1)[0],
+        state.state,
+        state.attributes.get("open_window"),
+    )
+    if is_open is None:
+        return None
+    return "on" if is_open else "off"
 
 
 class WindowEngine:
@@ -93,7 +108,9 @@ class WindowEngine:
         # see that method's comment for why it's no longer per-room.
         for room in self.coordinator.rooms:
             room_name = room.get("room_name", "")
-            for sensor in room.get(CONF_WINDOW_SENSORS, []):
+            # v0.64.0: contact sensors + (opt-in) the room's Netatmo climate
+            # entities as Netatmo-detected windows.
+            for sensor in self.coordinator.get_room_window_sources(room):
                 self._sensor_to_room[sensor] = room_name
         _LOGGER.debug("Window engine tracking %d sensor(s)", len(self._sensor_to_room))
 
@@ -147,9 +164,12 @@ class WindowEngine:
         old_state = event.data.get("old_state")
         if new_state is None:
             return
-        new = new_state.state
-        old = old_state.state if old_state else None
         entity_id = event.data.get("entity_id", "")
+        # v0.64.0: a window source is either a contact sensor ("on"/"off")
+        # or a Netatmo climate entity (open_window attribute) — both are
+        # mapped to "on"/"off"/None here so the logic below is unchanged.
+        new = _open_as_state(entity_id, new_state)
+        old = _open_as_state(entity_id, old_state)
 
         # 2026-09-11 restart-noise fix: when this sensor's platform
         # re-establishes itself (HA restart, integration reload, a brief
@@ -195,8 +215,7 @@ class WindowEngine:
         restart in between.
         """
         for sensor_id, room_name in self._sensor_to_room.items():
-            state = self.coordinator.hass.states.get(sensor_id)
-            if state and state.state == "on":
+            if self.coordinator.is_window_source_open(sensor_id):
                 _LOGGER.debug(
                     "WindowEngine: '%s' already open at startup — scheduling suppression",
                     room_name,
@@ -228,8 +247,7 @@ class WindowEngine:
         except asyncio.CancelledError:
             return
 
-        state = self.coordinator.hass.states.get(sensor_id)
-        if not state or state.state != "on":
+        if not self.coordinator.is_window_source_open(sensor_id):
             return
 
         # v0.33.0: dedicated, global "heat is off" temperature — deliberately
@@ -530,8 +548,7 @@ class WindowEngine:
     def get_open_windows(self) -> list[str]:
         open_rooms: list[str] = []
         for sensor_id, room_name in self._sensor_to_room.items():
-            state = self.coordinator.hass.states.get(sensor_id)
-            if state and state.state == "on":
+            if self.coordinator.is_window_source_open(sensor_id):
                 open_rooms.append(room_name)
         return sorted(set(open_rooms))
 
@@ -544,8 +561,7 @@ class WindowEngine:
         for sid, r_name in self._sensor_to_room.items():
             if r_name != room_name:
                 continue
-            state = self.coordinator.hass.states.get(sid)
-            if state and state.state == "on":
+            if self.coordinator.is_window_source_open(sid):
                 return False
         return True
 
@@ -581,7 +597,13 @@ class WindowEngine:
         Wind fast (> WIND_FAST_MS): reduce to DEFAULT_WINDOW_DELAY_WIND_MIN
         so heat loss is suppressed quicker.
         Rain: also reduce — nobody opens a window for ventilation in rain.
+
+        v0.64.0: a Netatmo climate entity used as a window source gets no
+        extra delay — Netatmo only reports open_window after its own
+        temperature-drop detection, so the grace period is already spent.
         """
+        if sensor_id.startswith("climate."):
+            return 0
         configured = int(
             self.coordinator.config.get(
                 CONF_WINDOW_DELAY_DEFAULT_MIN, DEFAULT_WINDOW_DELAY_DEFAULT_MIN

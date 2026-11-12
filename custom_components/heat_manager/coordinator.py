@@ -95,6 +95,7 @@ from .const import (
     CONF_SOLAR_GAIN_WEIGHT,
     CONF_TRV_MAX_TEMP,
     CONF_TRV_TYPE,
+    CONF_TRV_WINDOW_DETECTION,
     CONF_TRVS,
     CONF_WEATHER_COMPENSATION_ENABLED,
     CONF_WEATHER_ENTITY,
@@ -166,6 +167,7 @@ from .engine.netatmo_backend import (
     summarize_backends,
     temp_source_order,
     trv_pid_writable,
+    window_source_open,
 )
 from .engine.pid_controller import PidController
 from .engine.preheat_engine import PreheatEngine
@@ -1574,13 +1576,42 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             backend.value, SERVICE_CLEAR_TEMPERATURE_SETTING, entity_id
         )
 
+    def get_room_window_sources(self, room: dict[str, Any]) -> list[str]:
+        """Everything that counts as a window for this room (v0.64.0): its
+        contact sensors plus — when CONF_TRV_WINDOW_DETECTION is on — the
+        climate entities of its Netatmo valves, whose `open_window`
+        attribute is Netatmo's own detection."""
+        sources = [s for s in room.get(CONF_WINDOW_SENSORS, []) or [] if s]
+        if room.get(CONF_TRV_WINDOW_DETECTION):
+            for trv in self.get_room_trvs(room.get("room_name", "")):
+                climate_id = self.get_trv_climate_entity(trv)
+                if (
+                    climate_id
+                    and climate_id not in sources
+                    and trv.get(CONF_TRV_TYPE, "netatmo") == "netatmo"
+                ):
+                    sources.append(climate_id)
+        return sources
+
+    def is_window_source_open(self, entity_id: str) -> bool:
+        """True if a window source reports open — see window_source_open()."""
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return False
+        return bool(
+            window_source_open(
+                entity_id.split(".", 1)[0],
+                state.state,
+                state.attributes.get("open_window"),
+            )
+        )
+
     def any_window_open(self) -> bool:
-        for room in self.rooms:
-            for sensor in room.get(CONF_WINDOW_SENSORS, []):
-                state = self.hass.states.get(sensor)
-                if state and state.state == "on":
-                    return True
-        return False
+        return any(
+            self.is_window_source_open(sid)
+            for room in self.rooms
+            for sid in self.get_room_window_sources(room)
+        )
 
     def someone_home(self) -> bool:
         for person in self.persons:

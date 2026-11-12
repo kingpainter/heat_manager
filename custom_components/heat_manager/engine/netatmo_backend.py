@@ -202,3 +202,29 @@ def battery_is_low(battery_state: str | None, battery_percent: str | None) -> bo
         )
     except (TypeError, ValueError):
         return False
+
+
+# ── Window sources (v0.64.0) ──────────────────────────────────────────────────
+
+
+def window_source_open(
+    domain: str, state: str | None, open_window_attr: object
+) -> bool | None:
+    """Is a window source open? None = unknown (no new information).
+
+    A contact sensor (binary_sensor) is open when "on". A Netatmo climate
+    entity used as a window source (CONF_TRV_WINDOW_DETECTION) is open when
+    its `open_window` attribute is True — Netatmo's own detection from a
+    sudden temperature drop.
+    """
+    if state is None or state in ("unknown", "unavailable"):
+        return None
+    if domain == "climate":
+        if open_window_attr is None:
+            return None
+        return open_window_attr is True
+    if state == "on":
+        return True
+    if state == "off":
+        return False
+    return None
