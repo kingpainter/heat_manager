@@ -13,7 +13,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: ["3.12"]
+        python-version: ["3.12", "3.14"]
 
     steps:
       - name: Checkout
@@ -45,10 +45,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
+      # Pinned on purpose: an unpinned ruff picks up new rules on release
+      # and turns CI red without any code change. Bump deliberately.
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff==0.17.4
 
       - name: Format (auto-fix)
         run: ruff format custom_components/heat_manager tests
