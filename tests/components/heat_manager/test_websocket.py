@@ -794,6 +794,8 @@ async def test_get_state_cloud_fields_default_to_none_without_climate_state():
         "cloud_preset_mode",
         "cloud_preset_modes",
         "cloud_selected_schedule",
+        "cloud_setpoint_mode",
+        "cloud_setpoint_end_time",
         "cloud_hvac_modes",
         "cloud_min_temp",
         "cloud_max_temp",
@@ -812,6 +814,8 @@ async def test_get_state_cloud_fields_populated_from_climate_attributes():
         "preset_mode": "away",
         "preset_modes": ["schedule", "away", "frost_guard", "boost"],
         "selected_schedule": "Vinter",
+        "netatmo_setpoint_mode": "manual",
+        "setpoint_end_time": "2026-11-12T17:30:00+00:00",
         "hvac_modes": ["auto", "heat"],
         "min_temp": 7,
         "max_temp": 30,
@@ -831,6 +835,8 @@ async def test_get_state_cloud_fields_populated_from_climate_attributes():
     assert room["cloud_preset_mode"] == "away"
     assert room["cloud_preset_modes"] == ["schedule", "away", "frost_guard", "boost"]
     assert room["cloud_selected_schedule"] == "Vinter"
+    assert room["cloud_setpoint_mode"] == "manual"
+    assert room["cloud_setpoint_end_time"] == "2026-11-12T17:30:00+00:00"
     assert room["cloud_hvac_modes"] == ["auto", "heat"]
     assert room["cloud_min_temp"] == 7.0
     assert room["cloud_max_temp"] == 30.0

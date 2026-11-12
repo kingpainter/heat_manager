@@ -864,6 +864,12 @@ async def ws_get_state(
         cloud_preset_mode: str | None = None
         cloud_preset_modes: list[str] | None = None
         cloud_selected_schedule: str | None = None
+        # v0.65.3: who controls the room right now in Netatmo's own terms
+        # (NET-TRV attributes; absent with core netatmo) — "schedule",
+        # "home", "manual", "max", "away", "hg", "off" — and when a manual
+        # setpoint expires. Display only.
+        cloud_setpoint_mode: str | None = None
+        cloud_setpoint_end_time: str | None = None
         cloud_hvac_modes: list[str] | None = None
         cloud_min_temp: float | None = None
         cloud_max_temp: float | None = None
@@ -888,6 +894,8 @@ async def ws_get_state(
                 cloud_preset_mode = cs.attributes.get("preset_mode")
                 cloud_preset_modes = cs.attributes.get("preset_modes")
                 cloud_selected_schedule = cs.attributes.get("selected_schedule")
+                cloud_setpoint_mode = cs.attributes.get("netatmo_setpoint_mode")
+                cloud_setpoint_end_time = cs.attributes.get("setpoint_end_time")
                 cloud_hvac_modes = cs.attributes.get("hvac_modes")
                 cloud_min_temp = _coerce_float(cs.attributes.get("min_temp"))
                 cloud_max_temp = _coerce_float(cs.attributes.get("max_temp"))
@@ -1195,6 +1203,8 @@ async def ws_get_state(
                 "cloud_preset_mode": cloud_preset_mode,
                 "cloud_preset_modes": cloud_preset_modes,
                 "cloud_selected_schedule": cloud_selected_schedule,
+                "cloud_setpoint_mode": cloud_setpoint_mode,
+                "cloud_setpoint_end_time": cloud_setpoint_end_time,
                 "cloud_hvac_modes": cloud_hvac_modes,
                 "cloud_min_temp": cloud_min_temp,
                 "cloud_max_temp": cloud_max_temp,

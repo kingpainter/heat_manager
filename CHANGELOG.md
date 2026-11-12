@@ -9,6 +9,20 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.65.3] — 2026-11-12
+
+### Added
+- **Panelet viser, hvem der styrer rummet i Netatmo.** Netatmo-linjen i
+  rumdetaljen ("🛰️ Netatmo:") viser nu NET-TRV's `netatmo_setpoint_mode`
+  på dansk — *tidsplan*, *manuel til 18:30*, *boost til 17:00*, *væk*,
+  *frostsikring*, *slukket* — med sluttidspunktet fra `setpoint_end_time`.
+  Det forklarer fx, hvorfor et rum står i "auto"/"schedule": PID's manuelle
+  setpunkt via HomeKit er udløbet, og rummet følger Netatmo-tidsplanen,
+  indtil PID skriver igen. Kun visning; styringen er uændret. Med core
+  netatmo (uden attributten) vises forvalget som før. Nye felter i
+  `heat_manager/get_state`: `cloud_setpoint_mode`,
+  `cloud_setpoint_end_time`.
+
 ## [0.65.2] — 2026-11-12
 
 ### Removed

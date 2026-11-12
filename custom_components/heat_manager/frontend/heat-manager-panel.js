@@ -1197,6 +1197,25 @@ class HeatManagerPanel extends HTMLElement {
   _overrideSourceIcon(src) {
     return ({ remote:"📡", panel:"🖥", switch:"🔘", trv:"🎚" })[src] ?? "✋";
   }
+  // v0.65.3: Danish label for NET-TRV's netatmo_setpoint_mode, with the
+  // manual setpoint's end time when Netatmo reports one. "" when the
+  // attribute is missing (core netatmo) so the caller can fall back.
+  _netatmoModeLabel(room) {
+    const mode = room.cloud_setpoint_mode;
+    if (!mode) return "";
+    const label = ({
+      schedule: "tidsplan",
+      home:     "tidsplan",
+      manual:   "manuel",
+      max:      "boost",
+      away:     "væk",
+      hg:       "frostsikring",
+      off:      "slukket",
+    })[mode] ?? mode;
+    const until = room.cloud_setpoint_end_time ? this._hhmm(room.cloud_setpoint_end_time) : "";
+    return until && (mode === "manual" || mode === "max") ? `${label} til ${until}` : label;
+  }
+
   // "20:42" from an ISO timestamp, in the browser's local time.
   _hhmm(iso) {
     if (!iso) return null;
@@ -3394,10 +3413,17 @@ class HeatManagerPanel extends HTMLElement {
     // this custom panel's own controls.
     const netatmoDiverges = room.cloud_temperature != null && room.target_temp != null
       && Math.abs(room.cloud_temperature - room.target_temp) >= 0.5;
-    const netatmoHTML = (room.cloud_preset_mode || room.cloud_selected_schedule || room.cloud_temperature != null) ? `
+    // v0.65.3: NET-TRV's netatmo_setpoint_mode / setpoint_end_time say who
+    // controls the room in Netatmo right now ("tidsplan", "manuel til
+    // 18:30", "boost", …). Shown instead of the raw preset when present;
+    // core netatmo has no such attribute, so it falls back to the preset.
+    const netatmoMode = this._netatmoModeLabel(room);
+    const netatmoHTML = (netatmoMode || room.cloud_preset_mode || room.cloud_selected_schedule || room.cloud_temperature != null) ? `
          <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center">
            <span style="font-size:10px;color:var(--sub)">🛰️ Netatmo:</span>
-           ${room.cloud_preset_mode ? `<span style="font-size:10px;color:var(--sub)">${this._esc(room.cloud_preset_mode)}</span>` : ""}
+           ${netatmoMode
+             ? `<span style="font-size:10px;color:var(--text)" title="Hvem styrer rummet i Netatmo lige nu (netatmo_setpoint_mode)">${this._esc(netatmoMode)}</span>`
+             : room.cloud_preset_mode ? `<span style="font-size:10px;color:var(--sub)">${this._esc(room.cloud_preset_mode)}</span>` : ""}
            ${room.cloud_selected_schedule ? `<span style="font-size:10px;color:var(--sub)">(${this._esc(room.cloud_selected_schedule)})</span>` : ""}
            ${room.cloud_hvac_action ? `<span style="font-size:10px;color:var(--sub)">${this._esc(room.cloud_hvac_action)}</span>` : ""}
            ${room.cloud_temperature != null ? `<span style="font-size:10px;color:${netatmoDiverges ? "var(--amber)" : "var(--sub)"}" title="Netatmo-appens eget sidst kendte sætpunkt for denne enhed — ikke det Heat Manager beder om">${(Math.round(room.cloud_temperature * 10) / 10)}°C${netatmoDiverges ? " ⚠" : ""}</span>` : ""}
