@@ -43,7 +43,7 @@ def _get_version(hass: HomeAssistant) -> str:
     )
     try:
         with open(manifest_path, encoding="utf-8") as f:
-            return json.load(f).get("version", "0.0.0")
+            return str(json.load(f).get("version", "0.0.0"))
     except (OSError, ValueError) as err:
         _LOGGER.debug("Could not read version from %s: %s", manifest_path, err)
         return "0.0.0"

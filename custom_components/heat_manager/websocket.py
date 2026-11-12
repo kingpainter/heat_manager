@@ -181,7 +181,7 @@ def _build_active_issues(
     {"severity": "critical"|"warning"|"info", "icon": str, "message": str},
     ordered critical -> warning -> info (stable within each severity)."""
     hass = coordinator.hass
-    issues: list[dict[str, str]] = []
+    issues: list[dict[str, Any]] = []
 
     # 1. Netatmo/cloud TRV connectivity — mirrors binary_sensor.py's
     # CloudAvailableSensor algorithm (kept independent rather than imported,
@@ -437,8 +437,10 @@ def _build_active_issues(
             # rooms ("... — Stue → 21.5°C, Køkken → 21.5°C"); appending them
             # again doubled every room name in the header. Only append the
             # room list when the description doesn't already name them.
-            rooms = [r for r in (rla.get("rooms") or []) if r not in description]
-            rla_rooms = ", ".join(rooms)
+            rla_room_names = [
+                r for r in (rla.get("rooms") or []) if r not in description
+            ]
+            rla_rooms = ", ".join(rla_room_names)
             issues.append(
                 {
                     "id": "remote_action",

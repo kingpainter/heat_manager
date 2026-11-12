@@ -385,3 +385,19 @@ def test_pick_relay_entity_matches_domain_and_suffix():
     ]
     assert pick_relay_entity(entities, "number", "-away_temp") == "number.x_away"
     assert pick_relay_entity(entities, "number", "-nothing") is None
+
+
+# ── v0.67.3: relay lookup works for plain and child devices ─────────────────
+
+
+def test_parent_device_id_prefers_child_parent_then_via_device():
+    from types import SimpleNamespace
+
+    from custom_components.heat_manager.coordinator import _parent_device_id
+
+    # HA 2026.11+ ChildDeviceEntry: parent_device_id, no via_device_id.
+    assert _parent_device_id(SimpleNamespace(parent_device_id="relay1")) == "relay1"
+    # Plain DeviceEntry (NET-TRV today): via_device_id only.
+    assert _parent_device_id(SimpleNamespace(via_device_id="relay2")) == "relay2"
+    assert _parent_device_id(SimpleNamespace(via_device_id=None)) is None
+    assert _parent_device_id(None) is None

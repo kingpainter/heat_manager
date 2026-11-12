@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
@@ -70,7 +71,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """Set up Heat Manager at module level.
 
     Registers static HTTP paths (panel JS, card JS, logo) immediately at
@@ -372,7 +373,7 @@ def _async_remove_stale_devices(hass: HomeAssistant, entry: ConfigEntry) -> None
     current_rooms = {**entry.data, **entry.options}.get(CONF_ROOMS, [])
 
     # Build the set of valid per-room identifiers for this entry
-    valid_identifiers: set[frozenset] = set()
+    valid_identifiers: set[frozenset[tuple[str, str]]] = set()
     for room in current_rooms:
         room_name = room.get("room_name", "")
         if room_name:

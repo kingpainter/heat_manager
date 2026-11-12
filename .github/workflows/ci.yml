@@ -66,3 +66,24 @@ jobs:
         with:
           commit_message: "style: auto-format with ruff"
           file_pattern: "custom_components/**/*.py tests/**/*.py"
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Pinned on purpose (v0.67.3): mypy checks our calls against Home
+      # Assistant's own type hints, which change between releases. HA
+      # 2026.11 types its schemas with probatio instead of voluptuous; until
+      # the integration moves to that, type-check against 2026.2.3.
+      - name: Install dependencies
+        run: pip install homeassistant==2026.2.3 mypy==2.4.1
+
+      - name: mypy (strict)
+        run: mypy custom_components/heat_manager

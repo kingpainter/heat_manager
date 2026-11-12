@@ -51,6 +51,16 @@ ignore = ["E501"]
 [tool.mypy]
 python_version = "3.12"
 warn_unused_configs = true
+# v0.67.3: custom_components/ has no __init__.py (HA convention), so without
+# these mypy named the modules "heat_manager.*" and none of the strict
+# overrides below ever matched ("unused section"). Run from the repo root:
+#   mypy custom_components/heat_manager
+mypy_path = "."
+explicit_package_bases = true
+# v0.67.3: the whole integration is strict (quality_scale: strict-typing).
+# The per-module strict overrides below predate this and are kept for their
+# notes; new modules are covered by this line automatically.
+strict = true
 
 [[tool.mypy.overrides]]
 module = "custom_components.heat_manager.engine.*"
@@ -99,8 +109,12 @@ strict = true
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "custom_components.heat_manager.engine.waste_calculator"
-ignore_errors = true
+# v0.67.3: Home Assistant re-exports names without `X as X` / __all__ in
+# several packages (e.g. websocket_api.websocket_command/async_response/
+# ActiveConnection). HA's own code relies on that, so accept implicit
+# re-exports from homeassistant.* only — our modules stay strict.
+module = "homeassistant.*"
+implicit_reexport = true
 
 [[tool.mypy.overrides]]
 # schedule_engine.py's calendar-description parsing uses PyYAML, which ships

@@ -80,4 +80,10 @@ rules:
   inject-websession:
     status: exempt
     comment: No external HTTP calls. No websession needed.
-  strict-typing: todo
+  strict-typing:
+    status: done
+    comment: >-
+      v0.67.3 — the whole integration passes `mypy --strict` (pyproject
+      [tool.mypy] strict = true), enforced by the CI typecheck job against
+      Home Assistant 2026.2.3. HA 2026.11 types schemas with probatio
+      instead of voluptuous; that migration is a separate step.

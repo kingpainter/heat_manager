@@ -34,7 +34,7 @@ from datetime import datetime, timedelta
 from typing import Any, cast
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
@@ -361,6 +361,21 @@ def _mold_dewpoint(temp_c: float, rh_pct: float) -> float:
     b, c = 17.625, 243.04
     gamma = math.log(max(rh_pct, 0.01) / 100.0) + (b * temp_c) / (c + temp_c)
     return (c * gamma) / (b - gamma)
+
+
+def _parent_device_id(device: Any) -> str | None:
+    """The device this device hangs off: ``parent_device_id`` on HA 2026.11+
+    child devices (ChildDeviceEntry), else ``via_device_id``. Reading
+    via_device_id on a child device logs a deprecation (breaks in 2027.9),
+    so the child attribute is checked first. NET-TRV's room devices are plain
+    devices with via_device_id (relay) today."""
+    if device is None:
+        return None
+    parent = getattr(device, "parent_device_id", None)
+    if isinstance(parent, str) and parent:
+        return parent
+    via = getattr(device, "via_device_id", None)
+    return via if isinstance(via, str) and via else None
 
 
 class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -753,7 +768,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # against whichever HA core version is actually running
             # (`grep via_device_id` in that install's own device_registry.py)
             # if `homeassistant-stubs` is ever upgraded and this still fires.
-            via_device_id=self.global_device_id,  # type: ignore[typeddict-unknown-key]
+            via_device_id=self.global_device_id,  # type: ignore[typeddict-unknown-key,unused-ignore]
         )
 
     @property
@@ -1064,7 +1079,8 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if entry is None or entry.platform != NetatmoBackend.NET_TRV:
                     continue
                 device = dev_reg.async_get(entry.device_id) if entry.device_id else None
-                if device is None or not device.via_device_id:
+                relay_device_id = _parent_device_id(device)
+                if relay_device_id is None:
                     continue
                 found = pick_relay_entity(
                     (
@@ -1074,9 +1090,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             unique_id=sib.unique_id or "",
                             device_class=None,
                         )
-                        for sib in er.async_entries_for_device(
-                            ent_reg, device.via_device_id
-                        )
+                        for sib in er.async_entries_for_device(ent_reg, relay_device_id)
                     ),
                     domain,
                     suffix,
@@ -1103,7 +1117,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {
             "offline_rooms": offline,
             "low_battery_rooms": low_battery,
-            "webhook_down": bool(webhook) and self._state_value(webhook) == "off",
+            "webhook_down": webhook is not None and self._state_value(webhook) == "off",
         }
 
     def get_rooms_pid_needs_homekit(self) -> list[str]:
@@ -3071,7 +3085,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # the relay over the LAN. Treat the cloud entity being
                 # unavailable as "no new information", not as the room being
                 # gone — only reset when there is no reachable write path.
-                hk_alive = bool(hk_id) and not self._entity_unavailable(hk_id)
+                hk_alive = (not self._entity_unavailable(hk_id)) if hk_id else False
                 self._track_cloud_degraded(
                     room_name, primary_id, cloud_up=not primary_down, hk_alive=hk_alive
                 )
@@ -3098,7 +3112,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # entity no longer resets the PID — the HomeKit write
                     # entity's own availability check below decides that.
                     write_id = hk_id
-                    if primary_down:
+                    if primary_down or primary_state is None:
                         demand_pct = "n/a (cloud unavailable)"
                     else:
                         demand_pct = primary_state.attributes.get(
@@ -3252,6 +3266,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if not trv_write_id:
                         continue
 
+                    trv_state: State | None
                     if trv_write_id == write_id:
                         trv_state = write_state  # already fetched above
                     else:

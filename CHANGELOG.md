@@ -9,6 +9,33 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.67.3] — 2026-11-12
+
+### Fixed
+- **mypy tjekkede ikke det, den skulle.** `custom_components/` har ingen
+  `__init__.py`, så mypy kaldte modulerne `heat_manager.*`, og ingen af de
+  strenge regler i `pyproject.toml` ramte nogensinde ("unused section").
+  Med `mypy_path = "."` og `explicit_package_bases = true` gælder de nu.
+  De 45 fejl, det afslørede, er rettet — bl.a. manglende `None`-tjek i
+  coordinatoren, et genbrugt variabelnavn i statuslinjens
+  fjernbetjeningstekst og forkert type på advarselslisten.
+- `EntityCategory` importeres fra `homeassistant.const` (ikke
+  `homeassistant.helpers.entity`, som ikke eksporterer den officielt).
+- Opslag af NET-TRV-relæet (webhook og fraværstemperatur) læser nu
+  `parent_device_id` på HA 2026.11's nye underenheder før
+  `via_device_id`, som giver en udfasningsadvarsel på dem (fjernes i HA
+  2027.9). NET-TRV bruger i dag almindelige enheder, så adfærden er uændret.
+
+### Changed
+- **Hele integrationen er nu `mypy --strict`** (`strict = true` i
+  `[tool.mypy]`), og CI har fået et `typecheck`-job, der håndhæver det.
+  Jobbet kører mod en fastlåst Home Assistant (2026.2.3), fordi HA's egne
+  typer ændrer sig mellem versioner: HA 2026.11 typer skemaer med
+  `probatio` i stedet for `voluptuous`, hvilket giver ~90 typefejl i
+  websocket- og opsætningsskemaerne. Det er ren typning — alt kører og
+  testes også på HA 2026.11 — og flytningen til `probatio` er et separat
+  skridt. `quality_scale.yaml`: `strict-typing` er nu `done`.
+
 ## [0.67.2] — 2026-11-12
 
 ### Changed

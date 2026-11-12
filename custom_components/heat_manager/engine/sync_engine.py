@@ -214,8 +214,11 @@ class SyncEngine:
         expected = self.coordinator.last_expected_setpoint.get(room_name)
         if expected is None:
             return
+        raw_temp = state.attributes.get("temperature")
+        if raw_temp is None:
+            return
         try:
-            observed = float(state.attributes.get("temperature"))
+            observed = float(raw_temp)
         except (TypeError, ValueError):
             return
         if abs(observed - expected) < SYNC_CHANGE_THRESHOLD:
