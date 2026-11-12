@@ -30,14 +30,22 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, cast
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, State
+from homeassistant.core import (
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    State,
+    callback,
+)
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.issue_registry import (
     IssueSeverity,
     async_create_issue,
@@ -1054,6 +1062,24 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not valve_recently_moved(ts, now_ts):
                 return False
         return True
+
+    def track_state_changes(
+        self, entity_ids: list[str], handler: Callable[[Any], None]
+    ) -> Callable[[], None]:
+        """v0.67.5 (T2b): subscribe an engine handler to state changes.
+
+        Engines stay free of Home Assistant imports (rule 3.1) by asking the
+        coordinator to subscribe for them. The handler is wrapped in
+        ``@callback`` here so Home Assistant runs it in the event loop — a
+        plain sync function would otherwise be sent to an executor thread.
+        Returns the unsubscribe function.
+        """
+
+        @callback
+        def _forward(event: Event[EventStateChangedData]) -> None:
+            handler(event)
+
+        return async_track_state_change_event(self.hass, entity_ids, _forward)
 
     def get_netatmo_webhook_entity(self) -> str | None:
         """NET-TRV's webhook binary_sensor on the relay device. None for core

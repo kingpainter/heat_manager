@@ -31,9 +31,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import callback
-from homeassistant.helpers.event import async_track_state_change_event
-
 from ..const import (
     CONF_CLIMATE_ENTITY,
     CONF_NOTIFY_PREHEAT,
@@ -100,25 +97,23 @@ class PreheatEngine:
     def _register_listeners(self) -> None:
         if not self._travel_sensors:
             return
-        hass = self.coordinator.hass
 
         # Listen for person state changes to arm/disarm preheat
         person_ids = list(self._travel_sensors.keys())
         self._unsubs.append(
-            async_track_state_change_event(hass, person_ids, self._handle_person_change)
+            self.coordinator.track_state_changes(person_ids, self._handle_person_change)
         )
 
         # Listen for travel_time changes to trigger preheat
         travel_sensor_ids = list(self._travel_sensors.values())
         self._unsubs.append(
-            async_track_state_change_event(
-                hass, travel_sensor_ids, self._handle_travel_time_change
+            self.coordinator.track_state_changes(
+                travel_sensor_ids, self._handle_travel_time_change
             )
         )
 
     # ── Handlers ──────────────────────────────────────────────────────────────
 
-    @callback
     def _handle_person_change(self, event: Any) -> None:
         new_state = event.data.get("new_state")
         if new_state is None:
@@ -132,7 +127,6 @@ class PreheatEngine:
             self._preheat_armed = False
             self._clear_preheat_states()
 
-    @callback
     def _handle_travel_time_change(self, event: Any) -> None:
         if not self._preheat_armed:
             return

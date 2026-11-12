@@ -9,6 +9,18 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.67.5] — 2026-11-12
+
+### Changed
+- **Tre engines mere er rene (arkitekturregel 3.1, trin T2b).**
+  `door_engine`, `preheat_engine` og `presence_engine` abonnerede selv på
+  tilstandsændringer via Home Assistant. Nu beder de coordinatoren om det
+  (`coordinator.track_state_changes(entity_ids, handler)`), som pakker
+  handleren i `@callback`, så Home Assistant stadig kører den i
+  event-loopet. `presence_engine` læser desuden tiden via `engine/clock.py`.
+  Ingen adfærdsændring. Testen for rene engines dækker nu også de tre
+  moduler, og en ny test sikrer `@callback`-indpakningen.
+
 ## [0.67.4] — 2026-11-12
 
 ### Changed

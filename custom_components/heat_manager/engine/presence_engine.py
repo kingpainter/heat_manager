@@ -30,10 +30,6 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import callback
-from homeassistant.helpers.event import async_track_state_change_event
-from homeassistant.util.dt import utcnow
-
 from ..const import (
     ACTION_DISMISS,
     ACTION_FORCE_HEATING_ON,
@@ -58,6 +54,7 @@ from ..const import (
     TRV_TYPE_ZIGBEE,
     RoomState,
 )
+from .clock import local_now, utcnow
 from .controller import guarded
 
 if TYPE_CHECKING:
@@ -90,7 +87,6 @@ class PresenceEngine:
     # ── Listener registration ─────────────────────────────────────────────────
 
     def _register_listeners(self) -> None:
-        hass = self.coordinator.hass
 
         person_entity_ids = [
             p[CONF_PERSON_ENTITY]
@@ -100,8 +96,8 @@ class PresenceEngine:
 
         if person_entity_ids:
             self._unsubs.append(
-                async_track_state_change_event(
-                    hass, person_entity_ids, self._handle_person_change
+                self.coordinator.track_state_changes(
+                    person_entity_ids, self._handle_person_change
                 )
             )
             _LOGGER.debug("Tracking persons: %s", person_entity_ids)
@@ -109,8 +105,8 @@ class PresenceEngine:
         self._alarm_unsub: Any = None
         alarm = self.coordinator.alarm_panel
         if alarm:
-            self._alarm_unsub = async_track_state_change_event(
-                hass, [alarm], self._handle_alarm_change
+            self._alarm_unsub = self.coordinator.track_state_changes(
+                [alarm], self._handle_alarm_change
             )
             self._unsubs.append(self._alarm_unsub)
             _LOGGER.debug("Tracking alarm panel: %s", alarm)
@@ -134,11 +130,10 @@ class PresenceEngine:
                 self._unsubs.remove(self._alarm_unsub)
             self._alarm_unsub = None
 
-        hass = self.coordinator.hass
         alarm = self.coordinator.alarm_panel
         if alarm:
-            self._alarm_unsub = async_track_state_change_event(
-                hass, [alarm], self._handle_alarm_change
+            self._alarm_unsub = self.coordinator.track_state_changes(
+                [alarm], self._handle_alarm_change
             )
             self._unsubs.append(self._alarm_unsub)
             _LOGGER.debug("Tracking alarm panel (rebuilt): %s", alarm)
@@ -201,7 +196,6 @@ class PresenceEngine:
 
     # ── Person state changes ──────────────────────────────────────────────────
 
-    @callback
     def _handle_person_change(self, event: Any) -> None:
         self.coordinator.hass.async_create_task(
             self._async_handle_person_change(event),
@@ -278,7 +272,6 @@ class PresenceEngine:
 
     # ── Alarm changes (fixes B4) ──────────────────────────────────────────────
 
-    @callback
     def _handle_alarm_change(self, event: Any) -> None:
         self.coordinator.hass.async_create_task(
             self._async_handle_alarm_change(event),
@@ -656,9 +649,7 @@ class PresenceEngine:
         # night boundary by Denmark's UTC offset (1h CET / 2h CEST) — e.g. a
         # configured night_start of 22 (22:00 local) only actually took
         # effect at 23:00/00:00 local time, and ended equally late.
-        from homeassistant.util.dt import now as ha_now
-
-        hour = ha_now().hour
+        hour = local_now().hour
         night_start = self.coordinator.config.get(
             CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR
         )

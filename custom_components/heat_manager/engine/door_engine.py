@@ -37,9 +37,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import callback
-from homeassistant.helpers.event import async_track_state_change_event
-
 from ..const import (
     CONF_DOOR_ROOM_A,
     CONF_DOOR_ROOM_B,
@@ -104,12 +101,9 @@ class DoorEngine:
             _LOGGER.debug("No interior/heated-area doors configured — door engine idle")
             return
         self._unsubs.append(
-            async_track_state_change_event(
-                self.coordinator.hass, sensors, self._handle_sensor_change
-            )
+            self.coordinator.track_state_changes(sensors, self._handle_sensor_change)
         )
 
-    @callback
     def _handle_sensor_change(self, event: Any) -> None:
         new_state = event.data.get("new_state")
         old_state = event.data.get("old_state")

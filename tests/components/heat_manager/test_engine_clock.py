@@ -42,7 +42,7 @@ def _imports_homeassistant(path: Path) -> bool:
     return False
 
 
-def test_clock_only_engines_are_pure():
+def test_pure_engines_do_not_import_homeassistant():
     """Architecture rule 3.1: these engines no longer import homeassistant."""
     for name in (
         "clock",
@@ -50,5 +50,35 @@ def test_clock_only_engines_are_pure():
         "controller",
         "season_engine",
         "valve_protection_engine",
+        # v0.67.5 (T2b): state-change subscriptions via the coordinator
+        "door_engine",
+        "preheat_engine",
+        "presence_engine",
     ):
         assert not _imports_homeassistant(ENGINE_DIR / f"{name}.py"), name
+
+
+def test_track_state_changes_wraps_handler_as_callback():
+    """v0.67.5: the coordinator subscribes for the engines and marks the
+    forwarder @callback, so Home Assistant runs it in the event loop."""
+    from unittest.mock import MagicMock, patch
+
+    from custom_components.heat_manager.coordinator import HeatManagerCoordinator
+
+    coord = MagicMock()
+    coord.hass = MagicMock()
+    handler = MagicMock()
+    with patch(
+        "custom_components.heat_manager.coordinator.async_track_state_change_event",
+        return_value="unsub",
+    ) as track:
+        unsub = HeatManagerCoordinator.track_state_changes(
+            coord, ["binary_sensor.door"], handler
+        )
+    assert unsub == "unsub"
+    hass_arg, ids, forward = track.call_args[0]
+    assert hass_arg is coord.hass
+    assert ids == ["binary_sensor.door"]
+    assert getattr(forward, "_hass_callback", False) is True
+    forward("event")
+    handler.assert_called_once_with("event")
