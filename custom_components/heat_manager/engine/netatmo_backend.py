@@ -94,6 +94,24 @@ def effective_backend(
     return None
 
 
+TEMP_SOURCE_HOMEKIT = "homekit"
+TEMP_SOURCE_CLOUD = "cloud"
+
+
+def temp_source_order(backend: NetatmoBackend | None) -> tuple[str, str]:
+    """v0.62.1: which climate entity to read a room's temperature from first
+    (after an external room sensor, which always wins).
+
+    NET-TRV pushes changes via webhook in under a second with 0.1 °C
+    resolution, so its cloud entity is better than HomeKit's 0.5 °C. Core
+    netatmo is polled, so HomeKit (local, live) stays first there — as for
+    any non-Netatmo or unknown owner, which keeps pre-0.62.1 behaviour.
+    """
+    if backend is NetatmoBackend.NET_TRV:
+        return (TEMP_SOURCE_CLOUD, TEMP_SOURCE_HOMEKIT)
+    return (TEMP_SOURCE_HOMEKIT, TEMP_SOURCE_CLOUD)
+
+
 def summarize_backends(backends: Iterable[NetatmoBackend | None]) -> str:
     """One label for a set of per-valve backends (ignores non-Netatmo).
 

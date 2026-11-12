@@ -13,11 +13,14 @@ from custom_components.heat_manager.coordinator import HeatManagerCoordinator
 from custom_components.heat_manager.engine.netatmo_backend import (
     BACKEND_SUMMARY_MIXED,
     BACKEND_SUMMARY_NONE,
+    TEMP_SOURCE_CLOUD,
+    TEMP_SOURCE_HOMEKIT,
     NetatmoBackend,
     available_backends,
     effective_backend,
     resolve_backend,
     summarize_backends,
+    temp_source_order,
     trv_pid_writable,
 )
 
@@ -107,6 +110,7 @@ def _coordinator(platforms: dict[str, str], installed: set[str]) -> MagicMock:
         side_effect=lambda domain: [MagicMock()] if domain in installed else []
     )
     for name in (
+        "_entity_netatmo_backend",
         "get_trv_netatmo_backend",
         "get_room_netatmo_backend",
         "get_installed_netatmo_backends",
@@ -209,3 +213,70 @@ def test_rooms_pid_needs_homekit():
     assert coord.get_rooms_pid_needs_homekit() == ["Kitchen"]
     coord.pid_enabled = False
     assert coord.get_rooms_pid_needs_homekit() == []
+
+
+# ── Temperature source order (v0.62.1) ────────────────────────────────────────
+
+
+def test_temp_source_order():
+    assert temp_source_order(NET_TRV) == (TEMP_SOURCE_CLOUD, TEMP_SOURCE_HOMEKIT)
+    assert temp_source_order(CORE) == (TEMP_SOURCE_HOMEKIT, TEMP_SOURCE_CLOUD)
+    assert temp_source_order(None) == (TEMP_SOURCE_HOMEKIT, TEMP_SOURCE_CLOUD)
+
+
+def _temp_coordinator(platform: str | None, states: dict) -> MagicMock:
+    coord = _coordinator(
+        {"climate.kitchen": platform} if platform else {}, {"netatmo", "net_trv"}
+    )
+    coord.rooms = [{"room_name": "Kitchen"}]
+    coord.get_homekit_climate_entity = MagicMock(return_value="climate.valve_1")
+    coord.hass.states.get = MagicMock(side_effect=lambda eid: states.get(eid))
+    for name in ("get_room_current_temp", "_climate_current_temp"):
+        setattr(
+            coord,
+            name,
+            getattr(HeatManagerCoordinator, name).__get__(coord, type(coord)),
+        )
+    return coord
+
+
+def _climate(state: str, temp: float | None) -> SimpleNamespace:
+    return SimpleNamespace(state=state, attributes={"current_temperature": temp})
+
+
+BOTH = {
+    "climate.kitchen": _climate("auto", 20.7),
+    "climate.valve_1": _climate("heat", 20.5),
+}
+
+
+@pytest.mark.parametrize(
+    ("platform", "expected"),
+    [("net_trv", 20.7), ("netatmo", 20.5), (None, 20.5)],
+)
+def test_room_temp_order_follows_backend(platform, expected):
+    coord = _temp_coordinator(platform, BOTH)
+    with _patch_registry(coord):
+        assert coord.get_room_current_temp("Kitchen", "climate.kitchen") == expected
+
+
+def test_net_trv_falls_back_to_homekit_when_cloud_unavailable():
+    states = {**BOTH, "climate.kitchen": _climate("unavailable", None)}
+    coord = _temp_coordinator("net_trv", states)
+    with _patch_registry(coord):
+        assert coord.get_room_current_temp("Kitchen", "climate.kitchen") == 20.5
+
+
+def test_core_skips_homekit_reporting_off():
+    states = {**BOTH, "climate.valve_1": _climate("off", 20.5)}
+    coord = _temp_coordinator("netatmo", states)
+    with _patch_registry(coord):
+        assert coord.get_room_current_temp("Kitchen", "climate.kitchen") == 20.7
+
+
+def test_external_room_sensor_still_wins():
+    states = {**BOTH, "sensor.kitchen_temp": SimpleNamespace(state="21.3")}
+    coord = _temp_coordinator("net_trv", states)
+    coord.rooms = [{"room_name": "Kitchen", "room_temp_sensor": "sensor.kitchen_temp"}]
+    with _patch_registry(coord):
+        assert coord.get_room_current_temp("Kitchen", "climate.kitchen") == 21.3

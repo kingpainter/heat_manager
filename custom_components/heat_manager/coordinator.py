@@ -154,6 +154,7 @@ from .engine.netatmo_backend import (
     HEALTH_BATTERY,
     HEALTH_BATTERY_STATE,
     HEALTH_CONNECTIVITY,
+    TEMP_SOURCE_HOMEKIT,
     NetatmoBackend,
     SiblingEntity,
     available_backends,
@@ -162,6 +163,7 @@ from .engine.netatmo_backend import (
     pick_health_entities,
     resolve_backend,
     summarize_backends,
+    temp_source_order,
     trv_pid_writable,
 )
 from .engine.pid_controller import PidController
@@ -916,11 +918,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         and NET-TRV, so names say nothing about the owner. None for a
         non-Netatmo TRV (Zigbee, ...) or an entity missing from the registry.
         """
-        entity_id = self.get_trv_climate_entity(trv)
-        if not entity_id:
-            return None
-        entry = er.async_get(self.hass).async_get(entity_id)
-        return resolve_backend(entry.platform if entry else None)
+        return self._entity_netatmo_backend(self.get_trv_climate_entity(trv))
 
     def get_room_netatmo_backend(self, room_name: str) -> str:
         """Summary of the room's Netatmo backends: "net_trv", "netatmo",
@@ -1677,8 +1675,11 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         1. CONF_ROOM_TEMP_SENSOR — external probe, independent of the TRV body.
            Zigbee TRVs especially benefit: their built-in sensor sits on the
            hot radiator and reads 1–3 °C higher than actual room temperature.
-        2. HomeKit climate entity current_temperature (Netatmo local HAP).
-        3. Cloud climate entity current_temperature (fallback).
+        2./3. The room's HomeKit and cloud climate entities'
+           current_temperature, in the order temp_source_order() gives for
+           the cloud entity's owner (v0.62.1): NET-TRV (webhook, 0.1 °C)
+           before HomeKit; HomeKit (local, live) before core netatmo
+           (polled) and anything else.
 
         Returns None only if all sources are unavailable — a value outside
         _ROOM_TEMP_SANITY_MIN/_MAX (3.5 hardening: a glitching sensor can
@@ -1701,34 +1702,42 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         pass
             break  # room found, external sensor absent or unavailable
 
-        # 2. HomeKit entity (Netatmo local HAP — fresher than cloud)
         hk_id = self.get_homekit_climate_entity(room_name)
-        if hk_id:
-            state = self.hass.states.get(hk_id)
-            if state and state.state not in ("unavailable", "unknown", "off"):
-                try:
-                    raw = state.attributes.get("current_temperature")
-                    if raw is not None:
-                        val = _sanity_clamp_temp(float(raw))
-                        if val is not None:
-                            return val
-                except (TypeError, ValueError):
-                    pass
-
-        # 3. Cloud / primary climate entity
-        if climate_id:
-            state = self.hass.states.get(climate_id)
-            if state and state.state not in ("unavailable", "unknown"):
-                try:
-                    raw = state.attributes.get("current_temperature")
-                    if raw is not None:
-                        val = _sanity_clamp_temp(float(raw))
-                        if val is not None:
-                            return val
-                except (TypeError, ValueError):
-                    pass
+        for source in temp_source_order(self._entity_netatmo_backend(climate_id)):
+            if source == TEMP_SOURCE_HOMEKIT:
+                # HomeKit reports "off" when unreachable — not a usable reading
+                val = self._climate_current_temp(
+                    hk_id, ("unavailable", "unknown", "off")
+                )
+            else:
+                val = self._climate_current_temp(climate_id, ("unavailable", "unknown"))
+            if val is not None:
+                return val
 
         return None
+
+    def _climate_current_temp(
+        self, entity_id: str | None, bad_states: tuple[str, ...]
+    ) -> float | None:
+        """current_temperature of a climate entity, sanity-clamped; None if
+        missing, in one of bad_states, or not a number."""
+        if not entity_id:
+            return None
+        state = self.hass.states.get(entity_id)
+        if not state or state.state in bad_states:
+            return None
+        try:
+            raw = state.attributes.get("current_temperature")
+            return None if raw is None else _sanity_clamp_temp(float(raw))
+        except (TypeError, ValueError):
+            return None
+
+    def _entity_netatmo_backend(self, entity_id: str | None) -> NetatmoBackend | None:
+        """Netatmo integration owning entity_id (registry platform), or None."""
+        if not entity_id:
+            return None
+        entry = er.async_get(self.hass).async_get(entity_id)
+        return resolve_backend(entry.platform if entry else None)
 
     # ── Blocking sources (self-reporting diagnostics) ────────────────────────
     # Mirrors climate_group_helper's `blocking_sources` attribute: lets the

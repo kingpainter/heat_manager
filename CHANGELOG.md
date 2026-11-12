@@ -9,6 +9,17 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.62.1] — 2026-11-12
+
+### Changed
+- **Rumtemperatur læses fra NET-TRV før HomeKit.** Uden ekstern rumsensor
+  læste Heat Manager altid ventilens temperatur fra HomeKit først (0,5 °C).
+  Ejes rummets klimaenhed af NET-TRV, læses den nu derfra først — NET-TRV
+  får ændringer via webhook på under 1 sekund og har 0,1 °C opløsning.
+  HomeKit bruges, hvis NET-TRV er utilgængelig. Med core netatmo (pollet)
+  og alle andre integrationer er rækkefølgen uændret: HomeKit først. En
+  ekstern rumsensor vinder stadig altid. Ejeren læses fra entity registry.
+
 ## [0.62.0] — 2026-11-11
 
 ### Added
