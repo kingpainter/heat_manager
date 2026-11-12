@@ -9,6 +9,17 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.65.1] — 2026-11-12
+
+### Fixed
+- **En deaktiveret Netatmo-integration tæller ikke længere som installeret.**
+  Heat Manager talte config entries med `hass.config_entries.async_entries()`,
+  som også returnerer deaktiverede entries. Var den valgte integration (core
+  eller NET-TRV) deaktiveret i stedet for slettet, kom reparationsbeskeden
+  fra v0.61.1 derfor ikke, og valgfeltet "Netatmo-integration" blev vist,
+  selvom kun én integration var aktiv. Nu tæller kun entries uden
+  `disabled_by`.
+
 ## [0.65.0] — 2026-11-12
 
 ### Changed

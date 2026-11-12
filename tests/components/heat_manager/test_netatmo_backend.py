@@ -107,7 +107,9 @@ def _coordinator(platforms: dict[str, str], installed: set[str]) -> MagicMock:
     coord = MagicMock()
     coord.hass = MagicMock()
     coord.hass.config_entries.async_entries = MagicMock(
-        side_effect=lambda domain: [MagicMock()] if domain in installed else []
+        side_effect=lambda domain: (
+            [MagicMock(disabled_by=None)] if domain in installed else []
+        )
     )
     for name in (
         "_entity_netatmo_backend",
@@ -280,3 +282,16 @@ def test_external_room_sensor_still_wins():
     coord.rooms = [{"room_name": "Kitchen", "room_temp_sensor": "sensor.kitchen_temp"}]
     with _patch_registry(coord):
         assert coord.get_room_current_temp("Kitchen", "climate.kitchen") == 21.3
+
+
+def test_disabled_config_entry_does_not_count_as_installed():
+    """v0.65.1: async_entries() also returns disabled entries — they must
+    not count, or a deactivated integration never raises the repair."""
+    coord = _coordinator({}, set())
+    coord.hass.config_entries.async_entries = MagicMock(
+        side_effect=lambda domain: {
+            "netatmo": [MagicMock(disabled_by="user")],
+            "net_trv": [MagicMock(disabled_by=None)],
+        }.get(domain, [])
+    )
+    assert coord.get_installed_netatmo_backends() == {NET_TRV}

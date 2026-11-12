@@ -176,11 +176,15 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _installed_netatmo_backends(hass: HomeAssistant) -> set[NetatmoBackend]:
-    """Netatmo integrations (core / NET-TRV) with at least one config entry."""
+    """Netatmo integrations (core / NET-TRV) with at least one config entry
+    that is not disabled (v0.65.1: async_entries() includes disabled ones)."""
     return available_backends(
         backend.value
         for backend in NetatmoBackend
-        if hass.config_entries.async_entries(backend.value)
+        if any(
+            entry.disabled_by is None
+            for entry in hass.config_entries.async_entries(backend.value)
+        )
     )
 
 

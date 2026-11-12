@@ -39,7 +39,9 @@ def _hass(installed: set[str]) -> MagicMock:
         side_effect=lambda eid: MagicMock(state="heat") if eid in PLATFORMS else None
     )
     hass.config_entries.async_entries = MagicMock(
-        side_effect=lambda domain=None: [MagicMock()] if domain in installed else []
+        side_effect=lambda domain=None: (
+            [MagicMock(disabled_by=None)] if domain in installed else []
+        )
     )
     return hass
 
@@ -183,3 +185,15 @@ def test_auto_never_raises_repair():
     create, delete = _check(_entry("auto", None))
     create.assert_not_called()
     delete.assert_called_once()
+
+
+def test_choice_hidden_when_one_backend_is_disabled():
+    """v0.65.1: a disabled core entry is not "installed"."""
+    hass = _hass({"net_trv"})
+    hass.config_entries.async_entries = MagicMock(
+        side_effect=lambda domain=None: {
+            "netatmo": [MagicMock(disabled_by="user")],
+            "net_trv": [MagicMock(disabled_by=None)],
+        }.get(domain, [])
+    )
+    assert _show_netatmo_backend_choice(hass, {}) is False

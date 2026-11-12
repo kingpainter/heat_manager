@@ -933,11 +933,16 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     def get_installed_netatmo_backends(self) -> set[NetatmoBackend]:
-        """Netatmo integrations that have at least one config entry."""
+        """Netatmo integrations with at least one config entry that is not
+        disabled. v0.65.1: a disabled entry no longer counts as installed —
+        async_entries() returns disabled entries too."""
         return available_backends(
             backend.value
             for backend in NetatmoBackend
-            if self.hass.config_entries.async_entries(backend.value)
+            if any(
+                entry.disabled_by is None
+                for entry in self.hass.config_entries.async_entries(backend.value)
+            )
         )
 
     def is_trv_pid_writable(self, trv: dict[str, Any]) -> bool:
