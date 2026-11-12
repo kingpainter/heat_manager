@@ -7,7 +7,7 @@ custom integration. It manages presence-based heating, open window detection,
 pre-heating on arrival, seasonal on/off control, mold risk monitoring, and
 weather-aware PID control — all from the UI.
 
-[![Version](https://img.shields.io/badge/version-0.67.0-blue)](https://github.com/kingpainter/heat-manager/releases)
+[![Version](https://img.shields.io/badge/version-0.67.1-blue)](https://github.com/kingpainter/heat-manager/releases)
 [![HA min version](https://img.shields.io/badge/Home%20Assistant-%3E%3D2025.1-blue)](https://www.home-assistant.io)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange)](https://hacs.xyz)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -44,7 +44,7 @@ Off shuts everything down permanently — with the correct fallback per season.
 - **Night setback** — optional: reduce PID target by N°C during configured night hours (default 23:00–07:00, disabled by default)
 - **HomeKit-first write routing** — all `set_temperature` writes prefer the local HomeKit entity over the Netatmo cloud, eliminating 429 rate-limit errors for those calls
 - **Netatmo open-window detection** *(v0.64.0, opt-in per room)* — the valve's own `open_window` (NET-TRV) can count as a window sensor for rooms without a contact sensor; same suppression, warning and restore as a contact sensor, no extra delay
-- **Clear room cards in the panel** *(v0.66.0)* — each room in the Rooms tab is split into named sections (temperature, valve, indoor climate, room settings, temporary change), with one distinct Danish name per value: current room temperature, the target right now, the setpoint sent to the valve and the valve's own reading. Rooms without a valve are marked "sensors only" and show measurements only — no PID, target or manual controls
+- **Clear room cards in the panel** *(v0.66.0)* — each room in the Rooms tab is split into named sections (temperature, valve, indoor climate, room settings, temporary change), with one distinct Danish name per value: current room temperature, the target right now, the setpoint sent to the valve and the valve's own reading. Rooms without a valve are marked "sensors only" and show measurements only — no PID, target or manual controls. Since v0.67.1 the cards are collapsed by default to a one-line summary (temperature, target, valve, humidity, open doors) and expand on click; "expand/collapse all" sits in the section header
 - **Netatmo control mode in the panel** *(v0.65.3)* — each room's Netatmo line shows who controls the room right now (schedule / manual until HH:MM / boost / away / frost guard), from NET-TRV's `netatmo_setpoint_mode` and `setpoint_end_time`
 - **Room-only schedule restore** *(v0.63.0)* — handing one room back to its Netatmo schedule (window closed, override ended, controller OFF) uses the owning integration's `clear_temperature_setting`, so away / frost guard for the rest of the house is never cancelled; home-level away/schedule is sent once instead of once per valve
 - **Best room temperature source** *(v0.62.1)* — without an external room sensor, NET-TRV rooms read the cloud entity first (webhook push, 0.1 °C) and fall back to HomeKit; core netatmo rooms keep HomeKit first (local, live)

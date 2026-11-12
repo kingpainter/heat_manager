@@ -9,6 +9,18 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.67.1] — 2026-11-12
+
+### Changed
+- **Rumkortene i Rum-fanen kan klappes sammen** og er sammenklappede som
+  standard. Et lukket kort viser rumnavn, mærker, tilstand og én linje med
+  det vigtigste — fx "21.1°C → mål 20°C · ventil 0% · fugt 54% · dør
+  åben" — samt advarsler (enheder der ikke svarer, manuel styring).
+  Klik på kortets hoved (eller Enter/mellemrum) folder det ud med alle
+  sektioner. "Fold alle ud / Fold alle sammen" står i sektionens hoved.
+  Hvilke rum der er foldet ud huskes i browserfanen (sessionStorage), så
+  det ikke nulstilles ved panelets opdatering hvert minut eller ved genindlæsning.
+
 ## [0.67.0] — 2026-11-12
 
 ### Added

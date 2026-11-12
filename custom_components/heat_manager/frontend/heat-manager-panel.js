@@ -29,6 +29,10 @@ class HeatManagerPanel extends HTMLElement {
     this._refreshing      = false; // refresh button spinner guard
     this._lastSyncTime       = null;  // UX3: timestamp of last successful WS fetch
     this._manualControlEnabled = false; // manual TRV control toggle
+    // v0.67.1: room cards in the Rum tab are collapsed by default; the names
+    // of the expanded ones survive the 60 s rebuild and a page reload in the
+    // same browser tab (sessionStorage — a light per-viewer convenience).
+    this._expandedRooms = this._loadExpandedRooms();
     this._historyFilter   = "all"; // v0.3.9: event-type filter on Historik tab
     this._toastTimer      = null;  // v0.3.9: auto-dismiss timer for toast
     // 2026-09-19 (bugfix): sections in Konfiguration default collapsed
@@ -827,6 +831,32 @@ class HeatManagerPanel extends HTMLElement {
   // whatever listeners were attached to the previous row elements).
   _attachRoomDetailEvents() {
     const root = this.shadowRoot;
+
+    // v0.67.1: collapse/expand a room card (click or Enter/Space on its head).
+    root.querySelectorAll(".rd-head[data-action='toggle-room']").forEach(head => {
+      const toggle = () => {
+        const row = head.closest(".room-detail-row");
+        this._setRoomExpanded(row, !row.classList.contains("expanded"));
+        this._saveExpandedRooms();
+        this._updateFoldAllButton();
+      };
+      head.addEventListener("click", toggle);
+      head.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+      });
+    });
+    // The fold-all button lives outside the rebuilt container: wire it once.
+    const foldAll = root.querySelector("#rooms-fold-all");
+    if (foldAll && !foldAll.dataset.wired) {
+      foldAll.dataset.wired = "1";
+      foldAll.addEventListener("click", () => {
+        const expand = foldAll.dataset.mode !== "collapse";
+        root.querySelectorAll(".room-detail-row").forEach(row => this._setRoomExpanded(row, expand));
+        this._saveExpandedRooms();
+        this._updateFoldAllButton();
+      });
+    }
+    this._updateFoldAllButton();
 
     // Manual-control: slider live update + gradient fill
     root.querySelectorAll(".room-manual-slider").forEach(slider => {
@@ -1650,6 +1680,31 @@ class HeatManagerPanel extends HTMLElement {
       .rd-unit { font-size: 11px; color: var(--sub); }
       .rd-note { font-size: 11px; color: var(--amber); margin: 2px 0 4px 158px; line-height: 1.4; }
       .rd-warn { font-size: 11px; color: var(--red); margin: 4px 0; line-height: 1.4; }
+      /* v0.67.1: collapsible room cards */
+      .rd-head {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 8px; margin-bottom: 4px; cursor: pointer; user-select: none;
+        border-radius: 6px;
+      }
+      .rd-head:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+      .rd-chevron {
+        display: inline-block; width: 12px; color: var(--sub); font-size: 16px;
+        line-height: 1; transition: transform .2s;
+      }
+      .room-detail-row.expanded .rd-chevron { transform: rotate(90deg); }
+      .room-detail-row:not(.expanded) .rd-body { display: none; }
+      .room-detail-row.expanded .rd-summary { display: none; }
+      .rd-summary {
+        font-size: 12px; color: var(--sub); padding-left: 18px;
+        display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0;
+      }
+      .rd-summary b { color: var(--text); font-weight: 600; font-family: 'DM Mono', monospace; }
+      .rd-dot { margin: 0 6px; opacity: .6; }
+      .rd-fold-all {
+        background: transparent; border: 1px solid var(--div); color: var(--sub);
+        font: inherit; font-size: 11px; padding: 3px 10px; border-radius: 6px; cursor: pointer;
+      }
+      .rd-fold-all:hover { color: var(--text); border-color: rgba(148,163,184,0.28); }
       .rd-badge-sensor {
         font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 4px;
         background: var(--bg3); color: var(--sub); letter-spacing: .04em;
@@ -3457,27 +3512,94 @@ class HeatManagerPanel extends HTMLElement {
         ${!groupEnabled ? `<div style="font-size:10px;color:var(--sub);margin-top:6px;line-height:1.5">De ekstra ventiler styres ikke af Heat Manager lige nu — kun den primære ventil følger skemaet.</div>` : ""}
       </div>` : "";
 
+    // ── Collapsed summary (v0.67.1) ───────────────────────────────────────
+    // One line with what matters at a glance; everything else sits in the
+    // .rd-body blocks that only show when the card is expanded.
+    const summaryParts = [];
+    if (room.current_temp != null) {
+      summaryParts.push(hasTrv && setpt
+        ? `<span><b>${fmtT(room.current_temp)}</b>&nbsp;→ mål ${setpt}</span>`
+        : `<b>${fmtT(room.current_temp)}</b>`);
+    }
+    if (hasTrv && room.valve_position != null) {
+      const v = Math.round(room.valve_position);
+      summaryParts.push(v > 0 ? `<span style="color:#f97316">ventil ${v}%</span>` : `ventil ${v}%`);
+    }
+    if (room.humidity != null) summaryParts.push(`fugt ${Math.round(room.humidity)}%`);
+    if (room.co2 != null) summaryParts.push(`CO₂ ${Math.round(room.co2)} ppm`);
+    if (doors.some(d => d.is_open) || room.heated_door_open) {
+      summaryParts.push(`<span style="color:var(--amber)">dør åben</span>`);
+    }
+    if (hasTrv && room.battery_level != null && room.battery_level <= 30) {
+      summaryParts.push(`<span style="color:var(--amber)">batteri ${Math.round(room.battery_level)}%</span>`);
+    }
+    const expanded = this._expandedRooms.has(room.name);
+
     return `
-      <div class="room-detail-row" style="border-bottom:1px solid var(--div)">
+      <div class="room-detail-row${expanded ? " expanded" : ""}" data-room="${roomName}" style="border-bottom:1px solid var(--div)">
         <div style="padding:12px 16px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-            <div style="display:flex;align-items:center;gap:6px">
+          <div class="rd-head" data-action="toggle-room" data-room="${roomName}"
+            role="button" tabindex="0" aria-expanded="${expanded}"
+            title="${expanded ? "Fold sammen" : "Vis detaljer"}">
+            <div style="display:flex;align-items:center;gap:6px;min-width:0">
+              <span class="rd-chevron" aria-hidden="true">›</span>
               <span style="font-size:14px;font-weight:600">${roomName}</span>
               ${trvBadge}
               ${boostBadge}
             </div>
             ${stateBadge}
           </div>
+          <div class="rd-summary">${summaryParts.join('<span class="rd-dot">·</span>')}</div>
           ${overrideInfo ? `<div class="room-override-info">${esc(overrideInfo)}</div>` : ""}
           ${unavailableHTML}
-          ${tempHTML}
-          ${valveHTML}
-          ${climateHTML}
-          ${settingsHTML}
+          <div class="rd-body">
+            ${tempHTML}
+            ${valveHTML}
+            ${climateHTML}
+            ${settingsHTML}
+          </div>
         </div>
-        ${manualHTML}
-        ${groupingHTML}
+        <div class="rd-body">
+          ${manualHTML}
+          ${groupingHTML}
+        </div>
       </div>`;
+  }
+
+  _loadExpandedRooms() {
+    try {
+      const raw = sessionStorage.getItem("heat_manager_expanded_rooms");
+      const list = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(list) ? list : []);
+    } catch (_e) {
+      return new Set();
+    }
+  }
+
+  _saveExpandedRooms() {
+    try {
+      sessionStorage.setItem("heat_manager_expanded_rooms", JSON.stringify([...this._expandedRooms]));
+    } catch (_e) { /* storage unavailable — state just isn't remembered */ }
+  }
+
+  // v0.67.1: expand/collapse without rebuilding — flip the class on the row.
+  _setRoomExpanded(row, expanded) {
+    const name = row?.dataset.room;
+    if (!name) return;
+    row.classList.toggle("expanded", expanded);
+    const head = row.querySelector(".rd-head");
+    head?.setAttribute("aria-expanded", String(expanded));
+    head?.setAttribute("title", expanded ? "Fold sammen" : "Vis detaljer");
+    if (expanded) this._expandedRooms.add(name); else this._expandedRooms.delete(name);
+  }
+
+  _updateFoldAllButton() {
+    const btn = this.shadowRoot.querySelector("#rooms-fold-all");
+    if (!btn) return;
+    const rows = [...this.shadowRoot.querySelectorAll(".room-detail-row")];
+    const allOpen = rows.length > 0 && rows.every(r => r.classList.contains("expanded"));
+    btn.textContent = allOpen ? "Fold alle sammen" : "Fold alle ud";
+    btn.dataset.mode = allOpen ? "collapse" : "expand";
   }
 
   // v0.66.0: Netatmo's own view of the room as plain Danish rows — who
@@ -3572,8 +3694,11 @@ class HeatManagerPanel extends HTMLElement {
       <div class="section-box">
         <div class="section-box-header">
           <div class="section-box-title">Rum — detaljer</div>
-          <div class="section-box-badge rooms-detail-badge" style="background:rgba(249,115,22,0.15);color:var(--amber)">
-            ${heatingCount} / ${rooms.length} varmer
+          <div style="display:flex;align-items:center;gap:8px">
+            <button class="rd-fold-all" id="rooms-fold-all" type="button">Fold alle ud</button>
+            <div class="section-box-badge rooms-detail-badge" style="background:rgba(249,115,22,0.15);color:var(--amber)">
+              ${heatingCount} / ${rooms.length} varmer
+            </div>
           </div>
         </div>
         <div class="rooms-detail-container">
