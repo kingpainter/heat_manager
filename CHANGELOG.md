@@ -9,6 +9,41 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.67.0] — 2026-11-12
+
+### Added
+- **Global laveste rumtemperatur** (`min_room_temp`, standard 17 °C — et
+  almindeligt minimum mod skimmel). Den gælder alle rum: PID'en sender
+  aldrig et lavere sætpunkt til en ventil, og nat-/vågnesænkningen går
+  aldrig under den. Kan sættes i opsætningens globale trin og live i
+  panelet under Indstillinger → *Temperaturgrænser*.
+- **Netatmos fraværstemperatur i panelet.** Med NET-TRV finder Heat Manager
+  relæets `number.<relæ>_away_temperature` og viser den under
+  *Temperaturgrænser*. Gem skriver værdien direkte til Netatmo
+  (`number.set_value`) — samme værdi som i Netatmo-appen, gemt på den
+  aktive tidsplan (navnet vises). Er den lavere end laveste rumtemperatur,
+  vises en advarsel. Med core netatmo står der, at den styres i
+  Netatmo-appen. Nyt felt i `heat_manager/get_state`: `netatmo_away_temp`.
+
+### Changed
+- **Den gamle "fraværstemperatur" pr. rum er fjernet.** Feltet
+  `away_temp_override` hed "Away temp"/"Fraværstemperatur", men styrede
+  aldrig temperaturen når huset er tomt (det gør Netatmos egen
+  fraværstemperatur). Det var kun bund for PID'en og natsænkningen — nu den
+  globale laveste rumtemperatur. Feltet er fjernet fra rumtrinnet i
+  opsætningen, fra rumkortet i panelet og fra mobilkortet, og gemte værdier
+  ryddes automatisk ved opstart (`STALE_ROOM_KEYS`). Bemærk: rum der før
+  havde 10 °C som bund, har nu 17 °C, indtil du ændrer den globale værdi.
+- Beskrivelser af sluk-temperatur ved åbent vindue, natsænkning og
+  udetemperatursensor er rettet, så de ikke længere henviser til den
+  fjernede rumværdi eller til en adaptiv fraværstemperatur.
+
+### Removed
+- README beskrev en "adaptiv fraværstemperatur" (`away_temp_mild`,
+  `away_temp_cold`, `mild_threshold`), som ikke findes i koden. Afsnittet er
+  fjernet, og konfigurationstabellen viser nu `window_off_temp` og
+  `min_room_temp`.
+
 ## [0.66.0] — 2026-11-12
 
 ### Changed

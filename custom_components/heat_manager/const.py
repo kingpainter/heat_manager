@@ -86,7 +86,19 @@ CONF_WINDOW_DELAY_DEFAULT_MIN = "window_delay_default_min"
 # the original away_temp_override design and CHANGELOG [0.33.0] for this split.
 CONF_WINDOW_OFF_TEMP = "window_off_temp"
 
+# Removed in v0.67.0 (kept for STALE_ROOM_KEYS and old-config tests): the
+# per-room "away temp" was never the temperature used while away — it only
+# floored the PID's lowest setpoint and the night setback. Replaced by the
+# global CONF_MIN_ROOM_TEMP below. Away itself uses Netatmo's own home-level
+# away temperature (NET-TRV number.<relay>_away_temperature).
 CONF_AWAY_TEMP_OVERRIDE = "away_temp_override"
+
+# v0.67.0: global lowest room temperature — the floor for the PID's setpoint
+# (0 % demand) and for the night/wake setback, in every room. Default 17 °C:
+# a common housing-association minimum against mould.
+CONF_MIN_ROOM_TEMP = "min_room_temp"
+DEFAULT_MIN_ROOM_TEMP: float = 17.0
+MIN_ROOM_TEMP_RANGE: tuple[float, float] = (5.0, 22.0)
 
 # ── Interior doors (2026-09-11) ──────────────────────────────────────────────
 # An interior door connects TWO rooms — unlike CONF_WINDOW_SENSORS (which
@@ -658,7 +670,8 @@ REPAIR_ISSUE_ID_PREFIX = "persistent_"
 # energy_tracking / _energy_history / room_wattage — energy feature, removed
 # 2026-09-11 (meaningless on district heating).
 STALE_CONFIG_KEYS = ("energy_tracking", "_energy_history")
-STALE_ROOM_KEYS = ("room_wattage",)
+# away_temp_override — replaced by the global CONF_MIN_ROOM_TEMP (v0.67.0).
+STALE_ROOM_KEYS = ("room_wattage", CONF_AWAY_TEMP_OVERRIDE)
 
 # ── Effective season (resolved — three-tier) ─────────────────────────────────
 

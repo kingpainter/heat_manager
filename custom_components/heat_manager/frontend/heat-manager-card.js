@@ -1642,13 +1642,9 @@ class HeatManagerCard extends HTMLElement {
       rows.push(["🗓 Schedule", "Konfigureret"]);
     }
 
-    // Punkt 12 (2026-09-14, card/panel data-parity) — target_temp/away_temp
-    // read-out, mirroring the panel's Rum-fane inline room-cfg rows
-    // (target_temp is already used as the manual-temp input's placeholder
-    // below, but wasn't shown as its own labelled row anywhere on this
-    // card until now — same gap for away_temp_override, which the card
-    // never surfaced at all). Both are plain rd reads, only present once
-    // the 60s get_state poll has completed.
+    // Punkt 12 (2026-09-14, card/panel data-parity) — target_temp read-out
+    // (the per-room away_temp_override row was removed in v0.67.0; it is the
+    // global min_room_temp now). Only present once get_state has completed.
     // v0.59.0: who holds the room manual, since/until when.
     if (state === "override") {
       const src   = rd?.override_source ?? this._roomOverrideSource(roomName);
@@ -1661,9 +1657,6 @@ class HeatManagerCard extends HTMLElement {
     }
     if (rd?.target_temp != null) {
       rows.push(["🎯 Mål-temp", rd.target_temp.toFixed(1) + "°C"]);
-    }
-    if (rd?.away_temp_override != null) {
-      rows.push(["🚀 Away-temp", rd.away_temp_override.toFixed(1) + "°C"]);
     }
 
     // Punkt 12 — Netatmo cloud-diagnostik, mirroring the panel's

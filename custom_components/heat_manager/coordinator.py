@@ -73,6 +73,7 @@ from .const import (
     CONF_HUMIDITY_SENSOR,
     CONF_ISSUE_ESCALATION_MINUTES,
     CONF_LUX_SENSOR,
+    CONF_MIN_ROOM_TEMP,
     CONF_NETATMO_BACKEND,
     CONF_NOTIFY_ISSUE_ESCALATION,
     CONF_NOTIFY_MOLD_RISK,
@@ -109,6 +110,7 @@ from .const import (
     DEFAULT_COMFORT_TEMP,
     DEFAULT_DOOR_HEAT_SHARE_ENABLED,
     DEFAULT_ISSUE_ESCALATION_MINUTES,
+    DEFAULT_MIN_ROOM_TEMP,
     DEFAULT_NETATMO_BACKEND,
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
@@ -160,6 +162,8 @@ from .engine.netatmo_backend import (
     HEALTH_BATTERY_STATE,
     HEALTH_CONNECTIVITY,
     HEALTH_VALVE_POSITION,
+    RELAY_AWAY_TEMP_SUFFIX,
+    RELAY_WEBHOOK_SUFFIX,
     TEMP_SOURCE_HOMEKIT,
     NetatmoBackend,
     SiblingEntity,
@@ -167,6 +171,7 @@ from .engine.netatmo_backend import (
     battery_is_low,
     effective_backend,
     pick_health_entities,
+    pick_relay_entity,
     resolve_backend,
     summarize_backends,
     temp_source_order,
@@ -1030,8 +1035,26 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return True
 
     def get_netatmo_webhook_entity(self) -> str | None:
-        """NET-TRV's webhook binary_sensor, found on the relay device that the
-        room devices hang off (via_device). None for core netatmo."""
+        """NET-TRV's webhook binary_sensor on the relay device. None for core
+        netatmo."""
+        return self._netatmo_relay_entity("binary_sensor", RELAY_WEBHOOK_SUFFIX)
+
+    def get_netatmo_away_temp_entity(self) -> str | None:
+        """v0.67.0: NET-TRV's writable home-level away temperature
+        (number.<relay>_away_temperature) — the temperature every Netatmo
+        valve goes to while Heat Manager has the house in away mode. None for
+        core netatmo, which has no such entity."""
+        return self._netatmo_relay_entity("number", RELAY_AWAY_TEMP_SUFFIX)
+
+    @property
+    def min_room_temp(self) -> float:
+        """v0.67.0: global lowest room temperature — floors the PID's
+        setpoint and the night/wake setback in every room."""
+        return float(self.config.get(CONF_MIN_ROOM_TEMP, DEFAULT_MIN_ROOM_TEMP))
+
+    def _netatmo_relay_entity(self, domain: str, suffix: str) -> str | None:
+        """Find a NET-TRV entity on the relay device that the room devices
+        hang off (via_device), by unique_id suffix."""
         ent_reg = er.async_get(self.hass)
         dev_reg = dr.async_get(self.hass)
         for room in self.rooms:
@@ -1043,11 +1066,23 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 device = dev_reg.async_get(entry.device_id) if entry.device_id else None
                 if device is None or not device.via_device_id:
                     continue
-                for sib in er.async_entries_for_device(ent_reg, device.via_device_id):
-                    if sib.domain == "binary_sensor" and (sib.unique_id or "").endswith(
-                        "-webhook"
-                    ):
-                        return sib.entity_id
+                found = pick_relay_entity(
+                    (
+                        SiblingEntity(
+                            entity_id=sib.entity_id,
+                            domain=sib.domain,
+                            unique_id=sib.unique_id or "",
+                            device_class=None,
+                        )
+                        for sib in er.async_entries_for_device(
+                            ent_reg, device.via_device_id
+                        )
+                    ),
+                    domain,
+                    suffix,
+                )
+                if found:
+                    return found
         return None
 
     def get_netatmo_health(self) -> dict[str, Any]:
@@ -2915,10 +2950,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         setback = self.night_setback_delta() + self.wake_setback_delta()
         if setback > 0.0:
             before = target_temp
-            target_temp = max(
-                target_temp - setback,
-                float(room.get("away_temp_override", 10.0)),
-            )
+            target_temp = max(target_temp - setback, self.min_room_temp)
             _LOGGER.debug(
                 "Setback [%s]: %.1f°C → %.1f°C (night=−%.1f°C wake=−%.1f°C)",
                 room_name,
@@ -3150,7 +3182,7 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     power=power,
                     current_temp=current_temp,
                     trv_max=self.trv_max_temp,
-                    trv_min=float(room.get("away_temp_override", 10.0)),
+                    trv_min=self.min_room_temp,
                 )
 
                 # ── Setpoint margin (2026-09-15, overshoot investigation) ───

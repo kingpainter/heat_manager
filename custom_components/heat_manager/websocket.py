@@ -29,7 +29,6 @@ from .const import (
     CONF_ALARM_PANEL,
     CONF_AUTO_OFF_TEMP_DAYS,
     CONF_AUTO_OFF_TEMP_THRESHOLD,
-    CONF_AWAY_TEMP_OVERRIDE,
     CONF_BATTERY_SENSOR,
     CONF_BOOST_DEFAULT_MINUTES,
     CONF_BOOST_DEFAULT_TEMP,
@@ -54,6 +53,7 @@ from .const import (
     CONF_ISSUE_ESCALATION_MINUTES,
     CONF_LUX_SENSOR,
     CONF_MANUAL_TRV_CONTROL,
+    CONF_MIN_ROOM_TEMP,
     CONF_NIGHT_END_HOUR,
     CONF_NIGHT_SETBACK_ENABLED,
     CONF_NIGHT_SETBACK_TEMP,
@@ -99,6 +99,7 @@ from .const import (
     DEFAULT_GRACE_NIGHT_MIN,
     DEFAULT_ISSUE_ESCALATION_MINUTES,
     DEFAULT_MANUAL_TRV_CONTROL,
+    DEFAULT_MIN_ROOM_TEMP,
     DEFAULT_NIGHT_END_HOUR,
     DEFAULT_NIGHT_SETBACK_ENABLED,
     DEFAULT_NIGHT_SETBACK_TEMP,
@@ -119,6 +120,7 @@ from .const import (
     FF_MAX_CONTRIBUTION,
     FF_REFERENCE_OUTDOOR_TEMP,
     FF_WEIGHT,
+    MIN_ROOM_TEMP_RANGE,
     PID_SETPOINT_MARGIN,
     SOLAR_GAIN_LUX_THRESHOLD,
     SOLAR_GAIN_MAX_REDUCTION,
@@ -1167,7 +1169,6 @@ async def ws_get_state(
                 # are the plain config-flow values the edit fields need to
                 # prefill with, same as sync_mode/schedule_entity above.
                 "comfort_temp": room.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP),
-                "away_temp_override": room.get(CONF_AWAY_TEMP_OVERRIDE, 10),
                 # B18 Fase 3: per-room replacement for the old single global
                 # "group_offset" below — not yet consumed by panel.js/
                 # card.js (Fase 4), forward-compatible additions only.
@@ -1334,6 +1335,8 @@ async def ws_get_state(
             CONF_WINDOW_DELAY_DEFAULT_MIN, DEFAULT_WINDOW_DELAY_DEFAULT_MIN
         ),
         "window_off_temp": cfg.get(CONF_WINDOW_OFF_TEMP, DEFAULT_WINDOW_OFF_TEMP),
+        # v0.67.0: global lowest room temperature (PID + setback floor).
+        "min_room_temp": cfg.get(CONF_MIN_ROOM_TEMP, DEFAULT_MIN_ROOM_TEMP),
         "notify_windows": cfg.get(CONF_NOTIFY_WINDOWS, True),
         "notify_window_warning_30": cfg.get(CONF_NOTIFY_WINDOW_WARNING_30, True),
         "night_setback_enabled": cfg.get(
@@ -1402,6 +1405,9 @@ async def ws_get_state(
         "rooms": rooms,
         "persons": persons,
         "doors": doors,
+        # v0.67.0: Netatmo's home-level away temperature (NET-TRV number on
+        # the relay), editable from the panel. None with core netatmo.
+        "netatmo_away_temp": _netatmo_away_temp(hass, coordinator),
         # 2026-09 audit fix: window_engine already tracks this — it just
         # was never surfaced to the panel/card, so an open window's
         # heat-reduction effect had no visible confirmation in the UI.
@@ -1466,6 +1472,31 @@ async def ws_get_history(
     )
 
 
+def _netatmo_away_temp(hass: HomeAssistant, coordinator: Any) -> dict[str, Any] | None:
+    """v0.67.0: NET-TRV's away temperature number as panel data — entity_id,
+    current value, bounds and the Netatmo schedule it belongs to (the value
+    is stored per schedule). None when there is no such entity."""
+    entity_id = coordinator.get_netatmo_away_temp_entity()
+    if not entity_id:
+        return None
+    state = hass.states.get(entity_id)
+    attrs = state.attributes if state else {}
+    value: float | None = None
+    if state and state.state not in ("unknown", "unavailable"):
+        try:
+            value = float(state.state)
+        except (TypeError, ValueError):
+            value = None
+    return {
+        "entity_id": entity_id,
+        "value": value,
+        "min": attrs.get("min"),
+        "max": attrs.get("max"),
+        "step": attrs.get("step"),
+        "schedule": attrs.get("schedule"),
+    }
+
+
 # ── heat_manager/update_config ────────────────────────────────────────────────
 
 # Fase 2, del 1 (2026-09-13) — panel "Indstillinger" tab: generalizes what
@@ -1514,6 +1545,7 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
     CONF_WINDOW_WARNING_MIN: (int, DEFAULT_WINDOW_WARNING_MIN),
     CONF_WINDOW_DELAY_DEFAULT_MIN: (int, DEFAULT_WINDOW_DELAY_DEFAULT_MIN),
     CONF_WINDOW_OFF_TEMP: (float, DEFAULT_WINDOW_OFF_TEMP),
+    CONF_MIN_ROOM_TEMP: (float, DEFAULT_MIN_ROOM_TEMP),
     CONF_NIGHT_SETBACK_TEMP: (float, DEFAULT_NIGHT_SETBACK_TEMP),
     CONF_NIGHT_START_HOUR: (int, DEFAULT_NIGHT_START_HOUR),
     CONF_NIGHT_END_HOUR: (int, DEFAULT_NIGHT_END_HOUR),
@@ -1574,6 +1606,10 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
         vol.Optional(CONF_WINDOW_WARNING_MIN): vol.Any(float, int),
         vol.Optional(CONF_WINDOW_DELAY_DEFAULT_MIN): vol.Any(float, int),
         vol.Optional(CONF_WINDOW_OFF_TEMP): vol.Any(float, int),
+        vol.Optional(CONF_MIN_ROOM_TEMP): vol.All(
+            vol.Any(float, int),
+            vol.Range(min=MIN_ROOM_TEMP_RANGE[0], max=MIN_ROOM_TEMP_RANGE[1]),
+        ),
         vol.Optional(CONF_NIGHT_SETBACK_TEMP): vol.Any(float, int),
         vol.Optional(CONF_NIGHT_START_HOUR): vol.Any(float, int),
         vol.Optional(CONF_NIGHT_END_HOUR): vol.Any(float, int),
@@ -1654,14 +1690,12 @@ async def ws_update_config(
 
 # Punkt 3 (2026-09-13): per-room live editing from the Rum-fane's room cards,
 # without going through the options-flow config wizard. Deliberately scoped
-# to just the two fields the user picked — comfort_temp (Target temp) and
-# away_temp_override (Away temp override) — CO₂ threshold stays options-flow
-# -only. Bounds must mirror config_flow.py's _room_schema() selectors exactly,
+# to comfort_temp (v0.67.0: away_temp_override was replaced by the global
+# min_room_temp) — CO₂ threshold stays options-flow-only. Bounds must mirror config_flow.py's _room_schema() selectors exactly,
 # since this bypasses that schema's own validation entirely.
 _ROOM_NUMERIC_FIELDS: dict[str, tuple[type, float, float, float]] = {
     # key -> (cast, default, min, max)
     CONF_COMFORT_TEMP: (float, DEFAULT_COMFORT_TEMP, 15.0, 26.0),
-    CONF_AWAY_TEMP_OVERRIDE: (float, 10, 5.0, 20.0),
 }
 
 
@@ -1670,7 +1704,6 @@ _ROOM_NUMERIC_FIELDS: dict[str, tuple[type, float, float, float]] = {
         vol.Required("type"): "heat_manager/update_room_config",
         vol.Required("room_name"): str,
         vol.Optional(CONF_COMFORT_TEMP): vol.Any(float, int),
-        vol.Optional(CONF_AWAY_TEMP_OVERRIDE): vol.Any(float, int),
     }
 )
 @websocket_api.async_response
@@ -1681,9 +1714,8 @@ async def ws_update_room_config(
 ) -> None:
     """Update editable per-room config fields from the Rum-fane's room cards.
 
-    Punkt 3 (2026-09-13): supports comfort_temp (Target temp) and
-    away_temp_override (Away temp override) — the two fields chosen for
-    inline panel editing. Writes the entire updated CONF_ROOMS list back to
+    Punkt 3 (2026-09-13): supports comfort_temp, the field chosen for inline
+    panel editing (away_temp_override removed in v0.67.0). Writes the entire updated CONF_ROOMS list back to
     entry.options (mirroring the options-flow room-edit step's own write
     pattern), which coordinator.rooms/coordinator.config pick up immediately
     since they read entry.options fresh on every access — no reload needed.

@@ -18,6 +18,7 @@ from custom_components.heat_manager.engine.netatmo_backend import (
     SiblingEntity,
     battery_is_low,
     pick_health_entities,
+    pick_relay_entity,
 )
 from custom_components.heat_manager.websocket import _build_active_issues
 
@@ -114,6 +115,10 @@ ENTRIES = [
         RELAY_DEVICE,
         "connectivity",
     ),
+    _entry("number.relay_away_temperature", "net_trv", "70:ee-away_temp", RELAY_DEVICE),
+    _entry(
+        "number.relay_frost_guard_temperature", "net_trv", "70:ee-hg_temp", RELAY_DEVICE
+    ),
 ]
 
 
@@ -136,6 +141,8 @@ def _coordinator(states: dict[str, str]) -> MagicMock:
         "is_trv_reachable",
         "_trv_battery_low",
         "get_netatmo_webhook_entity",
+        "get_netatmo_away_temp_entity",
+        "_netatmo_relay_entity",
         "get_netatmo_health",
     ):
         setattr(
@@ -357,3 +364,24 @@ def test_trv_without_position_sensor_is_never_skipped():
     assert not _moved_coordinator({}, []).trv_valve_recently_moved(trv, NOW)
     # sensor registered but disabled / not in the state machine
     assert not _moved_coordinator({}, ["sensor.a"]).trv_valve_recently_moved(trv, NOW)
+
+
+# ── v0.67.0: NET-TRV relay away temperature ─────────────────────────────────
+
+
+def test_away_temp_entity_found_on_relay_not_frost_guard():
+    coord = _coordinator({})
+    p1, p2, p3 = _registries()
+    with p1, p2, p3:
+        assert coord.get_netatmo_away_temp_entity() == "number.relay_away_temperature"
+        assert coord.get_netatmo_webhook_entity() == "binary_sensor.relay_webhook"
+
+
+def test_pick_relay_entity_matches_domain_and_suffix():
+    entities = [
+        SiblingEntity("number.x_hg", "number", "h-hg_temp", None),
+        SiblingEntity("sensor.x_away", "sensor", "h-away_temp", None),
+        SiblingEntity("number.x_away", "number", "h-away_temp", None),
+    ]
+    assert pick_relay_entity(entities, "number", "-away_temp") == "number.x_away"
+    assert pick_relay_entity(entities, "number", "-nothing") is None

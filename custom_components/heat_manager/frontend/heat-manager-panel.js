@@ -3385,21 +3385,16 @@ class HeatManagerPanel extends HTMLElement {
     const climateHTML = climateRows.trim() ? `${section("Indeklima")}${climateRows}` : "";
 
     // ── Rummets indstillinger ─────────────────────────────────────────────
-    // Inline editing of the two per-room config values (ws_update_room_config).
-    const comfortDesc = "Den temperatur rummet skal have, når nogen er hjemme. Natsænkning og offset trækkes fra denne.";
-    const awayDesc = "Rummets temperatur, når huset er tomt (bruges også som bund for natsænkning). Ikke det samme som vindue-sluk-temperaturen.";
+    // Inline editing of the room's comfort temperature (ws_update_room_config).
+    // v0.67.0: the per-room "away temp" is gone — it was really the PID/setback
+    // floor and is now the global "Laveste rumtemperatur" in Indstillinger.
+    const comfortDesc = "Den temperatur rummet skal have, når nogen er hjemme. Natsænkning og offset trækkes fra denne, men aldrig under laveste rumtemperatur (Indstillinger).";
     const settingsHTML = hasTrv ? `${section("Rummets indstillinger")}
          <div class="room-cfg-edit" data-room="${roomName}">
            <div class="rd-row">
              <span class="rd-row-l">Komforttemperatur${this._infoIcon(comfortDesc)}</span>
              <input class="cfg-edit-input room-cfg-input" type="number" min="15" max="26" step="0.5"
                value="${esc(room.comfort_temp ?? "")}" data-field="comfort_temp">
-             <span class="rd-unit">°C</span>
-           </div>
-           <div class="rd-row">
-             <span class="rd-row-l">Fraværstemperatur${this._infoIcon(awayDesc)}</span>
-             <input class="cfg-edit-input room-cfg-input" type="number" min="5" max="20" step="0.5"
-               value="${esc(room.away_temp_override ?? "")}" data-field="away_temp_override">
              <span class="rd-unit">°C</span>
              <button class="cfg-save-btn" data-action="save-room-cfg" data-room="${roomName}">Gem</button>
              <span class="cfg-save-ok room-cfg-ok">✔</span>
@@ -3647,6 +3642,41 @@ class HeatManagerPanel extends HTMLElement {
       </div>`;
   }
 
+  // v0.67.0: Netatmo's home-level away temperature (NET-TRV number on the
+  // relay). Written straight to Netatmo with number.set_value — it is the same
+  // value as in the Netatmo app, stored on the active schedule. Without
+  // NET-TRV (core netatmo) there is no such entity: say where it is set.
+  _awayTempRowHTML(minRoomTemp) {
+    const a = this._data?.netatmo_away_temp;
+    if (!a) {
+      return `
+      <div class="cfg-edit-row-wrap">
+        <div class="cfg-edit-row">
+          <span class="cfg-edit-label" style="flex:0 0 150px">Fraværstemperatur</span>
+          <span class="cfg-edit-label">Styres i Netatmo-appen</span>
+        </div>
+        <div class="cfg-edit-desc">Med NET-TRV kan den sættes herfra. Den bruges af alle Netatmo-ventiler, når huset er tomt.</div>
+      </div>`;
+    }
+    const low = a.value != null && minRoomTemp != null && a.value < minRoomTemp;
+    const sched = a.schedule ? ` Gemmes på Netatmo-tidsplanen «${this._esc(a.schedule)}».` : "";
+    return `
+      <div class="cfg-edit-row-wrap">
+        <div class="cfg-edit-row">
+          <span class="cfg-edit-label" style="flex:0 0 150px">Fraværstemperatur</span>
+          <input class="cfg-edit-input" type="number" id="cfg-netatmo-away-input"
+            min="${a.min ?? 7}" max="${a.max ?? 30}" step="${a.step ?? 0.5}"
+            value="${a.value ?? ""}">
+          <span class="cfg-edit-label" style="flex-shrink:0">°C</span>
+          <button class="cfg-save-btn" data-action="save-netatmo-away"
+            data-entity="${this._esc(a.entity_id)}">Gem</button>
+          <span class="cfg-save-ok" id="cfg-netatmo-away-ok">✔</span>
+        </div>
+        <div class="cfg-edit-desc">Netatmos egen fraværstemperatur — den alle ventiler går til, når huset er tomt. Samme værdi som i Netatmo-appen.${sched}</div>
+        ${low ? `<div class="cfg-edit-desc" style="color:var(--amber)">⚠ Fraværstemperaturen (${a.value} °C) er lavere end laveste rumtemperatur (${minRoomTemp} °C). Rummene kan blive koldere end minimum, når huset er tomt.</div>` : ""}
+      </div>`;
+  }
+
   // v0.33.0 (point 4 — tooltips): a small "i" mark that shows a short
   // explanation of what a setting/column actually does. Hover/focus reveal
   // it via CSS alone (:hover/:focus); the shared click listener bound once
@@ -3875,6 +3905,18 @@ class HeatManagerPanel extends HTMLElement {
         <div class="section-box-footer">Bruges af Boost-knappen og <span style="font-family:'DM Mono',monospace">heat_manager.boost_start</span>, når intet andet angives eksplicit.</div>
       </div>
 
+      <div class="${this._cfgSectionClass('temp_limits')}" data-section-id="temp_limits">
+        <div class="section-box-header collapsible" data-action="toggle-section">
+          <div class="section-box-title">Temperaturgrænser</div>
+        </div>
+        ${this._cfgNumberRow("Laveste rumtemperatur", "min_room_temp", d.min_room_temp ?? "", {
+          min: 5, max: 22, step: 0.5, unit: "°C", cast: "float",
+          desc: "Gælder alle rum. PID'en sender aldrig et lavere sætpunkt til en ventil, og natsænkningen går aldrig under denne. Standard 17 °C — et almindeligt minimum mod skimmel.",
+        })}
+        ${this._awayTempRowHTML(d.min_room_temp)}
+        <div class="section-box-footer">Laveste rumtemperatur styrer Heat Manager selv. Fraværstemperaturen er Netatmos egen og bruges, når huset er tomt.</div>
+      </div>
+
       <div class="${this._cfgSectionClass('window')}" data-section-id="window">
         <div class="section-box-header collapsible" data-action="toggle-section">
           <div class="section-box-title">Vindue</div>
@@ -3885,7 +3927,7 @@ class HeatManagerPanel extends HTMLElement {
         })}
         ${this._cfgNumberRow("Sluk-temperatur", "window_off_temp", d.window_off_temp ?? "", {
           min: 5, max: 20, step: 0.5, unit: "°C", cast: "float",
-          desc: "Temperaturen der sendes til rummets TRV når varmen slås fra pga. åbent vindue. Uafhængig af PID'ens minimumstemperatur nedenfor.",
+          desc: "Temperaturen der sendes til rummets ventil, når varmen slås fra pga. åbent vindue. Gælder kun mens vinduet er åbent og er uafhængig af laveste rumtemperatur.",
         })}
         ${this._cfgNumberRow("Advarsel efter", "window_warning_min", d.window_warning_min ?? "", {
           min: 5, max: 180, step: 5, unit: "min", cast: "int",
@@ -3906,7 +3948,7 @@ class HeatManagerPanel extends HTMLElement {
         ${this._cfgToggleRow("Nat-sætpunkt aktiveret", "night_setback_enabled", !!d.night_setback_enabled)}
         ${this._cfgNumberRow("Temperatur (sænkning)", "night_setback_temp", d.night_setback_temp ?? "", {
           min: 0.5, max: 5.0, step: 0.5, unit: "°C", cast: "float",
-          desc: "Antal grader der trækkes fra måltemperaturen i nat-perioden. Går aldrig under rummets fraværstemperatur.",
+          desc: "Antal grader der trækkes fra måltemperaturen i nat-perioden. Går aldrig under laveste rumtemperatur (Temperaturgrænser).",
         })}
         ${this._cfgNumberRow("Start time", "night_start_hour", d.night_start_hour ?? "", {
           min: 18, max: 23, step: 1, unit: "h", cast: "int",
@@ -3925,7 +3967,7 @@ class HeatManagerPanel extends HTMLElement {
         </div>
         ${this._cfgNumberRow("Dag", "grace_day_min", d.grace_day_min ?? "", {
           min: 5, max: 120, step: 5, unit: "min", cast: "int",
-          desc: "Hvor længe der ventes, efter alle er gået, før et rum om dagen sættes på fraværstemperatur.",
+          desc: "Hvor længe der ventes, efter alle er gået, før huset om dagen sættes på fraværstemperatur.",
         })}
         ${this._cfgNumberRow("Nat", "grace_night_min", d.grace_night_min ?? "", {
           min: 5, max: 60, step: 5, unit: "min", cast: "int",
@@ -4310,6 +4352,30 @@ class HeatManagerPanel extends HTMLElement {
     // hand-written save-* handler per field like save-alarm/save-notify
     // above — see _cfgNumberRow()/_cfgToggleRow() and websocket.py's
     // matching _NUMERIC_CONFIG_FIELDS/_BOOL_CONFIG_FIELD_DEFAULTS tables.
+    root.querySelectorAll("[data-action='save-netatmo-away']").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const entityId = btn.dataset.entity;
+        const input = root.querySelector("#cfg-netatmo-away-input");
+        const ok    = root.querySelector("#cfg-netatmo-away-ok");
+        const value = parseFloat(input?.value ?? "");
+        if (!entityId || Number.isNaN(value)) {
+          this._showToast("Ugyldig værdi", "error");
+          return;
+        }
+        btn.disabled = true;
+        try {
+          await this._hass.callService("number", "set_value", { entity_id: entityId, value });
+          if (this._data?.netatmo_away_temp) this._data.netatmo_away_temp.value = value;
+          ok?.classList.add("visible");
+          setTimeout(() => ok?.classList.remove("visible"), 2500);
+        } catch (e) {
+          this._showToast("Kunne ikke gemme fraværstemperaturen i Netatmo", "error");
+          console.error("Heat Manager: set Netatmo away temperature failed", e);
+        }
+        btn.disabled = false;
+      });
+    });
+
     root.querySelectorAll("[data-action='save-field']").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const field = btn.dataset.field;

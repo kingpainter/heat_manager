@@ -33,7 +33,7 @@ def make_coordinator(
     current_temp: float = 20.0,
     target_temp: float = 22.0,
     trv_max: float = 28.0,
-    away_temp_override: float = 10.0,
+    min_room_temp: float = 10.0,
     climate_unavailable: bool = False,
     climate_missing_temps: bool = False,
     homekit_entity: str | None = "climate.living_room_homekit",
@@ -73,11 +73,12 @@ def make_coordinator(
     coord.effective_season = effective_season
     coord.trv_max_temp = trv_max
     coord.outdoor_temperature = outdoor_temperature
+    # v0.67.0: global PID/setback floor (was the per-room away_temp_override).
+    coord.min_room_temp = min_room_temp
     coord.rooms = [
         {
             "room_name": room_name,
             "climate_entity": climate_id,
-            "away_temp_override": away_temp_override,
             "comfort_temp": comfort_temp,
         }
     ]
@@ -327,6 +328,20 @@ async def test_pid_no_call_when_setpoint_already_at_trv_min():
     coord.hass.services.async_call.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_pid_floor_is_global_min_room_temp():
+    """v0.67.0: at 0 % demand the PID sends the global min_room_temp (17 °C,
+    a housing-association minimum against mould) — not a per-room value."""
+    coord = make_coordinator(current_temp=22.0, target_temp=22.0, min_room_temp=17.0)
+    cs = MagicMock()
+    cs.state = "heat"
+    cs.attributes = {"current_temperature": 22.0, "temperature": 10.0}
+    coord.hass.states.get = MagicMock(return_value=cs)
+    await _pid_tick(coord)
+    coord.hass.services.async_call.assert_called_once()
+    assert coord.hass.services.async_call.call_args[0][2]["temperature"] == 17.0
+
+
 # ── B18 Fase 3: per-room offset (replaces the old global group_offset) ───────
 
 
@@ -387,11 +402,11 @@ async def test_bug_b_pid_2_no_call_when_delta_below_threshold():
     coord.effective_season = SeasonMode.WINTER
     coord.trv_max_temp = 28.0
     coord.outdoor_temperature = None
+    coord.min_room_temp = 10.0
     coord.rooms = [
         {
             "room_name": "kitchen",
             "climate_entity": "climate.kitchen",
-            "away_temp_override": 10.0,
             "comfort_temp": 22.0,  # B21: now the target on the HomeKit path too
         }
     ]
@@ -606,7 +621,7 @@ async def test_bug_b21_homekit_path_uses_comfort_temp_not_cloud_schedule():
     not the 6°C error a 26°C cloud-sourced target would produce.
     """
     coord = make_coordinator(current_temp=21.0, target_temp=26.0, comfort_temp=21.0)
-    # trv_min floor (away_temp_override default 10.0) + a near-zero PID
+    # trv_min floor (min_room_temp 10.0 in this factory) + a near-zero PID
     # output would sit far from a 26°C-target-driven setpoint. Simplest
     # sufficient check: the already-at-target room emits at most one command
     # driven by outdoor feedforward/anti-windup noise, never one implying a

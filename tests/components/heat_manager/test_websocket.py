@@ -127,6 +127,8 @@ def _make_coordinator(rooms=None, persons=None) -> MagicMock:
     # those fields resolve to None like every other unconfigured room
     # field, instead of a bare MagicMock leaking into the payload.
     coord.get_pid = MagicMock(return_value=None)
+    # v0.67.0: no NET-TRV away-temp number unless a test sets one.
+    coord.get_netatmo_away_temp_entity = MagicMock(return_value=None)
     calibration_engine = MagicMock()
     calibration_engine._last_written = {}
     coord.calibration_engine = calibration_engine
@@ -671,6 +673,49 @@ async def test_get_state_pid_power_computed_from_pid_last_output():
 
     room = conn.send_result.call_args[0][1]["rooms"][0]
     assert room["pid_power"] == 35.0
+
+
+@pytest.mark.asyncio
+async def test_get_state_netatmo_away_temp_none_without_net_trv():
+    coord = _make_coordinator(rooms=[_room()])
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    assert conn.send_result.call_args[0][1]["netatmo_away_temp"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_state_netatmo_away_temp_from_net_trv_number():
+    """v0.67.0: NET-TRV's relay away-temperature number is surfaced with its
+    value, bounds and the schedule it belongs to, for the panel to edit."""
+    coord = _make_coordinator(rooms=[_room()])
+    coord.get_netatmo_away_temp_entity = MagicMock(
+        return_value="number.relay_away_temperature"
+    )
+    hass = _make_hass_with_entry(coord)
+    away = MagicMock()
+    away.state = "16.0"
+    away.attributes = {"min": 7, "max": 30, "step": 0.5, "schedule": "Vinter"}
+    orig_get = hass.states.get
+    hass.states.get = MagicMock(
+        side_effect=lambda eid: (
+            away if eid == "number.relay_away_temperature" else orig_get(eid)
+        )
+    )
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    assert conn.send_result.call_args[0][1]["netatmo_away_temp"] == {
+        "entity_id": "number.relay_away_temperature",
+        "value": 16.0,
+        "min": 7,
+        "max": 30,
+        "step": 0.5,
+        "schedule": "Vinter",
+    }
 
 
 @pytest.mark.asyncio
@@ -1227,6 +1272,29 @@ async def test_update_config_changed_field_persists_and_logs():
 
 
 @pytest.mark.asyncio
+async def test_update_config_min_room_temp_persists():
+    """v0.67.0: the global lowest room temperature is panel-editable."""
+    coord = _make_coordinator()
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_update_config(hass, conn, _msg(min_room_temp=17.5))
+
+    options = hass.config_entries.async_update_entry.call_args.kwargs["options"]
+    assert options["min_room_temp"] == 17.5
+    assert conn.send_result.call_args[0][1]["changed"] == ["min_room_temp"]
+
+
+def test_update_config_schema_bounds_min_room_temp():
+    import voluptuous as vol
+
+    schema = websocket.ws_update_config._ws_schema
+    schema({"type": "heat_manager/update_config", "id": 1, "min_room_temp": 17})
+    with pytest.raises(vol.Invalid):
+        schema({"type": "heat_manager/update_config", "id": 1, "min_room_temp": 30})
+
+
+@pytest.mark.asyncio
 async def test_update_config_same_value_is_not_reported_as_changed():
     coord = _make_coordinator()
     hass = _make_hass_with_entry(coord)
@@ -1505,7 +1573,9 @@ async def test_update_room_config_comfort_temp_persists_and_logs():
 
 
 @pytest.mark.asyncio
-async def test_update_room_config_away_temp_override_persists():
+async def test_update_room_config_ignores_removed_away_temp_override():
+    """v0.67.0: the per-room away_temp_override is gone (replaced by the
+    global min_room_temp) — a stale panel sending it changes nothing."""
     room = _room(name="Bathroom")
     coord = _make_coordinator(rooms=[room])
     hass = _make_hass_with_entry(coord)
@@ -1515,12 +1585,9 @@ async def test_update_room_config_away_temp_override_persists():
         hass, conn, _msg(room_name="Bathroom", away_temp_override=15.0)
     )
 
-    persisted_rooms = hass.config_entries.async_update_entry.call_args.kwargs[
-        "options"
-    ][CONF_ROOMS]
-    assert persisted_rooms[0][CONF_AWAY_TEMP_OVERRIDE] == 15.0
+    hass.config_entries.async_update_entry.assert_not_called()
     result = conn.send_result.call_args[0][1]
-    assert result == {"updated": True, "changed": ["away_temp_override"]}
+    assert result["updated"] is False
 
 
 @pytest.mark.asyncio
@@ -1635,9 +1702,9 @@ async def test_update_room_config_multiple_fields_in_one_message_all_persist():
         "options"
     ][CONF_ROOMS]
     assert persisted_rooms[0][CONF_COMFORT_TEMP] == 22.0
-    assert persisted_rooms[0][CONF_AWAY_TEMP_OVERRIDE] == 16.0
+    assert CONF_AWAY_TEMP_OVERRIDE not in persisted_rooms[0]
     result = conn.send_result.call_args[0][1]
-    assert set(result["changed"]) == {"comfort_temp", "away_temp_override"}
+    assert set(result["changed"]) == {"comfort_temp"}
 
 
 # ── ws_get_history ───────────────────────────────────────────────────────────

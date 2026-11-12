@@ -169,6 +169,23 @@ class SiblingEntity:
     device_class: str | None
 
 
+# v0.67.0: NET-TRV relay entities found by unique_id suffix
+# (unique_id = f"{home_id}-{key}").
+RELAY_WEBHOOK_SUFFIX = "-webhook"
+RELAY_AWAY_TEMP_SUFFIX = "-away_temp"
+
+
+def pick_relay_entity(
+    entities: Iterable[SiblingEntity], domain: str, suffix: str
+) -> str | None:
+    """Return the first relay entity of ``domain`` whose unique_id ends with
+    ``suffix`` (e.g. the webhook binary_sensor or the away-temp number)."""
+    for e in entities:
+        if e.domain == domain and e.unique_id.endswith(suffix):
+            return e.entity_id
+    return None
+
+
 def pick_health_entities(siblings: Iterable[SiblingEntity]) -> dict[str, list[str]]:
     """Group sibling entities into health roles (connectivity, battery).
 

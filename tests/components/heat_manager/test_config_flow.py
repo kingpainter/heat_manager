@@ -180,7 +180,6 @@ async def test_full_setup_wizard_creates_entry():
             CONF_ROOM_NAME: "Kitchen",
             CONF_WINDOW_SENSORS: [],
             "window_delay_min": 5,
-            "away_temp_override": 10.0,
         },
         [{CONF_CLIMATE_ENTITY: "climate.kitchen"}],
         finish_action="done",
@@ -258,7 +257,6 @@ async def test_multiple_rooms_and_persons():
             CONF_ROOM_NAME: "Kitchen",
             CONF_WINDOW_SENSORS: [],
             "window_delay_min": 5,
-            "away_temp_override": 10,
         },
         [{CONF_CLIMATE_ENTITY: "climate.kitchen"}],
         finish_action="done_add_room",
@@ -270,7 +268,6 @@ async def test_multiple_rooms_and_persons():
             CONF_ROOM_NAME: "Bedroom",
             CONF_WINDOW_SENSORS: [],
             "window_delay_min": 5,
-            "away_temp_override": 10,
         },
         [{CONF_CLIMATE_ENTITY: "climate.bedroom"}],
         finish_action="done",
@@ -385,7 +382,6 @@ async def test_step_room_trv_add_invalid_climate_entity():
             CONF_ROOM_NAME: "Kitchen",
             CONF_WINDOW_SENSORS: [],
             "window_delay_min": 5,
-            "away_temp_override": 10,
         }
     )
     assert result["step_id"] == "room_trvs_menu"
@@ -420,7 +416,6 @@ async def test_step_room_duplicate_name():
             CONF_CLIMATE_ENTITY: "climate.kitchen",
             CONF_WINDOW_SENSORS: [],
             "window_delay_min": 5,
-            "away_temp_override": 10,
             "_action": "add",
         }
     )
@@ -447,7 +442,6 @@ async def test_step_room_blank_name_redisplays_room_form():
             CONF_ROOM_NAME: "",
             CONF_WINDOW_SENSORS: [],
             "window_delay_min": 5,
-            "away_temp_override": 10,
         }
     )
     assert result["type"] == "form"
@@ -472,7 +466,6 @@ async def test_step_room_trvs_menu_offers_monitoring_only_save_with_zero_trvs():
             CONF_ROOM_NAME: "Kitchen",
             CONF_WINDOW_SENSORS: [],
             "window_delay_min": 5,
-            "away_temp_override": 10,
         }
     )
     assert result["step_id"] == "room_trvs_menu"
@@ -598,7 +591,6 @@ async def test_options_flow_add_room():
             CONF_ROOM_NAME: "Bedroom",
             CONF_WINDOW_SENSORS: [],
             "window_delay_min": 5,
-            "away_temp_override": 10,
         }
     )
     assert result["step_id"] == "room_trvs_menu"
@@ -665,7 +657,6 @@ async def test_options_flow_edit_room_updates_window_sensor():
             CONF_ROOM_NAME: "Kitchen",
             CONF_WINDOW_SENSORS: ["binary_sensor.kitchen_window_new"],
             "window_delay_min": 5,
-            "away_temp_override": 10,
         }
     )
     assert result["step_id"] == "room_trvs_menu"
@@ -743,7 +734,6 @@ async def test_options_flow_edit_room_invalid_climate_entity():
             CONF_ROOM_NAME: "Kitchen",
             CONF_WINDOW_SENSORS: [],
             "window_delay_min": 5,
-            "away_temp_override": 10,
         }
     )
     assert result["step_id"] == "room_trvs_menu"
@@ -786,7 +776,6 @@ async def test_options_flow_edit_room_duplicate_name():
             CONF_ROOM_NAME: "Kitchen",  # collides with the other room
             CONF_WINDOW_SENSORS: [],
             "window_delay_min": 5,
-            "away_temp_override": 10,
         }
     )
     assert result["type"] == "form"
@@ -810,7 +799,6 @@ async def test_options_flow_edit_room_keeps_own_name():
             CONF_ROOM_NAME: "Kitchen",  # unchanged
             CONF_WINDOW_SENSORS: ["binary_sensor.kitchen_window"],
             "window_delay_min": 10,
-            "away_temp_override": 12,
         }
     )
     assert result["step_id"] == "room_trvs_menu"
@@ -987,7 +975,6 @@ async def test_options_flow_add_duplicate_room():
             CONF_CLIMATE_ENTITY: "climate.kitchen",
             CONF_WINDOW_SENSORS: [],
             "window_delay_min": 5,
-            "away_temp_override": 10,
         }
     )
     assert result["type"] == "form"

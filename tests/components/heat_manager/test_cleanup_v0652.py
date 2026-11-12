@@ -95,3 +95,36 @@ def test_only_this_entrys_persistent_issues_are_deleted():
         "persistent_cloud_down_01KM1BJQ",
         "persistent_mold_risk_bad_01KM1BJQ",
     }
+
+
+# ── v0.67.0: per-room away_temp_override → global min_room_temp ─────────────
+
+
+def test_strips_per_room_away_temp_override():
+    config = {
+        "rooms": [
+            {"room_name": "Soveværelset", "away_temp_override": 18.0},
+            {"room_name": "Køkken", "away_temp_override": 10, "comfort_temp": 21.0},
+        ],
+    }
+    assert strip_stale_config(config) == {
+        "rooms": [
+            {"room_name": "Soveværelset"},
+            {"room_name": "Køkken", "comfort_temp": 21.0},
+        ],
+    }
+
+
+def test_min_room_temp_default_and_override():
+    from custom_components.heat_manager.const import (
+        CONF_MIN_ROOM_TEMP,
+        DEFAULT_MIN_ROOM_TEMP,
+    )
+    from custom_components.heat_manager.coordinator import HeatManagerCoordinator
+
+    prop = HeatManagerCoordinator.min_room_temp.fget
+    coord = MagicMock()
+    coord.config = {}
+    assert prop(coord) == DEFAULT_MIN_ROOM_TEMP == 17.0
+    coord.config = {CONF_MIN_ROOM_TEMP: 16}
+    assert prop(coord) == 16.0

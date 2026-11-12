@@ -28,7 +28,6 @@ from .const import (
     CONF_ALARM_PANEL,
     CONF_AUTO_OFF_TEMP_DAYS,
     CONF_AUTO_OFF_TEMP_THRESHOLD,
-    CONF_AWAY_TEMP_OVERRIDE,
     CONF_BATTERY_SENSOR,
     CONF_BOOST_DEFAULT_MINUTES,
     CONF_BOOST_DEFAULT_TEMP,
@@ -63,6 +62,7 @@ from .const import (
     CONF_INDOOR_WAKE_THRESHOLD,
     CONF_ISSUE_ESCALATION_MINUTES,
     CONF_LUX_SENSOR,
+    CONF_MIN_ROOM_TEMP,
     CONF_NETATMO_BACKEND,
     CONF_NIGHT_END_HOUR,
     CONF_NIGHT_SETBACK_ENABLED,
@@ -123,6 +123,7 @@ from .const import (
     DEFAULT_GRACE_NIGHT_MIN,
     DEFAULT_INDOOR_WAKE_THRESHOLD,
     DEFAULT_ISSUE_ESCALATION_MINUTES,
+    DEFAULT_MIN_ROOM_TEMP,
     DEFAULT_NETATMO_BACKEND,
     DEFAULT_NIGHT_END_HOUR,
     DEFAULT_NIGHT_SETBACK_ENABLED,
@@ -151,6 +152,7 @@ from .const import (
     FF_MAX_CONTRIBUTION,
     FF_REFERENCE_OUTDOOR_TEMP,
     FF_WEIGHT,
+    MIN_ROOM_TEMP_RANGE,
     NETATMO_BACKEND_AUTO,
     NETATMO_BACKEND_OPTIONS,
     PID_SETPOINT_MARGIN,
@@ -300,8 +302,8 @@ def _step1_schema(
             # open-delay actually uses today (window_engine.py no longer
             # reads the old per-room CONF_WINDOW_DELAY_MIN). window_off_temp
             # is the setpoint written on open — deliberately separate from
-            # CONF_AWAY_TEMP_OVERRIDE below, which still floors the PID's
-            # own idle output and the night/wake setback. See const.py.
+            # CONF_MIN_ROOM_TEMP below, which floors the PID's own idle
+            # output and the night/wake setback. See const.py.
             vol.Optional(
                 CONF_WINDOW_DELAY_DEFAULT_MIN,
                 default=defaults.get(
@@ -325,6 +327,21 @@ def _step1_schema(
                     "number": {
                         "min": 5,
                         "max": 20,
+                        "step": 0.5,
+                        "unit_of_measurement": "°C",
+                    }
+                }
+            ),
+            # v0.67.0: global lowest room temperature (replaces the
+            # per-room away_temp_override).
+            vol.Optional(
+                CONF_MIN_ROOM_TEMP,
+                default=defaults.get(CONF_MIN_ROOM_TEMP, DEFAULT_MIN_ROOM_TEMP),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": MIN_ROOM_TEMP_RANGE[0],
+                        "max": MIN_ROOM_TEMP_RANGE[1],
                         "step": 0.5,
                         "unit_of_measurement": "°C",
                     }
@@ -810,19 +827,6 @@ def _room_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                         "max": 30,
                         "step": 1,
                         "unit_of_measurement": "min",
-                    }
-                }
-            ),
-            vol.Optional(
-                CONF_AWAY_TEMP_OVERRIDE,
-                default=defaults.get(CONF_AWAY_TEMP_OVERRIDE, 10),
-            ): selector.selector(
-                {
-                    "number": {
-                        "min": 5,
-                        "max": 20,
-                        "step": 0.5,
-                        "unit_of_measurement": "°C",
                     }
                 }
             ),

@@ -7,7 +7,7 @@ custom integration. It manages presence-based heating, open window detection,
 pre-heating on arrival, seasonal on/off control, mold risk monitoring, and
 weather-aware PID control — all from the UI.
 
-[![Version](https://img.shields.io/badge/version-0.66.0-blue)](https://github.com/kingpainter/heat-manager/releases)
+[![Version](https://img.shields.io/badge/version-0.67.0-blue)](https://github.com/kingpainter/heat-manager/releases)
 [![HA min version](https://img.shields.io/badge/Home%20Assistant-%3E%3D2025.1-blue)](https://www.home-assistant.io)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange)](https://hacs.xyz)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -19,8 +19,8 @@ weather-aware PID control — all from the UI.
 Heat Manager watches who is home and what windows are open, then makes
 intelligent decisions about your heating — so you don't have to think about it.
 
-When everyone leaves, it waits a configurable grace period then sets all
-climate entities to an away temperature (adaptive based on outdoor weather).
+When everyone leaves, it waits a configurable grace period then puts the house
+in away mode (Netatmo's own away temperature; Zigbee valves are switched off).
 When someone arrives, it checks windows are closed before resuming the schedule.
 If a window is open in a specific room, only that room's heating drops — not
 the whole house.
@@ -37,7 +37,7 @@ Off shuts everything down permanently — with the correct fallback per season.
 - **Window detection** — per-room state machine with weather-aware notifications: CO₂ context, rain (🌧️) and wind (💨) override
 - **Adaptive window delay** — reduces to 1 min automatically when wind ≥ 6 m/s or it is raining
 - **Season engine** — AUTO mode detects Winter/Summer from outdoor temperature history
-- **Adaptive away temperature** — warmer setpoint on mild days, cooler on cold days
+- **Lowest room temperature and away temperature** *(v0.67.0)* — one global lowest room temperature (default 17 °C, a common minimum against mould) floors the PID's setpoint and the night setback in every room. Netatmo's own away temperature (NET-TRV `number.<relay>_away_temperature`) is shown and editable in the panel's settings, with a warning when it is below the lowest room temperature
 - **ON / PAUSE / OFF controller** — manual and automatic (season + sustained outdoor temp)
 - **Pre-heat engine** — starts heating before arrival using `sensor.<person>_travel_time_home`, per-person lead time up to 90 min
 - **PID controller** — discrete-time PI controller sends proportional setpoints every 60 s via HomeKit (local LAN)
@@ -124,9 +124,8 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 | `wind_speed_sensor` | sensor | — | **Optional.** Wind speed (m/s). Triggers faster window delay above 6 m/s |
 | `notify_service` | string | — | HA notify service, e.g. `notify.mobile_app_my_phone`. Also editable in panel |
 | `alarm_panel` | entity | — | `alarm_control_panel.*` — armed_away triggers instant away mode. Also editable in panel |
-| `away_temp_mild` | °C | 17.0 | Away setpoint when outdoor temp ≥ mild threshold |
-| `away_temp_cold` | °C | 15.0 | Away setpoint when outdoor temp < mild threshold |
-| `mild_threshold` | °C | 8.0 | Boundary between mild and cold weather |
+| `window_off_temp` | °C | 10.0 | Setpoint sent to a room's valve while its window is open |
+| `min_room_temp` | °C | 17.0 | *(v0.67.0)* Lowest room temperature in every room: floor for the PID's setpoint and the night setback. Also editable in panel |
 | `grace_day_min` | min | 30 | Grace period before away mode (daytime) |
 | `grace_night_min` | min | 15 | Grace period before away mode (night, 23:00–07:00) |
 | `auto_off_temp_threshold` | °C | 18.0 | Sustained outdoor temperature that triggers auto-off |
@@ -146,7 +145,6 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 | `window_sensors` | entity list | [] | Window/door sensors for this room |
 | `trv_window_detection` | boolean | `false` | *(v0.64.0)* Also use the Netatmo valve's own open-window detection (`open_window`, NET-TRV) as a window sensor for this room |
 | `window_delay_min` | min | 5 | Minutes open before heating drops (auto-reduced by rain/wind) |
-| `away_temp_override` | °C | 10.0 | Frost-guard floor when window opens |
 | `trv_type` | select | netatmo | `netatmo` (preset_mode) or `zigbee` (hvac_mode) |
 | `pi_demand_entity` | sensor | — | **Optional.** Z2M `pi_heating_demand` sensor, shown as the room's valve demand |
 | `co2_sensor` | sensor | — | **Optional.** CO₂ (ppm) — context-aware window notifications |
@@ -279,7 +277,7 @@ today.
 
 ## Sensor input hierarchy
 
-### Outdoor temperature (for season + adaptive away)
+### Outdoor temperature (for season, weather compensation and auto-off)
 ```
 1. outdoor_temp_sensor    — local station, fastest
 2. weather.* attribute    — forecast fallback
