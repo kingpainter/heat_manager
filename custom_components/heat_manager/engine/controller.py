@@ -23,8 +23,6 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.util.dt import utcnow
-
 from ..const import (
     CONF_CLIMATE_ENTITY,
     CONF_PAUSE_DURATION_MIN,
@@ -36,6 +34,7 @@ from ..const import (
     ControllerState,
     EffectiveSeason,
 )
+from .clock import utcnow
 
 if TYPE_CHECKING:
     from ..coordinator import HeatManagerCoordinator

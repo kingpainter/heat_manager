@@ -45,7 +45,7 @@ def _mock_ha_now(date: date_type) -> MagicMock:
     return mock
 
 
-PATCH_PATH = "custom_components.heat_manager.engine.season_engine.ha_now"
+PATCH_PATH = "custom_components.heat_manager.engine.season_engine.local_now"
 
 
 @pytest.mark.asyncio

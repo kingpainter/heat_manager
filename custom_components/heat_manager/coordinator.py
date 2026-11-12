@@ -44,6 +44,7 @@ from homeassistant.helpers.issue_registry import (
     async_delete_issue,
 )
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 from homeassistant.util.dt import utcnow
 
 from .const import (
@@ -154,6 +155,7 @@ from .const import (
     RoomState,
     SeasonMode,
 )
+from .engine import clock as engine_clock
 from .engine.calibration_engine import CalibrationEngine
 from .engine.controller import ControllerEngine
 from .engine.door_engine import DoorEngine
@@ -479,6 +481,10 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # created exactly once per episode instead of every tick, and
         # deleted the moment the category clears.
         self._repair_issue_active: set[str] = set()
+        # v0.68.0 (T2): engines read the time through the pure engine.clock
+        # module; give it Home Assistant's own functions so they see HA's
+        # time and configured time zone.
+        engine_clock.use_providers(utcnow=dt_util.utcnow, local_now=dt_util.now)
 
         # v0.65.4: per-room tracking for the missing-climate repair issue.
         # _climate_missing_since holds when each room's climate entity was

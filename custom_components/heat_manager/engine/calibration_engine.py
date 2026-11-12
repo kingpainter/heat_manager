@@ -91,8 +91,6 @@ import re
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.util.dt import utcnow
-
 from ..const import (
     CALIBRATION_CHANGE_THRESHOLD,
     CALIBRATION_OFFSET_MAX,
@@ -101,6 +99,7 @@ from ..const import (
     DEFAULT_CALIBRATION_HEARTBEAT_MIN,
     RoomState,
 )
+from .clock import local_now, utcnow
 
 if TYPE_CHECKING:
     from ..coordinator import HeatManagerCoordinator
@@ -260,9 +259,7 @@ class CalibrationEngine:
         # event-log snapshot) so at most a day's worth of learning is ever
         # at risk from an unclean shutdown — a clean shutdown/restart always
         # persists via async_shutdown() regardless of this check.
-        from homeassistant.util.dt import now as ha_now
-
-        today_str = ha_now().date().isoformat()
+        today_str = local_now().date().isoformat()
         if self._last_persist_date and self._last_persist_date != today_str:
             self._persist_snapshot()
         self._last_persist_date = today_str

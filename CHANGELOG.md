@@ -9,6 +9,18 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.67.4] — 2026-11-12
+
+### Changed
+- **Fire engines er nu rene (arkitekturregel 3.1, trin T2a).**
+  `calibration_engine`, `controller`, `season_engine` og
+  `valve_protection_engine` importerede kun Home Assistant for at kende
+  klokken. De bruger nu det nye, rene `engine/clock.py` (`utcnow()`,
+  `local_now()`). Coordinatoren giver det Home Assistants egne
+  tidsfunktioner ved opstart, så engines ser præcis samme tid og tidszone
+  som før — ingen adfærdsændring. En ny test sikrer, at de fire moduler
+  ikke importerer `homeassistant` igen.
+
 ## [0.67.3] — 2026-11-12
 
 ### Fixed

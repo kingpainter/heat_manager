@@ -39,14 +39,13 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING
 
-from homeassistant.util.dt import now as ha_now
-
 from ..const import (
     CONF_CLIMATE_ENTITY,
     CONF_HOMEKIT_CLIMATE_ENTITY,
     CONF_NOTIFY_SERVICE,
     ControllerState,
 )
+from .clock import local_now
 
 if TYPE_CHECKING:
     from ..coordinator import HeatManagerCoordinator
@@ -83,7 +82,7 @@ class ValveProtectionEngine:
         if self.coordinator.controller.state != ControllerState.OFF:
             return
 
-        now = ha_now()
+        now = local_now()
 
         # Only within the night window
         if not (EXERCISE_NIGHT_START <= now.hour < EXERCISE_NIGHT_END):
@@ -137,7 +136,7 @@ class ValveProtectionEngine:
         hass = self.coordinator.hass
         rooms_done: list[str] = []
         rooms_skipped: list[str] = []
-        now_ts = ha_now().timestamp()
+        now_ts = local_now().timestamp()
 
         for room in self.coordinator.rooms:
             room_name = room.get("room_name", "")

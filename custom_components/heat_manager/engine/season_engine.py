@@ -31,8 +31,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from homeassistant.util.dt import now as ha_now
-
 from ..const import (
     CONF_AUTO_OFF_TEMP_DAYS,
     CONF_AUTO_OFF_TEMP_THRESHOLD,
@@ -47,6 +45,7 @@ from ..const import (
     EffectiveSeason,
     SeasonMode,
 )
+from .clock import local_now
 
 if TYPE_CHECKING:
     from ..coordinator import HeatManagerCoordinator
@@ -56,7 +55,7 @@ _LOGGER = logging.getLogger(__name__)
 
 def _calendar_season() -> SeasonMode:
     """Return the meteorological season for today's date."""
-    today = ha_now().date()
+    today = local_now().date()
     month, day = today.month, today.day
     for m, d, season in METEO_SEASONS:
         if (month, day) >= (m, d):
@@ -154,7 +153,7 @@ class SeasonEngine:
             )
         )
 
-        today = ha_now().date().isoformat()
+        today = local_now().date().isoformat()
 
         if today != self._last_date:
             self._last_date = today
