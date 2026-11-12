@@ -674,6 +674,26 @@ async def test_get_state_pid_power_computed_from_pid_last_output():
 
 
 @pytest.mark.asyncio
+async def test_get_state_pid_power_none_for_room_without_valve():
+    """v0.66.0: a sensor-only room (no climate entity) never reports a PID
+    power, even though the coordinator holds a PID object for every room —
+    the panel showed a meaningless "PID 0%" for rooms like the hallway."""
+    coord = _make_coordinator(rooms=[_room(name="Gang", climate="", trv_type=None)])
+    pid = MagicMock()
+    pid._last_output = 0.0
+    coord.get_pid = MagicMock(return_value=pid)
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_get_state(hass, conn, _msg())
+
+    room = conn.send_result.call_args[0][1]["rooms"][0]
+    assert room["climate_entity"] == ""
+    assert room["pid_power"] is None
+    coord.get_pid.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_get_state_calibration_offset_from_calibration_engine_last_written():
     coord = _make_coordinator(
         rooms=[_room(name="Bathroom", climate="climate.bathroom")]

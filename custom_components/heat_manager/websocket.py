@@ -1001,7 +1001,9 @@ async def ws_get_state(
         # unique_id (not by guessing the entity_id) and read like any other
         # entity this function already reads.
         pid_power: float | None = None
-        pid = coordinator.get_pid(name)
+        # v0.66.0: a room without a valve ("Kun sensorer") has nothing for the
+        # PID to drive — don't report a meaningless "PID 0%" for it.
+        pid = coordinator.get_pid(name) if climate_id else None
         if pid is not None:
             raw_pid = getattr(pid, "_last_output", None)
             if raw_pid is not None:

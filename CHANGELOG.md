@@ -9,6 +9,42 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.66.0] — 2026-11-12
+
+### Changed
+- **Rumkortene i panelets Rum-fane er bygget om.** Kortet er delt i
+  navngivne sektioner — *Temperatur*, *Ventil*, *Indeklima*, *Rummets
+  indstillinger* og *Midlertidig ændring* — og hver værdi har ét entydigt
+  dansk navn. Før stod "Target temp" tre steder med tre forskellige
+  betydninger. Nu hedder de *Mål nu* (det Heat Manager styrer efter lige
+  nu, med komforttemperaturen som undertekst), *Komforttemperatur* (den
+  gemte indstilling) og *Temperatur* under Midlertidig ændring. Øvrige
+  navne: *I rummet*, *Sendt til ventil*, *Ved radiatoren*, *Varmebehov
+  (PID)*, *Fraværstemperatur*. Knapperne hedder *Sæt*, *Tilbage til
+  automatik* og *Tving varme til*; varigheden "Permanent" hedder nu
+  "Indtil videre".
+- **Netatmo-linjen er skrevet som en sætning**, fx "Følger tidsplan
+  «Vinter» · varmer ikke", med Netatmos eget sætpunkt på en linje for sig.
+  Advarslen skrives ud ("Netatmo står på 22°C, Heat Manager har sendt
+  23.5°C") og sammenligner nu med det sætpunkt, PID har sendt til
+  ventilen, når det kendes — ikke med målet. Før blev normal PID-drift
+  (sætpunkt over målet) vist som en afvigelse.
+- **Én Gem-knap** for komfort- og fraværstemperatur, sendt i ét kald.
+  Panelets 60-sekunders opdatering springer rumkortene over, mens et
+  talfelt eller en rulleliste har fokus, så en indtastning ikke går tabt.
+- **Døre vises pr. dør med navn** ("Dør til Gang: Åben") i stedet for én
+  samlet "Dør Åben".
+- Oversigtens rumfliser og "Alle rum"-boksen bruger de samme danske navne
+  (*I rummet*, *Mål nu*, *Batteri*, *Sæt i alle rum*, *Alle tilbage til
+  automatik*).
+
+### Fixed
+- **Rum uden ventil viste PID og manuel styring.** Rum med kun sensorer
+  (fx Gang og Walk in) viste "PID 0%" samt mål-skyder, Send, Schedule og
+  Tving til, selvom der intet er at styre. De markeres nu "Kun sensorer"
+  og viser kun målinger (temperatur, fugt, CO₂, døre). `heat_manager/get_state`
+  sender ikke længere `pid_power` for et rum uden klimaentitet.
+
 ## [0.65.4] — 2026-11-12
 
 ### Fixed

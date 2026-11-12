@@ -570,7 +570,7 @@ class HeatManagerPanel extends HTMLElement {
         metaBadges.push(`<span class="room-meta-badge" title="Schedule-entity konfigureret">🗓 Schedule</span>`);
       }
       if (room.trv_count > 1) {
-        metaBadges.push(`<span class="room-meta-badge" title="Antal TRV'er i rummet">🔧 ${room.trv_count} TRV'er</span>`);
+        metaBadges.push(`<span class="room-meta-badge" title="Antal ventiler i rummet">🔧 ${room.trv_count} ventiler</span>`);
       }
       let metaRow = card.querySelector(".room-meta-row");
       if (metaBadges.length) {
@@ -798,6 +798,11 @@ class HeatManagerPanel extends HTMLElement {
     // whatever value the user was in the middle of dragging to) on every
     // 60 s tick. Defer this rebuild; the next poll after release re-syncs.
     if (this._roomsTabDragging) return;
+    // v0.66.0: same for a number field being edited — a rebuild would throw
+    // away what the user is typing before they press "Gem".
+    const focused = root.activeElement;
+    if (focused && focused.closest?.(".rooms-detail-container")
+        && focused.matches?.("input[type='number'], select")) return;
     // Find the rooms detail section — rebuild its inner content surgically
     const container = root.querySelector(".rooms-detail-container");
     if (!container) return;
@@ -864,10 +869,10 @@ class HeatManagerPanel extends HTMLElement {
             duration_min: duration,
           });
           btn.textContent = "✓ Sendt";
-          setTimeout(() => { btn.textContent = "Send ↗"; btn.classList.remove("sending"); }, 2000);
+          setTimeout(() => { btn.textContent = "Sæt"; btn.classList.remove("sending"); }, 2000);
         } catch (e) {
           btn.textContent = "Fejl ✗";
-          setTimeout(() => { btn.textContent = "Send ↗"; btn.classList.remove("sending"); }, 2000);
+          setTimeout(() => { btn.textContent = "Sæt"; btn.classList.remove("sending"); }, 2000);
           this._showToast(`${roomName}: kunne ikke sætte temperatur`, "error"); // v0.3.9
           console.error("[HeatManager] set_room_temp failed:", e);
         }
@@ -890,10 +895,10 @@ class HeatManagerPanel extends HTMLElement {
           btn.textContent = "↺ OK";
         } catch (e) {
           btn.textContent = "↺ Fejl";
-          this._showToast(`${roomName}: kunne ikke gendanne schedule`, "error"); // v0.3.9
+          this._showToast(`${roomName}: kunne ikke gå tilbage til automatik`, "error"); // v0.3.9
           console.error("[HeatManager] reset_room_temp failed:", e);
         }
-        setTimeout(() => { btn.textContent = "↺ Schedule"; }, 1500);
+        setTimeout(() => { btn.textContent = "↺ Tilbage til automatik"; }, 1500);
       });
     });
 
@@ -916,7 +921,7 @@ class HeatManagerPanel extends HTMLElement {
           this._showToast(`${roomName}: kunne ikke tvinge varme til`, "error");
           console.error("[HeatManager] force_room_on failed:", e);
         }
-        setTimeout(() => { btn.textContent = "⚡ Tving til"; }, 1500);
+        setTimeout(() => { btn.textContent = "⚡ Tving varme til"; }, 1500);
       });
     });
 
@@ -937,7 +942,7 @@ class HeatManagerPanel extends HTMLElement {
         const duration = parseInt(durSel?.value ?? "60", 10);
         const rooms = (this._data?.rooms ?? []).filter(r => r.climate_entity);
         if (!rooms.length) {
-          this._showToast("Ingen rum med TRV at sætte", "error");
+          this._showToast("Ingen rum med ventil at sætte", "error");
           return;
         }
         globalSendBtn.classList.add("sending");
@@ -960,7 +965,7 @@ class HeatManagerPanel extends HTMLElement {
           globalSendBtn.textContent = `Sender ${ok + failed.length}/${rooms.length}…`;
         }
         globalSendBtn.classList.remove("sending");
-        globalSendBtn.textContent = "Send til alle ↗";
+        globalSendBtn.textContent = "Sæt i alle rum";
         if (failed.length) {
           this._showToast(`${ok}/${rooms.length} rum sat til ${temp}°C — fejlede: ${failed.join(", ")}`, "error");
         } else {
@@ -993,11 +998,11 @@ class HeatManagerPanel extends HTMLElement {
           }
         }
         globalResetBtn.classList.remove("sending");
-        globalResetBtn.textContent = "↺ Alle til schedule";
+        globalResetBtn.textContent = "↺ Alle tilbage til automatik";
         if (failed.length) {
           this._showToast(`${ok}/${rooms.length} rum gendannet — fejlede: ${failed.join(", ")}`, "error");
         } else {
-          this._showToast(`${ok} rum gendannet til schedule`, "success");
+          this._showToast(`${ok} rum tilbage til automatik`, "success");
         }
       });
     }
@@ -1073,37 +1078,41 @@ class HeatManagerPanel extends HTMLElement {
     // data-room + the button's own closest .cfg-edit-row instead of a
     // per-field id — this tab renders one such row per room, all at once, so
     // ids would collide across rooms the way _cfgNumberRow()'s don't need to.
-    root.querySelectorAll("[data-action='save-room-field']").forEach((btn) => {
+    root.querySelectorAll("[data-action='save-room-cfg']").forEach((btn) => {
       btn.addEventListener("click", async () => {
+        // v0.66.0: one "Gem" for both per-room fields (comfort + away temp),
+        // sent in a single ws_update_room_config call.
         const roomName = btn.dataset.room;
-        const field    = btn.dataset.field;
-        const cast     = btn.dataset.cast || "float";
-        const row      = btn.closest(".cfg-edit-row");
-        const input    = row?.querySelector(".room-cfg-input");
-        const ok       = row?.querySelector(".room-cfg-ok");
-        if (!input || !roomName || !field) return;
-        const raw = cast === "int" ? parseInt(input.value, 10) : parseFloat(input.value);
-        if (Number.isNaN(raw)) {
-          this._showToast("Ugyldig værdi", "error");
-          return;
+        const box      = btn.closest(".room-cfg-edit");
+        const ok       = box?.querySelector(".room-cfg-ok");
+        if (!box || !roomName) return;
+        const payload = {};
+        for (const input of box.querySelectorAll(".room-cfg-input")) {
+          if (input.value === "") continue;
+          const val = parseFloat(input.value);
+          if (Number.isNaN(val)) {
+            this._showToast("Ugyldig værdi", "error");
+            return;
+          }
+          payload[input.dataset.field] = val;
         }
+        if (!Object.keys(payload).length) return;
         btn.disabled = true;
         try {
           const res = await this._hass.callWS({
             type: "heat_manager/update_room_config",
             room_name: roomName,
-            [field]: raw,
+            ...payload,
           });
           if (res?.updated !== false) {
             const room = (this._data?.rooms ?? []).find(r => r.name === roomName);
-            if (room) room[field] = raw;
+            if (room) Object.assign(room, payload);
             ok?.classList.add("visible");
             setTimeout(() => ok?.classList.remove("visible"), 2500);
           }
         } catch (e) {
-          const label = field === "comfort_temp" ? "target temp" : "away temp override";
-          this._showToast(`${roomName}: kunne ikke gemme ${label}`, "error");
-          console.error(`[HeatManager] save room ${field} failed for`, roomName, e);
+          this._showToast(`${roomName}: kunne ikke gemme rummets indstillinger`, "error");
+          console.error("[HeatManager] save room config failed for", roomName, e);
         }
         btn.disabled = false;
       });
@@ -1615,7 +1624,43 @@ class HeatManagerPanel extends HTMLElement {
         border-top: 1px solid rgba(249,115,22,0.15);
       }
       .room-manual-lbl {
-        font-size: 11px; color: var(--sub); width: 52px; flex-shrink: 0;
+        font-size: 11px; color: var(--sub); width: 72px; flex-shrink: 0;
+      }
+      /* v0.66.0: room detail card — named sections, stat tiles, rows */
+      .rd-sec {
+        display: flex; align-items: center; gap: 8px;
+        font-size: 10px; font-weight: 700; color: var(--sub);
+        text-transform: uppercase; letter-spacing: .08em;
+        margin: 14px 0 6px;
+      }
+      .rd-sec::after { content: ""; flex: 1; border-top: 1px solid var(--div); }
+      .rd-grid {
+        display: grid; gap: 6px;
+        grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+      }
+      .rd-stat { background: var(--bg3); border-radius: 8px; padding: 7px 10px; min-width: 0; }
+      .rd-stat-l { font-size: 10px; color: var(--sub); }
+      .rd-stat-v { font-size: 16px; font-weight: 600; font-family: 'DM Mono', monospace; color: var(--text); margin-top: 1px; }
+      .rd-stat-s { font-size: 10px; color: var(--sub); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .rd-row { display: flex; align-items: center; gap: 8px; min-height: 24px; font-size: 12px; }
+      .rd-row-l { flex: 0 0 150px; color: var(--sub); font-size: 11px; }
+      .rd-row-v { color: var(--text); }
+      .rd-bar { flex: 1; height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
+      .rd-bar > div { height: 100%; border-radius: 2px; transition: width .4s; }
+      .rd-unit { font-size: 11px; color: var(--sub); }
+      .rd-note { font-size: 11px; color: var(--amber); margin: 2px 0 4px 158px; line-height: 1.4; }
+      .rd-warn { font-size: 11px; color: var(--red); margin: 4px 0; line-height: 1.4; }
+      .rd-badge-sensor {
+        font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 4px;
+        background: var(--bg3); color: var(--sub); letter-spacing: .04em;
+      }
+      .room-cfg-edit .rd-row { min-height: 38px; }
+      .room-cfg-edit .cfg-edit-input { width: 80px; flex: 0 0 80px; }
+      @media (max-width: 600px) {
+        .room-manual-row { flex-wrap: wrap; row-gap: 6px; }
+        .room-manual-row .room-manual-lbl:empty { display: none; }
+        .rd-row-l { flex-basis: 120px; }
+        .rd-note { margin-left: 0; }
       }
       .room-manual-slider {
         flex: 1; -webkit-appearance: none; appearance: none;
@@ -2990,7 +3035,7 @@ class HeatManagerPanel extends HTMLElement {
       metaBadges.push(`<span class="room-meta-badge" title="Schedule-entity konfigureret">🗓 Schedule</span>`);
     }
     if (room.trv_count > 1) {
-      metaBadges.push(`<span class="room-meta-badge" title="Antal TRV'er i rummet">🔧 ${room.trv_count} TRV'er</span>`);
+      metaBadges.push(`<span class="room-meta-badge" title="Antal ventiler i rummet">🔧 ${room.trv_count} ventiler</span>`);
     }
     const metaRow = metaBadges.length ? `<div class="room-meta-row">${metaBadges.join("")}</div>` : "";
     // 2026-09-11 (monitoring-only rooms): a room with no TRV at all (e.g.
@@ -3005,21 +3050,21 @@ class HeatManagerPanel extends HTMLElement {
       ? `<div class="room-temps">
            <div class="room-temp-box">
              <div class="room-temp-val">${tempStr}</div>
-             <div class="room-temp-lbl">Rum temp</div>
+             <div class="room-temp-lbl">I rummet</div>
            </div>
            <div class="room-temp-box">
              <div class="room-temp-val">${setpt ?? "–"}</div>
-             <div class="room-temp-lbl">Target Temp</div>
+             <div class="room-temp-lbl">Mål nu</div>
            </div>
            <div class="room-temp-box">
              <div class="room-temp-val" style="${battColor ? `color:${battColor}` : ""}">${battStr}</div>
-             <div class="room-temp-lbl">Trv batt</div>
+             <div class="room-temp-lbl">Batteri</div>
            </div>
          </div>`
       : `<div class="room-temps" style="grid-template-columns:1fr">
            <div class="room-temp-box">
              <div class="room-temp-val">${tempStr}</div>
-             <div class="room-temp-lbl">Rum temp</div>
+             <div class="room-temp-lbl">I rummet</div>
            </div>
          </div>`;
     return `
@@ -3236,254 +3281,250 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   _roomDetailRowHTML(room) {
+    // v0.66.0: rebuilt into named sections (Temperatur / Ventil / Indeklima /
+    // Rummets indstillinger / Midlertidig ændring) with one distinct Danish
+    // name per value. The old layout showed "Target temp" three times with
+    // three different meanings (live target, comfort setting, manual slider).
+    // Rooms without a valve ("Kun sensorer") show measurements only.
     const state    = room.state ?? "normal";
     const color    = this._stateColor(state);
-    // Rum temp = coordinator's best-available reading (external room_temp_sensor
-    // when configured, else the TRV's own temp) — this is the room's real
-    // temperature. Trv temp = the TRV's own current_temperature attribute,
-    // shown separately since it sits on the radiator body and commonly reads
-    // 1-3°C hot (see coordinator.get_room_current_temp docstring).
-    const trvTemp  = room.climate_entity ? this._climateTemp(room.climate_entity) : null;
-    const setpt    = this._roomSetpoint(room);
-    const roomTempStr = room.current_temp != null ? (Math.round(room.current_temp * 10) / 10) + "°C" : "–";
-    const trvTempStr  = trvTemp ?? "–";
-    const battery     = room.battery_level != null ? Math.round(room.battery_level) : null;
-    const batteryColor = battery == null ? "var(--sub)" : battery <= 15 ? "var(--red)" : battery <= 30 ? "var(--amber)" : "var(--sub)";
-    const batteryStr  = battery != null ? `${battery}%` : "–";
-    const humidityStr = room.humidity != null ? `${Math.round(room.humidity * 10) / 10}%` : null;
-    const co2Str      = room.co2 != null ? `${Math.round(room.co2)} ppm` : null;
-    const luxStr      = room.lux != null ? `${Math.round(room.lux)} lux` : null;
-    // 2026-09 frontend-parity fix: these were computed by the backend
-    // (PID's own power output, calibration_engine's last written offset,
-    // RoomWindowDurationSensor's running total) but only ever visible via
-    // HA's own entity page — same "Rum detaljer" pattern as humidity/CO2
-    // above, just added a session later once ws_get_state() started
-    // reporting them.
-    const pidPowerStr  = room.pid_power != null ? `${Math.round(room.pid_power)}%` : null;
-    const calibStr     = room.calibration_offset != null
-      ? `${room.calibration_offset >= 0 ? "+" : ""}${room.calibration_offset.toFixed(1)}°C`
-      : null;
-    const windowDurStr = room.window_duration_today != null ? `${room.window_duration_today} min` : null;
-    // 2026-09-11 door feature (level A visibility): only shown for rooms
-    // actually connected to a configured interior door — room.door_open is
-    // otherwise just "false" for every door-less room too, which would
-    // silently show every room as "door closed".
-    const connectedDoors = (this._data?.doors ?? []).filter(
-      d => d.room_a === room.name || d.room_b === room.name
-    );
-    const doorStr = connectedDoors.length
-      ? (room.door_open ? "Åben" : "Lukket")
-      : null;
-    const heatedDoorStr = room.has_heated_doors
-      ? (room.heated_door_open ? "Åben" : "Lukket")
-      : null;
-    // 2026-09 audit fix (UI/UX #8): unavailable_entities lists every entity
-    // this room depends on (all TRVs, window/humidity/CO2/battery sensors)
-    // that's currently missing/unavailable/unknown — a small warning chip
-    // here surfaces it without waiting for the top-level Netatmo-only
-    // cloud banner to notice (a dead window-sensor battery, say, is not a
-    // cloud outage and never trips that banner).
-    const unavailableList = room.unavailable_entities ?? [];
-    const valve    = room.valve_position != null ? Math.round(room.valve_position) : null;
-    const isHeat   = valve != null && valve > 0;
-    // v0.3.9 (B15); 2026-09-11: no badge at all for a monitoring-only room
-    // with no TRV (room.trv_type is None — see websocket.py) rather than a
-    // misleading "–" badge.
-    const trvBadge = room.trv_type ? this._trvBadgeHTML(room.trv_type) : "";
+    const esc      = (v) => this._esc(v);
+    const fmtT     = (v) => v != null ? `${Math.round(v * 10) / 10}°C` : "–";
+    const hasTrv   = !!room.climate_entity;
+    const roomName = esc(room.name);
+
+    // ── Header ────────────────────────────────────────────────────────────
+    const trvBadge = room.trv_type
+      ? this._trvBadgeHTML(room.trv_type)
+      : `<span class="rd-badge-sensor">Kun sensorer</span>`;
     const boostBadge = room.boost_active
       ? `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(168,85,247,0.15);color:#c084fc;margin-left:4px">⚡ BOOST</span>`
       : "";
-    const valveBar = valve != null
-      ? `<div style="margin-top:6px">
-           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-             <span style="font-size:10px;color:var(--sub)">Ventil</span>
-             <span style="font-size:10px;font-weight:600;color:${isHeat?'#f97316':'var(--sub)'};font-family:'DM Mono',monospace">${valve}%${isHeat?' 🔥':''}</span>
-           </div>
-           <div style="height:4px;background:var(--bg3);border-radius:2px;overflow:hidden">
-             <div style="height:100%;width:${valve}%;background:${isHeat?"#f97316":"#475569"};border-radius:2px;transition:width .4s"></div>
-           </div>
-         </div>`
+    const stateBadge = hasTrv
+      ? `<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:${color}22;color:${color}">${this._stateLabel(state, room.override_source)}</span>`
       : "";
-    // Manual control section — only rendered when enabled
-    const manualHTML = this._manualControlEnabled ? `
-      <div class="room-manual" data-room="${this._esc(room.name)}">
+    const overrideInfo = this._overrideInfoText(room);
+    const unavailableList = room.unavailable_entities ?? [];
+    const unavailableHTML = unavailableList.length
+      ? `<div class="rd-warn" title="${esc(unavailableList.join(", "))}">⚠ ${unavailableList.length} ${unavailableList.length > 1 ? "enheder svarer" : "enhed svarer"} ikke: ${esc(unavailableList.join(", "))}</div>`
+      : "";
+
+    // Small building blocks.
+    const section = (title) => `<div class="rd-sec">${title}</div>`;
+    const stat = (label, value, sub = "", desc = "") => `
+      <div class="rd-stat">
+        <div class="rd-stat-l">${label}${desc ? this._infoIcon(desc) : ""}</div>
+        <div class="rd-stat-v">${value}</div>
+        ${sub ? `<div class="rd-stat-s">${sub}</div>` : ""}
+      </div>`;
+    const row = (label, value, valueStyle = "", desc = "") => `
+      <div class="rd-row">
+        <span class="rd-row-l">${label}${desc ? this._infoIcon(desc) : ""}</span>
+        <span class="rd-row-v" style="${valueStyle}">${value}</span>
+      </div>`;
+
+    // ── Temperatur ────────────────────────────────────────────────────────
+    const roomTempDesc = "Rummets faktiske temperatur — fra ekstern temperatursensor, hvis rummet har en, ellers fra ventilens egen måling.";
+    const targetDesc = "Den temperatur Heat Manager styrer efter lige nu: komforttemperaturen efter skema, offset, natsænkning og fravær.";
+    const sentDesc = "Det sætpunkt PID'en sender til ventilen lige nu. Kan ligge over målet, mens rummet stadig er koldt. Vises kun i normal, automatisk drift.";
+    const radiatorDesc = "Ventilens egen måling. Den sidder på radiatoren og viser typisk 1-3°C mere end rummet.";
+    const setpt     = this._roomSetpoint(room);
+    const trvTemp   = hasTrv ? this._climateTemp(room.climate_entity) : null;
+    const comfortSub = room.comfort_temp != null ? `komfort ${Math.round(room.comfort_temp * 10) / 10}°C` : "";
+    const tempHTML = hasTrv
+      ? `${section("Temperatur")}
+         <div class="rd-grid">
+           ${stat("I rummet", fmtT(room.current_temp), "", roomTempDesc)}
+           ${stat("Mål nu", setpt ?? "–", comfortSub, targetDesc)}
+           ${stat("Sendt til ventil", fmtT(room.trv_setpoint), room.trv_setpoint != null ? "PID-sætpunkt" : "ikke i auto", sentDesc)}
+           ${stat("Ved radiatoren", trvTemp ?? "–", "ventilens måling", radiatorDesc)}
+         </div>`
+      : `${section("Temperatur")}
+         <div class="rd-grid" style="max-width:220px">${stat("I rummet", fmtT(room.current_temp), "", roomTempDesc)}</div>`;
+
+    // ── Ventil ────────────────────────────────────────────────────────────
+    let valveHTML = "";
+    if (hasTrv) {
+      const valve  = room.valve_position != null ? Math.round(room.valve_position) : null;
+      const isHeat = valve != null && valve > 0;
+      const valveBar = valve != null
+        ? `<div class="rd-row">
+             <span class="rd-row-l">Åbning</span>
+             <div class="rd-bar"><div style="width:${valve}%;background:${isHeat ? "#f97316" : "#475569"}"></div></div>
+             <span class="rd-row-v" style="min-width:42px;text-align:right;color:${isHeat ? "#f97316" : "var(--sub)"}">${valve}%${isHeat ? " 🔥" : ""}</span>
+           </div>`
+        : "";
+      const battery = room.battery_level != null ? Math.round(room.battery_level) : null;
+      const batteryColor = battery == null ? "" : battery <= 15 ? "color:var(--red)" : battery <= 30 ? "color:var(--amber)" : "";
+      const calib = room.calibration_offset != null
+        ? `${room.calibration_offset >= 0 ? "+" : ""}${room.calibration_offset.toFixed(1)}°C`
+        : null;
+      valveHTML = `${section("Ventil")}
+        ${valveBar}
+        ${room.pid_power != null ? row("Varmebehov (PID)", `${Math.round(room.pid_power)}%`, "", "Hvor meget varme PID-regulatoren beder om lige nu, 0-100%.") : ""}
+        ${calib ? row("Kalibrering", calib) : ""}
+        ${battery != null ? row("Batteri", `${battery}%`, batteryColor) : ""}
+        ${this._netatmoRowsHTML(room, row)}`;
+    }
+
+    // ── Indeklima ─────────────────────────────────────────────────────────
+    const doors = (this._data?.doors ?? []).filter(d => d.room_a === room.name || d.room_b === room.name);
+    const doorRows = doors.map(d => {
+      const other = d.room_a === room.name ? d.room_b : d.room_a;
+      const value = d.available === false ? "utilgængelig" : (d.is_open ? "Åben" : "Lukket");
+      return row(`Dør til ${esc(other)}`, value, d.is_open ? "color:var(--amber)" : "");
+    }).join("");
+    const climateRows = [
+      room.humidity != null ? row("Luftfugtighed", `${Math.round(room.humidity * 10) / 10}%`) : "",
+      room.co2 != null ? row("CO₂", `${Math.round(room.co2)} ppm`) : "",
+      room.lux != null ? row("Lys", `${Math.round(room.lux)} lux`) : "",
+      room.window_duration_today != null ? row("Vindue åbent i dag", `${room.window_duration_today} min`) : "",
+      doorRows,
+      room.has_heated_doors ? row("Yderdør", room.heated_door_open ? "Åben" : "Lukket", room.heated_door_open ? "color:var(--amber)" : "") : "",
+    ].join("");
+    const climateHTML = climateRows.trim() ? `${section("Indeklima")}${climateRows}` : "";
+
+    // ── Rummets indstillinger ─────────────────────────────────────────────
+    // Inline editing of the two per-room config values (ws_update_room_config).
+    const comfortDesc = "Den temperatur rummet skal have, når nogen er hjemme. Natsænkning og offset trækkes fra denne.";
+    const awayDesc = "Rummets temperatur, når huset er tomt (bruges også som bund for natsænkning). Ikke det samme som vindue-sluk-temperaturen.";
+    const settingsHTML = hasTrv ? `${section("Rummets indstillinger")}
+         <div class="room-cfg-edit" data-room="${roomName}">
+           <div class="rd-row">
+             <span class="rd-row-l">Komforttemperatur${this._infoIcon(comfortDesc)}</span>
+             <input class="cfg-edit-input room-cfg-input" type="number" min="15" max="26" step="0.5"
+               value="${esc(room.comfort_temp ?? "")}" data-field="comfort_temp">
+             <span class="rd-unit">°C</span>
+           </div>
+           <div class="rd-row">
+             <span class="rd-row-l">Fraværstemperatur${this._infoIcon(awayDesc)}</span>
+             <input class="cfg-edit-input room-cfg-input" type="number" min="5" max="20" step="0.5"
+               value="${esc(room.away_temp_override ?? "")}" data-field="away_temp_override">
+             <span class="rd-unit">°C</span>
+             <button class="cfg-save-btn" data-action="save-room-cfg" data-room="${roomName}">Gem</button>
+             <span class="cfg-save-ok room-cfg-ok">✔</span>
+           </div>
+         </div>` : "";
+
+    // ── Midlertidig ændring ───────────────────────────────────────────────
+    const manualHTML = (hasTrv && this._manualControlEnabled) ? `
+      <div class="room-manual" data-room="${roomName}">
+        <div class="rd-sec" style="margin-top:0">Midlertidig ændring</div>
         <div class="room-manual-row">
-          <span class="room-manual-lbl">Target Temp</span>
+          <span class="room-manual-lbl">Temperatur</span>
           <input class="room-manual-slider" type="range" min="10" max="28" step="0.5"
             value="${setpt ? parseFloat(setpt) : 20}"
-            data-room="${this._esc(room.name)}">
+            data-room="${roomName}">
           <span class="room-manual-val">${setpt ? parseFloat(setpt) : 20}°C</span>
         </div>
         <div class="room-manual-row" style="margin-top:6px">
           <span class="room-manual-lbl">Varighed</span>
-          <select class="room-manual-dur" data-room="${this._esc(room.name)}">
+          <select class="room-manual-dur" data-room="${roomName}">
             <option value="30">30 min</option>
             <option value="60" selected>1 time</option>
             <option value="120">2 timer</option>
-            <option value="0">Permanent</option>
+            <option value="0">Indtil videre</option>
           </select>
-          <button class="room-manual-send" data-room="${this._esc(room.name)}">Send ↗</button>
-          <button class="room-manual-reset" data-room="${this._esc(room.name)}">↺ Schedule</button>
+          <button class="room-manual-send" data-room="${roomName}">Sæt</button>
         </div>
         <div class="room-manual-row" style="margin-top:6px">
-          <button class="room-manual-force" data-room="${this._esc(room.name)}"
-            title="Tving rummet til at varme nu, uanset tilstedeværelse/vindue (heat_manager.force_room_on)">⚡ Tving til</button>
+          <span class="room-manual-lbl"></span>
+          <button class="room-manual-reset" data-room="${roomName}"
+            title="Fjern den midlertidige ændring og følg skemaet igen">↺ Tilbage til automatik</button>
+          <button class="room-manual-force" data-room="${roomName}"
+            title="Tving rummet til at varme nu, uanset tilstedeværelse og vinduer (heat_manager.force_room_on)">⚡ Tving varme til</button>
         </div>
       </div>` : "";
 
     // B18 Fase 3: grouping controls — only rendered for rooms with 2+
     // physical TRVs (RoomOffsetNumber/RoomGroupToggleSwitch only exist for
     // those). group_enabled defaults true (matches coordinator.py's
-    // room_group_enabled.get(name, True)) so a payload from before Fase 4
-    // widened the backend (unlikely, but the field is new) still reads as
-    // grouped rather than falsely "released".
+    // room_group_enabled.get(name, True)).
     const trvCount     = room.trv_count ?? 1;
     const groupEnabled = room.group_enabled !== false;
     const roomOffset   = room.offset ?? 0;
-    const groupingHTML = trvCount > 1 ? `
-      <div class="room-grouping" data-room="${this._esc(room.name)}">
+    const groupingHTML = (hasTrv && trvCount > 1) ? `
+      <div class="room-grouping" data-room="${roomName}">
+        <div class="rd-sec" style="margin-top:0">Ventilgruppe</div>
         <div class="room-group-row">
-          <span class="room-group-lbl">🔗 Gruppe (${trvCount} TRV'er)</span>
+          <span class="room-group-lbl">🔗 ${trvCount} ventiler</span>
           <button class="toggle-btn room-group-toggle${groupEnabled ? " active" : ""}"
-            data-action="toggle-room-group" data-room="${this._esc(room.name)}">
+            data-action="toggle-room-group" data-room="${roomName}">
             ${groupEnabled ? "Grupperet" : "Frigivet"}
           </button>
         </div>
         <div class="room-offset-row" style="margin-top:8px">
           <span class="room-offset-label">Offset</span>
           <input class="room-offset-slider" type="range" min="-5" max="5" step="0.5"
-            value="${roomOffset}" data-room="${this._esc(room.name)}">
-          <span class="room-offset-val" data-room="${this._esc(room.name)}">${(roomOffset >= 0 ? "+" : "") + roomOffset.toFixed(1)}°C</span>
+            value="${roomOffset}" data-room="${roomName}">
+          <span class="room-offset-val" data-room="${roomName}">${(roomOffset >= 0 ? "+" : "") + roomOffset.toFixed(1)}°C</span>
         </div>
-        ${!groupEnabled ? `<div style="font-size:10px;color:var(--sub);margin-top:6px;line-height:1.5">Ekstra TRV'er styres ikke af Heat Manager lige nu — kun den primære TRV følger skemaet.</div>` : ""}
+        ${!groupEnabled ? `<div style="font-size:10px;color:var(--sub);margin-top:6px;line-height:1.5">De ekstra ventiler styres ikke af Heat Manager lige nu — kun den primære ventil følger skemaet.</div>` : ""}
       </div>` : "";
-
-    // Rum detaljer: 4-stat row (Rum temp / Target Temp / Trv temp / Trv batt),
-    // plus humidity/CO2 chips when the room has those sensors configured.
-    // v0.33.0 (point 4): desc, when given, adds an _infoIcon() next to the
-    // label — this is exactly the "hvad er hvad" confusion Flemming flagged
-    // (set point vs. target temp vs. rum temp vs. trv temp) made explicit
-    // in the UI itself instead of only in chat.
-    const statBox = (label, value, color, desc = "") => `
-           <div style="text-align:center">
-             <div style="font-size:13px;font-weight:600;font-family:'DM Mono',monospace;color:${color ?? "var(--text)"}">${value}</div>
-             <div style="font-size:9px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;margin-top:2px">${label}${desc ? this._infoIcon(desc) : ""}</div>
-           </div>`;
-    // 2026-09-11 (monitoring-only rooms): Target Temp/Trv temp/Trv batt are all
-    // meaningless for a room with no TRV at all (e.g. "Gang") — same
-    // reasoning as the Oversigt card fix above. Only Rum temp applies.
-    const hasTrv = !!room.climate_entity;
-    const roomTempDesc = "Rummets faktiske temperatur — fra ekstern temperatur-sensor hvis rummet har en, ellers TRV'ens egen sensor.";
-    const targetTempDesc = "Den rumtemperatur Heat Manager forsøger at opnå lige nu (\"set point\") — comfort-temp efter skema, offset og evt. nat-sænkning. Ikke nødvendigvis det tal der sendes til TRV'en: PID'en oversætter dette til en styringsværdi for ventilen, som kan ligge et stykke over eller under selve target-temperaturen.";
-    const trvTempDesc = "TRV'ens egen temperaturmåling. Den sidder på radiatoren og viser derfor typisk 1-3°C varmere end den faktiske rumtemperatur — brug Rum temp som den reelle temperatur.";
-    const trvSetpointStr = room.trv_setpoint != null ? (Math.round(room.trv_setpoint * 10) / 10) + "°C" : "–";
-    const trvSetpointDesc = "Det setpoint PID'en rent faktisk sender til TRV'en lige nu — efter effekt-beregning og setpoint-margin (se overshoot-fixet). Kan ligge et stykke over Target Temp, mens rummet stadig er langt fra sit mål. Vises kun når rummet er i normal, automatisk drift.";
-    const statsRowHTML = hasTrv
-      ? `<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid var(--div)">
-           ${statBox("Rum temp", roomTempStr, null, roomTempDesc)}
-           ${statBox("Target Temp", setpt ?? "–", null, targetTempDesc)}
-           ${statBox("Trv setpoint", trvSetpointStr, null, trvSetpointDesc)}
-           ${statBox("Trv temp", trvTempStr, null, trvTempDesc)}
-           ${statBox("Trv batt", batteryStr, batteryColor)}
-         </div>`
-      : `<div style="display:grid;grid-template-columns:1fr;gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid var(--div)">
-           ${statBox("Rum temp", roomTempStr, null, roomTempDesc)}
-         </div>`;
-    const extraSensorsHTML = (humidityStr || co2Str || luxStr || pidPowerStr || calibStr || windowDurStr || doorStr || heatedDoorStr || unavailableList.length) ? `
-         <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
-           ${humidityStr ? `<span style="font-size:10px;color:var(--sub)">💧 ${humidityStr}</span>` : ""}
-           ${co2Str ? `<span style="font-size:10px;color:var(--sub)">🫧 CO₂ ${co2Str}</span>` : ""}
-           ${luxStr ? `<span style="font-size:10px;color:var(--sub)">☀️ ${luxStr}</span>` : ""}
-           ${pidPowerStr ? `<span style="font-size:10px;color:var(--sub)">⚙️ PID ${pidPowerStr}</span>` : ""}
-           ${calibStr ? `<span style="font-size:10px;color:var(--sub)">🎯 ${calibStr}</span>` : ""}
-           ${windowDurStr ? `<span style="font-size:10px;color:var(--sub)">🪟 ${windowDurStr} i dag</span>` : ""}
-           ${doorStr ? `<span style="font-size:10px;color:var(--sub)">🚪 Dør ${doorStr}</span>` : ""}
-           ${heatedDoorStr ? `<span style="font-size:10px;color:var(--sub)">🚪 Yderdør ${heatedDoorStr}</span>` : ""}
-           ${unavailableList.length ? `<span style="font-size:10px;color:var(--red)" title="${this._esc(unavailableList.join(", "))}">⚠️ ${unavailableList.length} utilgængelig${unavailableList.length > 1 ? "e" : ""}</span>` : ""}
-         </div>` : "";
-    // Fase 2 (2026-09-11) — the user's `select.mit_hjem`-style visibility
-    // request: what Netatmo's OWN cloud entity currently reports, shown
-    // side by side with Heat Manager's "Target Temp" above so the two can
-    // never be confused again the way they were before B21. Only present
-    // for rooms with a Netatmo cloud climate entity (cloud_preset_mode etc.
-    // are null for Zigbee/local rooms — see websocket.py ws_get_state()).
-    // Actually switching the mode lives on the new
-    // select.<room>_netatmo_preset_mode entity (select.py) — usable from
-    // any standard HA dashboard/Entities page already; not yet wired into
-    // this custom panel's own controls.
-    const netatmoDiverges = room.cloud_temperature != null && room.target_temp != null
-      && Math.abs(room.cloud_temperature - room.target_temp) >= 0.5;
-    // v0.65.3: NET-TRV's netatmo_setpoint_mode / setpoint_end_time say who
-    // controls the room in Netatmo right now ("tidsplan", "manuel til
-    // 18:30", "boost", …). Shown instead of the raw preset when present;
-    // core netatmo has no such attribute, so it falls back to the preset.
-    const netatmoMode = this._netatmoModeLabel(room);
-    const netatmoHTML = (netatmoMode || room.cloud_preset_mode || room.cloud_selected_schedule || room.cloud_temperature != null) ? `
-         <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center">
-           <span style="font-size:10px;color:var(--sub)">🛰️ Netatmo:</span>
-           ${netatmoMode
-             ? `<span style="font-size:10px;color:var(--text)" title="Hvem styrer rummet i Netatmo lige nu (netatmo_setpoint_mode)">${this._esc(netatmoMode)}</span>`
-             : room.cloud_preset_mode ? `<span style="font-size:10px;color:var(--sub)">${this._esc(room.cloud_preset_mode)}</span>` : ""}
-           ${room.cloud_selected_schedule ? `<span style="font-size:10px;color:var(--sub)">(${this._esc(room.cloud_selected_schedule)})</span>` : ""}
-           ${room.cloud_hvac_action ? `<span style="font-size:10px;color:var(--sub)">${this._esc(room.cloud_hvac_action)}</span>` : ""}
-           ${room.cloud_temperature != null ? `<span style="font-size:10px;color:${netatmoDiverges ? "var(--amber)" : "var(--sub)"}" title="Netatmo-appens eget sidst kendte sætpunkt for denne enhed — ikke det Heat Manager beder om">${(Math.round(room.cloud_temperature * 10) / 10)}°C${netatmoDiverges ? " ⚠" : ""}</span>` : ""}
-         </div>` : "";
-
-    // Punkt 3 (2026-09-13): inline live editing of Target temp/Away temp
-    // override, directly in this room card — no options-flow round-trip.
-    // Deliberately scoped to just these two fields (CO₂ threshold etc. stay
-    // options-flow-only). Reuses the exact same cfg-edit-row/cfg-edit-input/
-    // cfg-save-btn/cfg-save-ok visual pattern as the Indstillinger tab's
-    // _cfgNumberRow() — but data-room/data-field-scoped instead of
-    // id-scoped, since (unlike Indstillinger) many of these rows render at
-    // once. Only for rooms with a TRV — nothing to target-temp-edit on a
-    // monitoring-only room. See ws_update_room_config() in websocket.py.
-    const awayTempDesc = "Rummets gulvtemperatur når huset er tomt eller om natten (bruges også som bund for nat-sætpunktet). Ikke det samme som den globale vindue-sluk-temperatur.";
-    const roomCfgHTML = hasTrv ? `
-         <div class="room-cfg-edit" data-room="${this._esc(room.name)}" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--div)">
-           <div class="cfg-edit-row">
-             <span class="cfg-edit-label" style="flex:0 0 130px">Target temp</span>
-             <input class="cfg-edit-input room-cfg-input" type="number" min="15" max="26" step="0.5"
-               value="${this._esc(room.comfort_temp ?? "")}"
-               data-room="${this._esc(room.name)}" data-field="comfort_temp">
-             <span class="cfg-edit-label" style="flex-shrink:0">°C</span>
-             <button class="cfg-save-btn" data-action="save-room-field"
-               data-room="${this._esc(room.name)}" data-field="comfort_temp" data-cast="float">Gem</button>
-             <span class="cfg-save-ok room-cfg-ok" data-room="${this._esc(room.name)}" data-field="comfort_temp">✔</span>
-           </div>
-           <div class="cfg-edit-row">
-             <span class="cfg-edit-label" style="flex:0 0 130px">Away temp${this._infoIcon(awayTempDesc)}</span>
-             <input class="cfg-edit-input room-cfg-input" type="number" min="5" max="20" step="0.5"
-               value="${this._esc(room.away_temp_override ?? "")}"
-               data-room="${this._esc(room.name)}" data-field="away_temp_override">
-             <span class="cfg-edit-label" style="flex-shrink:0">°C</span>
-             <button class="cfg-save-btn" data-action="save-room-field"
-               data-room="${this._esc(room.name)}" data-field="away_temp_override" data-cast="float">Gem</button>
-             <span class="cfg-save-ok room-cfg-ok" data-room="${this._esc(room.name)}" data-field="away_temp_override">✔</span>
-           </div>
-         </div>` : "";
 
     return `
       <div class="room-detail-row" style="border-bottom:1px solid var(--div)">
         <div style="padding:12px 16px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
             <div style="display:flex;align-items:center;gap:6px">
-              <span style="font-size:14px;font-weight:600">${this._esc(room.name)}</span>
+              <span style="font-size:14px;font-weight:600">${roomName}</span>
               ${trvBadge}
               ${boostBadge}
             </div>
-            <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:${color}22;color:${color}">${this._stateLabel(state, room.override_source)}</span>
+            ${stateBadge}
           </div>
-          ${this._overrideInfoText(room) ? `<div class="room-override-info">${this._esc(this._overrideInfoText(room))}</div>` : ""}
-          ${statsRowHTML}
-          ${extraSensorsHTML}
-          ${netatmoHTML}
-          ${valveBar}
-          ${roomCfgHTML}
+          ${overrideInfo ? `<div class="room-override-info">${esc(overrideInfo)}</div>` : ""}
+          ${unavailableHTML}
+          ${tempHTML}
+          ${valveHTML}
+          ${climateHTML}
+          ${settingsHTML}
         </div>
         ${manualHTML}
         ${groupingHTML}
       </div>`;
+  }
+
+  // v0.66.0: Netatmo's own view of the room as plain Danish rows — who
+  // controls it ("Følger tidsplan «Vinter»", "Manuel til 18:30"), whether it
+  // is heating, and Netatmo's own setpoint with a written-out warning when
+  // it differs from Heat Manager's target. Only for rooms with a Netatmo
+  // cloud entity (all cloud_* fields are null otherwise).
+  _netatmoRowsHTML(room, row) {
+    const modeLabel = this._netatmoModeLabel(room);
+    const sched = room.cloud_selected_schedule;
+    const parts = [];
+    if (modeLabel === "tidsplan") {
+      parts.push(sched ? `Følger tidsplan «${this._esc(sched)}»` : "Følger tidsplan");
+    } else if (modeLabel) {
+      parts.push(this._esc(modeLabel.charAt(0).toUpperCase() + modeLabel.slice(1)));
+    } else if (room.cloud_preset_mode) {
+      parts.push(`Forvalg: ${this._esc(room.cloud_preset_mode)}${sched ? ` («${this._esc(sched)}»)` : ""}`);
+    } else if (sched) {
+      parts.push(`Tidsplan «${this._esc(sched)}»`);
+    }
+    const action = room.cloud_hvac_action;
+    if (action) {
+      parts.push(({ heating: "varmer", idle: "varmer ikke", off: "slukket" })[action] ?? this._esc(action));
+    }
+    let html = parts.length ? row("Netatmo", parts.join(" · "), "color:var(--text)") : "";
+    if (room.cloud_temperature != null) {
+      // Compare with what Heat Manager actually sent to the valve when known
+      // (the PID setpoint can sit above the target on purpose); fall back to
+      // the target otherwise. Comparing with the target alone flagged normal
+      // PID operation as a mismatch.
+      const cloud = Math.round(room.cloud_temperature * 10) / 10;
+      const ref = room.trv_setpoint ?? room.target_temp;
+      const refLabel = room.trv_setpoint != null ? "har sendt" : "vil have";
+      const diverges = ref != null && Math.abs(room.cloud_temperature - ref) >= 0.5;
+      html += row("Sætpunkt i Netatmo", `${cloud}°C`, diverges ? "color:var(--amber)" : "",
+        "Det sætpunkt Netatmo selv viser for rummet — ikke nødvendigvis det Heat Manager vil have.");
+      if (diverges) {
+        const refVal = Math.round(ref * 10) / 10;
+        html += `<div class="rd-note">⚠ Netatmo står på ${cloud}°C, Heat Manager ${refLabel} ${refVal}°C.</div>`;
+      }
+    }
+    return html;
   }
 
   // 2026-09-11: global counterpart to the per-room manual-override slider
@@ -3502,11 +3543,11 @@ class HeatManagerPanel extends HTMLElement {
     return `
       <div class="section-box">
         <div class="section-box-header">
-          <div class="section-box-title">Alle rum — Target Temp</div>
+          <div class="section-box-title">Alle rum — midlertidig ændring</div>
         </div>
         <div class="room-manual" style="padding:12px 16px">
           <div class="room-manual-row">
-            <span class="room-manual-lbl">Target Temp</span>
+            <span class="room-manual-lbl">Temperatur</span>
             <input class="room-manual-slider global-manual-slider" type="range" min="10" max="28" step="0.5" value="20">
             <span class="room-manual-val global-manual-val">20°C</span>
           </div>
@@ -3516,13 +3557,13 @@ class HeatManagerPanel extends HTMLElement {
               <option value="30">30 min</option>
               <option value="60" selected>1 time</option>
               <option value="120">2 timer</option>
-              <option value="0">Permanent</option>
+              <option value="0">Indtil videre</option>
             </select>
-            <button class="room-manual-send global-manual-send" id="global-manual-send">Send til alle ↗</button>
-            <button class="room-manual-reset global-manual-reset" id="global-manual-reset">↺ Alle til schedule</button>
+            <button class="room-manual-send global-manual-send" id="global-manual-send">Sæt i alle rum</button>
+            <button class="room-manual-reset global-manual-reset" id="global-manual-reset">↺ Alle tilbage til automatik</button>
           </div>
           <div style="font-size:10px;color:var(--sub);margin-top:6px">
-            Sætter ${controllable} rum med TRV til samme temperatur — rum uden TRV (kun overvågning) springes over.
+            Sætter ${controllable} rum med ventil til samme temperatur — rum med kun sensorer springes over.
           </div>
         </div>
       </div>`;
@@ -3698,7 +3739,7 @@ class HeatManagerPanel extends HTMLElement {
             </button>
           </div>
         </div>
-        <div class="section-box-footer">Viser en ekstra kontrol i Rum-fanen til at sætte en midlertidig temperatur direkte på én eller alle TRV'er — uden om schedule og PID. Til hurtige justeringer.</div>
+        <div class="section-box-footer">Viser en ekstra kontrol i Rum-fanen til at sætte en midlertidig temperatur direkte på én eller alle ventiler — uden om skema og PID. Til hurtige justeringer.</div>
       </div>
 
       <!-- Fase 2, del 1 (2026-09-13) — "Indstillinger": driftsparametre der
