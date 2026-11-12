@@ -133,10 +133,12 @@ from .const import (
     HOUSE_STATUS_WINDOW_OPEN,
     HOUSE_VOICE_DOMAIN,
     HOUSE_VOICE_SERVICE_SAY,
+    MISSING_CLIMATE_GRACE_SECONDS,
     NETATMO_API_CALL_DELAY_SEC,
     PID_SETPOINT_MARGIN,
     PRESET_SCHEDULE,
     REPAIR_ISSUE_ID_PREFIX,
+    REPAIR_ISSUE_MISSING_CLIMATE,
     REPAIR_ISSUE_PERSISTENT,
     SCAN_INTERVAL_SECONDS,
     SERVICE_CLEAR_TEMPERATURE_SETTING,
@@ -457,6 +459,13 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # created exactly once per episode instead of every tick, and
         # deleted the moment the category clears.
         self._repair_issue_active: set[str] = set()
+
+        # v0.65.4: per-room tracking for the missing-climate repair issue.
+        # _climate_missing_since holds when each room's climate entity was
+        # first seen missing; _climate_missing_raised holds rooms whose
+        # WARNING + repair issue has been raised for the current episode.
+        self._climate_missing_since: dict[str, datetime] = {}
+        self._climate_missing_raised: set[str] = set()
 
         # 2026-09 fix: ws_set_room_temp's duration_min was accepted and
         # logged but never actually wired to anything — a manual panel
@@ -2277,6 +2286,74 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._issue_escalated.add(key)
         await self._notify_issue_escalation(message, threshold_min)
 
+    def missing_climate_issue_id(self, room_name: str) -> str:
+        """Repair issue_id for a room whose climate entity is missing."""
+        safe = room_name.lower().replace(" ", "_")
+        return f"{REPAIR_ISSUE_MISSING_CLIMATE}_{safe}_{self.entry.entry_id[:8]}"
+
+    def check_missing_climate_entities(self) -> None:
+        """Raise or clear the missing-climate repair issue for each room.
+
+        Called once at setup and on every coordinator tick. A room whose
+        climate entity is missing only gets a WARNING and a repair issue
+        after MISSING_CLIMATE_GRACE_SECONDS, so a cloud integration that
+        creates its entities shortly after Heat Manager starts does not
+        produce noise. Once the entity exists the issue is deleted right
+        away, without needing a reload.
+        """
+        now = utcnow()
+        for room in self.rooms:
+            room_name = room.get("room_name", "")
+            if not room_name:
+                continue
+            climate_id = self.get_climate_entity(room_name) or ""
+            if not climate_id:
+                continue
+            issue_id = self.missing_climate_issue_id(room_name)
+
+            if self.hass.states.get(climate_id) is not None:
+                self._climate_missing_since.pop(room_name, None)
+                if room_name in self._climate_missing_raised:
+                    self._climate_missing_raised.discard(room_name)
+                    _LOGGER.info(
+                        "Heat Manager: climate entity '%s' (room '%s') is"
+                        " available again — cleared RepairIssue '%s'",
+                        climate_id,
+                        room_name,
+                        issue_id,
+                    )
+                # Also clears an issue left over from a previous run.
+                async_delete_issue(self.hass, DOMAIN, issue_id)
+                continue
+
+            since = self._climate_missing_since.setdefault(room_name, now)
+            if room_name in self._climate_missing_raised:
+                continue
+            if (now - since).total_seconds() < MISSING_CLIMATE_GRACE_SECONDS:
+                continue
+
+            self._climate_missing_raised.add(room_name)
+            _LOGGER.warning(
+                "Heat Manager: climate entity '%s' (room '%s') has been missing"
+                " for %d min — raised RepairIssue '%s'",
+                climate_id,
+                room_name,
+                MISSING_CLIMATE_GRACE_SECONDS // 60,
+                issue_id,
+            )
+            async_create_issue(
+                self.hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=False,
+                severity=IssueSeverity.WARNING,
+                translation_key=REPAIR_ISSUE_MISSING_CLIMATE,
+                translation_placeholders={
+                    "room_name": room_name,
+                    "climate_id": climate_id,
+                },
+            )
+
     def _repair_issue_id(self, key: str) -> str:
         """Stable, registry-safe issue_id for a status-center key, scoped to
         this config entry so two Heat Manager entries never collide."""
@@ -2744,6 +2821,12 @@ class HeatManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("room override expiry check failed: %s", err)
+
+        try:
+            self.check_missing_climate_entities()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("missing climate check failed: %s", err)
 
         try:
             await self._async_check_mold_risk()

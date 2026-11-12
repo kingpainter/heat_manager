@@ -9,6 +9,23 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.65.4] — 2026-11-12
+
+### Fixed
+- **Falsk "climate entity not found at startup" efter genstart.** Heat
+  Manager startede tit før NET-TRV havde oprettet sine klimaentiteter. Det
+  gav en WARNING pr. rum og en reparationsmeddelelse ("climate entity
+  missing"), der først forsvandt ved næste reload. Nu:
+  - `manifest.json` har `after_dependencies: ["netatmo", "net_trv"]`, så HA
+    starter de Netatmo-integrationer, der er sat op, før Heat Manager.
+    Integrationer, der ikke er installeret eller er deaktiveret, ignoreres.
+  - En klimaentitet, der mangler ved opstart, logges som INFO. Først når
+    den har manglet i 5 minutter, kommer der en WARNING og en
+    reparationsmeddelelse (`MISSING_CLIMATE_GRACE_SECONDS`).
+  - Reparationsmeddelelsen fjernes automatisk i næste opdatering (inden for
+    et minut), når entiteten findes igen — uden reload. Tjekket kører nu i
+    hver coordinator-opdatering (`check_missing_climate_entities()`).
+
 ## [0.65.3] — 2026-11-12
 
 ### Added

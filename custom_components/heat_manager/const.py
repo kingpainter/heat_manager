@@ -627,9 +627,13 @@ SCHEDULE_TEMP_MAX: float = 30.0
 
 # ── Repair issue identifiers ────────────────────────────────────────────────────
 
-# Raised when a configured climate entity does not exist in HA at startup.
-# Cleared automatically when the entity becomes available on next reload.
+# Raised when a configured climate entity has been missing from HA for
+# MISSING_CLIMATE_GRACE_SECONDS. v0.65.4: cleared automatically on the next
+# coordinator tick once the entity exists (no reload needed). The grace period
+# keeps a normal restart quiet, where a cloud integration (NET-TRV, core
+# netatmo) may create its entities a little after Heat Manager starts.
 REPAIR_ISSUE_MISSING_CLIMATE = "missing_climate_entity"
+MISSING_CLIMATE_GRACE_SECONDS = 300
 
 # v0.61.1: raised when the user explicitly chose a Netatmo backend (core or
 # NET-TRV) that has no config entry any more — e.g. core netatmo removed.

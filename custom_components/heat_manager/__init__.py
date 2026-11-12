@@ -27,7 +27,6 @@ from .const import (
     NETATMO_BACKEND_AUTO,
     PLATFORMS,
     REPAIR_ISSUE_ID_PREFIX,
-    REPAIR_ISSUE_MISSING_CLIMATE,
     REPAIR_ISSUE_NETATMO_BACKEND_MISSING,
     SERVICE_BOOST_START,
     SERVICE_BOOST_STOP,
@@ -109,14 +108,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if rooms:
         # B14 fix: log each unreachable room individually at startup, so the
         # specific missing entity is visible in the log even when setup
-        # fails entirely (before _async_check_repair_issues runs).
+        # fails entirely. v0.65.4: INFO, not WARNING — a cloud integration
+        # often creates its entities a little later. A room still missing
+        # after MISSING_CLIMATE_GRACE_SECONDS gets a WARNING + repair issue
+        # from coordinator.check_missing_climate_entities().
         for room in rooms:
             room_name = room.get("room_name", "?")
             climate_id = coordinator.get_climate_entity(room_name) or ""
             if climate_id and hass.states.get(climate_id) is None:
-                _LOGGER.warning(
-                    "Heat Manager: climate entity '%s' for room '%s' not found"
-                    " at startup",
+                _LOGGER.info(
+                    "Heat Manager: climate entity '%s' for room '%s' not"
+                    " available yet at startup — waiting for it",
                     climate_id,
                     room_name,
                 )
@@ -229,11 +231,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for room in rooms:
             room_name = room.get("room_name", "")
             if room_name:
-                safe = room_name.lower().replace(" ", "_")
                 async_delete_issue(
-                    hass,
-                    DOMAIN,
-                    f"{REPAIR_ISSUE_MISSING_CLIMATE}_{safe}_{entry.entry_id[:8]}",
+                    hass, DOMAIN, coordinator.missing_climate_issue_id(room_name)
                 )
         # 2026-09-14 (punkt 2): also clear any "persistent issue" repair
         # issue that was still open (cloud down, sustained mold risk, a
@@ -351,47 +350,15 @@ def _async_check_netatmo_backend(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
 
 def _async_check_repair_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """F-3: Create a RepairIssue for every room whose climate entity is absent.
+    """F-3: Raise or clear the missing-climate repair issue per room.
 
-    Called after setup completes.  If the entity exists the issue is deleted
-    so it clears automatically after a reload when the entity reappears.
-    Issue ID is scoped per room + entry so multiple entries don't collide.
+    Delegates to coordinator.check_missing_climate_entities(), which the
+    coordinator also runs every tick: an issue is raised only after the
+    entity has been missing for MISSING_CLIMATE_GRACE_SECONDS and is
+    cleared as soon as the entity exists (v0.65.4).
     """
     coordinator: HeatManagerCoordinator = entry.runtime_data
-    rooms = {**entry.data, **entry.options}.get(CONF_ROOMS, [])
-    for room in rooms:
-        room_name = room.get("room_name", "")
-        if not room_name:
-            continue
-        climate_id = coordinator.get_climate_entity(room_name) or ""
-        if not climate_id:
-            continue
-        safe = room_name.lower().replace(" ", "_")
-        issue_id = f"{REPAIR_ISSUE_MISSING_CLIMATE}_{safe}_{entry.entry_id[:8]}"
-
-        if hass.states.get(climate_id) is None:
-            _LOGGER.warning(
-                "Heat Manager: climate entity '%s' (room '%s') not found in HA —"
-                " raised RepairIssue '%s'",
-                climate_id,
-                room_name,
-                issue_id,
-            )
-            async_create_issue(
-                hass,
-                DOMAIN,
-                issue_id,
-                is_fixable=False,
-                severity=IssueSeverity.WARNING,
-                translation_key=REPAIR_ISSUE_MISSING_CLIMATE,
-                translation_placeholders={
-                    "room_name": room_name,
-                    "climate_id": climate_id,
-                },
-            )
-        else:
-            # Entity present — clear any lingering issue from a previous load
-            async_delete_issue(hass, DOMAIN, issue_id)
+    coordinator.check_missing_climate_entities()
 
 
 def _async_remove_stale_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:

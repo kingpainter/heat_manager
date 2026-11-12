@@ -7,7 +7,7 @@ custom integration. It manages presence-based heating, open window detection,
 pre-heating on arrival, seasonal on/off control, mold risk monitoring, and
 weather-aware PID control — all from the UI.
 
-[![Version](https://img.shields.io/badge/version-0.65.3-blue)](https://github.com/kingpainter/heat-manager/releases)
+[![Version](https://img.shields.io/badge/version-0.65.4-blue)](https://github.com/kingpainter/heat-manager/releases)
 [![HA min version](https://img.shields.io/badge/Home%20Assistant-%3E%3D2025.1-blue)](https://www.home-assistant.io)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange)](https://hacs.xyz)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -52,7 +52,7 @@ Off shuts everything down permanently — with the correct fallback per season.
 - **Zigbee TRV support** — full TRV-type routing (Netatmo vs Z2M) throughout all engines
 - **Valve protection** — weekly valve exercise at 02:00–03:00 when controller is OFF, prevents calcification
 - **Mold risk sensor** — per-room binary sensor, DIN 4108-2 (Magnus dewpoint formula); outdoor humidity shown as context attribute
-- **Repair issues** — HA Repairs panel shows a warning when a configured climate entity is missing at startup
+- **Repair issues** — HA Repairs panel shows a warning when a configured climate entity has been missing for 5 minutes; it clears by itself as soon as the entity is back *(v0.65.4)*. Heat Manager starts after core `netatmo` / NET-TRV when they are set up, so a normal restart does not raise it
 - **Device registry** — entities grouped by room device in HA Settings → Devices
 - **Cloud availability sensor** — `binary_sensor.cloud_available` for use in HA automations
 - **PID power sensor** — per-room diagnostic sensor showing current PID output 0–100 %
