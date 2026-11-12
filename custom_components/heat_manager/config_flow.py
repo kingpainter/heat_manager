@@ -25,6 +25,8 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 
 from .const import (
+    ALARM_ARMED_STATES,
+    CONF_ALARM_AWAY_STATES,
     CONF_ALARM_PANEL,
     CONF_AUTO_OFF_TEMP_DAYS,
     CONF_AUTO_OFF_TEMP_THRESHOLD,
@@ -112,6 +114,7 @@ from .const import (
     CONF_WINDOW_OFF_TEMP,
     CONF_WINDOW_SENSORS,
     CONF_WINDOW_WARNING_MIN,
+    DEFAULT_ALARM_AWAY_STATES,
     DEFAULT_AUTO_OFF_TEMP_DAYS,
     DEFAULT_AUTO_OFF_TEMP_THRESHOLD,
     DEFAULT_BOOST_MINUTES,
@@ -1331,6 +1334,20 @@ class HeatManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(
                         CONF_ALARM_PANEL, default=vol.UNDEFINED
                     ): selector.selector({"entity": {"domain": "alarm_control_panel"}}),
+                    # v0.67.7: which armed states mean "house empty".
+                    vol.Optional(
+                        CONF_ALARM_AWAY_STATES,
+                        default=list(DEFAULT_ALARM_AWAY_STATES),
+                    ): selector.selector(
+                        {
+                            "select": {
+                                "options": list(ALARM_ARMED_STATES),
+                                "multiple": True,
+                                "mode": "list",
+                                "translation_key": "alarm_away_states",
+                            }
+                        }
+                    ),
                 }
             ),
         )

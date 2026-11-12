@@ -1392,11 +1392,17 @@ class HeatManagerPanel extends HTMLElement {
 
   // v0.3.9 (B15): small pill showing which TRV protocol a room uses.
   // room.trv_type comes from websocket.py's get_state room payload.
-  _trvBadgeHTML(trvType) {
+  _trvBadgeHTML(trvType, netatmoBackend = null) {
     const info = ({
       netatmo: { label: "Netatmo", color: "#0ea5e9" },
       zigbee:  { label: "Zigbee",  color: "#22c55e" },
     })[trvType] ?? { label: trvType ?? "–", color: "#64748b" };
+    // v0.67.7: which integration owns the Netatmo valve (detected per valve
+    // from the entity registry) — "Netatmo · NET-TRV" / "Netatmo · core".
+    if (trvType === "netatmo" && netatmoBackend) {
+      const backend = ({ net_trv: "NET-TRV", netatmo: "core" })[netatmoBackend];
+      if (backend) info.label = `Netatmo · ${backend}`;
+    }
     return `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:${info.color}1f;color:${info.color}">${info.label}</span>`;
   }
 
@@ -1705,6 +1711,7 @@ class HeatManagerPanel extends HTMLElement {
         font: inherit; font-size: 11px; padding: 3px 10px; border-radius: 6px; cursor: pointer;
       }
       .rd-fold-all:hover { color: var(--text); border-color: rgba(148,163,184,0.28); }
+      .alarm-state-chips { display: flex; flex-wrap: wrap; gap: 6px; }
       .rd-badge-sensor {
         font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 4px;
         background: var(--bg3); color: var(--sub); letter-spacing: .04em;
@@ -1928,7 +1935,12 @@ class HeatManagerPanel extends HTMLElement {
         flex: 1 1 auto; min-width: 0; margin: 0 6px;
         border-radius: 14px;
         border: 1px solid rgba(var(--sl-rgb),0.45);
-        background: linear-gradient(135deg, rgba(var(--sl-rgb),0.16) 0%, rgba(var(--sl-rgb),0.04) 100%);
+        /* v0.67.7: solid base under the tinted gradient — a theme with a
+           translucent background colour made the line see-through. */
+        background-color: #0f1923;
+        background-image:
+          linear-gradient(135deg, rgba(var(--sl-rgb),0.16) 0%, rgba(var(--sl-rgb),0.04) 100%),
+          linear-gradient(var(--bg), var(--bg));
         transition: background .35s, border-color .35s;
       }
       .sl.tone-manual   { --sl: #c084fc; --sl-rgb: 168,85,247; }
@@ -1990,8 +2002,12 @@ class HeatManagerPanel extends HTMLElement {
       .sl-detail {
         position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 30;
         max-height: min(70vh, 640px); overflow-y: auto;
-        background: var(--bg2); border: 1px solid rgba(var(--sl-rgb),0.45);
-        border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+        /* v0.67.7: solid base — var(--bg2) comes from the HA theme and can be
+           translucent, which let the page show through the open dropdown. */
+        background-color: #1a2535;
+        background-image: linear-gradient(var(--bg2), var(--bg2));
+        border: 1px solid rgba(var(--sl-rgb),0.45);
+        border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.6);
         padding: 8px 16px 14px;
         display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 4px 28px;
       }
@@ -3350,7 +3366,7 @@ class HeatManagerPanel extends HTMLElement {
 
     // ── Header ────────────────────────────────────────────────────────────
     const trvBadge = room.trv_type
-      ? this._trvBadgeHTML(room.trv_type)
+      ? this._trvBadgeHTML(room.trv_type, room.netatmo_backend)
       : `<span class="rd-badge-sensor">Kun sensorer</span>`;
     const boostBadge = room.boost_active
       ? `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(168,85,247,0.15);color:#c084fc;margin-left:4px">⚡ BOOST</span>`
@@ -3767,6 +3783,43 @@ class HeatManagerPanel extends HTMLElement {
       </div>`;
   }
 
+  // v0.67.7: which alarm states put the house in away. Toggle chips; each
+  // click saves the whole list (heat_manager/update_config alarm_away_states).
+  static get ALARM_STATE_LABELS() {
+    return {
+      armed_away: "Armeret væk",
+      armed_vacation: "Armeret ferie",
+      armed_night: "Armeret nat",
+      armed_home: "Armeret hjemme",
+      armed_custom_bypass: "Armeret brugerdefineret",
+    };
+  }
+
+  _alarmStatesHTML(states) {
+    const active = new Set(states ?? ["armed_away"]);
+    const labels = this.constructor.ALARM_STATE_LABELS;
+    return `
+      <div class="cfg-edit-row-wrap" style="padding:4px 0 10px">
+        <div class="cfg-edit-desc" style="margin-bottom:6px">Slukker varmen (fravær) ved:</div>
+        <div class="alarm-state-chips">
+          ${Object.entries(labels).map(([key, label]) => `
+            <button type="button" class="toggle-btn alarm-state-chip${active.has(key) ? " active" : ""}"
+              data-action="toggle-alarm-state" data-state="${key}"
+              aria-pressed="${active.has(key)}">${label}</button>`).join("")}
+        </div>
+      </div>`;
+  }
+
+  _alarmFooterText(states) {
+    const labels = this.constructor.ALARM_STATE_LABELS;
+    const list = (states ?? ["armed_away"]).map(s => labels[s] ?? s);
+    const strong = (t) => `<strong style="color:var(--text)">${this._esc(t)}</strong>`;
+    if (!list.length) {
+      return "Ingen alarmtilstand er valgt — alarmen sætter ikke huset i fravær.";
+    }
+    return `Når alarmen går i ${list.map(strong).join(" eller ")}, aktiveres fraværsmodus øjeblikkeligt uden grace period. Ved frakoblet eller en anden armeret tilstand genoptages opvarmningen, når nogen er hjemme.`;
+  }
+
   // v0.67.0: Netatmo's home-level away temperature (NET-TRV number on the
   // relay). Written straight to Netatmo with number.set_value — it is the same
   // value as in the Netatmo app, stored on the active schedule. Without
@@ -3870,7 +3923,8 @@ class HeatManagerPanel extends HTMLElement {
           <button class="cfg-save-btn" data-action="save-alarm">Gem</button>
           <span class="cfg-save-ok" id="cfg-alarm-ok">✔</span>
         </div>
-        <div class="section-box-footer">Når alarmen sættes til <strong style="color:var(--text)">armeret (væk)</strong> aktiveres fraværsmodus øjeblikkeligt uden grace period. Når den deaktiveres og nogen er hjemme, genoptages opvarmningen automatisk.</div>
+        ${this._alarmStatesHTML(d.alarm_away_states)}
+        <div class="section-box-footer">${this._alarmFooterText(d.alarm_away_states)}</div>
       </div>
 
       <div class="${this._cfgSectionClass('manual_trv')}" data-section-id="manual_trv">
@@ -4446,6 +4500,27 @@ class HeatManagerPanel extends HTMLElement {
         console.error("Heat Manager: save alarm failed", e);
       }
       btn.disabled = false;
+    });
+
+    root.querySelectorAll("[data-action='toggle-alarm-state']").forEach((chip) => {
+      chip.addEventListener("click", async () => {
+        const chips = [...root.querySelectorAll("[data-action='toggle-alarm-state']")];
+        chip.classList.toggle("active");
+        const states = chips.filter(c => c.classList.contains("active")).map(c => c.dataset.state);
+        chips.forEach(c => { c.disabled = true; });
+        try {
+          await this._hass.callWS({ type: "heat_manager/update_config", alarm_away_states: states });
+          if (this._data?.config) this._data.config.alarm_away_states = states;
+          chip.setAttribute("aria-pressed", String(chip.classList.contains("active")));
+          const footer = chip.closest("[data-section-id='alarm']")?.querySelector(".section-box-footer");
+          if (footer) footer.innerHTML = this._alarmFooterText(states);
+        } catch (e) {
+          chip.classList.toggle("active"); // revert
+          this._showToast("Kunne ikke gemme alarmtilstande", "error");
+          console.error("Heat Manager: save alarm states failed", e);
+        }
+        chips.forEach(c => { c.disabled = false; });
+      });
     });
 
     root.querySelector("[data-action='save-notify']")?.addEventListener("click", async () => {

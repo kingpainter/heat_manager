@@ -9,6 +9,32 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.68.0] — 2026-11-12
+
+### Added
+- **Vælg hvilke alarmtilstande der slukker varmen.** Ny global indstilling
+  `alarm_away_states` (standard `armed_away`, så intet ændrer sig af sig
+  selv). Vælg blandt *Armeret væk*, *Armeret ferie*, *Armeret nat*,
+  *Armeret hjemme* og *Armeret brugerdefineret* — i opsætningens
+  alarmtrin eller direkte i panelets **Alarmtavle** (knapper, gemmes med
+  det samme). Når alarmen går i en valgt tilstand, går huset i fravær med
+  det samme. Ved frakoblet eller en armeret tilstand, der *ikke* er valgt,
+  genoptages varmen, når nogen er hjemme. Før var reglen låst: kun
+  `armed_away` slukkede, og kun `armed_home`/frakoblet genoptog —
+  `armed_night` og `armed_vacation` blev ignoreret. Alarmtavlens tekst
+  viser nu de valgte tilstande.
+
+### Changed
+- **Netatmo-mærket i Rum-fanen viser integrationen**: *Netatmo · NET-TRV*
+  eller *Netatmo · core*, ud fra hvad Heat Manager har detekteret for
+  rummets ventil.
+
+### Fixed
+- **Statuslinjen og dens udfoldede info-panel var gennemsigtige** med
+  temaer, hvor `secondary-background-color` er halvgennemsigtig — siden
+  bagved skinnede igennem. Begge har nu et solidt mørkt underlag under
+  temaets farve.
+
 ## [0.67.6] — 2026-11-12
 
 ### Changed

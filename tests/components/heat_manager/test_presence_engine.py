@@ -312,6 +312,95 @@ async def test_bug_b4_alarm_disarmed_does_nothing_when_nobody_home():
     coordinator.hass.services.async_call.assert_not_awaited()
 
 
+# ── v0.67.7: configurable alarm away states ─────────────────────────────────
+
+
+def _alarm_event(new: str, old: str) -> MagicMock:
+    event = MagicMock()
+    event.data = {
+        "entity_id": "alarm_control_panel.alarmo",
+        "new_state": MagicMock(state=new),
+        "old_state": MagicMock(state=old),
+    }
+    return event
+
+
+@pytest.mark.asyncio
+async def test_armed_home_does_not_set_away_by_default():
+    """Default away states = armed_away only: arming 'home' leaves heat on."""
+    coordinator = _make_coordinator(
+        rooms=[_make_room()],
+        someone_home=False,
+        alarm_panel="alarm_control_panel.alarmo",
+    )
+    engine = PresenceEngine(coordinator)
+    engine._set_all_away = AsyncMock()
+
+    await engine._async_handle_alarm_change(_alarm_event("armed_home", "disarmed"))
+
+    engine._set_all_away.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_custom_away_state_sets_away():
+    coordinator = _make_coordinator(
+        rooms=[_make_room()],
+        alarm_panel="alarm_control_panel.alarmo",
+        config={"alarm_away_states": ["armed_away", "armed_night"]},
+    )
+    engine = PresenceEngine(coordinator)
+    engine._set_all_away = AsyncMock()
+
+    await engine._async_handle_alarm_change(_alarm_event("armed_night", "disarmed"))
+
+    engine._set_all_away.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_unselected_armed_state_resumes_heating_when_someone_home():
+    """armed_away → armed_home (not selected) resumes heating, like disarm."""
+    coordinator = _make_coordinator(
+        rooms=[_make_room()],
+        someone_home=True,
+        alarm_panel="alarm_control_panel.alarmo",
+        config={"alarm_away_states": ["armed_away"]},
+    )
+    engine = PresenceEngine(coordinator)
+    engine._set_all_away = AsyncMock()
+    engine._restore_all_schedule = AsyncMock()
+
+    await engine._async_handle_alarm_change(_alarm_event("armed_home", "armed_away"))
+
+    engine._set_all_away.assert_not_awaited()
+    engine._restore_all_schedule.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_selected_armed_home_does_not_resume_heating():
+    """If the user picks armed_home as 'away', it must not also resume."""
+    coordinator = _make_coordinator(
+        rooms=[_make_room()],
+        someone_home=True,
+        alarm_panel="alarm_control_panel.alarmo",
+        config={"alarm_away_states": ["armed_away", "armed_home"]},
+    )
+    engine = PresenceEngine(coordinator)
+    engine._set_all_away = AsyncMock()
+    engine._restore_all_schedule = AsyncMock()
+
+    await engine._async_handle_alarm_change(_alarm_event("armed_home", "disarmed"))
+
+    engine._set_all_away.assert_awaited_once()
+    engine._restore_all_schedule.assert_not_awaited()
+
+
+def test_alarm_away_states_ignores_unknown_and_accepts_string():
+    coordinator = _make_coordinator(config={"alarm_away_states": "armed_vacation"})
+    assert PresenceEngine(coordinator)._alarm_away_states() == {"armed_vacation"}
+    coordinator = _make_coordinator(config={"alarm_away_states": ["bogus"]})
+    assert PresenceEngine(coordinator)._alarm_away_states() == frozenset()
+
+
 # ── force_room_on service ─────────────────────────────────────────────────────
 
 

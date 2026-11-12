@@ -34,6 +34,8 @@ from ..const import (
     ACTION_DISMISS,
     ACTION_FORCE_HEATING_ON,
     ACTION_VIEW_WINDOWS,
+    ALARM_ARMED_STATES,
+    CONF_ALARM_AWAY_STATES,
     CONF_CLIMATE_ENTITY,
     CONF_GRACE_DAY_MIN,
     CONF_GRACE_NIGHT_MIN,
@@ -44,6 +46,7 @@ from ..const import (
     CONF_PERSON_ENTITY,
     CONF_PERSON_TRACKING,
     CONF_TRV_TYPE,
+    DEFAULT_ALARM_AWAY_STATES,
     DEFAULT_GRACE_DAY_MIN,
     DEFAULT_GRACE_NIGHT_MIN,
     DEFAULT_NIGHT_END_HOUR,
@@ -185,7 +188,7 @@ class PresenceEngine:
         if not alarm:
             return
         state = self.coordinator.hass.states.get(alarm)
-        if state and state.state == "armed_away":
+        if state and state.state in self._alarm_away_states():
             _LOGGER.debug(
                 "PresenceEngine: alarm already armed-away at startup — syncing away mode"
             )
@@ -304,7 +307,8 @@ class PresenceEngine:
         alarm_state = new_state.state
         _LOGGER.debug("Alarm state: %s", alarm_state)
 
-        if alarm_state == "armed_away":
+        away_states = self._alarm_away_states()
+        if alarm_state in away_states:
             async with self._lock:
                 self._cancel_grace_timer()
             await self._set_all_away()
@@ -315,9 +319,10 @@ class PresenceEngine:
                     message="Heating off — alarm armed.",
                 )
 
-        elif alarm_state in ("disarmed", "armed_home") and (
-            self.coordinator.someone_home()
-        ):
+        elif (
+            alarm_state == "disarmed"
+            or (alarm_state in ALARM_ARMED_STATES and alarm_state not in away_states)
+        ) and self.coordinator.someone_home():
             # B4 FIX: re-evaluate presence on alarm disarm
             if self.coordinator.any_window_open():
                 await self._notify_windows_blocking_heat()
@@ -331,6 +336,16 @@ class PresenceEngine:
                         title="Heat Manager",
                         message="Heating resumed — alarm disarmed, someone home.",
                     )
+
+    def _alarm_away_states(self) -> frozenset[str]:
+        """v0.67.7: the alarm states that put the house in away (config
+        ``alarm_away_states``, default armed_away only)."""
+        raw = self.coordinator.config.get(
+            CONF_ALARM_AWAY_STATES, DEFAULT_ALARM_AWAY_STATES
+        )
+        if isinstance(raw, str):
+            raw = [raw]
+        return frozenset(s for s in raw if s in ALARM_ARMED_STATES)
 
     # ── Climate control ───────────────────────────────────────────────────────
 

@@ -157,7 +157,11 @@
       "presence_global": {
         "title": "Alarm & tilstedeværelse",
         "data": {
-          "alarm_panel": "Alarmpanel-entitet (valgfrit)"
+          "alarm_panel": "Alarmpanel-entitet (valgfrit)",
+          "alarm_away_states": "Alarmtilstande der betyder \"huset er tomt\""
+        },
+        "data_description": {
+          "alarm_away_states": "Varmen går i fravær, når alarmen går i en af disse tilstande. Andre armerede tilstande eller frakoblet genoptager varmen, når nogen er hjemme."
         }
       },
       "notifications": {
@@ -569,6 +573,15 @@
     }
   },
   "selector": {
+    "alarm_away_states": {
+      "options": {
+        "armed_away": "Armeret væk",
+        "armed_vacation": "Armeret ferie",
+        "armed_night": "Armeret nat",
+        "armed_home": "Armeret hjemme",
+        "armed_custom_bypass": "Armeret brugerdefineret"
+      }
+    },
     "netatmo_backend": {
       "options": {
         "auto": "Auto (anbefalet)",

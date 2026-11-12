@@ -1285,6 +1285,22 @@ async def test_update_config_min_room_temp_persists():
     assert conn.send_result.call_args[0][1]["changed"] == ["min_room_temp"]
 
 
+@pytest.mark.asyncio
+async def test_update_config_alarm_away_states_persists_in_canonical_order():
+    """v0.67.7: list of armed states; unknown values dropped, stable order."""
+    coord = _make_coordinator()
+    hass = _make_hass_with_entry(coord)
+    conn = _connection()
+
+    await ws_update_config(
+        hass, conn, _msg(alarm_away_states=["armed_night", "armed_away"])
+    )
+
+    options = hass.config_entries.async_update_entry.call_args.kwargs["options"]
+    assert options["alarm_away_states"] == ["armed_away", "armed_night"]
+    assert conn.send_result.call_args[0][1]["changed"] == ["alarm_away_states"]
+
+
 def test_update_config_schema_bounds_min_room_temp():
     import voluptuous as vol
 

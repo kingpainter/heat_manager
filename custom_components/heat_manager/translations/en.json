@@ -153,7 +153,11 @@
       "presence_global": {
         "title": "Alarm & presence",
         "data": {
-          "alarm_panel": "Alarm panel entity (optional)"
+          "alarm_panel": "Alarm panel entity (optional)",
+          "alarm_away_states": "Alarm states that mean \"house empty\""
+        },
+        "data_description": {
+          "alarm_away_states": "Heating goes to away when the alarm enters one of these states. Any other armed state, or disarmed, resumes heating when someone is home."
         }
       },
       "notifications": {
@@ -553,6 +557,15 @@
     }
   },
   "selector": {
+    "alarm_away_states": {
+      "options": {
+        "armed_away": "Armed away",
+        "armed_vacation": "Armed vacation",
+        "armed_night": "Armed night",
+        "armed_home": "Armed home",
+        "armed_custom_bypass": "Armed custom bypass"
+      }
+    },
     "netatmo_backend": {
       "options": {
         "auto": "Auto (recommended)",

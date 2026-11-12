@@ -124,6 +124,18 @@ CONF_PERSON_ENTITY = "person_entity"
 CONF_PERSON_TRACKING = "person_tracking"
 
 CONF_ALARM_PANEL = "alarm_panel"
+# v0.67.7: which alarm_control_panel states mean "the house is empty" (heat
+# goes to away). Any other armed state, or disarmed, resumes heating when
+# someone is home. Default keeps the old behaviour: armed_away only.
+CONF_ALARM_AWAY_STATES = "alarm_away_states"
+ALARM_ARMED_STATES: tuple[str, ...] = (
+    "armed_away",
+    "armed_vacation",
+    "armed_night",
+    "armed_home",
+    "armed_custom_bypass",
+)
+DEFAULT_ALARM_AWAY_STATES: tuple[str, ...] = ("armed_away",)
 CONF_WEATHER_ENTITY = "weather_entity"
 CONF_NOTIFY_SERVICE = "notify_service"
 CONF_PREHEAT_LEAD_TIME_MIN = "preheat_lead_time_min"

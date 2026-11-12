@@ -7,7 +7,7 @@ custom integration. It manages presence-based heating, open window detection,
 pre-heating on arrival, seasonal on/off control, mold risk monitoring, and
 weather-aware PID control — all from the UI.
 
-[![Version](https://img.shields.io/badge/version-0.67.6-blue)](https://github.com/kingpainter/heat-manager/releases)
+[![Version](https://img.shields.io/badge/version-0.68.0-blue)](https://github.com/kingpainter/heat-manager/releases)
 [![HA min version](https://img.shields.io/badge/Home%20Assistant-%3E%3D2025.1-blue)](https://www.home-assistant.io)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange)](https://hacs.xyz)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -33,7 +33,7 @@ Off shuts everything down permanently — with the correct fallback per season.
 
 ## Features
 
-- **Presence engine** — grace periods configurable per time of day (day/night), alarm panel integration
+- **Presence engine** — grace periods configurable per time of day (day/night), alarm panel integration with selectable "house empty" alarm states (e.g. armed away but not armed home)
 - **Window detection** — per-room state machine with weather-aware notifications: CO₂ context, rain (🌧️) and wind (💨) override
 - **Adaptive window delay** — reduces to 1 min automatically when wind ≥ 6 m/s or it is raining
 - **Season engine** — AUTO mode detects Winter/Summer from outdoor temperature history
@@ -123,7 +123,8 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 | `precipitation_sensor` | sensor | — | **Optional.** Precipitation (mm/h). Triggers faster window delay |
 | `wind_speed_sensor` | sensor | — | **Optional.** Wind speed (m/s). Triggers faster window delay above 6 m/s |
 | `notify_service` | string | — | HA notify service, e.g. `notify.mobile_app_my_phone`. Also editable in panel |
-| `alarm_panel` | entity | — | `alarm_control_panel.*` — armed_away triggers instant away mode. Also editable in panel |
+| `alarm_panel` | entity | — | `alarm_control_panel.*` — entering one of `alarm_away_states` triggers instant away mode. Also editable in panel |
+| `alarm_away_states` | list | `armed_away` | *(v0.68.0)* Alarm states that mean "house empty": any of `armed_away`, `armed_vacation`, `armed_night`, `armed_home`, `armed_custom_bypass`. Disarmed or any other armed state resumes heating when someone is home. Also editable in panel (Alarmtavle) |
 | `window_off_temp` | °C | 10.0 | Setpoint sent to a room's valve while its window is open |
 | `min_room_temp` | °C | 17.0 | *(v0.67.0)* Lowest room temperature in every room: floor for the PID's setpoint and the night setback. Also editable in panel |
 | `grace_day_min` | min | 30 | Grace period before away mode (daytime) |

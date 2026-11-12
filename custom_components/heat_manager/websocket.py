@@ -26,6 +26,8 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util.dt import utcnow
 
 from .const import (
+    ALARM_ARMED_STATES,
+    CONF_ALARM_AWAY_STATES,
     CONF_ALARM_PANEL,
     CONF_AUTO_OFF_TEMP_DAYS,
     CONF_AUTO_OFF_TEMP_THRESHOLD,
@@ -89,6 +91,7 @@ from .const import (
     CONF_WINDOW_OFF_TEMP,
     CONF_WINDOW_SENSORS,
     CONF_WINDOW_WARNING_MIN,
+    DEFAULT_ALARM_AWAY_STATES,
     DEFAULT_AUTO_OFF_TEMP_DAYS,
     DEFAULT_AUTO_OFF_TEMP_THRESHOLD,
     DEFAULT_BOOST_MINUTES,
@@ -1307,6 +1310,9 @@ async def ws_get_state(
         "auto_off_temp_threshold": cfg.get(CONF_AUTO_OFF_TEMP_THRESHOLD),
         "auto_off_temp_days": cfg.get(CONF_AUTO_OFF_TEMP_DAYS),
         "alarm_panel": cfg.get(CONF_ALARM_PANEL, ""),
+        "alarm_away_states": list(
+            cfg.get(CONF_ALARM_AWAY_STATES, DEFAULT_ALARM_AWAY_STATES)
+        ),
         "notify_service": cfg.get(CONF_NOTIFY_SERVICE, ""),
         "house_voice_enabled": cfg.get(CONF_HOUSE_VOICE_ENABLED, False),
         # 2026-09-13: was session-scoped only (plain JS field, reset on every
@@ -1576,6 +1582,7 @@ _NUMERIC_CONFIG_FIELDS: dict[str, tuple[type, float | int]] = {
     {
         vol.Required("type"): "heat_manager/update_config",
         vol.Optional(CONF_ALARM_PANEL): vol.Any(str, None),
+        vol.Optional(CONF_ALARM_AWAY_STATES): [vol.In(ALARM_ARMED_STATES)],
         vol.Optional(CONF_NOTIFY_SERVICE): vol.Any(str, None),
         vol.Optional(CONF_MANUAL_TRV_CONTROL): bool,
         vol.Optional(CONF_PID_ENABLED): bool,
@@ -1663,6 +1670,20 @@ async def ws_update_config(
             if current_options.get(key, default) != new_bool:
                 current_options[key] = new_bool
                 changed.append(key)
+
+    # v0.67.7: alarm states that mean "house empty" (list of armed states).
+    if CONF_ALARM_AWAY_STATES in msg:
+        wanted = msg[CONF_ALARM_AWAY_STATES] or []
+        new_states = [s for s in ALARM_ARMED_STATES if s in wanted]
+        current_states = list(
+            entry.options.get(
+                CONF_ALARM_AWAY_STATES,
+                entry.data.get(CONF_ALARM_AWAY_STATES, list(DEFAULT_ALARM_AWAY_STATES)),
+            )
+        )
+        if current_states != new_states:
+            current_options[CONF_ALARM_AWAY_STATES] = new_states
+            changed.append(CONF_ALARM_AWAY_STATES)
 
     for key, (cast, numeric_default) in _NUMERIC_CONFIG_FIELDS.items():
         if key in msg:
