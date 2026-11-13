@@ -27,6 +27,7 @@ from .const import (
     CONF_WINDOW_SENSORS,
 )
 from .coordinator import HeatManagerCoordinator
+from .engine.mold import MOLD_SURFACE_MARGIN, dewpoint, is_mold_risk
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -281,10 +282,6 @@ class MoldRiskSensor(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEnti
     _attr_device_class = BinarySensorDeviceClass.MOISTURE
     _attr_entity_registry_enabled_default = True
 
-    # Mold risk thresholds
-    _RH_THRESHOLD: float = 70.0  # % — DIN 4108-2 critical humidity
-    _SURFACE_MARGIN: float = 1.0  # °C — wall surface is ~1 °C cooler than air
-
     def __init__(
         self,
         coordinator: HeatManagerCoordinator,
@@ -312,15 +309,6 @@ class MoldRiskSensor(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEnti
         # doubled "Living room Living room Mold risk").
         self._attr_name = "Mold risk"
         self._attr_device_info = coordinator.room_device_info(self._room_name)
-
-    @staticmethod
-    def _dewpoint(temp_c: float, rh_pct: float) -> float:
-        """Magnus formula (Lawrence 2005) — valid for 0–60 °C, 1–100% RH."""
-        import math
-
-        b, c = 17.625, 243.04
-        gamma = math.log(max(rh_pct, 0.01) / 100.0) + (b * temp_c) / (c + temp_c)
-        return (c * gamma) / (b - gamma)
 
     def _get_humidity(self) -> float | None:
         if not self._humidity_id:
@@ -364,11 +352,7 @@ class MoldRiskSensor(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEnti
         temp = self._get_temp()
         if rh is None or temp is None:
             return False
-        if rh < self._RH_THRESHOLD:
-            return False
-        dewpoint = self._dewpoint(temp, rh)
-        # Risk if room air temp is within surface_margin of dewpoint
-        return temp <= (dewpoint + self._SURFACE_MARGIN)
+        return is_mold_risk(temp, rh)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -376,14 +360,14 @@ class MoldRiskSensor(CoordinatorEntity[HeatManagerCoordinator], BinarySensorEnti
         temp = self._get_temp()
         if rh is None or temp is None:
             return {"room_name": self._room_name}
-        dewpoint = self._dewpoint(temp, rh)
+        dew = dewpoint(temp, rh)
         outdoor_rh = self.coordinator.get_outdoor_humidity()
         return {
             "room_name": self._room_name,
             "humidity_pct": round(rh, 1),
             "room_temp_c": round(temp, 1),
-            "dewpoint_c": round(dewpoint, 1),
-            "margin_c": self._SURFACE_MARGIN,
+            "dewpoint_c": round(dew, 1),
+            "margin_c": MOLD_SURFACE_MARGIN,
             "outdoor_humidity_pct": round(outdoor_rh, 1)
             if outdoor_rh is not None
             else None,

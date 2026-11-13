@@ -136,7 +136,7 @@ def _coordinator(platforms: dict[str, str], installed: set[str]) -> MagicMock:
 
 def _patch_registry(coord):
     return patch(
-        "custom_components.heat_manager.coordinator.er.async_get",
+        "custom_components.heat_manager.coordinator.base.er.async_get",
         return_value=coord._registry,
     )
 

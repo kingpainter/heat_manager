@@ -8,7 +8,7 @@ once that baseline is backed by enough prior samples
 (_HEATUP_ANOMALY_MIN_SAMPLES), and only flagged after several consecutive
 underperforming samples in a row (_HEATUP_ANOMALY_STREAK_THRESHOLD) rather
 than a single noisy tick. get_room_heatup_anomaly() is what
-websocket.py's _build_active_issues() reads to surface this in the panel's
+websocket_payload.py's build_active_issues() reads to surface this in the panel's
 status center.
 
 All tests run completely offline — HA core is mocked with MagicMock;

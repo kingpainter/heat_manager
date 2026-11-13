@@ -1302,11 +1302,11 @@ async def test_update_config_alarm_away_states_persists_in_canonical_order():
 
 
 def test_update_config_schema_bounds_min_room_temp():
-    import voluptuous as vol
+    import probatio
 
     schema = websocket.ws_update_config._ws_schema
     schema({"type": "heat_manager/update_config", "id": 1, "min_room_temp": 17})
-    with pytest.raises(vol.Invalid):
+    with pytest.raises(probatio.Invalid):
         schema({"type": "heat_manager/update_config", "id": 1, "min_room_temp": 30})
 
 

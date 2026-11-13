@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
+import probatio
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
@@ -436,17 +436,19 @@ def _register_services(
         DOMAIN,
         SERVICE_SET_CONTROLLER_STATE,
         handle_set_controller_state,
-        schema=vol.Schema({vol.Required("state"): vol.In(CONTROLLER_STATE_OPTIONS)}),
+        schema=probatio.Schema(
+            {probatio.Required("state"): probatio.In(CONTROLLER_STATE_OPTIONS)}
+        ),
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_PAUSE,
         handle_pause,
-        schema=vol.Schema(
+        schema=probatio.Schema(
             {
-                vol.Optional(
+                probatio.Optional(
                     "duration_minutes", default=DEFAULT_PAUSE_DURATION_MIN
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=480)),
+                ): probatio.All(probatio.Coerce(int), probatio.Range(min=1, max=480)),
             }
         ),
     )
@@ -454,25 +456,25 @@ def _register_services(
         DOMAIN,
         SERVICE_RESUME,
         handle_resume,
-        schema=vol.Schema({}),
+        schema=probatio.Schema({}),
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_FORCE_ROOM_ON,
         handle_force_room_on,
-        schema=vol.Schema({vol.Required("room_name"): cv.string}),
+        schema=probatio.Schema({probatio.Required("room_name"): cv.string}),
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_BOOST_START,
         handle_boost_start,
-        schema=vol.Schema(
+        schema=probatio.Schema(
             {
-                vol.Optional("temperature"): vol.All(
-                    vol.Coerce(float), vol.Range(min=15, max=32)
+                probatio.Optional("temperature"): probatio.All(
+                    probatio.Coerce(float), probatio.Range(min=15, max=32)
                 ),
-                vol.Optional("duration_minutes"): vol.All(
-                    vol.Coerce(float), vol.Range(min=1, max=240)
+                probatio.Optional("duration_minutes"): probatio.All(
+                    probatio.Coerce(float), probatio.Range(min=1, max=240)
                 ),
             }
         ),
@@ -481,7 +483,7 @@ def _register_services(
         DOMAIN,
         SERVICE_BOOST_STOP,
         handle_boost_stop,
-        schema=vol.Schema({}),
+        schema=probatio.Schema({}),
     )
 
 

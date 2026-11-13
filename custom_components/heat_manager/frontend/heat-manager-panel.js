@@ -354,7 +354,7 @@ class HeatManagerPanel extends HTMLElement {
   // from raw hass.states — see the 2026-09-11 statustjek history that used
   // to live here) plus the Oversigt-only #remote-last-action-box, with one
   // header field that renders the server-computed `active_issues` list
-  // (websocket.py's _build_active_issues()) directly. The one thing that
+  // (websocket_payload.py's build_active_issues()) directly. The one thing that
   // still can't come from the server: a dead websocket connection can't be
   // reported *by* the server whose connection is dead, so _activeIssues()
   // injects a synthetic "Ingen forbindelse" entry client-side when
@@ -2394,7 +2394,7 @@ class HeatManagerPanel extends HTMLElement {
   // NB: a client-side _cloudStatus() used to live here, re-deriving Netatmo
   // cloud/gateway health from raw hass.states for #cloud-chip/#health-chip.
   // Removed in v0.32.0 — the same algorithm now runs once, server-side, in
-  // websocket.py's _build_active_issues(), which the new status center
+  // websocket_payload.py's build_active_issues(), which the new status center
   // reads via `active_issues` (see _activeIssues()/_patchStatusCenter()
   // above). A full-width _cloudBannerHTML() was already removed here
   // earlier (2026-09, superseded by the topbar chips this removes in turn).
@@ -3265,7 +3265,7 @@ class HeatManagerPanel extends HTMLElement {
   // NB: _remoteLastActionHTML()/_patchRemoteLastAction() and the Oversigt-
   // only #remote-last-action-box they drove used to live here (2026-09-07
   // audit fix 5.4). Removed in v0.32.0 — coordinator.remote_last_action is
-  // now one of the entries websocket.py's _build_active_issues() folds into
+  // now one of the entries websocket_payload.py's build_active_issues() folds into
   // `active_issues` (same 30-min freshness window), so it shows in the
   // header status center from every tab instead of only Oversigt.
 

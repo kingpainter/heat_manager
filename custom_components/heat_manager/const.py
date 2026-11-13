@@ -262,7 +262,7 @@ CONF_HUMIDITY_SENSOR = "humidity_sensor"
 # reflects cloud cover, curtains, and the season automatically, without
 # needing the user to configure a room's compass orientation or Heat
 # Manager to model shading. Only ever REDUCES power, never adds any — see
-# coordinator._solar_gain_reduction(). Not every room needs one: only
+# engine/pid_adjustments.solar_gain_reduction(). Not every room needs one: only
 # rooms with a lux sensor configured are affected, exactly like
 # CONF_HUMIDITY_SENSOR/CONF_CO2_SENSOR above; a room without one is
 # entirely unaffected, same today-and-forever fallback the rest of this
@@ -374,7 +374,7 @@ CONF_FF_MAX_CONTRIBUTION = "ff_max_contribution"
 # ── Solar gain (2026-09-14, punkt 7) ─────────────────────────────────────────
 # A per-room, lux-sensor-driven REDUCTION of PID power while the sun is up —
 # see CONF_LUX_SENSOR above for the "why a lux sensor instead of a geometric
-# sun-position model" rationale, and coordinator._solar_gain_reduction() for
+# sun-position model" rationale, and engine/pid_adjustments.solar_gain_reduction() for
 # the formula. Off by default (unlike weather compensation, which was
 # always-on before it became configurable) since it's a genuinely new
 # behaviour with no prior always-on equivalent to preserve — an install
@@ -418,7 +418,7 @@ SOLAR_GAIN_MAX_REDUCTION: float = 0.4
 # restore when the door closes — the reduction simply stops applying at
 # the next tick, the same way solar gain's reduction disappears the
 # moment the sun goes behind a cloud. See
-# coordinator._door_heat_share_reduction() for the formula and
+# engine/pid_adjustments.door_heat_share_reduction() for the formula and
 # _async_pid_tick() for where it's applied (after weather compensation
 # and solar gain, same position in the chain).
 CONF_DOOR_HEAT_SHARE_ENABLED = "door_heat_share_enabled"

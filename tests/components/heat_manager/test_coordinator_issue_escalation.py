@@ -28,6 +28,10 @@ import pytest
 
 from custom_components.heat_manager.coordinator import HeatManagerCoordinator
 
+# Module whose code these tests exercise (the coordinator is split into
+# layers since v0.68.2 — patch names where they are used).
+_COORD_MOD = "custom_components.heat_manager.coordinator.issues"
+
 _NOW = datetime(2026, 9, 13, 12, 0, 0, tzinfo=UTC)
 
 
@@ -61,7 +65,7 @@ def _make_coordinator(config: dict | None = None) -> MagicMock:
 
 
 async def _report(coord, key, active, severity="warning", message="msg", *, at=_NOW):
-    with patch("custom_components.heat_manager.coordinator.utcnow", return_value=at):
+    with patch(f"{_COORD_MOD}.utcnow", return_value=at):
         await coord._report_issue(key, active, severity, message)
 
 
@@ -243,7 +247,7 @@ async def test_window_issue_events_reports_open_rooms_active():
     coord.window_engine = MagicMock()
     coord.window_engine.get_open_windows = MagicMock(return_value=["Bad"])
 
-    with patch("custom_components.heat_manager.coordinator.utcnow", return_value=_NOW):
+    with patch(f"{_COORD_MOD}.utcnow", return_value=_NOW):
         await coord._async_check_window_issue_events()
 
     assert "window_open:Bad" in coord._issue_started_at
@@ -259,7 +263,7 @@ async def test_heatup_anomaly_issue_events_reports_flagged_rooms_active():
         side_effect=lambda room: room == "Bad"
     )
 
-    with patch("custom_components.heat_manager.coordinator.utcnow", return_value=_NOW):
+    with patch(f"{_COORD_MOD}.utcnow", return_value=_NOW):
         await coord._async_check_heatup_anomaly_events()
 
     assert "heatup_anomaly:Bad" in coord._issue_started_at

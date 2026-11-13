@@ -20,7 +20,9 @@ from custom_components.heat_manager.engine.netatmo_backend import (
     pick_health_entities,
     pick_relay_entity,
 )
-from custom_components.heat_manager.websocket import _build_active_issues
+from custom_components.heat_manager.websocket_payload import (
+    build_active_issues as _build_active_issues,
+)
 
 # ── Pure helpers ──────────────────────────────────────────────────────────────
 
@@ -164,7 +166,7 @@ def _registries():
             SimpleNamespace(via_device_id=RELAY_DEVICE) if did == ROOM_DEVICE else None
         )
     )
-    mod = "custom_components.heat_manager.coordinator"
+    mod = "custom_components.heat_manager.coordinator.netatmo"
     return (
         patch(f"{mod}.er.async_get", return_value=ent_reg),
         patch(
@@ -393,7 +395,7 @@ def test_pick_relay_entity_matches_domain_and_suffix():
 def test_parent_device_id_prefers_child_parent_then_via_device():
     from types import SimpleNamespace
 
-    from custom_components.heat_manager.coordinator import _parent_device_id
+    from custom_components.heat_manager.coordinator.netatmo import _parent_device_id
 
     # HA 2026.11+ ChildDeviceEntry: parent_device_id, no via_device_id.
     assert _parent_device_id(SimpleNamespace(parent_device_id="relay1")) == "relay1"

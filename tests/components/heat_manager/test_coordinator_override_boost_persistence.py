@@ -27,6 +27,10 @@ from unittest.mock import MagicMock, patch
 from custom_components.heat_manager.const import RoomState
 from custom_components.heat_manager.coordinator import HeatManagerCoordinator
 
+# Module whose code these tests exercise (the coordinator is split into
+# layers since v0.68.2 — patch names where they are used).
+_COORD_MOD = "custom_components.heat_manager.coordinator.persistence"
+
 _NOW = datetime(2026, 9, 13, 12, 0, 0, tzinfo=UTC)
 
 
@@ -67,7 +71,7 @@ def test_persist_snapshot_captures_active_override_with_expiry():
     coord.room_override_source = {"Bathroom": "panel"}
     coord.room_override_expires_at = {"Bathroom": _NOW + timedelta(hours=1)}
 
-    with patch("custom_components.heat_manager.coordinator.utcnow", return_value=_NOW):
+    with patch(f"{_COORD_MOD}.utcnow", return_value=_NOW):
         coord._persist_override_snapshot()
 
     snap = _persisted_snapshot(coord)
@@ -157,7 +161,7 @@ def test_restore_snapshot_restores_override_before_expiry():
     }
     coord = _make_coordinator(entry_options={"_override_snap": json.dumps(snap)})
 
-    with patch("custom_components.heat_manager.coordinator.utcnow", return_value=_NOW):
+    with patch(f"{_COORD_MOD}.utcnow", return_value=_NOW):
         coord._restore_override_snapshot()
 
     assert coord.room_states["Bathroom"] == RoomState.OVERRIDE
@@ -195,7 +199,7 @@ def test_restore_snapshot_skips_override_whose_expiry_already_passed():
     }
     coord = _make_coordinator(entry_options={"_override_snap": json.dumps(snap)})
 
-    with patch("custom_components.heat_manager.coordinator.utcnow", return_value=_NOW):
+    with patch(f"{_COORD_MOD}.utcnow", return_value=_NOW):
         coord._restore_override_snapshot()
 
     assert "Bathroom" not in coord.room_states
@@ -210,7 +214,7 @@ def test_restore_snapshot_restores_active_boost_before_expiry():
     }
     coord = _make_coordinator(entry_options={"_override_snap": json.dumps(snap)})
 
-    with patch("custom_components.heat_manager.coordinator.utcnow", return_value=_NOW):
+    with patch(f"{_COORD_MOD}.utcnow", return_value=_NOW):
         coord._restore_override_snapshot()
 
     assert coord.boost_active_rooms == {"Bathroom": True}
@@ -225,7 +229,7 @@ def test_restore_snapshot_skips_boost_whose_expiry_already_passed():
     }
     coord = _make_coordinator(entry_options={"_override_snap": json.dumps(snap)})
 
-    with patch("custom_components.heat_manager.coordinator.utcnow", return_value=_NOW):
+    with patch(f"{_COORD_MOD}.utcnow", return_value=_NOW):
         coord._restore_override_snapshot()
 
     assert coord.boost_active_rooms == {}

@@ -67,7 +67,7 @@ def _make_hass(existing_entity_ids: list[str]) -> MagicMock:
 # as the entity exists — no reload needed.
 
 T0 = datetime(2026, 11, 12, 14, 34, 11, tzinfo=UTC)
-COORD = "custom_components.heat_manager.coordinator"
+COORD = "custom_components.heat_manager.coordinator.issues"
 
 
 def _make_coordinator(rooms: list[dict], hass: MagicMock) -> MagicMock:

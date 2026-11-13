@@ -8,7 +8,7 @@ pre-heating on arrival, seasonal on/off control, mold risk monitoring, and
 weather-aware PID control — all from the UI.
 
 [![Version](https://img.shields.io/badge/version-0.68.0-blue)](https://github.com/kingpainter/heat-manager/releases)
-[![HA min version](https://img.shields.io/badge/Home%20Assistant-%3E%3D2025.1-blue)](https://www.home-assistant.io)
+[![HA min version](https://img.shields.io/badge/Home%20Assistant-%3E%3D2026.9-blue)](https://www.home-assistant.io)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange)](https://hacs.xyz)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -78,7 +78,7 @@ Off shuts everything down permanently — with the correct fallback per season.
 
 ## Requirements
 
-- Home Assistant 2025.1 or newer
+- Home Assistant 2026.9 or newer (schema validation uses probatio, which Home Assistant ships from 2026.9)
 - At least one `climate.*` entity per room
 - `person.*` entities for presence tracking
 - `binary_sensor.*` entities for window/door sensors (optional but recommended)

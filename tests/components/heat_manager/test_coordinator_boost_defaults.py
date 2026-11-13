@@ -27,6 +27,10 @@ from custom_components.heat_manager.const import (
     RoomState,
 )
 
+# Module whose code these tests exercise (the coordinator is split into
+# layers since v0.68.2 — patch names where they are used).
+_COORD_MOD = "custom_components.heat_manager.coordinator.overrides"
+
 _NOW = datetime(2026, 9, 13, 12, 0, 0, tzinfo=UTC)
 
 
@@ -79,7 +83,7 @@ async def test_boost_uses_configured_default_temp():
     temperature."""
     coord = _make_coordinator({CONF_BOOST_DEFAULT_TEMP: 22.5})
 
-    with patch("custom_components.heat_manager.coordinator.utcnow", return_value=_NOW):
+    with patch(f"{_COORD_MOD}.utcnow", return_value=_NOW):
         await coord.async_boost_start(None, None)
 
     coord.hass.services.async_call.assert_awaited_once_with(
@@ -97,7 +101,7 @@ async def test_boost_falls_back_to_hardcoded_default_temp_when_unconfigured():
     this option existed."""
     coord = _make_coordinator({})
 
-    with patch("custom_components.heat_manager.coordinator.utcnow", return_value=_NOW):
+    with patch(f"{_COORD_MOD}.utcnow", return_value=_NOW):
         await coord.async_boost_start(None, None)
 
     coord.hass.services.async_call.assert_awaited_once_with(
@@ -114,7 +118,7 @@ async def test_boost_explicit_caller_temp_overrides_configured_default():
     wins over the configured default, same as before."""
     coord = _make_coordinator({CONF_BOOST_DEFAULT_TEMP: 22.5})
 
-    with patch("custom_components.heat_manager.coordinator.utcnow", return_value=_NOW):
+    with patch(f"{_COORD_MOD}.utcnow", return_value=_NOW):
         await coord.async_boost_start(26.0, None)
 
     coord.hass.services.async_call.assert_awaited_once_with(
@@ -131,7 +135,7 @@ async def test_boost_expiry_uses_configured_default_minutes():
     ahead of "now" when the caller gives no duration_minutes."""
     coord = _make_coordinator({CONF_BOOST_DEFAULT_MINUTES: 45})
 
-    with patch("custom_components.heat_manager.coordinator.utcnow", return_value=_NOW):
+    with patch(f"{_COORD_MOD}.utcnow", return_value=_NOW):
         await coord.async_boost_start(None, None)
 
     assert coord.boost_expires_at == _NOW + timedelta(minutes=45)
@@ -143,7 +147,7 @@ async def test_boost_explicit_caller_minutes_overrides_configured_default():
     default."""
     coord = _make_coordinator({CONF_BOOST_DEFAULT_MINUTES: 45})
 
-    with patch("custom_components.heat_manager.coordinator.utcnow", return_value=_NOW):
+    with patch(f"{_COORD_MOD}.utcnow", return_value=_NOW):
         await coord.async_boost_start(None, 10)
 
     assert coord.boost_expires_at == _NOW + timedelta(minutes=10)

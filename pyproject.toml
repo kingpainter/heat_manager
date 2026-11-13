@@ -28,6 +28,9 @@ show_missing = true
 skip_covered = false
 
 [tool.ruff]
+# py312 on purpose: py314 would make `ruff format` rewrite every
+# `except (A, B):` to the PEP 758 form across 18 files. Safe since v0.69.0
+# (minimum HA 2026.9 = Python 3.14) — switch deliberately in its own commit.
 target-version = "py312"
 line-length = 88
 
@@ -49,7 +52,7 @@ ignore = ["E501"]
 # deliberately excluded: it's disconnected/dead code since the "Energi i
 # dag" removal (see CHANGELOG), not worth typing.
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 warn_unused_configs = true
 # v0.67.3: custom_components/ has no __init__.py (HA convention), so without
 # these mypy named the modules "heat_manager.*" and none of the strict
@@ -74,7 +77,11 @@ ignore_missing_imports = true
 # consistently — same ignore_missing_imports rationale as the engine
 # override above; install `homeassistant-stubs` locally/in CI for the most
 # accurate checking.
-module = "custom_components.heat_manager.coordinator"
+# v0.68.2 (T3b): coordinator is a package of layers — cover them all.
+module = [
+    "custom_components.heat_manager.coordinator",
+    "custom_components.heat_manager.coordinator.*",
+]
 strict = true
 ignore_missing_imports = true
 
@@ -103,6 +110,7 @@ module = [
     "custom_components.heat_manager.select",
     "custom_components.heat_manager.number",
     "custom_components.heat_manager.websocket",
+    "custom_components.heat_manager.websocket_payload",
     "custom_components.heat_manager.config_flow",
 ]
 strict = true

@@ -84,6 +84,6 @@ rules:
     status: done
     comment: >-
       v0.67.3 — the whole integration passes `mypy --strict` (pyproject
-      [tool.mypy] strict = true), enforced by the CI typecheck job against
-      Home Assistant 2026.2.3. HA 2026.11 types schemas with probatio
-      instead of voluptuous; that migration is a separate step.
+      [tool.mypy] strict = true), enforced by the CI typecheck job. Since
+      v0.69.0 (T1b) schemas use probatio directly and are checked against
+      Home Assistant 2026.11.1.

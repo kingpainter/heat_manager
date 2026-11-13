@@ -61,7 +61,7 @@ whatever mix of outdoor temperatures the room happened to be sampled at.
 That's a real source of noise: a room's heat-up response to a given
 call-for-heat genuinely depends on the temperature differential to the
 outside (the same physical intuition already used for PID's own weather-
-compensation feedforward, coordinator._weather_compensation_feedforward) —
+compensation feedforward, engine/pid_adjustments.weather_compensation_feedforward) —
 heating a room from 19->20°C measurably takes longer against a -5°C sky
 than a +5°C one, purely from ongoing radiative/convective loss during the
 sample window. This is now modelled as an exponentially-weighted linear
@@ -100,17 +100,12 @@ from ..const import (
     RoomState,
 )
 from .clock import local_now, utcnow
+from .readings import sanity_clamp_temp
 
 if TYPE_CHECKING:
     from ..coordinator import HeatManagerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-
-# 3.5 hardening: reject implausible readings (a glitching sensor reporting
-# e.g. -200 or 3000 instead of going unavailable) before they turn into a
-# bogus calibration offset — mirrors coordinator._sanity_clamp_temp's range.
-_ROOM_TEMP_SANITY_MIN = -20.0
-_ROOM_TEMP_SANITY_MAX = 50.0
 
 # ── Heat-up-rate learning tuning ────────────────────────────────────────────
 # A sample needs at least this long between baseline and comparison reading
@@ -155,13 +150,6 @@ _HEATUP_ANOMALY_STREAK_THRESHOLD = 3
 # A sample below this fraction of the room's own learned baseline counts as
 # "underperforming" for the streak above.
 _HEATUP_ANOMALY_RATIO = 0.4
-
-
-def _sanity_clamp_temp(value: float) -> float | None:
-    """Return `value` unchanged if plausible for an indoor temp, else None."""
-    if _ROOM_TEMP_SANITY_MIN <= value <= _ROOM_TEMP_SANITY_MAX:
-        return value
-    return None
 
 
 # 2026-09-13 select-entity support: matches the first signed/unsigned
@@ -281,7 +269,7 @@ class CalibrationEngine:
         current_temp = self.coordinator.get_room_current_temp(room_name, climate_entity)
         if current_temp is None:
             return
-        current_temp = _sanity_clamp_temp(current_temp)
+        current_temp = sanity_clamp_temp(current_temp)
         if current_temp is None:
             return
 
@@ -481,7 +469,7 @@ class CalibrationEngine:
         """True when this room has heated up markedly slower than its own
         learned baseline for several samples in a row (architecture review
         #3, 2026-09-13) — a cheap, room-relative signal worth surfacing in
-        the status center (websocket.py's _build_active_issues), e.g. a
+        the status center (websocket_payload.py's build_active_issues), e.g. a
         stuck valve, a closed lockshield, or an empty radiator. Never gates
         any control decision — purely diagnostic, same as the heat-up rate
         itself."""
@@ -648,7 +636,7 @@ class CalibrationEngine:
         if state is None or state.state in ("unknown", "unavailable"):
             return None
         try:
-            return _sanity_clamp_temp(float(state.state))
+            return sanity_clamp_temp(float(state.state))
         except (TypeError, ValueError):
             return None
 
@@ -674,7 +662,7 @@ class CalibrationEngine:
             return None
         try:
             val = state.attributes.get("current_temperature")
-            return _sanity_clamp_temp(float(val)) if val is not None else None
+            return sanity_clamp_temp(float(val)) if val is not None else None
         except (TypeError, ValueError):
             return None
 

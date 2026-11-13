@@ -1,4 +1,4 @@
-"""Tests for websocket._build_active_issues() (v0.32.0 — "status center").
+"""Tests for websocket_payload.build_active_issues() (v0.32.0 — "status center").
 
 Consolidates what used to be four separately-computed indicators (topbar
 cloud-chip / health-chip / ws-error-chip, plus the Oversigt-only
@@ -25,9 +25,9 @@ from unittest.mock import MagicMock
 
 from homeassistant.util.dt import utcnow
 
-from custom_components.heat_manager import websocket
+from custom_components.heat_manager import websocket_payload
 
-_build_active_issues = websocket._build_active_issues
+_build_active_issues = websocket_payload.build_active_issues
 
 
 def _state(value: str, last_updated=None) -> MagicMock:

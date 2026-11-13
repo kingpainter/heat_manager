@@ -9,6 +9,115 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.69.0] — 2026-11-13
+
+### Changed
+- **Kræver nu Home Assistant 2026.9 eller nyere (trin T1b).** Skemaerne i
+  `__init__.py`, `config_flow.py` og `websocket.py` (og testene) bruger
+  `probatio` direkte i stedet for `voluptuous`. Home Assistant har
+  valideret med probatio siden 2026.9 og har kun omdirigeret
+  `import voluptuous` dertil. `hacs.json` og README er sat til minimum
+  2026.9.0, så HACS ikke tilbyder opdateringen til ældre versioner.
+- **CI følger med:** pytest kører kun på Python 3.14 (HA 2026.9 kræver
+  3.14), og typecheck-jobbet kører mypy strict mod HA 2026.11.1 i stedet
+  for 2026.2.3 — de 94 typefejl mod nyeste HA er væk. Ingen
+  adfærdsændring.
+
+## [0.68.9] — 2026-11-13
+
+### Changed
+- **Panelets data bygges i eget modul (trin T3i).** `websocket_payload.py`
+  har `build_state_payload()` (hele `heat_manager/get_state`-snapshottet)
+  og `build_active_issues()` (statuslinjens advarsler) med deres
+  hjælpefunktioner. `websocket.py` er nede fra ca. 1.870 til 840 linjer og
+  indeholder kun WebSocket-handlerne; `ws_get_state` henter version og
+  sender payloaden. mypy-overrides i `pyproject.toml` dækker nu
+  `coordinator`-pakkens moduler og `websocket_payload`. **T3 er færdig.**
+  Ingen adfærdsændring.
+
+## [0.68.8] — 2026-11-13
+
+### Changed
+- **PID i eget lag — opdelingen af coordinatoren er færdig (trin T3h).**
+  `coordinator/pid.py` (`CoordinatorPid`) har PID-tikket, opsætning af
+  PID-regulatorer, mål-temperatur samt nat- og vågnesænkning.
+  `coordinator/core.py` er nede på ca. 270 linjer: oprettelse af engines,
+  det periodiske tik og nedlukning. Lagene er nu `base` → `persistence` →
+  `sensors` → `netatmo` → `overrides` → `issues` → `pid` → `core`, hvor et
+  lag kun kalder sig selv og lagene under sig. Ingen adfærdsændring.
+
+## [0.68.7] — 2026-11-13
+
+### Changed
+- **Advarsler og reparationer i eget lag (trin T3g).**
+  `coordinator/issues.py` (`CoordinatorIssues`) har statuslinjens
+  problem-sporing, eskalering til push, HA-reparationer (inkl. manglende
+  klimaenhed), skjul ("snooze") og skimmelrisiko-notifikationen. Ingen
+  adfærdsændring.
+
+## [0.68.6] — 2026-11-13
+
+### Changed
+- **Manuel styring og boost i eget lag (trin T3f).**
+  `coordinator/overrides.py` (`CoordinatorOverrides`) har override til og
+  fra, tidsbegrænsede overstyringer fra fjernbetjening og panel, boost
+  (start, stop, udløb), tilbage til tidsplan og husets samlede status
+  (auto/manuel/blandet). Ingen adfærdsændring.
+
+## [0.68.5] — 2026-11-13
+
+### Changed
+- **Netatmo i eget lag (trin T3e).** `coordinator/netatmo.py`
+  (`CoordinatorNetatmo`) har opslag af backend pr. ventil (core netatmo
+  eller NET-TRV), ventil-sundhed (forbindelse, batteri, webhook), relæets
+  fraværstemperatur, HomeKit-krav for PID og frigivelse af et rum til
+  Netatmo-tidsplanen. Ingen adfærdsændring.
+
+## [0.68.4] — 2026-11-13
+
+### Changed
+- **Målinger i eget lag (trin T3d).** `coordinator/sensors.py`
+  (`CoordinatorSensors`) har opslag af rumtemperatur, CO2, lux, udevejr,
+  døre, vinduer og tilstedeværelse. Plausibilitetstjekket for
+  rumtemperatur (-20 til 50 °C) findes nu kun ét sted,
+  `engine/readings.py` (`sanity_clamp_temp()`), som både coordinatoren og
+  kalibreringsmotoren bruger — før havde de hver sin kopi. Ingen
+  adfærdsændring.
+
+## [0.68.3] — 2026-11-13
+
+### Changed
+- **Hændelseslog og genstart-snapshots i eget lag (trin T3c).**
+  `coordinator/persistence.py` (`CoordinatorPersistence`) har `log_event()`
+  og gem/gendan af hændelsesloggen, manuelle overstyringer, aktiv boost og
+  rummenes gruppe-toggle. Ingen adfærdsændring.
+
+## [0.68.2] — 2026-11-13
+
+### Changed
+- **`coordinator.py` er nu en pakke, `coordinator/` (trin T3b).**
+  Coordinatoren deles i lag, hvor hvert lag er en underklasse af laget
+  under sig, så alle kald er fuldt typede (mypy strict) uden protokoller.
+  Første lag, `coordinator/base.py` (`CoordinatorBase`), har al delt
+  tilstand, config-opslag, rum og ventiler, skrivevej til klimaenheder og
+  abonnementer. `HeatManagerCoordinator` ligger i `coordinator/core.py` og
+  importeres som før fra `.coordinator`. Engines oprettes efter, at al
+  delt tilstand findes. Tests patcher nu navne i det modul, hvor koden
+  ligger. Ingen adfærdsændring.
+
+## [0.68.1] — 2026-11-13
+
+### Changed
+- **Rene PID-justeringer og skimmelberegning flyttet til `engine/` (trin
+  T3a).** Vejrkompensation, solindfald og varmedeling gennem døre ligger nu
+  i `engine/pid_adjustments.py` (`weather_compensation_feedforward()`,
+  `solar_gain_reduction()`, `door_heat_share_reduction()`). Skimmelrisiko
+  har fået ét fælles modul, `engine/mold.py` (`dewpoint()`,
+  `is_mold_risk()`), som `MoldRiskSensor`, panelets data og
+  push-notifikationen nu alle bruger — før var formel og grænser kopieret
+  tre steder. Nye tests for solindfald, dørvarme og skimmel. Ingen
+  adfærdsændring.
+
 ## [0.68.0] — 2026-11-12
 
 ### Added

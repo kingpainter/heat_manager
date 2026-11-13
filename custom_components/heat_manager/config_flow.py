@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import voluptuous as vol
+import probatio
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
@@ -229,12 +229,12 @@ def _validate_trv_input(
 
 def _step1_schema(
     defaults: dict[str, Any] | None = None, *, show_netatmo_backend: bool = False
-) -> vol.Schema:
+) -> probatio.Schema:
     defaults = defaults or {}
     fields: dict[Any, Any] = {}
     if show_netatmo_backend:
         fields[
-            vol.Optional(
+            probatio.Optional(
                 CONF_NETATMO_BACKEND,
                 default=defaults.get(CONF_NETATMO_BACKEND, DEFAULT_NETATMO_BACKEND),
             )
@@ -247,45 +247,46 @@ def _step1_schema(
                 }
             }
         )
-    return vol.Schema(
+    return probatio.Schema(
         {
             **fields,
-            # default=vol.UNDEFINED (not "") — the entity selector rejects ""
+            # default=probatio.UNDEFINED (not "") — the entity selector rejects ""
             # as an invalid entity ID, which blocked saving whenever this
             # optional field was left empty. See B17.
-            vol.Optional(
+            probatio.Optional(
                 CONF_WEATHER_ENTITY,
-                default=defaults.get(CONF_WEATHER_ENTITY) or vol.UNDEFINED,
+                default=defaults.get(CONF_WEATHER_ENTITY) or probatio.UNDEFINED,
             ): selector.selector({"entity": {"domain": "weather"}}),
             # 2026-09-11 UX fix: these four were left on a raw text box (type
             # the entity_id yourself, no autocomplete, easy to typo) because
             # the entity selector used to reject an empty default outright.
             # CONF_WEATHER_ENTITY above and CONF_SCHEDULE_ENTITY below already
-            # proved the fix — `default=... or vol.UNDEFINED` instead of
+            # proved the fix — `default=... or probatio.UNDEFINED` instead of
             # `default=..., ""` — so there's no reason left for these four to
             # be worse pickers than every other entity field in this flow.
             # Also makes it trivial to find e.g. an Indeklima room sensor:
             # type "indeklima" or the room name into the picker's own search.
-            vol.Optional(
+            probatio.Optional(
                 CONF_OUTDOOR_TEMP_SENSOR,
-                default=defaults.get(CONF_OUTDOOR_TEMP_SENSOR) or vol.UNDEFINED,
+                default=defaults.get(CONF_OUTDOOR_TEMP_SENSOR) or probatio.UNDEFINED,
             ): selector.selector({"entity": {"domain": "sensor"}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_OUTDOOR_HUMIDITY_SENSOR,
-                default=defaults.get(CONF_OUTDOOR_HUMIDITY_SENSOR) or vol.UNDEFINED,
+                default=defaults.get(CONF_OUTDOOR_HUMIDITY_SENSOR)
+                or probatio.UNDEFINED,
             ): selector.selector({"entity": {"domain": "sensor"}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_PRECIPITATION_SENSOR,
-                default=defaults.get(CONF_PRECIPITATION_SENSOR) or vol.UNDEFINED,
+                default=defaults.get(CONF_PRECIPITATION_SENSOR) or probatio.UNDEFINED,
             ): selector.selector({"entity": {"domain": "sensor"}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_WIND_SPEED_SENSOR,
-                default=defaults.get(CONF_WIND_SPEED_SENSOR) or vol.UNDEFINED,
+                default=defaults.get(CONF_WIND_SPEED_SENSOR) or probatio.UNDEFINED,
             ): selector.selector({"entity": {"domain": "sensor"}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_NOTIFY_SERVICE, default=defaults.get(CONF_NOTIFY_SERVICE, "")
             ): selector.selector({"text": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_WINDOW_WARNING_MIN,
                 default=defaults.get(
                     CONF_WINDOW_WARNING_MIN, DEFAULT_WINDOW_WARNING_MIN
@@ -307,7 +308,7 @@ def _step1_schema(
             # is the setpoint written on open — deliberately separate from
             # CONF_MIN_ROOM_TEMP below, which floors the PID's own idle
             # output and the night/wake setback. See const.py.
-            vol.Optional(
+            probatio.Optional(
                 CONF_WINDOW_DELAY_DEFAULT_MIN,
                 default=defaults.get(
                     CONF_WINDOW_DELAY_DEFAULT_MIN, DEFAULT_WINDOW_DELAY_DEFAULT_MIN
@@ -322,7 +323,7 @@ def _step1_schema(
                     }
                 }
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_WINDOW_OFF_TEMP,
                 default=defaults.get(CONF_WINDOW_OFF_TEMP, DEFAULT_WINDOW_OFF_TEMP),
             ): selector.selector(
@@ -337,7 +338,7 @@ def _step1_schema(
             ),
             # v0.67.0: global lowest room temperature (replaces the
             # per-room away_temp_override).
-            vol.Optional(
+            probatio.Optional(
                 CONF_MIN_ROOM_TEMP,
                 default=defaults.get(CONF_MIN_ROOM_TEMP, DEFAULT_MIN_ROOM_TEMP),
             ): selector.selector(
@@ -350,7 +351,7 @@ def _step1_schema(
                     }
                 }
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_GRACE_DAY_MIN,
                 default=defaults.get(CONF_GRACE_DAY_MIN, DEFAULT_GRACE_DAY_MIN),
             ): selector.selector(
@@ -363,7 +364,7 @@ def _step1_schema(
                     }
                 }
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_GRACE_NIGHT_MIN,
                 default=defaults.get(CONF_GRACE_NIGHT_MIN, DEFAULT_GRACE_NIGHT_MIN),
             ): selector.selector(
@@ -376,7 +377,7 @@ def _step1_schema(
                     }
                 }
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_AUTO_OFF_TEMP_THRESHOLD,
                 default=defaults.get(
                     CONF_AUTO_OFF_TEMP_THRESHOLD, DEFAULT_AUTO_OFF_TEMP_THRESHOLD
@@ -391,7 +392,7 @@ def _step1_schema(
                     }
                 }
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_AUTO_OFF_TEMP_DAYS,
                 default=defaults.get(
                     CONF_AUTO_OFF_TEMP_DAYS, DEFAULT_AUTO_OFF_TEMP_DAYS
@@ -406,13 +407,13 @@ def _step1_schema(
                     }
                 }
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_NIGHT_SETBACK_ENABLED,
                 default=defaults.get(
                     CONF_NIGHT_SETBACK_ENABLED, DEFAULT_NIGHT_SETBACK_ENABLED
                 ),
             ): selector.selector({"boolean": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_NIGHT_SETBACK_TEMP,
                 default=defaults.get(
                     CONF_NIGHT_SETBACK_TEMP, DEFAULT_NIGHT_SETBACK_TEMP
@@ -427,7 +428,7 @@ def _step1_schema(
                     }
                 }
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_NIGHT_START_HOUR,
                 default=defaults.get(CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR),
             ): selector.selector(
@@ -440,17 +441,17 @@ def _step1_schema(
                     }
                 }
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_NIGHT_END_HOUR,
                 default=defaults.get(CONF_NIGHT_END_HOUR, DEFAULT_NIGHT_END_HOUR),
             ): selector.selector(
                 {"number": {"min": 4, "max": 10, "step": 1, "unit_of_measurement": "h"}}
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_HOUSE_VOICE_ENABLED,
                 default=defaults.get(CONF_HOUSE_VOICE_ENABLED, False),
             ): selector.selector({"boolean": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_PAUSE_DURATION_MIN,
                 default=defaults.get(
                     CONF_PAUSE_DURATION_MIN, DEFAULT_PAUSE_DURATION_MIN
@@ -470,7 +471,7 @@ def _step1_schema(
             # whenever the caller doesn't specify its own temperature/
             # duration_minutes — same bounds as services.yaml's own
             # boost_start selectors.
-            vol.Optional(
+            probatio.Optional(
                 CONF_BOOST_DEFAULT_TEMP,
                 default=defaults.get(CONF_BOOST_DEFAULT_TEMP, DEFAULT_BOOST_TEMP),
             ): selector.selector(
@@ -483,7 +484,7 @@ def _step1_schema(
                     }
                 }
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_BOOST_DEFAULT_MINUTES,
                 default=defaults.get(CONF_BOOST_DEFAULT_MINUTES, DEFAULT_BOOST_MINUTES),
             ): selector.selector(
@@ -497,23 +498,23 @@ def _step1_schema(
                 }
             ),
             # ── PID controller ─────────────────────────────────────────
-            vol.Optional(
+            probatio.Optional(
                 CONF_PID_ENABLED,
                 default=defaults.get(CONF_PID_ENABLED, True),
             ): selector.selector({"boolean": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_PID_KP,
                 default=defaults.get(CONF_PID_KP, DEFAULT_PID_KP),
             ): selector.selector({"number": {"min": 0, "max": 5, "step": 0.05}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_PID_KI,
                 default=defaults.get(CONF_PID_KI, DEFAULT_PID_KI),
             ): selector.selector({"number": {"min": 0, "max": 0.5, "step": 0.01}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_PID_KD,
                 default=defaults.get(CONF_PID_KD, DEFAULT_PID_KD),
             ): selector.selector({"number": {"min": 0, "max": 2, "step": 0.05}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_TRV_MAX_TEMP,
                 default=defaults.get(CONF_TRV_MAX_TEMP, DEFAULT_TRV_MAX_TEMP),
             ): selector.selector(
@@ -532,7 +533,7 @@ def _step1_schema(
             # margin, per room, rather than letting 100% PID power jump
             # straight to the single global trv_max above regardless of
             # how close that sits to the room's own target.
-            vol.Optional(
+            probatio.Optional(
                 CONF_PID_SETPOINT_MARGIN,
                 default=defaults.get(CONF_PID_SETPOINT_MARGIN, PID_SETPOINT_MARGIN),
             ): selector.selector(
@@ -553,14 +554,14 @@ def _step1_schema(
             # tuning. Defaults below match those exact hardcoded values, so an
             # existing install's behaviour is unchanged until it's actually
             # edited — only "exposed", nothing silently switched off.
-            vol.Optional(
+            probatio.Optional(
                 CONF_WEATHER_COMPENSATION_ENABLED,
                 default=defaults.get(
                     CONF_WEATHER_COMPENSATION_ENABLED,
                     DEFAULT_WEATHER_COMPENSATION_ENABLED,
                 ),
             ): selector.selector({"boolean": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_FF_REFERENCE_OUTDOOR_TEMP,
                 default=defaults.get(
                     CONF_FF_REFERENCE_OUTDOOR_TEMP, FF_REFERENCE_OUTDOOR_TEMP
@@ -575,11 +576,11 @@ def _step1_schema(
                     }
                 }
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_FF_WEIGHT,
                 default=defaults.get(CONF_FF_WEIGHT, FF_WEIGHT),
             ): selector.selector({"number": {"min": 0, "max": 0.1, "step": 0.005}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_FF_MAX_CONTRIBUTION,
                 default=defaults.get(CONF_FF_MAX_CONTRIBUTION, FF_MAX_CONTRIBUTION),
             ): selector.selector({"number": {"min": 0, "max": 0.6, "step": 0.05}}),
@@ -590,13 +591,13 @@ def _step1_schema(
             # compensation above, there is no prior always-on behaviour to
             # preserve, so an upgrading install sees no change until this is
             # turned on AND at least one room has a lux sensor configured.
-            vol.Optional(
+            probatio.Optional(
                 CONF_SOLAR_GAIN_ENABLED,
                 default=defaults.get(
                     CONF_SOLAR_GAIN_ENABLED, DEFAULT_SOLAR_GAIN_ENABLED
                 ),
             ): selector.selector({"boolean": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_SOLAR_GAIN_LUX_THRESHOLD,
                 default=defaults.get(
                     CONF_SOLAR_GAIN_LUX_THRESHOLD, SOLAR_GAIN_LUX_THRESHOLD
@@ -611,11 +612,11 @@ def _step1_schema(
                     }
                 }
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_SOLAR_GAIN_WEIGHT,
                 default=defaults.get(CONF_SOLAR_GAIN_WEIGHT, SOLAR_GAIN_WEIGHT),
             ): selector.selector({"number": {"min": 0, "max": 0.5, "step": 0.01}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_SOLAR_GAIN_MAX_REDUCTION,
                 default=defaults.get(
                     CONF_SOLAR_GAIN_MAX_REDUCTION, SOLAR_GAIN_MAX_REDUCTION
@@ -627,20 +628,20 @@ def _step1_schema(
             # preserve, and it only ever activates once both an interior
             # door (CONF_DOORS) is open AND the warmer neighbour is
             # actively heating.
-            vol.Optional(
+            probatio.Optional(
                 CONF_DOOR_HEAT_SHARE_ENABLED,
                 default=defaults.get(
                     CONF_DOOR_HEAT_SHARE_ENABLED, DEFAULT_DOOR_HEAT_SHARE_ENABLED
                 ),
             ): selector.selector({"boolean": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
                 default=defaults.get(
                     CONF_DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
                     DOOR_HEAT_SHARE_MIN_NEIGHBOR_POWER,
                 ),
             ): selector.selector({"number": {"min": 0, "max": 1.0, "step": 0.05}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF,
                 default=defaults.get(
                     CONF_DOOR_HEAT_SHARE_MIN_TEMP_DIFF, DOOR_HEAT_SHARE_MIN_TEMP_DIFF
@@ -655,26 +656,26 @@ def _step1_schema(
                     }
                 }
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_DOOR_HEAT_SHARE_WEIGHT,
                 default=defaults.get(
                     CONF_DOOR_HEAT_SHARE_WEIGHT, DOOR_HEAT_SHARE_WEIGHT
                 ),
             ): selector.selector({"number": {"min": 0, "max": 0.5, "step": 0.01}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_DOOR_HEAT_SHARE_MAX_REDUCTION,
                 default=defaults.get(
                     CONF_DOOR_HEAT_SHARE_MAX_REDUCTION, DOOR_HEAT_SHARE_MAX_REDUCTION
                 ),
             ): selector.selector({"number": {"min": 0, "max": 0.8, "step": 0.05}}),
             # ── Wake / WAKING phase ────────────────────────────────────
-            vol.Optional(
+            probatio.Optional(
                 CONF_INDOOR_WAKE_SENSOR,
-                default=defaults.get(CONF_INDOOR_WAKE_SENSOR) or vol.UNDEFINED,
+                default=defaults.get(CONF_INDOOR_WAKE_SENSOR) or probatio.UNDEFINED,
             ): selector.selector(
                 {"entity": {"domain": "sensor"}}
             ),  # shared indoor temperature probe
-            vol.Optional(
+            probatio.Optional(
                 CONF_INDOOR_WAKE_THRESHOLD,
                 default=defaults.get(
                     CONF_INDOOR_WAKE_THRESHOLD, DEFAULT_INDOOR_WAKE_THRESHOLD
@@ -689,7 +690,7 @@ def _step1_schema(
                     }
                 }
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_WAKE_SETBACK_TEMP,
                 default=defaults.get(CONF_WAKE_SETBACK_TEMP, DEFAULT_WAKE_SETBACK_TEMP),
             ): selector.selector(
@@ -706,19 +707,19 @@ def _step1_schema(
     )
 
 
-def _trv_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+def _trv_schema(defaults: dict[str, Any] | None = None) -> probatio.Schema:
     """Schema for a single physical TRV within a room — see CONF_TRVS."""
     defaults = defaults or {}
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required(
+            probatio.Required(
                 CONF_CLIMATE_ENTITY, default=defaults.get(CONF_CLIMATE_ENTITY, "")
             ): selector.selector({"entity": {"domain": "climate"}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_HOMEKIT_CLIMATE_ENTITY,
                 default=defaults.get(CONF_HOMEKIT_CLIMATE_ENTITY, ""),
             ): selector.selector({"text": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_TRV_TYPE, default=defaults.get(CONF_TRV_TYPE, TRV_TYPE_NETATMO)
             ): selector.selector(
                 {
@@ -736,7 +737,7 @@ def _trv_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                     }
                 }
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_PI_DEMAND_ENTITY, default=defaults.get(CONF_PI_DEMAND_ENTITY, "")
             ): selector.selector({"text": {}}),
             # ── Calibration & Sync (v0.9.0) ─────────────────────────────────────
@@ -744,14 +745,14 @@ def _trv_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             # internal reading (e.g. Zigbee2MQTT local_temperature_calibration).
             # Only used when the room's CONF_ROOM_TEMP_SENSOR is also set —
             # see engine/calibration_engine.py.
-            # default=vol.UNDEFINED (not "") — the entity selector rejects ""
+            # default=probatio.UNDEFINED (not "") — the entity selector rejects ""
             # as an invalid entity ID, which blocked saving whenever this
             # optional field was left empty. See B17.
-            vol.Optional(
+            probatio.Optional(
                 CONF_CALIBRATION_ENTITY,
-                default=defaults.get(CONF_CALIBRATION_ENTITY) or vol.UNDEFINED,
+                default=defaults.get(CONF_CALIBRATION_ENTITY) or probatio.UNDEFINED,
             ): selector.selector({"entity": {"domain": "number"}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_SYNC_MODE,
                 default=defaults.get(CONF_SYNC_MODE, DEFAULT_SYNC_MODE),
             ): selector.selector(
@@ -778,16 +779,16 @@ def _trv_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     )
 
 
-def _room_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+def _room_schema(defaults: dict[str, Any] | None = None) -> probatio.Schema:
     """Schema for a room's own fields — its TRVs are managed separately
     through the room-TRV sub-flow (see _trv_schema and CONF_TRVS)."""
     defaults = defaults or {}
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required(
+            probatio.Required(
                 CONF_ROOM_NAME, default=defaults.get(CONF_ROOM_NAME, "")
             ): selector.selector({"text": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_WINDOW_SENSORS, default=defaults.get(CONF_WINDOW_SENSORS, [])
             ): selector.selector(
                 {"entity": {"domain": "binary_sensor", "multiple": True}}
@@ -796,7 +797,7 @@ def _room_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             # of CONF_WINDOW_SENSORS above: same grace/off-temp/warning
             # behaviour either way, only the label/icon changes. See
             # const.py's CONF_DOOR_STYLED_SENSORS for the full rationale.
-            vol.Optional(
+            probatio.Optional(
                 CONF_DOOR_STYLED_SENSORS,
                 default=defaults.get(CONF_DOOR_STYLED_SENSORS, []),
             ): selector.selector(
@@ -807,7 +808,7 @@ def _room_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             # stairwell). No grace period, no off-temp, no 30-min warning --
             # visibility + event log only. See const.py's
             # CONF_HEATED_DOOR_SENSORS for the full rationale.
-            vol.Optional(
+            probatio.Optional(
                 CONF_HEATED_DOOR_SENSORS,
                 default=defaults.get(CONF_HEATED_DOOR_SENSORS, []),
             ): selector.selector(
@@ -816,11 +817,11 @@ def _room_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             # v0.64.0 -- opt-in: use the Netatmo valve's own open-window
             # detection (NET-TRV `open_window`) as a window sensor for rooms
             # without a contact sensor. See const.py.
-            vol.Optional(
+            probatio.Optional(
                 CONF_TRV_WINDOW_DETECTION,
                 default=defaults.get(CONF_TRV_WINDOW_DETECTION, False),
             ): selector.selector({"boolean": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_WINDOW_DELAY_MIN,
                 default=defaults.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN),
             ): selector.selector(
@@ -836,7 +837,7 @@ def _room_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             # PID target temperature — v0.19.0: authoritative for ALL room
             # types, Netatmo included (previously ignored for Netatmo rooms,
             # which used the cloud entity's own schedule setpoint instead).
-            vol.Optional(
+            probatio.Optional(
                 CONF_COMFORT_TEMP,
                 default=defaults.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP),
             ): selector.selector(
@@ -852,16 +853,16 @@ def _room_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             # ── Sensor inputs ─────────────────────────────────────────────────
             # 2026-09-11 UX fix: same as _step1_schema above — real entity
             # pickers (searchable, no typos) instead of raw text boxes, now
-            # that the `default=... or vol.UNDEFINED` pattern is proven safe
+            # that the `default=... or probatio.UNDEFINED` pattern is proven safe
             # for an optional entity selector. Also makes it trivial to pick
             # e.g. this room's own Indeklima sensor by typing "indeklima" or
             # the room name into the picker's search — no hard dependency on
             # Indeklima, any sensor entity still works exactly as before.
-            vol.Optional(
+            probatio.Optional(
                 CONF_CO2_SENSOR,
-                default=defaults.get(CONF_CO2_SENSOR) or vol.UNDEFINED,
+                default=defaults.get(CONF_CO2_SENSOR) or probatio.UNDEFINED,
             ): selector.selector({"entity": {"domain": "sensor"}}),  # CO₂ in ppm
-            vol.Optional(
+            probatio.Optional(
                 CONF_CO2_THRESHOLD,
                 default=defaults.get(
                     CONF_CO2_THRESHOLD, DEFAULT_CO2_VENTILATION_THRESHOLD
@@ -876,17 +877,17 @@ def _room_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                     }
                 }
             ),
-            vol.Optional(
+            probatio.Optional(
                 CONF_ROOM_TEMP_SENSOR,
-                default=defaults.get(CONF_ROOM_TEMP_SENSOR) or vol.UNDEFINED,
+                default=defaults.get(CONF_ROOM_TEMP_SENSOR) or probatio.UNDEFINED,
             ): selector.selector({"entity": {"domain": "sensor"}}),  # room temp °C
-            vol.Optional(
+            probatio.Optional(
                 CONF_BATTERY_SENSOR,
-                default=defaults.get(CONF_BATTERY_SENSOR) or vol.UNDEFINED,
+                default=defaults.get(CONF_BATTERY_SENSOR) or probatio.UNDEFINED,
             ): selector.selector({"entity": {"domain": "sensor"}}),  # TRV battery %
-            vol.Optional(
+            probatio.Optional(
                 CONF_HUMIDITY_SENSOR,
-                default=defaults.get(CONF_HUMIDITY_SENSOR) or vol.UNDEFINED,
+                default=defaults.get(CONF_HUMIDITY_SENSOR) or probatio.UNDEFINED,
             ): selector.selector(
                 {"entity": {"domain": "sensor"}}
             ),  # relative humidity %
@@ -895,36 +896,36 @@ def _room_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             # rationale. Has no effect at all unless the global
             # CONF_SOLAR_GAIN_ENABLED toggle (Season & global settings) is
             # also on.
-            vol.Optional(
+            probatio.Optional(
                 CONF_LUX_SENSOR,
-                default=defaults.get(CONF_LUX_SENSOR) or vol.UNDEFINED,
+                default=defaults.get(CONF_LUX_SENSOR) or probatio.UNDEFINED,
             ): selector.selector({"entity": {"domain": "sensor"}}),  # illuminance, lux
             # ── Schedule / calendar override (v0.9.0, Fase D) ───────────────────
             # schedule.* or calendar.* entity — see engine/schedule_engine.py.
             # While a block/event is active, its temperature overrides this
             # room's normal target. Optional; leave empty to disable.
-            # default=vol.UNDEFINED (not "") — the entity selector rejects ""
+            # default=probatio.UNDEFINED (not "") — the entity selector rejects ""
             # as an invalid entity ID, which blocked saving whenever this
             # optional field was left empty. See B17.
-            vol.Optional(
+            probatio.Optional(
                 CONF_SCHEDULE_ENTITY,
-                default=defaults.get(CONF_SCHEDULE_ENTITY) or vol.UNDEFINED,
+                default=defaults.get(CONF_SCHEDULE_ENTITY) or probatio.UNDEFINED,
             ): selector.selector({"entity": {"domain": ["schedule", "calendar"]}}),
         }
     )
 
 
-def _person_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+def _person_schema(defaults: dict[str, Any] | None = None) -> probatio.Schema:
     defaults = defaults or {}
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required(
+            probatio.Required(
                 CONF_PERSON_ENTITY, default=defaults.get(CONF_PERSON_ENTITY, "")
             ): selector.selector({"entity": {"domain": "person"}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_PERSON_TRACKING, default=defaults.get(CONF_PERSON_TRACKING, True)
             ): selector.selector({"boolean": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_PREHEAT_LEAD_TIME_MIN,
                 default=defaults.get(
                     CONF_PREHEAT_LEAD_TIME_MIN, DEFAULT_PREHEAT_LEAD_TIME_MIN
@@ -945,46 +946,46 @@ def _person_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
 
 def _door_schema(
     defaults: dict[str, Any] | None = None, room_names: list[str] | None = None
-) -> vol.Schema:
+) -> probatio.Schema:
     """Schema for one interior door — a contact sensor plus the two rooms it
     connects (see CONF_DOORS in const.py for the modeling rationale: unlike
     CONF_WINDOW_SENSORS, a door belongs to a PAIR of rooms, not one)."""
     defaults = defaults or {}
     room_names = room_names or []
     room_options = [{"value": name, "label": name} for name in room_names]
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required(
+            probatio.Required(
                 CONF_DOOR_SENSOR, default=defaults.get(CONF_DOOR_SENSOR, "")
             ): selector.selector({"entity": {"domain": "binary_sensor"}}),
-            vol.Required(
+            probatio.Required(
                 CONF_DOOR_ROOM_A, default=defaults.get(CONF_DOOR_ROOM_A, "")
             ): selector.selector({"select": {"options": room_options}}),
-            vol.Required(
+            probatio.Required(
                 CONF_DOOR_ROOM_B, default=defaults.get(CONF_DOOR_ROOM_B, "")
             ): selector.selector({"select": {"options": room_options}}),
         }
     )
 
 
-def _notifications_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+def _notifications_schema(defaults: dict[str, Any] | None = None) -> probatio.Schema:
     defaults = defaults or {}
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Optional(
+            probatio.Optional(
                 CONF_NOTIFY_PRESENCE, default=defaults.get(CONF_NOTIFY_PRESENCE, True)
             ): selector.selector({"boolean": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_NOTIFY_WINDOWS, default=defaults.get(CONF_NOTIFY_WINDOWS, True)
             ): selector.selector({"boolean": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_NOTIFY_WINDOW_WARNING_30,
                 default=defaults.get(CONF_NOTIFY_WINDOW_WARNING_30, True),
             ): selector.selector({"boolean": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_NOTIFY_PREHEAT, default=defaults.get(CONF_NOTIFY_PREHEAT, True)
             ): selector.selector({"boolean": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_NOTIFY_MOLD_RISK,
                 default=defaults.get(CONF_NOTIFY_MOLD_RISK, True),
             ): selector.selector({"boolean": {}}),
@@ -993,11 +994,11 @@ def _notifications_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             # notifier of their own, e.g. heat-up-rate anomaly): one push once
             # an issue's been continuously active this many minutes. See
             # coordinator.py's _report_issue().
-            vol.Optional(
+            probatio.Optional(
                 CONF_NOTIFY_ISSUE_ESCALATION,
                 default=defaults.get(CONF_NOTIFY_ISSUE_ESCALATION, True),
             ): selector.selector({"boolean": {}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_ISSUE_ESCALATION_MINUTES,
                 default=defaults.get(
                     CONF_ISSUE_ESCALATION_MINUTES, DEFAULT_ISSUE_ESCALATION_MINUTES
@@ -1016,30 +1017,32 @@ def _notifications_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     )
 
 
-def _remote_control_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+def _remote_control_schema(defaults: dict[str, Any] | None = None) -> probatio.Schema:
     """Global physical remote (e.g. Aqara Climate Sensor W100) — see
     const.py's "Remote button control" section and engine/remote_button_engine.py.
     All 3 fields are optional `event.*` entities, independently configurable
     so any button/remote hardware can be assigned, not just one specific model.
     """
     defaults = defaults or {}
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Optional(
+            probatio.Optional(
                 CONF_BUTTON_TEMP_UP_ENTITY,
-                default=defaults.get(CONF_BUTTON_TEMP_UP_ENTITY) or vol.UNDEFINED,
+                default=defaults.get(CONF_BUTTON_TEMP_UP_ENTITY) or probatio.UNDEFINED,
             ): selector.selector({"entity": {"domain": "event"}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_BUTTON_TEMP_DOWN_ENTITY,
-                default=defaults.get(CONF_BUTTON_TEMP_DOWN_ENTITY) or vol.UNDEFINED,
+                default=defaults.get(CONF_BUTTON_TEMP_DOWN_ENTITY)
+                or probatio.UNDEFINED,
             ): selector.selector({"entity": {"domain": "event"}}),
-            vol.Optional(
+            probatio.Optional(
                 CONF_BUTTON_MODE_TOGGLE_ENTITY,
-                default=defaults.get(CONF_BUTTON_MODE_TOGGLE_ENTITY) or vol.UNDEFINED,
+                default=defaults.get(CONF_BUTTON_MODE_TOGGLE_ENTITY)
+                or probatio.UNDEFINED,
             ): selector.selector({"entity": {"domain": "event"}}),
             # v0.59.0: auto-restore countdown for rooms the remote put into
             # manual — see coordinator.set_remote_override_expiry().
-            vol.Optional(
+            probatio.Optional(
                 CONF_REMOTE_OVERRIDE_DURATION_MIN,
                 default=defaults.get(
                     CONF_REMOTE_OVERRIDE_DURATION_MIN,
@@ -1217,9 +1220,9 @@ class HeatManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="room_trvs_menu",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required("action"): selector.selector(
+                    probatio.Required("action"): selector.selector(
                         {"select": {"options": options}}
                     )
                 }
@@ -1290,10 +1293,10 @@ class HeatManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._data[CONF_PERSONS] = self._persons
                 return await self.async_step_presence_global()
 
-        schema = vol.Schema(
+        schema = probatio.Schema(
             {
                 **_person_schema(user_input or {}).schema,
-                vol.Optional("_action", default="add_more"): selector.selector(
+                probatio.Optional("_action", default="add_more"): selector.selector(
                     {
                         "select": {
                             "options": [
@@ -1325,17 +1328,17 @@ class HeatManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="presence_global",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    # default=vol.UNDEFINED (not "") — the entity selector
+                    # default=probatio.UNDEFINED (not "") — the entity selector
                     # rejects "" as an invalid entity ID, which blocked
                     # saving whenever this optional field was left empty.
                     # See B17.
-                    vol.Optional(
-                        CONF_ALARM_PANEL, default=vol.UNDEFINED
+                    probatio.Optional(
+                        CONF_ALARM_PANEL, default=probatio.UNDEFINED
                     ): selector.selector({"entity": {"domain": "alarm_control_panel"}}),
                     # v0.67.7: which armed states mean "house empty".
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_ALARM_AWAY_STATES,
                         default=list(DEFAULT_ALARM_AWAY_STATES),
                     ): selector.selector(
@@ -1413,9 +1416,9 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required("section"): selector.selector(
+                    probatio.Required("section"): selector.selector(
                         {
                             "select": {
                                 "options": [
@@ -1501,9 +1504,9 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="rooms_menu",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required("action"): selector.selector(
+                    probatio.Required("action"): selector.selector(
                         {"select": {"options": options}}
                     )
                 }
@@ -1656,9 +1659,9 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="room_trvs_menu",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required("action"): selector.selector(
+                    probatio.Required("action"): selector.selector(
                         {"select": {"options": options}}
                     )
                 }
@@ -1749,9 +1752,9 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="persons_menu",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required("action"): selector.selector(
+                    probatio.Required("action"): selector.selector(
                         {"select": {"options": options}}
                     )
                 }
@@ -1914,9 +1917,9 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="doors_menu",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required("action"): selector.selector(
+                    probatio.Required("action"): selector.selector(
                         {"select": {"options": options}}
                     )
                 }

@@ -14,6 +14,10 @@ import pytest
 from custom_components.heat_manager.coordinator import HeatManagerCoordinator
 from custom_components.heat_manager.engine.presence_engine import PresenceEngine
 
+# Module whose code these tests exercise (the coordinator is split into
+# layers since v0.68.2 — patch names where they are used).
+_COORD_MOD = "custom_components.heat_manager.coordinator.base"
+
 
 def _coordinator(platform: str | None, setpoint_mode: str | None = "manual"):
     coord = MagicMock()
@@ -47,10 +51,10 @@ async def _release(platform, setpoint_mode="manual"):
     coord, registry = _coordinator(platform, setpoint_mode)
     with (
         patch(
-            "custom_components.heat_manager.coordinator.er.async_get",
+            f"{_COORD_MOD}.er.async_get",
             return_value=registry,
         ),
-        patch("custom_components.heat_manager.coordinator.asyncio.sleep", AsyncMock()),
+        patch(f"{_COORD_MOD}.asyncio.sleep", AsyncMock()),
     ):
         await coord.async_release_netatmo_room("climate.toilets")
     return coord.hass.services.async_call

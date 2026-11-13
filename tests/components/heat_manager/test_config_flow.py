@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import probatio
 import pytest
-import voluptuous as vol
 
 from custom_components.heat_manager.config_flow import (
     HeatManagerConfigFlow,
@@ -1009,10 +1009,10 @@ async def test_options_flow_notifications():
 #
 # CONF_CALIBRATION_ENTITY, CONF_SCHEDULE_ENTITY, CONF_WEATHER_ENTITY and
 # CONF_ALARM_PANEL are all labelled "(optional)" in strings.json, but their
-# vol.Optional(..., default=defaults.get(CONF_X, "")) previously fed an
+# probatio.Optional(..., default=defaults.get(CONF_X, "")) previously fed an
 # empty string into an entity selector. HA's entity selector requires a
 # real entity ID and rejects "", so the *schema itself* raised
-# vol.Invalid — before the step handler's own body (and its correct
+# probatio.Invalid — before the step handler's own body (and its correct
 # `if x and hass.states.get(x) is None` guards) ever ran. This reproduces
 # what HA's FlowManager does on submit (`data_schema(user_input)`), which
 # calling the step function directly with a plain dict does not exercise.
@@ -1023,7 +1023,7 @@ async def test_bug_b17_room_edit_allows_schedule_left_empty():
     """
     Regression test for B17.
     Editing an existing room while leaving the optional schedule/calendar
-    entity unset must not raise vol.Invalid, and the saved room must not
+    entity unset must not raise probatio.Invalid, and the saved room must not
     carry that key at all.
     """
     hass = _make_hass({"climate.bathroom": MagicMock()})
@@ -1039,7 +1039,7 @@ async def test_bug_b17_room_edit_allows_schedule_left_empty():
     schema = form["data_schema"]
 
     submitted = {CONF_ROOM_NAME: "Bathroom"}
-    validated = schema(submitted)  # must not raise vol.Invalid
+    validated = schema(submitted)  # must not raise probatio.Invalid
 
     assert CONF_SCHEDULE_ENTITY not in validated
 
@@ -1059,7 +1059,7 @@ async def test_bug_b17_trv_edit_allows_calibration_left_empty():
     Regression test for B17, now at the TRV level (see B18 — calibration
     entity moved from the room to each TRV).
     Editing an existing TRV while leaving the optional calibration entity
-    unset must not raise vol.Invalid, and the saved TRV must not carry that
+    unset must not raise probatio.Invalid, and the saved TRV must not carry that
     key at all.
     """
     hass = _make_hass({"climate.bathroom": MagicMock()})
@@ -1078,7 +1078,7 @@ async def test_bug_b17_trv_edit_allows_calibration_left_empty():
     schema = form["data_schema"]
 
     submitted = {CONF_CLIMATE_ENTITY: "climate.bathroom"}
-    validated = schema(submitted)  # must not raise vol.Invalid
+    validated = schema(submitted)  # must not raise probatio.Invalid
 
     assert CONF_CALIBRATION_ENTITY not in validated
 
@@ -1194,7 +1194,7 @@ async def test_bug_b17_presence_global_allows_alarm_panel_left_empty():
     form = await flow.async_step_presence_global()
     schema = form["data_schema"]
 
-    validated = schema({})  # must not raise vol.Invalid
+    validated = schema({})  # must not raise probatio.Invalid
     assert CONF_ALARM_PANEL not in validated
 
 
@@ -1205,7 +1205,7 @@ def test_trv_schema_requires_climate_entity():
     """CONF_CLIMATE_ENTITY is the one Required field on a TRV — omitting
     it must raise, unlike every other TRV field."""
     schema = _trv_schema()
-    with pytest.raises(vol.Invalid):
+    with pytest.raises(probatio.Invalid):
         schema({})
 
 

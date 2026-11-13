@@ -73,7 +73,7 @@ def test_track_state_changes_wraps_handler_as_callback():
     coord.hass = MagicMock()
     handler = MagicMock()
     with patch(
-        "custom_components.heat_manager.coordinator.async_track_state_change_event",
+        "custom_components.heat_manager.coordinator.base.async_track_state_change_event",
         return_value="unsub",
     ) as track:
         unsub = HeatManagerCoordinator.track_state_changes(
@@ -105,7 +105,7 @@ def test_call_later_wraps_action_as_callback():
     coord = MagicMock()
     action = MagicMock()
     with patch(
-        "custom_components.heat_manager.coordinator.async_call_later",
+        "custom_components.heat_manager.coordinator.base.async_call_later",
         return_value="cancel",
     ) as later:
         cancel = HeatManagerCoordinator.call_later(coord, 30, action)
