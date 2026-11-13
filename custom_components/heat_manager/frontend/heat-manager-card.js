@@ -118,7 +118,8 @@ class HeatManagerCard extends HTMLElement {
     this._targetTemps  = null;   // 2026-09-11 mobil-sætpunkt fix — room name → target_temp
     this._targetTempPollStarted = false;
     this._targetTempInterval    = null;
-    this._roomData     = null;   // Fase 2, del 2 (2026-09-13) — room name → full get_state room dict (door status, trv_count, etc. for the press-and-hold sheet)
+    this._roomData     = null;
+    this._roomByClimate = null;  // v0.69.2 — climate_entity → Heat Manager room name (see _cardRooms())   // Fase 2, del 2 (2026-09-13) — room name → full get_state room dict (door status, trv_count, etc. for the press-and-hold sheet)
     this._openSheetRoom = null;  // room name currently shown in the bottom-sheet, if any
   }
 
@@ -276,6 +277,30 @@ class HeatManagerCard extends HTMLElement {
     return this._climateSetpoint(room?.climate_entity ?? "");
   }
 
+  // v0.69.2: this card's rooms resolved against Heat Manager. Every lookup
+  // (backend snapshot, entity friendly names, WS commands) keys on the
+  // integration's own room name, but the card's YAML has its own copy that
+  // can drift ("Soveværelse" vs "Soveværelset"). Match by name first, then
+  // by climate_entity; `label` keeps the YAML name for display, and
+  // `hm_missing` is true once the snapshot has loaded and neither matched.
+  _cardRooms() {
+    return (this._config.rooms ?? []).map(r => {
+      const own = r?.room_name ?? "";
+      let name = own;
+      let found = !!this._roomData?.[own];
+      if (!found && r?.climate_entity && this._roomByClimate?.[r.climate_entity]) {
+        name = this._roomByClimate[r.climate_entity];
+        found = true;
+      }
+      return { ...r, room_name: name, label: own || name, hm_missing: this._roomData != null && !found };
+    });
+  }
+
+  // YAML label for a resolved Heat Manager room name (sheet title, toasts).
+  _roomLabel(roomName) {
+    return this._cardRooms().find(r => r.room_name === roomName)?.label ?? roomName;
+  }
+
   // v0.67.2: a room with a valve (climate entity) can be controlled; a room
   // with only sensors cannot. Prefer the backend snapshot, fall back to this
   // card's own room config before the first get_state poll has landed.
@@ -304,14 +329,20 @@ class HeatManagerCard extends HTMLElement {
       // for fields this card has no other way to discover at all (door
       // status/heat-up rate, trv_count, blocking_sources, group_enabled).
       const roomData = {};
+      // v0.69.2: climate_entity → Heat Manager room name, so a card room
+      // whose YAML name differs from the integration's (e.g. "Badværelse"
+      // vs "Badeværelse") still finds its backend data — see _cardRooms().
+      const byClimate = {};
       for (const room of data?.rooms ?? []) {
         if (room?.name != null) {
           roomData[room.name] = room;
+          if (room.climate_entity) byClimate[room.climate_entity] = room.name;
           if (room.target_temp != null) map[room.name] = room.target_temp;
         }
       }
       this._targetTemps = map;
       this._roomData = roomData;
+      this._roomByClimate = byClimate;
       this._wsData = data; // v0.60.0: active_issues/remote_last_action for the smart line
     } catch (e) {
       // Backend not up yet / WS hiccup — keep whatever we last had (or
@@ -520,7 +551,7 @@ class HeatManagerCard extends HTMLElement {
   // Deduplicated blocking reasons across every room configured in this card.
   _globalBlockingSources() {
     const set = new Set();
-    (this._config.rooms ?? []).forEach(room =>
+    this._cardRooms().forEach(room =>
       this._roomBlockingSources(room.room_name ?? "").forEach(s => set.add(s))
     );
     return Array.from(set).sort();
@@ -610,7 +641,7 @@ class HeatManagerCard extends HTMLElement {
   // available proxy for "cloud or gateway", vs. "one room down" (battery/RF
   // on that device) vs. "stale" (cloud responding, not updating).
   _netatmoCloudStatus() {
-    const rooms = this._config.rooms ?? [];
+    const rooms = this._cardRooms();
     const climateIds = rooms.map(r => r.climate_entity).filter(Boolean);
     const empty = { ok: true, allUnavailable: false, unavailableCount: 0, totalCount: 0, staleMinutes: 0 };
     if (!climateIds.length) return empty;
@@ -1238,7 +1269,7 @@ class HeatManagerCard extends HTMLElement {
       return styles[name] ?? "";
     };
 
-    const rooms = this._config.rooms ?? [];
+    const rooms = this._cardRooms();
     const roomsHTML = rooms.length
       ? rooms.map(room => {
           const roomName = room.room_name ?? "";
@@ -1247,7 +1278,8 @@ class HeatManagerCard extends HTMLElement {
           // Sensor-only rooms have no heating state to colour by: neutral slate.
           const color = hasValve ? _hmStateColor(state) : "#64748b";
           // Short pill on the narrow tile; the sheet says "Kun sensorer".
-          const label = hasValve ? _hmStateLabel(state, this._roomOverrideSource(roomName)) : "Sensorer";
+          const label = room.hm_missing ? "Ukendt rum"
+            : hasValve ? _hmStateLabel(state, this._roomOverrideSource(roomName)) : "Sensorer";
           const temp  = this._roomTempText(room);
           const setpt = hasValve ? this._roomSetpoint(room) : null;
           // 2026-09-07 audit fix (5.1-5.3 mobile): valve % straight off
@@ -1279,7 +1311,7 @@ class HeatManagerCard extends HTMLElement {
           return `
             <div class="room-card state-${state}" data-room-name="${_hmEsc(roomName)}"
               style="border-left-color:${color};background-image:linear-gradient(90deg,${color}0e 0%,transparent 40%);">
-              <div class="room-card-name">${_hmEsc(roomName)}</div>
+              <div class="room-card-name">${_hmEsc(room.label ?? roomName)}</div>
               <div class="room-state-pill" style="${hasValve ? `background:${color}22;color:${color}` : "background:rgba(148,163,184,0.15);color:var(--sub)"}">${label}</div>
               <div class="room-temps">
                 <div class="room-temp-current">${temp}</div>
@@ -1449,16 +1481,22 @@ class HeatManagerCard extends HTMLElement {
 
     this._patchBoost();
 
-    const rooms = this._config.rooms ?? [];
+    const rooms = this._cardRooms();
     rooms.forEach((room, i) => {
       const cards = root.querySelectorAll(".room-card");
       if (!cards[i]) return;
       const state = this._roomState(room.room_name ?? "");
       const hasValve = this._roomHasValve(room);
       const color = hasValve ? _hmStateColor(state) : "#64748b";
-      const label = hasValve ? _hmStateLabel(state, this._roomOverrideSource(room.room_name ?? "")) : "Sensorer";
+      const label = room.hm_missing ? "Ukendt rum"
+        : hasValve ? _hmStateLabel(state, this._roomOverrideSource(room.room_name ?? "")) : "Sensorer";
       const temp  = this._roomTempText(room);
       const setpt = hasValve ? this._roomSetpoint(room) : null;
+      // v0.69.2: the resolved Heat Manager name can change once the first
+      // get_state poll lands — keep press-and-hold pointed at it.
+      cards[i].dataset.roomName = room.room_name ?? "";
+      if (room.hm_missing) cards[i].title = "Rummet findes ikke i Heat Manager — tjek room_name/climate_entity i kortets YAML";
+      else cards[i].removeAttribute("title");
       cards[i].style.borderLeftColor = color;
       cards[i].style.backgroundImage = `linear-gradient(90deg,${color}0e 0%,transparent 40%)`;
       cards[i].className = "room-card state-" + state;
@@ -1648,7 +1686,7 @@ class HeatManagerCard extends HTMLElement {
     // a valve ("Kun sensorer") show measurements only: no PID, target,
     // Netatmo rows or manual controls.
     const rd    = this._roomData?.[roomName] ?? null;
-    const room  = (this._config.rooms ?? []).find(r => r.room_name === roomName) ?? { room_name: roomName };
+    const room  = this._cardRooms().find(r => r.room_name === roomName) ?? { room_name: roomName };
     const hasValve = this._roomHasValve(room);
     const state = this._roomState(roomName);
     const color = _hmStateColor(state);
@@ -1770,7 +1808,7 @@ class HeatManagerCard extends HTMLElement {
         <div class="sheet-handle"></div>
         <div class="sheet-header">
           <div>
-            <div class="sheet-title">${_hmEsc(roomName)}</div>
+            <div class="sheet-title">${_hmEsc(this._roomLabel(roomName))}</div>
             <div class="room-state-pill" style="${pillStyle}">${_hmEsc(label)}</div>
           </div>
           <button class="sheet-close-btn" data-action="close-sheet" aria-label="Luk">✕</button>
@@ -1830,7 +1868,7 @@ class HeatManagerCard extends HTMLElement {
           temperature: temp,
           duration_min: parseInt(dur?.value ?? "60", 10),
         });
-        this._showToast(`${roomName}: ${temp}°C sat`, "success");
+        this._showToast(`${this._roomLabel(roomName)}: ${temp}°C sat`, "success");
         setTimeout(() => this._loadTargetTemps(), 300);
       } catch (e) {
         console.error("Heat Manager: sheet send temp failed", e);
@@ -1845,7 +1883,7 @@ class HeatManagerCard extends HTMLElement {
           room_name: roomName,
           temperature: null,
         });
-        this._showToast(`${roomName}: tilbage til automatik`, "success");
+        this._showToast(`${this._roomLabel(roomName)}: tilbage til automatik`, "success");
         setTimeout(() => this._loadTargetTemps(), 300);
       } catch (e) {
         console.error("Heat Manager: sheet reset temp failed", e);

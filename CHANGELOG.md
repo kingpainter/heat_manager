@@ -9,6 +9,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.69.2] — 2026-11-13
+
+### Fixed
+- **Mobilkortet mistede data for rum, hvis navnet i kortets YAML afveg fra
+  Heat Managers.** Kortet slog alt op på rumnavnet, så "Badværelse" og
+  "Soveværelse" i kortet (Heat Manager: "Badeværelse", "Soveværelset") viste
+  ventilens måling i stedet for rummets temperatur, et tomt ark, og "Sæt" /
+  "Tilbage til automatik" sendte et ukendt rumnavn. Kortet finder nu rummet
+  via `climate_entity`, når navnet ikke passer, og bruger Heat Managers
+  eget navn til alle opslag og kommandoer; YAML-navnet vises stadig på
+  flisen og i arket. Et rum, der hverken matcher på navn eller
+  klimaenhed, får mærkatet **"Ukendt rum"** med en forklaring.
+
 ## [0.69.1] — 2026-11-13
 
 ### Fixed
