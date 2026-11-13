@@ -522,6 +522,41 @@ async def test_feedforward_adds_power_when_cold_outside():
 
 
 @pytest.mark.asyncio
+async def test_bug_feedforward_not_added_when_room_above_target():
+    """v0.69.1 regression (live 2026-11-13, 4.3 °C outside): the weather
+    compensation was added even to a room already above target, so the
+    kitchen at 22.9 °C with target 20 °C still got setpoint 22 (target +
+    margin) instead of the 17 °C floor and could never cool down. Above
+    target, the PID alone decides: 0 % power -> min_room_temp."""
+    coord = make_coordinator(
+        current_temp=22.9,
+        target_temp=20.0,
+        outdoor_temperature=4.3,
+        min_room_temp=17.0,
+    )
+    cs = MagicMock()
+    cs.state = "heat"
+    cs.attributes = {"current_temperature": 22.9, "temperature": 22.0}
+    coord.hass.states.get = MagicMock(return_value=cs)
+    await _pid_tick(coord)
+    coord.hass.services.async_call.assert_called_once()
+    assert coord.hass.services.async_call.call_args[0][2]["temperature"] == 17.0
+    assert coord.last_expected_setpoint["living_room"] == 17.0
+
+
+@pytest.mark.asyncio
+async def test_feedforward_still_added_when_room_below_target():
+    """The other side of the v0.69.1 fix: below target the contribution is
+    unchanged, and the recorded applied power includes it."""
+    coord = make_coordinator(
+        current_temp=20.0, target_temp=20.5, outdoor_temperature=4.3
+    )
+    await _pid_tick(coord)
+    pid = coord.pid_controllers["living_room"]
+    assert pid.applied_output > pid.last_output
+
+
+@pytest.mark.asyncio
 async def test_feedforward_zero_when_mild_outside():
     """Outdoor temperature at/above FF_REFERENCE_OUTDOOR_TEMP contributes no
     feedforward — result should match the no-outdoor-data baseline exactly."""

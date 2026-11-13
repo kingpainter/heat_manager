@@ -217,3 +217,22 @@ def test_bug_b_pid_1_integral_does_not_windup_during_away():
 def test_repr_contains_room_name():
     pid = PidController(room_name="living_room")
     assert "living_room" in repr(pid)
+
+
+# ── applied_output (v0.69.1) ─────────────────────────────────────────────────
+
+
+def test_applied_output_falls_back_to_pid_output():
+    pid = PidController(kp=0.5, ki=0.0, kd=0.0)
+    pid.update(setpoint=22.0, current=21.0)
+    assert pid.applied_output == pid.last_output == 0.5
+
+
+def test_record_applied_overrides_and_reset_clears():
+    pid = PidController(kp=0.5, ki=0.0, kd=0.0)
+    pid.update(setpoint=22.0, current=21.0)
+    pid.record_applied(0.71)
+    assert pid.applied_output == 0.71
+    assert pid.last_output == 0.5
+    pid.reset()
+    assert pid.applied_output == 0.0

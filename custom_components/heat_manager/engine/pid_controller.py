@@ -99,6 +99,11 @@ class PidController:
         self._integral: float = 0.0
         self._prev_error: float | None = None
         self._last_output: float = 0.0
+        # v0.69.1: the power actually used for the setpoint this tick — PID
+        # output plus weather compensation, minus solar gain and door heat
+        # sharing (see record_applied()). None until the coordinator has
+        # recorded one, or after reset().
+        self._applied_output: float | None = None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -171,12 +176,28 @@ class PidController:
         self._integral = 0.0
         self._prev_error = None
         self._last_output = 0.0
+        self._applied_output = None
         _LOGGER.debug("PID[%s] reset", self.room_name)
 
     @property
     def last_output(self) -> float:
-        """Most recent output value, for diagnostics / sensors."""
+        """Most recent PID-only output (before feedforward and reductions)."""
         return self._last_output
+
+    def record_applied(self, power: float) -> None:
+        """Record the power the setpoint was actually computed from this tick
+        (PID output after weather compensation, solar gain and door heat
+        sharing). v0.69.1: shown as "PID power" so the panel no longer says
+        0 % while the valve is still being driven by weather compensation."""
+        self._applied_output = power
+
+    @property
+    def applied_output(self) -> float:
+        """Power actually used for the last setpoint; falls back to the
+        PID-only output before the first recorded tick."""
+        return (
+            self._last_output if self._applied_output is None else self._applied_output
+        )
 
     @property
     def integral(self) -> float:

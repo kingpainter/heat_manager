@@ -114,6 +114,7 @@ from .const import (
     RoomState,
 )
 from .engine.mold import is_mold_risk
+from .engine.readings import seconds_since_report
 
 if TYPE_CHECKING:
     pass
@@ -172,10 +173,12 @@ def build_active_issues(
         if state is None or state.state in ("unavailable", "unknown"):
             unavailable_rooms.append(room_name)
             continue
-        if (
-            state.last_updated
-            and (utcnow() - state.last_updated).total_seconds() >= 600
-        ):
+        # v0.69.1: newest of last_updated/last_reported — see
+        # engine/readings.seconds_since_report() for why.
+        age = seconds_since_report(
+            utcnow(), state.last_updated, getattr(state, "last_reported", None)
+        )
+        if age is not None and age >= 600:
             stale_rooms.append(room_name)
 
     # v0.62.0: valve health from the Netatmo integration's own sensors. A
@@ -682,7 +685,12 @@ def build_state_payload(
         # PID to drive — don't report a meaningless "PID 0%" for it.
         pid = coordinator.get_pid(name) if climate_id else None
         if pid is not None:
-            raw_pid = getattr(pid, "_last_output", None)
+            # v0.69.1: the power the setpoint was computed from (PID plus
+            # weather compensation minus solar/door reductions), not the
+            # PID-only term — see PidController.applied_output.
+            raw_pid = getattr(pid, "applied_output", None)
+            if not isinstance(raw_pid, (int, float)):
+                raw_pid = getattr(pid, "_last_output", None)
             if raw_pid is not None:
                 pid_power = round(raw_pid * 100.0, 1)
 

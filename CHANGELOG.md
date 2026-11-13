@@ -9,6 +9,31 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.69.1] — 2026-11-13
+
+### Fixed
+- **Vejrkompensation holdt rum over mål varme.** Bidraget fra
+  vejrkompensationen (`(15 − ude) × 0,02`) blev lagt til PID-effekten, også
+  når rummet allerede var varmere end målet. På en kold dag fik et for varmt
+  rum derfor et setpunkt omkring rumtemperaturen (højst mål + margin) i
+  stedet for bunden (laveste rumtemperatur, 17 °C), og rummet kunne aldrig
+  køle ned til et lavere mål, fx natsænkning. Set live 2026-11-13 ved
+  4,3 °C ude: Køkken 22,9 °C med mål 20 °C fik 22 °C sendt til ventilen.
+  Vejrkompensationen lægges nu kun til, når rummet er under målet.
+- **Falsk advarsel "Netatmo-data ikke opdateret i 10+ min".** Tjekket
+  brugte kun `last_updated`, som Home Assistant kun flytter, når værdien
+  ændrer sig — et rum med stabil temperatur blev derfor meldt forældet,
+  selvom NET-TRV rapporterede det hvert minut. Statuslinjen og
+  `binary_sensor` "Cloud available" bruger nu den nyeste af `last_updated`
+  og `last_reported` (`engine/readings.seconds_since_report()`).
+
+### Changed
+- **"PID-effekt" viser den effekt, setpunktet faktisk er beregnet ud fra**
+  (PID plus vejrkompensation minus solindfald og dørvarme) i panelet, på
+  kortet og i sensoren "PID power" — før viste den kun PID-leddet, så der
+  kunne stå 0 %, mens ventilen stadig blev drevet af vejrkompensationen.
+  PID-leddet alene står i sensorens attribut `pid_output`.
+
 ## [0.69.0] — 2026-11-13
 
 ### Changed

@@ -669,8 +669,11 @@ class RoomPidPowerSensor(CoordinatorEntity[HeatManagerCoordinator], SensorEntity
         pid = self.coordinator.get_pid(self._room_name)
         if pid is None:
             return None
-        # PID stores last output as _last_output (0.0–1.0)
-        raw = getattr(pid, "_last_output", None)
+        # v0.69.1: power the setpoint was computed from (PID plus weather
+        # compensation minus solar/door reductions), 0.0–1.0.
+        raw = getattr(pid, "applied_output", None)
+        if not isinstance(raw, (int, float)):
+            raw = getattr(pid, "_last_output", None)
         if raw is None:
             return None
         return round(float(raw) * 100.0, 1)
@@ -686,6 +689,8 @@ class RoomPidPowerSensor(CoordinatorEntity[HeatManagerCoordinator], SensorEntity
             "pid_ki": getattr(pid, "ki", None),
             "pid_kd": getattr(pid, "kd", None),
             "integral": round(getattr(pid, "_integral", 0.0), 4),
+            # v0.69.1: the PID-only term, before weather compensation.
+            "pid_output": round(float(getattr(pid, "_last_output", 0.0)) * 100.0, 1),
         }
 
 

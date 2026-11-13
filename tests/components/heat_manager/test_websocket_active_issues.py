@@ -397,3 +397,37 @@ def test_pid_needs_homekit_reported_as_info_with_rooms():
     assert len(hk) == 1
     assert hk[0]["severity"] == "info"
     assert "Kitchen" in hk[0]["message"] and "Bath" in hk[0]["message"]
+
+
+def test_unchanged_room_reported_recently_is_not_stale():
+    """v0.69.1 regression: HA only moves last_updated when the value changes.
+    A room whose temperature has not changed for 15 min, but which NET-TRV
+    re-reported 2 min ago (last_reported), must not be flagged as stale —
+    the live false positive was "Netatmo-data ikke opdateret i 10+ min:
+    Stuen, Sebastian"."""
+    coord = _make_coordinator(rooms_cfg=[{"room_name": "Bathroom"}])
+    coord.get_climate_entity = MagicMock(return_value="climate.bathroom")
+    coord.get_homekit_climate_entity = MagicMock(return_value="")
+    state = MagicMock(
+        state="heat",
+        last_updated=utcnow() - timedelta(minutes=15),
+        last_reported=utcnow() - timedelta(minutes=2),
+    )
+    coord.hass.states.get = MagicMock(return_value=state)
+
+    assert _build_active_issues(coord, [_room_payload("Bathroom")]) == []
+
+
+def test_room_neither_updated_nor_reported_is_stale():
+    coord = _make_coordinator(rooms_cfg=[{"room_name": "Bathroom"}])
+    coord.get_climate_entity = MagicMock(return_value="climate.bathroom")
+    coord.get_homekit_climate_entity = MagicMock(return_value="")
+    state = MagicMock(
+        state="heat",
+        last_updated=utcnow() - timedelta(minutes=20),
+        last_reported=utcnow() - timedelta(minutes=12),
+    )
+    coord.hass.states.get = MagicMock(return_value=state)
+
+    issues = _build_active_issues(coord, [_room_payload("Bathroom")])
+    assert [i["id"] for i in issues] == ["cloud_stale:Bathroom"]

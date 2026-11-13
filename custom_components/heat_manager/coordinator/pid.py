@@ -351,7 +351,14 @@ class CoordinatorPid(CoordinatorIssues):
                 feedforward = weather_compensation_feedforward(
                     self.config, self.outdoor_temperature
                 )
-                if feedforward > 0.0:
+                # v0.69.1: only while the room is below its target. Before,
+                # the contribution was added even to a room already above
+                # target, so on a cold day its setpoint stayed near the room
+                # temperature (capped at target + margin) instead of falling
+                # to the min_room_temp floor — the room could never cool down
+                # to a lower target (e.g. night setback) while the panel
+                # showed "PID 0 %".
+                if feedforward > 0.0 and current_temp < target_temp:
                     power = min(1.0, power + feedforward)
 
                 # ── Solar gain (2026-09-14, punkt 7) ─────────────────────────
@@ -396,6 +403,7 @@ class CoordinatorPid(CoordinatorIssues):
                 )
                 if door_share_reduction > 0.0:
                     power = max(0.0, power - door_share_reduction)
+                pid.record_applied(power)
 
                 trv_setpoint = PidController.power_to_setpoint(
                     power=power,

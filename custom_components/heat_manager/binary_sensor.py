@@ -28,6 +28,7 @@ from .const import (
 )
 from .coordinator import HeatManagerCoordinator
 from .engine.mold import MOLD_SURFACE_MARGIN, dewpoint, is_mold_risk
+from .engine.readings import seconds_since_report
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -112,7 +113,8 @@ class CloudAvailableSensor(
 
     Detects two failure modes:
     - All climate entities are unavailable/unknown (cloud down)
-    - All climate entities have stale last_updated (> 10 min, cloud degraded)
+    - All climate entities not reported for > 10 min (newest of last_updated
+      and last_reported — cloud degraded)
 
     Can be used in HA automations e.g. to send a notification when cloud drops.
     """
@@ -165,14 +167,13 @@ class CloudAvailableSensor(
             if state is None or state.state in ("unavailable", "unknown"):
                 unavailable_count += 1
                 continue
-            if state.last_updated:
-                age = (
-                    now - state.last_updated.replace(tzinfo=UTC)
-                    if state.last_updated.tzinfo is None
-                    else (now - state.last_updated)
-                ).total_seconds()
-                if age > stale_threshold:
-                    stale_count += 1
+            # v0.69.1: newest of last_updated/last_reported (see
+            # engine/readings.seconds_since_report()).
+            age = seconds_since_report(
+                now, state.last_updated, getattr(state, "last_reported", None)
+            )
+            if age is not None and age > stale_threshold:
+                stale_count += 1
 
         if total == 0:
             return True
@@ -197,13 +198,11 @@ class CloudAvailableSensor(
             state = self.coordinator.hass.states.get(climate_id)
             if state is None or state.state in ("unavailable", "unknown"):
                 unavailable.append(room.get("room_name", climate_id))
-            elif state.last_updated:
-                age = (
-                    now - state.last_updated.replace(tzinfo=UTC)
-                    if state.last_updated.tzinfo is None
-                    else (now - state.last_updated)
-                ).total_seconds()
-                if age > self._STALE_MINUTES * 60:
+            else:
+                age = seconds_since_report(
+                    now, state.last_updated, getattr(state, "last_reported", None)
+                )
+                if age is not None and age > self._STALE_MINUTES * 60:
                     stale.append(room.get("room_name", climate_id))
         return {
             "unavailable_rooms": unavailable,
