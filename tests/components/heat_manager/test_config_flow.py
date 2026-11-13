@@ -1249,3 +1249,55 @@ def test_trv_schema_defaults_prefill_from_an_existing_trv():
 
     assert result[CONF_TRV_TYPE] == "zigbee"
     assert result[CONF_SYNC_MODE] == "mirror"
+
+
+# ── v0.69.3: optional entity pickers can be cleared ──────────────────────────
+
+
+def test_bug_room_sensor_can_be_cleared():
+    """Live 2026-11-13 (B4): clearing the room temperature sensor in the form
+    omits the key from user_input; with default=<current> the schema filled
+    the old sensor back in, so it could never be removed. Pre-filled via
+    suggested_value, an omitted key now stays omitted."""
+    current = {
+        **_minimal_room("Bad"),
+        "room_temp_sensor": "sensor.bad_temp",
+        "humidity_sensor": "sensor.bad_rh",
+    }
+    schema = _room_schema(current)
+    out = schema({"room_name": "Bad", "humidity_sensor": "sensor.bad_rh"})
+    assert "room_temp_sensor" not in out
+    assert out["humidity_sensor"] == "sensor.bad_rh"
+    key = next(k for k in schema.schema if str(k.schema) == "room_temp_sensor")
+    assert key.description == {"suggested_value": "sensor.bad_temp"}
+
+
+def test_trv_calibration_entity_can_be_cleared():
+    schema = _trv_schema(
+        {"climate_entity": "climate.x", "calibration_entity": "number.cal"}
+    )
+    out = schema({"climate_entity": "climate.x"})
+    assert "calibration_entity" not in out
+
+
+def test_merge_clearing_drops_emptied_entity_keeps_other_options():
+    from custom_components.heat_manager.config_flow import (
+        _merge_clearing,
+        _remote_control_schema,
+    )
+
+    current = {
+        "button_temp_up_entity": "event.up",
+        "button_temp_down_entity": "event.down",
+        "rooms": ["kept"],
+        "remote_override_duration_min": 120,
+    }
+    schema = _remote_control_schema(current)
+    user_input = schema(
+        {"button_temp_down_entity": "event.down", "remote_override_duration_min": 60}
+    )
+    merged = _merge_clearing(current, user_input, schema)
+    assert "button_temp_up_entity" not in merged
+    assert merged["button_temp_down_entity"] == "event.down"
+    assert merged["rooms"] == ["kept"]
+    assert merged["remote_override_duration_min"] == 60

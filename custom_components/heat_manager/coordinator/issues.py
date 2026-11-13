@@ -27,8 +27,10 @@ from ..const import (
     DEFAULT_ISSUE_ESCALATION_MINUTES,
     DOMAIN,
     MISSING_CLIMATE_GRACE_SECONDS,
+    NETATMO_BACKEND_AUTO,
     REPAIR_ISSUE_ID_PREFIX,
     REPAIR_ISSUE_MISSING_CLIMATE,
+    REPAIR_ISSUE_NETATMO_BACKEND_MISSING,
     REPAIR_ISSUE_PERSISTENT,
     RoomState,
 )
@@ -252,6 +254,45 @@ class CoordinatorIssues(CoordinatorOverrides):
         """Repair issue_id for a room whose climate entity is missing."""
         safe = room_name.lower().replace(" ", "_")
         return f"{REPAIR_ISSUE_MISSING_CLIMATE}_{safe}_{self.entry.entry_id[:8]}"
+
+    def check_netatmo_backend_choice(self) -> None:
+        """v0.61.1 / v0.69.3: RepairIssue when the explicitly chosen Netatmo
+        backend (core netatmo or NET-TRV) has no active config entry — e.g.
+        core disabled or removed after the user picked "Core". Cleared as
+        soon as the choice resolves again (integration re-enabled, or the
+        user switches back to Auto).
+
+        v0.69.3: runs every tick, not only at setup and on an options save.
+        Disabling or deleting the chosen integration does not touch Heat
+        Manager's options, so before this the issue only appeared after the
+        next Home Assistant restart. WARNING logged once per episode.
+        """
+        choice = self.netatmo_backend_choice
+        issue_id = f"{REPAIR_ISSUE_NETATMO_BACKEND_MISSING}_{self.entry.entry_id[:8]}"
+        missing = (
+            choice != NETATMO_BACKEND_AUTO
+            and self.get_effective_netatmo_backend() is None
+        )
+        if missing:
+            if not self._netatmo_backend_issue_raised:
+                _LOGGER.warning(
+                    "Heat Manager: chosen Netatmo backend '%s' is not installed —"
+                    " raised RepairIssue '%s'",
+                    choice,
+                    issue_id,
+                )
+            async_create_issue(
+                self.hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=False,
+                severity=IssueSeverity.WARNING,
+                translation_key=REPAIR_ISSUE_NETATMO_BACKEND_MISSING,
+                translation_placeholders={"backend": choice},
+            )
+        else:
+            async_delete_issue(self.hass, DOMAIN, issue_id)
+        self._netatmo_backend_issue_raised = missing
 
     def check_missing_climate_entities(self) -> None:
         """Raise or clear the missing-climate repair issue for each room.

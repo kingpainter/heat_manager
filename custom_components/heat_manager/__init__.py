@@ -12,11 +12,7 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
-from homeassistant.helpers.issue_registry import (
-    IssueSeverity,
-    async_create_issue,
-    async_delete_issue,
-)
+from homeassistant.helpers.issue_registry import async_delete_issue
 
 from .const import (
     CONF_PERSONS,
@@ -25,10 +21,8 @@ from .const import (
     CONTROLLER_STATE_OPTIONS,
     DEFAULT_PAUSE_DURATION_MIN,
     DOMAIN,
-    NETATMO_BACKEND_AUTO,
     PLATFORMS,
     REPAIR_ISSUE_ID_PREFIX,
-    REPAIR_ISSUE_NETATMO_BACKEND_MISSING,
     SERVICE_BOOST_START,
     SERVICE_BOOST_STOP,
     SERVICE_FORCE_ROOM_ON,
@@ -319,35 +313,11 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
 
 def _async_check_netatmo_backend(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """v0.61.1: RepairIssue when the explicitly chosen Netatmo backend (core
-    netatmo or NET-TRV) has no config entry any more — e.g. core removed after
-    the user picked "Core". Cleared as soon as the choice resolves again
-    (integration re-added, or the user switches back to Auto).
-    """
+    """Run the chosen-Netatmo-backend repair check now (setup and options
+    save). Since v0.69.3 the coordinator also runs it every tick — see
+    coordinator.check_netatmo_backend_choice()."""
     coordinator: HeatManagerCoordinator = entry.runtime_data
-    choice = coordinator.netatmo_backend_choice
-    issue_id = f"{REPAIR_ISSUE_NETATMO_BACKEND_MISSING}_{entry.entry_id[:8]}"
-    if (
-        choice != NETATMO_BACKEND_AUTO
-        and coordinator.get_effective_netatmo_backend() is None
-    ):
-        _LOGGER.warning(
-            "Heat Manager: chosen Netatmo backend '%s' is not installed —"
-            " raised RepairIssue '%s'",
-            choice,
-            issue_id,
-        )
-        async_create_issue(
-            hass,
-            DOMAIN,
-            issue_id,
-            is_fixable=False,
-            severity=IssueSeverity.WARNING,
-            translation_key=REPAIR_ISSUE_NETATMO_BACKEND_MISSING,
-            translation_placeholders={"backend": choice},
-        )
-    else:
-        async_delete_issue(hass, DOMAIN, issue_id)
+    coordinator.check_netatmo_backend_choice()
 
 
 def _async_check_repair_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:

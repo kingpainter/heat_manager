@@ -194,6 +194,12 @@ class HeatManagerCoordinator(CoordinatorPid):
             _LOGGER.warning("missing climate check failed: %s", err)
 
         try:
+            self.check_netatmo_backend_choice()
+        # broad-except-rationale: isolation boundary, see async_tick docstring above
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("netatmo backend check failed: %s", err)
+
+        try:
             await self._async_check_mold_risk()
         # broad-except-rationale: isolation boundary, see async_tick docstring above
         except Exception as err:  # noqa: BLE001

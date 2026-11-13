@@ -217,6 +217,9 @@ class CoordinatorBase(DataUpdateCoordinator[dict[str, Any]]):
         # WARNING + repair issue has been raised for the current episode.
         self._climate_missing_since: dict[str, datetime] = {}
         self._climate_missing_raised: set[str] = set()
+        # v0.69.3: whether the "chosen Netatmo backend missing" repair is
+        # currently raised — see check_netatmo_backend_choice().
+        self._netatmo_backend_issue_raised: bool = False
 
         # 2026-09 fix: ws_set_room_temp's duration_min was accepted and
         # logged but never actually wired to anything — a manual panel

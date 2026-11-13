@@ -24,6 +24,7 @@ from custom_components.heat_manager.const import (
     DOMAIN,
     REPAIR_ISSUE_NETATMO_BACKEND_MISSING,
 )
+from custom_components.heat_manager.coordinator import HeatManagerCoordinator
 from custom_components.heat_manager.engine.netatmo_backend import NetatmoBackend
 
 PLATFORMS = {
@@ -148,25 +149,37 @@ async def test_options_trv_add_uses_stored_choice():
 # ── Repair issue ──────────────────────────────────────────────────────────────
 
 
-def _entry(choice: str, effective: NetatmoBackend | None) -> MagicMock:
-    entry = MagicMock()
-    entry.entry_id = "abcdef1234567890"
-    entry.runtime_data.netatmo_backend_choice = choice
-    entry.runtime_data.get_effective_netatmo_backend = MagicMock(return_value=effective)
-    return entry
+# v0.69.3: the check lives on the coordinator (issues layer) and also runs
+# every tick, so disabling/removing the chosen integration raises the issue
+# without an options save or a restart. Logic is exercised through the real
+# method bound to a MagicMock coordinator.
+_ISSUES = "custom_components.heat_manager.coordinator.issues"
 
 
-def _check(entry: MagicMock):
+def _coord(choice: str, effective: NetatmoBackend | None) -> MagicMock:
+    coord = MagicMock(spec=HeatManagerCoordinator)
+    coord.hass = MagicMock()
+    coord.entry = MagicMock(entry_id="abcdef1234567890")
+    coord.netatmo_backend_choice = choice
+    coord.get_effective_netatmo_backend = MagicMock(return_value=effective)
+    coord._netatmo_backend_issue_raised = False
+    coord.check_netatmo_backend_choice = (
+        HeatManagerCoordinator.check_netatmo_backend_choice.__get__(coord)
+    )
+    return coord
+
+
+def _check(coord: MagicMock):
     with (
-        patch("custom_components.heat_manager.async_create_issue") as create,
-        patch("custom_components.heat_manager.async_delete_issue") as delete,
+        patch(f"{_ISSUES}.async_create_issue") as create,
+        patch(f"{_ISSUES}.async_delete_issue") as delete,
     ):
-        _async_check_netatmo_backend(MagicMock(), entry)
+        coord.check_netatmo_backend_choice()
     return create, delete
 
 
 def test_repair_raised_when_chosen_backend_missing():
-    create, delete = _check(_entry("netatmo", None))
+    create, delete = _check(_coord("netatmo", None))
     create.assert_called_once()
     args, kwargs = create.call_args
     assert args[1] == DOMAIN
@@ -176,15 +189,45 @@ def test_repair_raised_when_chosen_backend_missing():
 
 
 def test_repair_cleared_when_chosen_backend_present():
-    create, delete = _check(_entry("net_trv", NetatmoBackend.NET_TRV))
+    create, delete = _check(_coord("net_trv", NetatmoBackend.NET_TRV))
     create.assert_not_called()
     delete.assert_called_once()
 
 
 def test_auto_never_raises_repair():
-    create, delete = _check(_entry("auto", None))
+    create, delete = _check(_coord("auto", None))
     create.assert_not_called()
     delete.assert_called_once()
+
+
+def test_bug_repair_follows_integration_disabled_without_options_save(caplog):
+    """v0.69.3 regression (live 2026-11-13, A2.3): choosing "Core" and then
+    disabling core netatmo never raised the issue — the check only ran at
+    setup and on an options change. Now every tick re-evaluates it: raised
+    as soon as the backend is gone (WARNING once, not every minute) and
+    cleared again when it is back."""
+    coord = _coord("netatmo", NetatmoBackend.CORE)
+    create, delete = _check(coord)
+    create.assert_not_called()
+
+    coord.get_effective_netatmo_backend.return_value = None  # core disabled
+    with caplog.at_level("WARNING"):
+        create, _ = _check(coord)
+        create2, _ = _check(coord)
+    create.assert_called_once()
+    create2.assert_called_once()
+    assert sum("is not installed" in r.message for r in caplog.records) == 1
+
+    coord.get_effective_netatmo_backend.return_value = NetatmoBackend.CORE
+    _, delete = _check(coord)
+    delete.assert_called_once()
+    assert coord._netatmo_backend_issue_raised is False
+
+
+def test_setup_wrapper_delegates_to_coordinator():
+    entry = MagicMock()
+    _async_check_netatmo_backend(MagicMock(), entry)
+    entry.runtime_data.check_netatmo_backend_choice.assert_called_once()
 
 
 def test_choice_hidden_when_one_backend_is_disabled():

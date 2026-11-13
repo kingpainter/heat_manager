@@ -227,6 +227,33 @@ def _validate_trv_input(
     return {}
 
 
+# v0.69.3: optional entity pickers are pre-filled with
+# description={"suggested_value": ...} instead of default=<current value>.
+# Clearing such a field in the HA form omits the key from user_input; with a
+# default, the schema silently filled the old entity back in, so a sensor
+# could never be removed from a room (or a remote button, weather entity,
+# outdoor sensor ...). Steps that merge user_input over the stored options
+# must also drop those keys when the user cleared them — see
+# _merge_clearing().
+def _clearable_keys(schema: probatio.Schema) -> set[str]:
+    """Optional fields without a default: absent from user_input = cleared."""
+    return {
+        str(key.schema)
+        for key in schema.schema
+        if isinstance(key, probatio.Optional) and key.default is probatio.UNDEFINED
+    }
+
+
+def _merge_clearing(
+    current: dict[str, Any], user_input: dict[str, Any], schema: probatio.Schema
+) -> dict[str, Any]:
+    """current + user_input, minus clearable fields the user emptied."""
+    merged = {**current, **user_input}
+    for key in _clearable_keys(schema) - set(user_input):
+        merged.pop(key, None)
+    return merged
+
+
 def _step1_schema(
     defaults: dict[str, Any] | None = None, *, show_netatmo_backend: bool = False
 ) -> probatio.Schema:
@@ -250,38 +277,42 @@ def _step1_schema(
     return probatio.Schema(
         {
             **fields,
-            # default=probatio.UNDEFINED (not "") — the entity selector rejects ""
-            # as an invalid entity ID, which blocked saving whenever this
-            # optional field was left empty. See B17.
+            # No default (never "" — the entity selector rejects "" as an
+            # invalid entity ID, B17); pre-filled via suggested_value so the
+            # field can also be cleared (v0.69.3, see _clearable_keys()).
             probatio.Optional(
                 CONF_WEATHER_ENTITY,
-                default=defaults.get(CONF_WEATHER_ENTITY) or probatio.UNDEFINED,
+                description={"suggested_value": defaults.get(CONF_WEATHER_ENTITY)},
             ): selector.selector({"entity": {"domain": "weather"}}),
             # 2026-09-11 UX fix: these four were left on a raw text box (type
             # the entity_id yourself, no autocomplete, easy to typo) because
             # the entity selector used to reject an empty default outright.
             # CONF_WEATHER_ENTITY above and CONF_SCHEDULE_ENTITY below already
-            # proved the fix — `default=... or probatio.UNDEFINED` instead of
-            # `default=..., ""` — so there's no reason left for these four to
-            # be worse pickers than every other entity field in this flow.
+            # proved the fix (an empty-capable picker instead of a text box;
+            # since v0.69.3 pre-filled via suggested_value, see
+            # _clearable_keys()) — so there's no reason left for these four
+            # to be worse pickers than every other entity field in this flow.
             # Also makes it trivial to find e.g. an Indeklima room sensor:
             # type "indeklima" or the room name into the picker's own search.
             probatio.Optional(
                 CONF_OUTDOOR_TEMP_SENSOR,
-                default=defaults.get(CONF_OUTDOOR_TEMP_SENSOR) or probatio.UNDEFINED,
+                description={"suggested_value": defaults.get(CONF_OUTDOOR_TEMP_SENSOR)},
             ): selector.selector({"entity": {"domain": "sensor"}}),
             probatio.Optional(
                 CONF_OUTDOOR_HUMIDITY_SENSOR,
-                default=defaults.get(CONF_OUTDOOR_HUMIDITY_SENSOR)
-                or probatio.UNDEFINED,
+                description={
+                    "suggested_value": defaults.get(CONF_OUTDOOR_HUMIDITY_SENSOR)
+                },
             ): selector.selector({"entity": {"domain": "sensor"}}),
             probatio.Optional(
                 CONF_PRECIPITATION_SENSOR,
-                default=defaults.get(CONF_PRECIPITATION_SENSOR) or probatio.UNDEFINED,
+                description={
+                    "suggested_value": defaults.get(CONF_PRECIPITATION_SENSOR)
+                },
             ): selector.selector({"entity": {"domain": "sensor"}}),
             probatio.Optional(
                 CONF_WIND_SPEED_SENSOR,
-                default=defaults.get(CONF_WIND_SPEED_SENSOR) or probatio.UNDEFINED,
+                description={"suggested_value": defaults.get(CONF_WIND_SPEED_SENSOR)},
             ): selector.selector({"entity": {"domain": "sensor"}}),
             probatio.Optional(
                 CONF_NOTIFY_SERVICE, default=defaults.get(CONF_NOTIFY_SERVICE, "")
@@ -671,7 +702,7 @@ def _step1_schema(
             # ── Wake / WAKING phase ────────────────────────────────────
             probatio.Optional(
                 CONF_INDOOR_WAKE_SENSOR,
-                default=defaults.get(CONF_INDOOR_WAKE_SENSOR) or probatio.UNDEFINED,
+                description={"suggested_value": defaults.get(CONF_INDOOR_WAKE_SENSOR)},
             ): selector.selector(
                 {"entity": {"domain": "sensor"}}
             ),  # shared indoor temperature probe
@@ -745,12 +776,12 @@ def _trv_schema(defaults: dict[str, Any] | None = None) -> probatio.Schema:
             # internal reading (e.g. Zigbee2MQTT local_temperature_calibration).
             # Only used when the room's CONF_ROOM_TEMP_SENSOR is also set —
             # see engine/calibration_engine.py.
-            # default=probatio.UNDEFINED (not "") — the entity selector rejects ""
-            # as an invalid entity ID, which blocked saving whenever this
-            # optional field was left empty. See B17.
+            # No default (never "" — the entity selector rejects "" as an
+            # invalid entity ID, B17); pre-filled via suggested_value so the
+            # field can also be cleared (v0.69.3, see _clearable_keys()).
             probatio.Optional(
                 CONF_CALIBRATION_ENTITY,
-                default=defaults.get(CONF_CALIBRATION_ENTITY) or probatio.UNDEFINED,
+                description={"suggested_value": defaults.get(CONF_CALIBRATION_ENTITY)},
             ): selector.selector({"entity": {"domain": "number"}}),
             probatio.Optional(
                 CONF_SYNC_MODE,
@@ -853,14 +884,14 @@ def _room_schema(defaults: dict[str, Any] | None = None) -> probatio.Schema:
             # ── Sensor inputs ─────────────────────────────────────────────────
             # 2026-09-11 UX fix: same as _step1_schema above — real entity
             # pickers (searchable, no typos) instead of raw text boxes, now
-            # that the `default=... or probatio.UNDEFINED` pattern is proven safe
-            # for an optional entity selector. Also makes it trivial to pick
+            # that an optional entity selector without a default is proven
+            # safe (pre-filled via suggested_value since v0.69.3). Also makes it trivial to pick
             # e.g. this room's own Indeklima sensor by typing "indeklima" or
             # the room name into the picker's search — no hard dependency on
             # Indeklima, any sensor entity still works exactly as before.
             probatio.Optional(
                 CONF_CO2_SENSOR,
-                default=defaults.get(CONF_CO2_SENSOR) or probatio.UNDEFINED,
+                description={"suggested_value": defaults.get(CONF_CO2_SENSOR)},
             ): selector.selector({"entity": {"domain": "sensor"}}),  # CO₂ in ppm
             probatio.Optional(
                 CONF_CO2_THRESHOLD,
@@ -879,15 +910,15 @@ def _room_schema(defaults: dict[str, Any] | None = None) -> probatio.Schema:
             ),
             probatio.Optional(
                 CONF_ROOM_TEMP_SENSOR,
-                default=defaults.get(CONF_ROOM_TEMP_SENSOR) or probatio.UNDEFINED,
+                description={"suggested_value": defaults.get(CONF_ROOM_TEMP_SENSOR)},
             ): selector.selector({"entity": {"domain": "sensor"}}),  # room temp °C
             probatio.Optional(
                 CONF_BATTERY_SENSOR,
-                default=defaults.get(CONF_BATTERY_SENSOR) or probatio.UNDEFINED,
+                description={"suggested_value": defaults.get(CONF_BATTERY_SENSOR)},
             ): selector.selector({"entity": {"domain": "sensor"}}),  # TRV battery %
             probatio.Optional(
                 CONF_HUMIDITY_SENSOR,
-                default=defaults.get(CONF_HUMIDITY_SENSOR) or probatio.UNDEFINED,
+                description={"suggested_value": defaults.get(CONF_HUMIDITY_SENSOR)},
             ): selector.selector(
                 {"entity": {"domain": "sensor"}}
             ),  # relative humidity %
@@ -898,18 +929,18 @@ def _room_schema(defaults: dict[str, Any] | None = None) -> probatio.Schema:
             # also on.
             probatio.Optional(
                 CONF_LUX_SENSOR,
-                default=defaults.get(CONF_LUX_SENSOR) or probatio.UNDEFINED,
+                description={"suggested_value": defaults.get(CONF_LUX_SENSOR)},
             ): selector.selector({"entity": {"domain": "sensor"}}),  # illuminance, lux
             # ── Schedule / calendar override (v0.9.0, Fase D) ───────────────────
             # schedule.* or calendar.* entity — see engine/schedule_engine.py.
             # While a block/event is active, its temperature overrides this
             # room's normal target. Optional; leave empty to disable.
-            # default=probatio.UNDEFINED (not "") — the entity selector rejects ""
-            # as an invalid entity ID, which blocked saving whenever this
-            # optional field was left empty. See B17.
+            # No default (never "" — the entity selector rejects "" as an
+            # invalid entity ID, B17); pre-filled via suggested_value so the
+            # field can also be cleared (v0.69.3, see _clearable_keys()).
             probatio.Optional(
                 CONF_SCHEDULE_ENTITY,
-                default=defaults.get(CONF_SCHEDULE_ENTITY) or probatio.UNDEFINED,
+                description={"suggested_value": defaults.get(CONF_SCHEDULE_ENTITY)},
             ): selector.selector({"entity": {"domain": ["schedule", "calendar"]}}),
         }
     )
@@ -1028,17 +1059,21 @@ def _remote_control_schema(defaults: dict[str, Any] | None = None) -> probatio.S
         {
             probatio.Optional(
                 CONF_BUTTON_TEMP_UP_ENTITY,
-                default=defaults.get(CONF_BUTTON_TEMP_UP_ENTITY) or probatio.UNDEFINED,
+                description={
+                    "suggested_value": defaults.get(CONF_BUTTON_TEMP_UP_ENTITY)
+                },
             ): selector.selector({"entity": {"domain": "event"}}),
             probatio.Optional(
                 CONF_BUTTON_TEMP_DOWN_ENTITY,
-                default=defaults.get(CONF_BUTTON_TEMP_DOWN_ENTITY)
-                or probatio.UNDEFINED,
+                description={
+                    "suggested_value": defaults.get(CONF_BUTTON_TEMP_DOWN_ENTITY)
+                },
             ): selector.selector({"entity": {"domain": "event"}}),
             probatio.Optional(
                 CONF_BUTTON_MODE_TOGGLE_ENTITY,
-                default=defaults.get(CONF_BUTTON_MODE_TOGGLE_ENTITY)
-                or probatio.UNDEFINED,
+                description={
+                    "suggested_value": defaults.get(CONF_BUTTON_MODE_TOGGLE_ENTITY)
+                },
             ): selector.selector({"entity": {"domain": "event"}}),
             # v0.59.0: auto-restore countdown for rooms the remote put into
             # manual — see coordinator.set_remote_override_expiry().
@@ -1451,15 +1486,18 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
     async def async_step_global(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        if user_input is not None:
-            return self.async_create_entry(data={**self._current(), **user_input})
         current = self._current()
+        schema = _step1_schema(
+            current,
+            show_netatmo_backend=_show_netatmo_backend_choice(self.hass, current),
+        )
+        if user_input is not None:
+            return self.async_create_entry(
+                data=_merge_clearing(current, user_input, schema)
+            )
         return self.async_show_form(
             step_id="global",
-            data_schema=_step1_schema(
-                current,
-                show_netatmo_backend=_show_netatmo_backend_choice(self.hass, current),
-            ),
+            data_schema=schema,
         )
 
     async def async_step_rooms_menu(
@@ -1997,9 +2035,13 @@ class HeatManagerOptionsFlow(config_entries.OptionsFlow):
     async def async_step_remote_control(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
+        current = self._current()
+        schema = _remote_control_schema(current)
         if user_input is not None:
-            return self.async_create_entry(data={**self._current(), **user_input})
+            return self.async_create_entry(
+                data=_merge_clearing(current, user_input, schema)
+            )
         return self.async_show_form(
             step_id="remote_control",
-            data_schema=_remote_control_schema(self._current()),
+            data_schema=schema,
         )

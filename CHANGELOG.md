@@ -9,6 +9,26 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.69.3] — 2026-11-13
+
+### Fixed
+- **En sensor kunne ikke fjernes fra et rum (eller fra globale
+  indstillinger/fjernbetjening).** De valgfrie entitetsfelter (rumtemperatur,
+  fugt, CO2, lux, batteri, tidsplan, ventilens kalibrering, vejr- og
+  udesensorer, vågne-sensor og fjernbetjeningens knapper) var forudfyldt med
+  `default=<nuværende værdi>`. Når feltet ryddes i formularen, udelader Home
+  Assistant nøglen, og så fyldte skemaet den gamle entitet ind igen. Felterne
+  forudfyldes nu med `suggested_value`, og trin, der fletter med de gemte
+  indstillinger (globale indstillinger, fjernbetjening), fjerner et ryddet
+  felt (`_merge_clearing()`). Fundet ved live-test (B4).
+- **Reparationsbeskeden "valgt Netatmo-integration er ikke installeret" kom
+  først efter en genstart.** Tjekket kørte kun ved opsætning og når Heat
+  Managers indstillinger blev ændret — at deaktivere eller slette den valgte
+  integration rørte ingen af delene. Det kører nu også i coordinatorens tik
+  (`coordinator.check_netatmo_backend_choice()`), så beskeden kommer inden
+  for et minut og forsvinder igen af sig selv; advarslen i loggen skrives én
+  gang pr. episode. Fundet ved live-test (A2.3).
+
 ## [0.69.2] — 2026-11-13
 
 ### Fixed
