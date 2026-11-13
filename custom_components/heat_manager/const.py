@@ -694,7 +694,8 @@ class EffectiveSeason(StrEnum):
     DORMANT : Full summer sleep.  Heating disabled, TRVs set to hvac_mode off.
     WAKING  : Transitional (early autumn / late spring).  Heating allowed but
               setpoints are reduced by CONF_WAKE_SETBACK_TEMP.  Pre-heat
-              suspended.  Triggered when indoor temp > CONF_INDOOR_WAKE_THRESHOLD.
+              suspended.  Triggered when indoor temp >= CONF_INDOOR_WAKE_THRESHOLD
+              and outdoor temp >= CONF_WAKE_MIN_OUTDOOR_TEMP (v0.70.0).
     ACTIVE  : Full winter operation.  Normal setpoints, pre-heat enabled.
     """
 
@@ -764,6 +765,15 @@ DEFAULT_INDOOR_WAKE_THRESHOLD: float = 21.0
 # Default 2 °C — gentle warmth without full winter consumption.
 CONF_WAKE_SETBACK_TEMP = "wake_setback_temp"
 DEFAULT_WAKE_SETBACK_TEMP: float = 2.0
+
+# v0.70.0: WAKING also requires the outdoor temperature to be at least this.
+# The indoor sensor alone measured the warmth the heating itself produced:
+# with the threshold (21 °C) below comfort (22 °C) the house sat in WAKING
+# all winter and comfort was never reached (seen live 2026-11-13 at 3.7 °C
+# outside). WAKING is meant for mild transitional weather, so a cold day can
+# no longer trigger it. Unknown outdoor temperature = indoor rule alone.
+CONF_WAKE_MIN_OUTDOOR_TEMP = "wake_min_outdoor_temp"
+DEFAULT_WAKE_MIN_OUTDOOR_TEMP: float = 10.0
 
 
 # ── Auto-off reason ───────────────────────────────────────────────────────────

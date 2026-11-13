@@ -36,9 +36,11 @@ from ..const import (
     CONF_AUTO_OFF_TEMP_THRESHOLD,
     CONF_INDOOR_WAKE_SENSOR,
     CONF_INDOOR_WAKE_THRESHOLD,
+    CONF_WAKE_MIN_OUTDOOR_TEMP,
     DEFAULT_AUTO_OFF_TEMP_DAYS,
     DEFAULT_AUTO_OFF_TEMP_THRESHOLD,
     DEFAULT_INDOOR_WAKE_THRESHOLD,
+    DEFAULT_WAKE_MIN_OUTDOOR_TEMP,
     HV_EVENT_SEASON_SUMMER,
     HV_EVENT_SEASON_WINTER,
     METEO_SEASONS,
@@ -64,6 +66,20 @@ def _calendar_season() -> SeasonMode:
     return SeasonMode.WINTER
 
 
+def waking_decision(
+    indoor: float, threshold: float, outdoor: float | None, min_outdoor: float
+) -> bool:
+    """v0.70.0: WAKING needs a warm house AND mild weather outside.
+
+    The indoor reading alone is partly the heating's own work, so on a cold
+    day it kept the house in WAKING and cut every target by the wake setback.
+    Without an outdoor reading the indoor rule decides alone (as before).
+    """
+    if indoor < threshold:
+        return False
+    return outdoor is None or outdoor >= min_outdoor
+
+
 class SeasonEngine:
     """
     Resolves AUTO season mode to an effective season each tick.
@@ -80,6 +96,10 @@ class SeasonEngine:
         self._prev_effective_season: EffectiveSeason | None = (
             None  # B4: was SeasonMode, now EffectiveSeason
         )
+        # v0.70.0: inputs of the last WAKING check, shown in the panel so the
+        # season is explainable ("inde 22 ≥ 21 °C, ude 3,7 < 10 °C"). None
+        # when no wake sensor is configured/readable.
+        self.wake_check: dict[str, float | bool | None] | None = None
         # 2026-09-15 (restart-safety hardening, round 2): this multi-day
         # counter used to reset to 0 on every HA restart — an install 4
         # days into a 5-day mild-weather streak toward auto-off (SUMMER)
@@ -199,11 +219,14 @@ class SeasonEngine:
         self._prev_effective_season = new_eff
 
     def _apply_waking_check(self, base: EffectiveSeason) -> EffectiveSeason:
-        """B9: Return WAKING if indoor temperature exceeds wake threshold, else base.
+        """B9: Return WAKING if the house is warm and it is mild outside, else base.
 
         Only applies when base would be ACTIVE — DORMANT is never downgraded.
         Reads CONF_INDOOR_WAKE_SENSOR; falls back to ACTIVE if sensor absent.
+        v0.70.0: also requires outdoor >= CONF_WAKE_MIN_OUTDOOR_TEMP — see
+        waking_decision().
         """
+        self.wake_check = None
         if base != EffectiveSeason.ACTIVE:
             return base
         sensor_id = self.coordinator.config.get(CONF_INDOOR_WAKE_SENSOR) or None
@@ -221,11 +244,28 @@ class SeasonEngine:
                 CONF_INDOOR_WAKE_THRESHOLD, DEFAULT_INDOOR_WAKE_THRESHOLD
             )
         )
-        if indoor_temp >= threshold:
+        min_outdoor = float(
+            self.coordinator.config.get(
+                CONF_WAKE_MIN_OUTDOOR_TEMP, DEFAULT_WAKE_MIN_OUTDOOR_TEMP
+            )
+        )
+        outdoor = self.coordinator.outdoor_temperature
+        waking = waking_decision(indoor_temp, threshold, outdoor, min_outdoor)
+        self.wake_check = {
+            "indoor": round(indoor_temp, 1),
+            "threshold": threshold,
+            "outdoor": None if outdoor is None else round(float(outdoor), 1),
+            "min_outdoor": min_outdoor,
+            "waking": waking,
+        }
+        if waking:
             _LOGGER.debug(
-                "SeasonEngine: indoor %.1f°C ≥ wake threshold %.1f°C — WAKING phase",
+                "SeasonEngine: indoor %.1f°C ≥ %.1f°C and outdoor %s ≥ %.1f°C"
+                " — WAKING phase",
                 indoor_temp,
                 threshold,
+                outdoor,
+                min_outdoor,
             )
             return EffectiveSeason.WAKING
         return EffectiveSeason.ACTIVE

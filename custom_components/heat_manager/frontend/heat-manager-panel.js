@@ -3212,6 +3212,13 @@ class HeatManagerPanel extends HTMLElement {
     // season — previously looked up in calMap and always showed "–".
     const eff      = this._effSeasonInfo(d?.effective_season);
     const otemp  = d?.outdoor_temp != null ? Math.round(d.outdoor_temp) + "°C" : "–";
+    // v0.70.0: why the season is (not) "Opvågning" — the indoor wake sensor
+    // AND the outdoor minimum both have to be met (SeasonEngine.wake_check).
+    const wc = d?.wake_check;
+    const fmtC = (v) => (v == null ? "–" : String(v).replace(".", ",") + " °C");
+    const wakeLine = wc
+      ? `Inde ${fmtC(wc.indoor)} ${wc.indoor >= wc.threshold ? "≥" : "<"} ${fmtC(wc.threshold)} · ude ${fmtC(wc.outdoor)} ${wc.outdoor == null || wc.outdoor >= wc.min_outdoor ? "≥" : "<"} ${fmtC(wc.min_outdoor)}`
+      : "";
     return `
       <div class="section-box-header">
         <div class="section-box-title">Auto-off status</div>
@@ -3227,6 +3234,7 @@ class HeatManagerPanel extends HTMLElement {
         <div class="aocard">
           <div class="aocard-lbl">Effektiv sæson</div>
           <div class="aocard-val">${eff.icon} ${eff.label}</div>
+          ${wakeLine ? `<div class="aocard-lbl" style="margin-top:4px;text-transform:none;letter-spacing:0">${this._esc(wakeLine)}</div>` : ""}
         </div>
         <div class="aocard">
           <div class="aocard-lbl">Udetemperatur</div>

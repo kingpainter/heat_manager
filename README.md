@@ -135,6 +135,10 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 | `night_setback_temp` | °C | 2.0 | Degrees subtracted from PID target during night hours |
 | `night_start_hour` | 0–23 | 23 | Night window start hour |
 | `night_end_hour` | 0–23 | 7 | Night window end hour |
+| `indoor_wake_sensor` | sensor | — | **Optional.** Shared indoor temperature (e.g. a house average) for the WAKING phase |
+| `indoor_wake_threshold` | °C | 21.0 | WAKING when the indoor sensor is at or above this… |
+| `wake_min_outdoor_temp` | °C | 10.0 | *(v0.70.0)* …**and** it is at least this warm outside. Keeps the heating's own warmth on a cold day from triggering WAKING |
+| `wake_setback_temp` | °C | 2.0 | Degrees subtracted from every room's target while in WAKING |
 
 ### Step 2 — Rooms (repeatable)
 

@@ -9,6 +9,22 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.70.0] — 2026-11-13
+
+### Changed
+- **Opvågningsfasen (WAKING) kræver nu også mildt vejr udenfor.** Ny
+  indstilling *Opvågning: laveste udetemperatur* (`wake_min_outdoor_temp`,
+  standard 10 °C) under globale indstillinger. Før afgjorde
+  indendørssensoren alene, og den måler delvis den varme, opvarmningen selv
+  giver: med tærsklen 21 °C under komforttemperaturen 22 °C stod huset i
+  WAKING hele tiden, og alle rum fik målet sænket med 2 °C (set live
+  2026-11-13 ved 3,7 °C ude — husets gennemsnit var over tærsklen 100 % af
+  de sidste 48 timer). Uden udetemperatur afgør indendørssensoren alene som
+  før. Panelets Auto-off-fane viser nu under *Effektiv sæson*, hvorfor
+  (fx "Inde 22,0 °C ≥ 21 °C · ude 3,7 °C < 10 °C"); WS-feltet `wake_check`.
+  **Bemærk:** På kolde dage går huset nu fra WAKING til ACTIVE, så målet
+  stiger med opvågningsreduktionen (typisk 20 → 22 °C om dagen).
+
 ## [0.69.3] — 2026-11-13
 
 ### Fixed

@@ -1087,6 +1087,8 @@ def build_state_payload(
         "pause_remaining": ctrl.pause_remaining_minutes,
         "season_mode": coordinator.season_mode.value,
         "effective_season": coordinator.effective_season.value,
+        # v0.70.0: why the season is (not) WAKING — see SeasonEngine.wake_check.
+        "wake_check": coordinator.season_engine.wake_check,
         "outdoor_temp": outdoor_temp,
         "rooms": rooms,
         "persons": persons,

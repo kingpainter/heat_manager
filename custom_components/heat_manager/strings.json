@@ -38,6 +38,7 @@
           "ff_max_contribution": "Weather compensation — maximum contribution",
           "indoor_wake_sensor": "Indoor wake sensor (optional)",
           "indoor_wake_threshold": "Indoor wake threshold",
+          "wake_min_outdoor_temp": "Wake phase: minimum outdoor temperature",
           "wake_setback_temp": "Wake phase setback (°C to reduce)"
         },
         "data_description": {
@@ -66,6 +67,7 @@
           "trv_max_temp": "TRV setpoint sent when PID power is at 100%. Default 28°C.",
           "indoor_wake_sensor": "Shared indoor temperature sensor used to detect the gentler WAKING phase during spring/autumn. Falls back to full ACTIVE heating when not set.",
           "indoor_wake_threshold": "Indoor temperature above which the system enters the WAKING phase instead of full ACTIVE heating. Default 21°C.",
+          "wake_min_outdoor_temp": "The WAKING phase also requires at least this outdoor temperature, so the warmth the heating itself produces on a cold day cannot trigger it. Default 10°C.",
           "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2°C."
         }
       },
@@ -232,6 +234,7 @@
           "ff_max_contribution": "Weather compensation — maximum contribution",
           "indoor_wake_sensor": "Indoor wake sensor (optional)",
           "indoor_wake_threshold": "Indoor wake threshold",
+          "wake_min_outdoor_temp": "Wake phase: minimum outdoor temperature",
           "wake_setback_temp": "Wake phase setback (°C to reduce)"
         },
         "data_description": {
@@ -260,6 +263,7 @@
           "trv_max_temp": "TRV setpoint sent when PID power is at 100%. Default 28°C.",
           "indoor_wake_sensor": "Shared indoor temperature sensor used to detect the gentler WAKING phase during spring/autumn. Falls back to full ACTIVE heating when not set.",
           "indoor_wake_threshold": "Indoor temperature above which the system enters the WAKING phase instead of full ACTIVE heating. Default 21°C.",
+          "wake_min_outdoor_temp": "The WAKING phase also requires at least this outdoor temperature, so the warmth the heating itself produces on a cold day cannot trigger it. Default 10°C.",
           "wake_setback_temp": "Degrees Celsius subtracted from every room's setpoint while in the WAKING phase. Default 2°C."
         }
       },

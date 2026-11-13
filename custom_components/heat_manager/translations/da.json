@@ -38,6 +38,7 @@
           "ff_max_contribution": "Vejrkompensation — maksimalt bidrag",
           "indoor_wake_sensor": "Indendørs opvågningssensor (valgfrit)",
           "indoor_wake_threshold": "Indendørs opvågningsgrænse",
+          "wake_min_outdoor_temp": "Opvågning: laveste udetemperatur",
           "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)"
         },
         "data_description": {
@@ -66,6 +67,7 @@
           "trv_max_temp": "TRV-setpunkt der sendes når PID-effekten er 100%. Standard 28°C.",
           "indoor_wake_sensor": "Fælles indendørs temperatursensor brugt til at afgøre den bløde opvågningsfase (WAKING) om forår/efterår. Falder tilbage til fuld aktiv opvarmning, hvis ikke sat.",
           "indoor_wake_threshold": "Indendørstemperatur hvorover systemet går i opvågningsfase i stedet for fuld aktiv opvarmning. Standard 21°C.",
+          "wake_min_outdoor_temp": "Opvågningsfasen kræver også mindst denne udetemperatur, så den varme, opvarmningen selv giver på en kold dag, ikke kan udløse den. Standard 10°C.",
           "wake_setback_temp": "Antal grader der trækkes fra alle rums setpunkt under opvågningsfasen. Standard 2°C."
         }
       },
@@ -232,6 +234,7 @@
           "ff_max_contribution": "Vejrkompensation — maksimalt bidrag",
           "indoor_wake_sensor": "Indendørs opvågningssensor (valgfrit)",
           "indoor_wake_threshold": "Indendørs opvågningsgrænse",
+          "wake_min_outdoor_temp": "Opvågning: laveste udetemperatur",
           "wake_setback_temp": "Opvågningsreduktion (°C der trækkes fra)"
         },
         "data_description": {
@@ -260,6 +263,7 @@
           "trv_max_temp": "TRV-setpunkt der sendes når PID-effekten er 100%. Standard 28°C.",
           "indoor_wake_sensor": "Fælles indendørs temperatursensor brugt til at afgøre den bløde opvågningsfase (WAKING) om forår/efterår. Falder tilbage til fuld aktiv opvarmning, hvis ikke sat.",
           "indoor_wake_threshold": "Indendørstemperatur hvorover systemet går i opvågningsfase i stedet for fuld aktiv opvarmning. Standard 21°C.",
+          "wake_min_outdoor_temp": "Opvågningsfasen kræver også mindst denne udetemperatur, så den varme, opvarmningen selv giver på en kold dag, ikke kan udløse den. Standard 10°C.",
           "wake_setback_temp": "Antal grader der trækkes fra alle rums setpunkt under opvågningsfasen. Standard 2°C."
         }
       },

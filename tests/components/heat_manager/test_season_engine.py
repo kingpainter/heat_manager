@@ -246,3 +246,80 @@ async def test_shutdown():
     coord = _make_coordinator()
     engine = SeasonEngine(coord)
     await engine.async_shutdown()
+
+
+# ── v0.70.0: WAKING also needs mild weather outside ──────────────────────────
+
+from custom_components.heat_manager.const import (  # noqa: E402
+    CONF_WAKE_MIN_OUTDOOR_TEMP,
+)
+from custom_components.heat_manager.engine.season_engine import (  # noqa: E402
+    waking_decision,
+)
+
+
+def _wake_coord(indoor: str, outdoor: float | None, extra: dict | None = None):
+    coord = _make_coordinator(outdoor_temp=outdoor, auto_off_threshold=18.0)
+    coord.config = {
+        "auto_off_temp_threshold": 18.0,
+        "auto_off_temp_days": 5,
+        CONF_INDOOR_WAKE_SENSOR: "sensor.indeklima_hub_average_temperature",
+        CONF_INDOOR_WAKE_THRESHOLD: 21.0,
+        **(extra or {}),
+    }
+    state = MagicMock()
+    state.state = indoor
+    coord.hass.states.get.return_value = state
+    return coord
+
+
+@pytest.mark.asyncio
+async def test_bug_cold_day_warm_house_is_active_not_waking():
+    """v0.70.0 regression (live 2026-11-13): house average 22.0 °C (threshold
+    21) at 3.7 °C outside kept the house in WAKING and every target 2 °C
+    below comfort. The warmth was the heating's own — on a cold day the
+    season must be ACTIVE."""
+    coord = _wake_coord("22.0", 3.7)
+    engine = SeasonEngine(coord)
+    with patch(PATCH_PATH) as mock_now:
+        mock_now.return_value.date.return_value = date_type(2026, 11, 13)
+        await engine.async_tick()
+    assert coord.effective_season == EffectiveSeason.ACTIVE
+    assert engine.wake_check == {
+        "indoor": 22.0,
+        "threshold": 21.0,
+        "outdoor": 3.7,
+        "min_outdoor": 10.0,
+        "waking": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_mild_day_warm_house_is_waking():
+    coord = _wake_coord("22.0", 12.0)
+    engine = SeasonEngine(coord)
+    with patch(PATCH_PATH) as mock_now:
+        mock_now.return_value.date.return_value = date_type(2026, 4, 20)
+        await engine.async_tick()
+    assert coord.effective_season == EffectiveSeason.WAKING
+    assert engine.wake_check["waking"] is True
+
+
+@pytest.mark.asyncio
+async def test_min_outdoor_is_configurable():
+    coord = _wake_coord("22.0", 3.7, {CONF_WAKE_MIN_OUTDOOR_TEMP: 0.0})
+    engine = SeasonEngine(coord)
+    with patch(PATCH_PATH) as mock_now:
+        mock_now.return_value.date.return_value = date_type(2026, 11, 13)
+        await engine.async_tick()
+    assert coord.effective_season == EffectiveSeason.WAKING
+
+
+def test_waking_decision_rules():
+    assert waking_decision(22.0, 21.0, 12.0, 10.0) is True
+    assert waking_decision(22.0, 21.0, 3.7, 10.0) is False
+    assert waking_decision(20.0, 21.0, 15.0, 10.0) is False
+    # unknown outdoor: indoor rule alone (unchanged behaviour)
+    assert waking_decision(22.0, 21.0, None, 10.0) is True
+    # limits are inclusive
+    assert waking_decision(21.0, 21.0, 10.0, 10.0) is True

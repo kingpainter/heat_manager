@@ -105,6 +105,7 @@ from .const import (
     CONF_TRV_TYPE,
     CONF_TRV_WINDOW_DETECTION,
     CONF_TRVS,
+    CONF_WAKE_MIN_OUTDOOR_TEMP,
     CONF_WAKE_SETBACK_TEMP,
     CONF_WEATHER_COMPENSATION_ENABLED,
     CONF_WEATHER_ENTITY,
@@ -141,6 +142,7 @@ from .const import (
     DEFAULT_SOLAR_GAIN_ENABLED,
     DEFAULT_SYNC_MODE,
     DEFAULT_TRV_MAX_TEMP,
+    DEFAULT_WAKE_MIN_OUTDOOR_TEMP,
     DEFAULT_WAKE_SETBACK_TEMP,
     DEFAULT_WEATHER_COMPENSATION_ENABLED,
     DEFAULT_WINDOW_DELAY_DEFAULT_MIN,
@@ -715,6 +717,21 @@ def _step1_schema(
                 {
                     "number": {
                         "min": 15,
+                        "max": 25,
+                        "step": 0.5,
+                        "unit_of_measurement": "°C",
+                    }
+                }
+            ),
+            probatio.Optional(
+                CONF_WAKE_MIN_OUTDOOR_TEMP,
+                default=defaults.get(
+                    CONF_WAKE_MIN_OUTDOOR_TEMP, DEFAULT_WAKE_MIN_OUTDOOR_TEMP
+                ),
+            ): selector.selector(
+                {
+                    "number": {
+                        "min": -10,
                         "max": 25,
                         "step": 0.5,
                         "unit_of_measurement": "°C",
