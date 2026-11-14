@@ -381,7 +381,7 @@ class HeatManagerPanel extends HTMLElement {
     if (!badge) return;
     // 2026-09-07 audit fix (UI/UX-7): was "On/Pause/Off" here but "Varme
     // aktiv/Pause/Slukket" everywhere else on the same screen (ctrl ring,
-    // controller title) — now shares _ctrlTitle()'s single Danish mapping.
+    // controller title) — now shares _ctrlTitle()'s single mapping.
     const colors = {
       on:    { bg:"rgba(251,146,60,0.2)", color:"#fed7aa", border:"#f97316" },
       pause: { bg:"rgba(234,179,8,0.15)", color:"#fef08a", border:"#ca8a04" },
@@ -1311,7 +1311,7 @@ class HeatManagerPanel extends HTMLElement {
   _overrideSourceIcon(src) {
     return ({ remote:"📡", panel:"🖥", switch:"🔘", trv:"🎚" })[src] ?? "✋";
   }
-  // v0.65.3: Danish label for NET-TRV's netatmo_setpoint_mode, with the
+  // v0.65.3: translated label for NET-TRV's netatmo_setpoint_mode, with the
   // manual setpoint's end time when Netatmo reports one. "" when the
   // attribute is missing (core netatmo) so the caller can fall back.
   _netatmoModeLabel(room) {
@@ -1356,7 +1356,7 @@ class HeatManagerPanel extends HTMLElement {
     })[s] ?? "linear-gradient(135deg,rgba(100,116,139,0.1) 0%,transparent 100%)";
   }
 
-  // v0.9.0: self-reporting diagnostics — short Danish tags for the neutral
+  // v0.9.0: self-reporting diagnostics — short translated tags for the neutral
   // blocking_sources codes the backend sends (coordinator.get_room_blocking_sources).
   _blockingLabel(src) {
     return ["controller_off", "controller_pause", "window", "presence"].includes(src)
@@ -1709,7 +1709,7 @@ class HeatManagerPanel extends HTMLElement {
       .section-box-footer {
         font-size: 12px; color: var(--sub); line-height: 1.5;
         padding: 10px 16px;
-        box-sizing: border-box; min-height: 74px; /* = 3 linjer, så alle sektioner fylder lige meget foldet sammen */
+        box-sizing: border-box; min-height: 74px; /* = 3 lines, so every collapsed section has the same height */
         border-top: 1px solid rgba(148,163,184,0.12);
       }
       .section-box-badge {
@@ -2654,7 +2654,7 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   // Forecast for the room furthest from its target that is still heating:
-  // learned heat-up rate (°C/h, CalibrationEngine) → "Stue når 21,5° ca. kl. 19:40".
+  // learned heat-up rate (°C/h, CalibrationEngine) → "Living room reaches 21.5° around 19:40".
   _heatupForecast() {
     let best = null;
     for (const r of this._data?.rooms ?? []) {
@@ -3451,11 +3451,11 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   _roomDetailRowHTML(room) {
-    // v0.66.0: rebuilt into named sections (Temperatur / Ventil / Indeklima /
-    // Rummets indstillinger / Midlertidig ændring) with one distinct Danish
+    // v0.66.0: rebuilt into named sections (temperature / valve / indoor
+    // climate / room settings / temporary change) with one distinct
     // name per value. The old layout showed "Target temp" three times with
     // three different meanings (live target, comfort setting, manual slider).
-    // Rooms without a valve ("Kun sensorer") show measurements only.
+    // Rooms without a valve ("Sensors only") show measurements only.
     const state    = room.state ?? "normal";
     const color    = this._stateColor(state);
     const esc      = (v) => this._esc(v);
@@ -3571,7 +3571,7 @@ class HeatManagerPanel extends HTMLElement {
            </div>
          </div>` : "";
 
-    // ── Midlertidig ændring ───────────────────────────────────────────────
+    // ── Temporary change ──────────────────────────────────────────────────
     const manualHTML = (hasTrv && this._manualControlEnabled) ? `
       <div class="room-manual" data-room="${roomName}">
         <div class="rd-sec" style="margin-top:0">${this._t("rd.sec_temporary")}</div>
@@ -3718,7 +3718,7 @@ class HeatManagerPanel extends HTMLElement {
     btn.dataset.mode = allOpen ? "collapse" : "expand";
   }
 
-  // v0.66.0: Netatmo's own view of the room as plain Danish rows — who
+  // v0.66.0: Netatmo's own view of the room as plain translated rows — who
   // controls it ("Following schedule «Winter»", "Manual until 18:30"), whether it
   // is heating, and Netatmo's own setpoint with a written-out warning when
   // it differs from Heat Manager's target. Only for rooms with a Netatmo

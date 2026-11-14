@@ -97,7 +97,7 @@ function _hmHhmm(iso) {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-// v0.67.2: Netatmo's own view of a room as one Danish phrase — same wording
+// v0.67.2: Netatmo's own view of a room as one translated phrase — same wording
 // as the panel ("Following schedule «Winter» · not heating").
 function _hmNetatmoModeText(rd) {
   if (!rd) return "";
@@ -126,14 +126,13 @@ function _hmCtrlColor(s) {
 }
 
 function _hmCtrlLabel(s) {
-  // 2026-09-16 (sprogkonsistens): panel.js's _ctrlTitle() has always shown
-  // Danish ("Varme aktiv"/"Pause"/"Slukket") for these same three states —
-  // this was the one place in the card still showing raw English for the
-  // identical concept.
+  // 2026-09-16: panel.js's _ctrlTitle() shows a friendly title for these
+  // same three states; the card uses the same translation keys instead of
+  // the raw state.
   return ["on", "pause", "off"].includes(s) ? _hmT(`ctrl.title.${s}`) : (s || "–");
 }
 
-// v0.9.0: self-reporting diagnostics — short Danish tags for the neutral
+// v0.9.0: self-reporting diagnostics — short translated tags for the neutral
 // blocking_sources codes coordinator.get_room_blocking_sources() returns.
 function _hmBlockingLabel(s) {
   return ["controller_off", "controller_pause", "window", "presence"].includes(s) ? _hmT(`blocking.${s}`) : s;
@@ -141,7 +140,7 @@ function _hmBlockingLabel(s) {
 
 // Card/panel data-parity (2026-09-13) — same labels as panel.js's own
 // _syncModeLabel(), so a room configured with sync_mode shows the identical
-// Danish label on both surfaces.
+// translated label on both surfaces.
 function _hmSyncModeLabel(mode) {
   return ["disabled", "mirror", "lock"].includes(mode) ? _hmT(`sync_mode.${mode}`) : mode;
 }
@@ -1338,7 +1337,7 @@ class HeatManagerCard extends HTMLElement {
           const hasValve = this._roomHasValve(room);
           // Sensor-only rooms have no heating state to colour by: neutral slate.
           const color = hasValve ? _hmStateColor(state) : "#64748b";
-          // Short pill on the narrow tile; the sheet says "Kun sensorer".
+          // Short pill on the narrow tile; the sheet says "Sensors only".
           const label = room.hm_missing ? _hmT("card.unknown_room")
             : hasValve ? _hmStateLabel(state, this._roomOverrideSource(roomName)) : _hmT("card.sensors");
           const temp  = this._roomTempText(room);
@@ -1741,9 +1740,9 @@ class HeatManagerCard extends HTMLElement {
   }
 
   _roomSheetHTML(roomName) {
-    // v0.67.2: same structure and Danish names as the panel's room card
+    // v0.67.2: same structure and section names as the panel's room card
     // (v0.66.0) — named sections, one distinct name per value. Rooms without
-    // a valve ("Kun sensorer") show measurements only: no PID, target,
+    // a valve ("Sensors only") show measurements only: no PID, target,
     // Netatmo rows or manual controls.
     const rd    = this._roomData?.[roomName] ?? null;
     const room  = this._cardRooms().find(r => r.room_name === roomName) ?? { room_name: roomName };
