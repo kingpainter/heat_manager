@@ -2,11 +2,7 @@ rules:
   # ── Bronze ────────────────────────────────────────────────────────────────
   action-setup: done
   appropriate-polling: done
-  brands:
-    status: deferred
-    comment: >
-      brands/icon.png deferred indefinitely. Integration works fully without it.
-      Required only for official HA integration listing, not for HACS or personal use.
+  brands: done  # local brand/icon.png + icon@2x.png (HA 2026.3+ serves them)
   common-modules: done
   config-flow: done
   config-flow-test-coverage: done  # test_config_flow.py — 16 tests covering all steps and errors

@@ -9,6 +9,17 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.72.2] — 2026-11-14
+
+### Fixed
+- **The integration icon was never shown.** Since Home Assistant 2026.3, a
+  custom integration can ship its own icon in `brand/`, but only under the
+  names Home Assistant serves (`icon.png`, `icon@2x.png`, `logo.png` …). The
+  1x icon was named `icon (1).png`, so the integrations page and the HACS
+  list showed the "icon not available" placeholder. `brand/icon.png` is now
+  added, and a new test fails if it goes missing. `icon (1).png` is no longer
+  used and can be removed from the repository.
+
 ## [0.72.1] — 2026-11-14
 
 ### Fixed
