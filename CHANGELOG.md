@@ -9,1554 +9,1669 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.72.0] — 2026-11-14
+
+### Added
+- **The event log and push notifications are translated.** English is the
+  default, Danish a translation — the same
+  `frontend/translations/<language>.json` files as the panel (new groups
+  `event`, `reason` and `notify`, 115 texts).
+  - **Event log:** every new entry stores its text key and parameters next
+    to the English text, so the History tab and the status line's "Latest"
+    show it in the viewer's language. Entries logged before this version
+    keep the text they were stored with.
+  - **Push notifications** (windows, presence, alarm, pre-heat, valve
+    protection, mould risk, escalation) and the texts of Heat Manager's own
+    repairs follow the Home Assistant system language (Settings → System →
+    General); a language without a translation falls back to English. The
+    notification action buttons ("Heat anyway", "Show open windows") are
+    translated too.
+  - New `coordinator.log_message(key, event_type, reason_key, **params)`
+    and `coordinator.text(key, language=None, **params)`; a parameter can
+    reference another text (`frontend_translations.text_ref()`), e.g. the
+    season name inside "Season mode set to …". `messages.EVENT_KEYS` lists
+    every event key.
+- Tests check that every event key is registered and present in `en.json`,
+  that every notify/reason text is used by the backend, and that the event
+  log stores English text plus key/params.
+
+### Changed
+- The remote's last action carries its text key, so the status line shows
+  "Remote: +0.5°C — …" in the viewer's language. The duplicated
+  "Remote: Remote:" prefix in that status line entry is gone.
+- Window and door texts are separate (`window_…`/`door_…`), since languages
+  inflect "open"/"closed" differently for the two.
+
+### Note
+- The language for push notifications is read at startup: after changing
+  the Home Assistant system language, restart Home Assistant.
+
+## [0.71.0] — 2026-11-14
+
+### Added
+- **The sidebar panel and the Lovelace card follow the user's language.**
+  English is now the default and Danish is a translation. All UI text moved
+  out of the JavaScript into `frontend/translations/en.json` and `da.json`
+  (552 strings). The panel and card fetch them for the language set in the
+  user's Home Assistant profile through the new WebSocket command
+  `heat_manager/get_translations`; a missing language or a missing string
+  falls back to English. Switching language in the profile re-renders the
+  panel and card. Another language is added by dropping a
+  `frontend/translations/<language>.json` with the same keys next to
+  `en.json` — no code change.
+- **Status line warnings are translated too.** Every entry in
+  `active_issues` now carries a `key` and `params` that the panel and card
+  turn into the user's language; `message` is the English text, kept for
+  anything that reads it directly (the Status sensor, push escalation).
+- Tests (`test_frontend_translations.py`) fail if the JavaScript uses a key
+  that `en.json` lacks, if `en.json` has a key nothing uses, if a
+  translation has other keys or other `{placeholders}` than English, or if
+  the backend's English warning texts drift from `en.json`.
+
+### Changed
+- `health_label` in `heat_manager/get_state` is now `good`/`ok`/`poor`
+  instead of the Danish `god`/`ok`/`dårlig` (the frontend still accepts the
+  old values).
+- The card's description in the card picker is English and no longer
+  mentions the removed energy statistics.
+- Placeholders in the Settings tab use English example entity IDs
+  (`alarm_control_panel.my_alarm`, `notify.mobile_app_my_phone`), and the
+  remaining Danish code comments in the panel and card are in English.
+
+### Note
+- With Home Assistant set to Danish nothing looks different. With Home
+  Assistant set to English (or any language without a translation) the
+  panel and card are now in English. The event log and push notifications
+  are not translated yet — they follow in a later version.
+
 ## [0.70.0] — 2026-11-13
 
 ### Changed
-- **Opvågningsfasen (WAKING) kræver nu også mildt vejr udenfor.** Ny
-  indstilling *Opvågning: laveste udetemperatur* (`wake_min_outdoor_temp`,
-  standard 10 °C) under globale indstillinger. Før afgjorde
-  indendørssensoren alene, og den måler delvis den varme, opvarmningen selv
-  giver: med tærsklen 21 °C under komforttemperaturen 22 °C stod huset i
-  WAKING hele tiden, og alle rum fik målet sænket med 2 °C (set live
-  2026-11-13 ved 3,7 °C ude — husets gennemsnit var over tærsklen 100 % af
-  de sidste 48 timer). Uden udetemperatur afgør indendørssensoren alene som
-  før. Panelets Auto-off-fane viser nu under *Effektiv sæson*, hvorfor
-  (fx "Inde 22,0 °C ≥ 21 °C · ude 3,7 °C < 10 °C"); WS-feltet `wake_check`.
-  **Bemærk:** På kolde dage går huset nu fra WAKING til ACTIVE, så målet
-  stiger med opvågningsreduktionen (typisk 20 → 22 °C om dagen).
+- **The WAKING phase now also requires mild weather outside.** New setting
+  *Wake: lowest outdoor temperature* (`wake_min_outdoor_temp`, default
+  10 °C) under global settings. Before, the indoor sensor alone decided,
+  and it partly measures the warmth the heating itself produces: with the
+  threshold at 21 °C below the comfort temperature of 22 °C, the house sat
+  in WAKING all the time, and every room had its target lowered by 2 °C
+  (seen live on 2026-11-13 at 3.7 °C outside — the house average was above
+  the threshold 100 % of the last 48 hours). Without an outdoor
+  temperature, the indoor sensor alone decides as before. The panel's
+  Auto-off tab now shows the reason under *Effective season* (e.g.
+  "Indoor 22.0 °C ≥ 21 °C · outdoor 3.7 °C < 10 °C"); WS field
+  `wake_check`.
+  **Note:** On cold days the house now goes from WAKING to ACTIVE, so the
+  target rises by the wake setback (typically 20 → 22 °C during the day).
 
 ## [0.69.3] — 2026-11-13
 
 ### Fixed
-- **En sensor kunne ikke fjernes fra et rum (eller fra globale
-  indstillinger/fjernbetjening).** De valgfrie entitetsfelter (rumtemperatur,
-  fugt, CO2, lux, batteri, tidsplan, ventilens kalibrering, vejr- og
-  udesensorer, vågne-sensor og fjernbetjeningens knapper) var forudfyldt med
-  `default=<nuværende værdi>`. Når feltet ryddes i formularen, udelader Home
-  Assistant nøglen, og så fyldte skemaet den gamle entitet ind igen. Felterne
-  forudfyldes nu med `suggested_value`, og trin, der fletter med de gemte
-  indstillinger (globale indstillinger, fjernbetjening), fjerner et ryddet
-  felt (`_merge_clearing()`). Fundet ved live-test (B4).
-- **Reparationsbeskeden "valgt Netatmo-integration er ikke installeret" kom
-  først efter en genstart.** Tjekket kørte kun ved opsætning og når Heat
-  Managers indstillinger blev ændret — at deaktivere eller slette den valgte
-  integration rørte ingen af delene. Det kører nu også i coordinatorens tik
-  (`coordinator.check_netatmo_backend_choice()`), så beskeden kommer inden
-  for et minut og forsvinder igen af sig selv; advarslen i loggen skrives én
-  gang pr. episode. Fundet ved live-test (A2.3).
+- **A sensor could not be removed from a room (or from global settings /
+  the remote control).** The optional entity fields (room temperature,
+  humidity, CO2, lux, battery, schedule, valve calibration, weather and
+  outdoor sensors, wake sensor and the remote's buttons) were pre-filled
+  with `default=<current value>`. When the field is cleared in the form,
+  Home Assistant omits the key, and the schema then filled the old entity
+  back in. The fields are now pre-filled with `suggested_value`, and steps
+  that merge with the stored options (global settings, remote control)
+  drop a cleared field (`_merge_clearing()`). Found during live test (B4).
+- **The repair "selected Netatmo integration is not installed" only
+  appeared after a restart.** The check only ran at setup and when Heat
+  Manager's options changed — disabling or deleting the selected
+  integration touched neither. It now also runs in the coordinator tick
+  (`coordinator.check_netatmo_backend_choice()`), so the repair appears
+  within a minute and clears again by itself; the log warning is written
+  once per episode. Found during live test (A2.3).
 
 ## [0.69.2] — 2026-11-13
 
 ### Fixed
-- **Mobilkortet mistede data for rum, hvis navnet i kortets YAML afveg fra
-  Heat Managers.** Kortet slog alt op på rumnavnet, så "Badværelse" og
-  "Soveværelse" i kortet (Heat Manager: "Badeværelse", "Soveværelset") viste
-  ventilens måling i stedet for rummets temperatur, et tomt ark, og "Sæt" /
-  "Tilbage til automatik" sendte et ukendt rumnavn. Kortet finder nu rummet
-  via `climate_entity`, når navnet ikke passer, og bruger Heat Managers
-  eget navn til alle opslag og kommandoer; YAML-navnet vises stadig på
-  flisen og i arket. Et rum, der hverken matcher på navn eller
-  klimaenhed, får mærkatet **"Ukendt rum"** med en forklaring.
+- **The mobile card lost data for rooms whose name in the card's YAML
+  differed from Heat Manager's.** The card looked everything up by room
+  name, so "Badværelse" and "Soveværelse" in the card (Heat Manager:
+  "Badeværelse", "Soveværelset") showed the valve's reading instead of the
+  room temperature, an empty sheet, and "Set" / "Back to automatic" sent
+  an unknown room name. The card now finds the room via `climate_entity`
+  when the name does not match, and uses Heat Manager's own name for all
+  lookups and commands; the YAML name is still shown on the tile and in
+  the sheet. A room that matches neither by name nor by climate entity
+  gets the label **"Ukendt rum"** (unknown room) with an explanation.
 
 ## [0.69.1] — 2026-11-13
 
 ### Fixed
-- **Vejrkompensation holdt rum over mål varme.** Bidraget fra
-  vejrkompensationen (`(15 − ude) × 0,02`) blev lagt til PID-effekten, også
-  når rummet allerede var varmere end målet. På en kold dag fik et for varmt
-  rum derfor et setpunkt omkring rumtemperaturen (højst mål + margin) i
-  stedet for bunden (laveste rumtemperatur, 17 °C), og rummet kunne aldrig
-  køle ned til et lavere mål, fx natsænkning. Set live 2026-11-13 ved
-  4,3 °C ude: Køkken 22,9 °C med mål 20 °C fik 22 °C sendt til ventilen.
-  Vejrkompensationen lægges nu kun til, når rummet er under målet.
-- **Falsk advarsel "Netatmo-data ikke opdateret i 10+ min".** Tjekket
-  brugte kun `last_updated`, som Home Assistant kun flytter, når værdien
-  ændrer sig — et rum med stabil temperatur blev derfor meldt forældet,
-  selvom NET-TRV rapporterede det hvert minut. Statuslinjen og
-  `binary_sensor` "Cloud available" bruger nu den nyeste af `last_updated`
-  og `last_reported` (`engine/readings.seconds_since_report()`).
+- **Weather compensation kept rooms above target warm.** The weather
+  compensation contribution (`(15 − outdoor) × 0.02`) was added to the PID
+  power even when the room was already warmer than the target. On a cold
+  day an overheated room therefore got a setpoint around the room
+  temperature (at most target + margin) instead of the floor (lowest room
+  temperature, 17 °C), and the room could never cool down to a lower
+  target such as the night setback. Seen live on 2026-11-13 at 4.3 °C
+  outside: Kitchen at 22.9 °C with target 20 °C got 22 °C sent to the
+  valve. Weather compensation is now only added when the room is below
+  target.
+- **False warning "Netatmo data not updated for 10+ min".** The check only
+  used `last_updated`, which Home Assistant only moves when the value
+  changes — a room with a stable temperature was therefore reported stale
+  even though NET-TRV reported it every minute. The status line and the
+  "Cloud available" `binary_sensor` now use the newest of `last_updated`
+  and `last_reported` (`engine/readings.seconds_since_report()`).
 
 ### Changed
-- **"PID-effekt" viser den effekt, setpunktet faktisk er beregnet ud fra**
-  (PID plus vejrkompensation minus solindfald og dørvarme) i panelet, på
-  kortet og i sensoren "PID power" — før viste den kun PID-leddet, så der
-  kunne stå 0 %, mens ventilen stadig blev drevet af vejrkompensationen.
-  PID-leddet alene står i sensorens attribut `pid_output`.
+- **"PID power" shows the power the setpoint is actually computed from**
+  (PID plus weather compensation minus solar gain and door heat) in the
+  panel, on the card and in the "PID power" sensor — before it only showed
+  the PID term, so it could read 0 % while the valve was still driven by
+  weather compensation. The PID term alone is in the sensor attribute
+  `pid_output`.
 
 ## [0.69.0] — 2026-11-13
 
 ### Changed
-- **Kræver nu Home Assistant 2026.9 eller nyere (trin T1b).** Skemaerne i
-  `__init__.py`, `config_flow.py` og `websocket.py` (og testene) bruger
-  `probatio` direkte i stedet for `voluptuous`. Home Assistant har
-  valideret med probatio siden 2026.9 og har kun omdirigeret
-  `import voluptuous` dertil. `hacs.json` og README er sat til minimum
-  2026.9.0, så HACS ikke tilbyder opdateringen til ældre versioner.
-- **CI følger med:** pytest kører kun på Python 3.14 (HA 2026.9 kræver
-  3.14), og typecheck-jobbet kører mypy strict mod HA 2026.11.1 i stedet
-  for 2026.2.3 — de 94 typefejl mod nyeste HA er væk. Ingen
-  adfærdsændring.
+- **Now requires Home Assistant 2026.9 or newer (step T1b).** The schemas
+  in `__init__.py`, `config_flow.py` and `websocket.py` (and the tests)
+  use `probatio` directly instead of `voluptuous`. Home Assistant has
+  validated with probatio since 2026.9 and only redirected
+  `import voluptuous` to it. `hacs.json` and the README are set to minimum
+  2026.9.0, so HACS does not offer the update to older versions.
+- **CI follows:** pytest only runs on Python 3.14 (HA 2026.9 requires
+  3.14), and the typecheck job runs mypy strict against HA 2026.11.1
+  instead of 2026.2.3 — the 94 type errors against the latest HA are
+  gone. No behaviour change.
 
 ## [0.68.9] — 2026-11-13
 
 ### Changed
-- **Panelets data bygges i eget modul (trin T3i).** `websocket_payload.py`
-  har `build_state_payload()` (hele `heat_manager/get_state`-snapshottet)
-  og `build_active_issues()` (statuslinjens advarsler) med deres
-  hjælpefunktioner. `websocket.py` er nede fra ca. 1.870 til 840 linjer og
-  indeholder kun WebSocket-handlerne; `ws_get_state` henter version og
-  sender payloaden. mypy-overrides i `pyproject.toml` dækker nu
-  `coordinator`-pakkens moduler og `websocket_payload`. **T3 er færdig.**
-  Ingen adfærdsændring.
+- **The panel's data is built in its own module (step T3i).**
+  `websocket_payload.py` has `build_state_payload()` (the whole
+  `heat_manager/get_state` snapshot) and `build_active_issues()` (the
+  status line's warnings) with their helper functions. `websocket.py` is
+  down from about 1,870 to 840 lines and only contains the WebSocket
+  handlers; `ws_get_state` fetches the version and sends the payload.
+  mypy overrides in `pyproject.toml` now cover the `coordinator` package's
+  modules and `websocket_payload`. **T3 is complete.** No behaviour
+  change.
 
 ## [0.68.8] — 2026-11-13
 
 ### Changed
-- **PID i eget lag — opdelingen af coordinatoren er færdig (trin T3h).**
-  `coordinator/pid.py` (`CoordinatorPid`) har PID-tikket, opsætning af
-  PID-regulatorer, mål-temperatur samt nat- og vågnesænkning.
-  `coordinator/core.py` er nede på ca. 270 linjer: oprettelse af engines,
-  det periodiske tik og nedlukning. Lagene er nu `base` → `persistence` →
-  `sensors` → `netatmo` → `overrides` → `issues` → `pid` → `core`, hvor et
-  lag kun kalder sig selv og lagene under sig. Ingen adfærdsændring.
+- **PID in its own layer — the coordinator split is complete (step
+  T3h).** `coordinator/pid.py` (`CoordinatorPid`) has the PID tick, PID
+  controller setup, target temperature and night and wake setback.
+  `coordinator/core.py` is down to about 270 lines: engine creation, the
+  periodic tick and shutdown. The layers are now `base` → `persistence` →
+  `sensors` → `netatmo` → `overrides` → `issues` → `pid` → `core`, where a
+  layer only calls itself and the layers below it. No behaviour change.
 
 ## [0.68.7] — 2026-11-13
 
 ### Changed
-- **Advarsler og reparationer i eget lag (trin T3g).**
-  `coordinator/issues.py` (`CoordinatorIssues`) har statuslinjens
-  problem-sporing, eskalering til push, HA-reparationer (inkl. manglende
-  klimaenhed), skjul ("snooze") og skimmelrisiko-notifikationen. Ingen
-  adfærdsændring.
+- **Warnings and repairs in their own layer (step T3g).**
+  `coordinator/issues.py` (`CoordinatorIssues`) has the status line's
+  issue tracking, escalation to push, HA repairs (including missing
+  climate entity), snoozing and the mold risk notification. No behaviour
+  change.
 
 ## [0.68.6] — 2026-11-13
 
 ### Changed
-- **Manuel styring og boost i eget lag (trin T3f).**
-  `coordinator/overrides.py` (`CoordinatorOverrides`) har override til og
-  fra, tidsbegrænsede overstyringer fra fjernbetjening og panel, boost
-  (start, stop, udløb), tilbage til tidsplan og husets samlede status
-  (auto/manuel/blandet). Ingen adfærdsændring.
+- **Manual control and boost in their own layer (step T3f).**
+  `coordinator/overrides.py` (`CoordinatorOverrides`) has override on and
+  off, timed overrides from the remote and the panel, boost (start, stop,
+  expiry), back to schedule and the house's overall status
+  (auto/manual/mixed). No behaviour change.
 
 ## [0.68.5] — 2026-11-13
 
 ### Changed
-- **Netatmo i eget lag (trin T3e).** `coordinator/netatmo.py`
-  (`CoordinatorNetatmo`) har opslag af backend pr. ventil (core netatmo
-  eller NET-TRV), ventil-sundhed (forbindelse, batteri, webhook), relæets
-  fraværstemperatur, HomeKit-krav for PID og frigivelse af et rum til
-  Netatmo-tidsplanen. Ingen adfærdsændring.
+- **Netatmo in its own layer (step T3e).** `coordinator/netatmo.py`
+  (`CoordinatorNetatmo`) has the backend lookup per valve (core netatmo or
+  NET-TRV), valve health (connectivity, battery, webhook), the relay's
+  away temperature, the HomeKit requirement for PID and releasing a room
+  to the Netatmo schedule. No behaviour change.
 
 ## [0.68.4] — 2026-11-13
 
 ### Changed
-- **Målinger i eget lag (trin T3d).** `coordinator/sensors.py`
-  (`CoordinatorSensors`) har opslag af rumtemperatur, CO2, lux, udevejr,
-  døre, vinduer og tilstedeværelse. Plausibilitetstjekket for
-  rumtemperatur (-20 til 50 °C) findes nu kun ét sted,
-  `engine/readings.py` (`sanity_clamp_temp()`), som både coordinatoren og
-  kalibreringsmotoren bruger — før havde de hver sin kopi. Ingen
-  adfærdsændring.
+- **Measurements in their own layer (step T3d).** `coordinator/sensors.py`
+  (`CoordinatorSensors`) has the lookups for room temperature, CO2, lux,
+  outdoor weather, doors, windows and presence. The plausibility check
+  for room temperature (-20 to 50 °C) now exists in one place only,
+  `engine/readings.py` (`sanity_clamp_temp()`), used by both the
+  coordinator and the calibration engine — before, each had its own copy.
+  No behaviour change.
 
 ## [0.68.3] — 2026-11-13
 
 ### Changed
-- **Hændelseslog og genstart-snapshots i eget lag (trin T3c).**
-  `coordinator/persistence.py` (`CoordinatorPersistence`) har `log_event()`
-  og gem/gendan af hændelsesloggen, manuelle overstyringer, aktiv boost og
-  rummenes gruppe-toggle. Ingen adfærdsændring.
+- **Event log and restart snapshots in their own layer (step T3c).**
+  `coordinator/persistence.py` (`CoordinatorPersistence`) has `log_event()`
+  and saving/restoring the event log, manual overrides, active boost and
+  the rooms' group toggle. No behaviour change.
 
 ## [0.68.2] — 2026-11-13
 
 ### Changed
-- **`coordinator.py` er nu en pakke, `coordinator/` (trin T3b).**
-  Coordinatoren deles i lag, hvor hvert lag er en underklasse af laget
-  under sig, så alle kald er fuldt typede (mypy strict) uden protokoller.
-  Første lag, `coordinator/base.py` (`CoordinatorBase`), har al delt
-  tilstand, config-opslag, rum og ventiler, skrivevej til klimaenheder og
-  abonnementer. `HeatManagerCoordinator` ligger i `coordinator/core.py` og
-  importeres som før fra `.coordinator`. Engines oprettes efter, at al
-  delt tilstand findes. Tests patcher nu navne i det modul, hvor koden
-  ligger. Ingen adfærdsændring.
+- **`coordinator.py` is now a package, `coordinator/` (step T3b).** The
+  coordinator is split into layers, where each layer is a subclass of the
+  layer below it, so all calls are fully typed (mypy strict) without
+  protocols. The first layer, `coordinator/base.py` (`CoordinatorBase`),
+  has all shared state, config lookups, rooms and valves, the write path
+  to climate entities and subscriptions. `HeatManagerCoordinator` lives in
+  `coordinator/core.py` and is imported as before from `.coordinator`.
+  Engines are created after all shared state exists. Tests now patch
+  names in the module where the code lives. No behaviour change.
 
 ## [0.68.1] — 2026-11-13
 
 ### Changed
-- **Rene PID-justeringer og skimmelberegning flyttet til `engine/` (trin
-  T3a).** Vejrkompensation, solindfald og varmedeling gennem døre ligger nu
-  i `engine/pid_adjustments.py` (`weather_compensation_feedforward()`,
-  `solar_gain_reduction()`, `door_heat_share_reduction()`). Skimmelrisiko
-  har fået ét fælles modul, `engine/mold.py` (`dewpoint()`,
-  `is_mold_risk()`), som `MoldRiskSensor`, panelets data og
-  push-notifikationen nu alle bruger — før var formel og grænser kopieret
-  tre steder. Nye tests for solindfald, dørvarme og skimmel. Ingen
-  adfærdsændring.
+- **Pure PID adjustments and mold calculation moved to `engine/` (step
+  T3a).** Weather compensation, solar gain and heat sharing through doors
+  now live in `engine/pid_adjustments.py`
+  (`weather_compensation_feedforward()`, `solar_gain_reduction()`,
+  `door_heat_share_reduction()`). Mold risk has one shared module,
+  `engine/mold.py` (`dewpoint()`, `is_mold_risk()`), which `MoldRiskSensor`,
+  the panel's data and the push notification all use now — before, the
+  formula and thresholds were copied in three places. New tests for solar
+  gain, door heat and mold. No behaviour change.
 
 ## [0.68.0] — 2026-11-12
 
 ### Added
-- **Vælg hvilke alarmtilstande der slukker varmen.** Ny global indstilling
-  `alarm_away_states` (standard `armed_away`, så intet ændrer sig af sig
-  selv). Vælg blandt *Armeret væk*, *Armeret ferie*, *Armeret nat*,
-  *Armeret hjemme* og *Armeret brugerdefineret* — i opsætningens
-  alarmtrin eller direkte i panelets **Alarmtavle** (knapper, gemmes med
-  det samme). Når alarmen går i en valgt tilstand, går huset i fravær med
-  det samme. Ved frakoblet eller en armeret tilstand, der *ikke* er valgt,
-  genoptages varmen, når nogen er hjemme. Før var reglen låst: kun
-  `armed_away` slukkede, og kun `armed_home`/frakoblet genoptog —
-  `armed_night` og `armed_vacation` blev ignoreret. Alarmtavlens tekst
-  viser nu de valgte tilstande.
+- **Choose which alarm states turn the heating off.** New global setting
+  `alarm_away_states` (default `armed_away`, so nothing changes by
+  itself). Choose from *Armed away*, *Armed vacation*, *Armed night*,
+  *Armed home* and *Armed custom bypass* — in the setup's alarm step or
+  directly in the panel's **alarm board** (buttons, saved immediately).
+  When the alarm enters a selected state, the house goes to away at once.
+  On disarmed, or an armed state that is *not* selected, heating resumes
+  when someone is home. Before, the rule was fixed: only `armed_away`
+  turned heating off, and only `armed_home`/disarmed resumed it —
+  `armed_night` and `armed_vacation` were ignored. The alarm board's text
+  now shows the selected states.
 
 ### Changed
-- **Netatmo-mærket i Rum-fanen viser integrationen**: *Netatmo · NET-TRV*
-  eller *Netatmo · core*, ud fra hvad Heat Manager har detekteret for
-  rummets ventil.
+- **The Netatmo badge in the Rooms tab shows the integration**:
+  *Netatmo · NET-TRV* or *Netatmo · core*, based on what Heat Manager has
+  detected for the room's valve.
 
 ### Fixed
-- **Statuslinjen og dens udfoldede info-panel var gennemsigtige** med
-  temaer, hvor `secondary-background-color` er halvgennemsigtig — siden
-  bagved skinnede igennem. Begge har nu et solidt mørkt underlag under
-  temaets farve.
+- **The status line and its expanded info panel were transparent** with
+  themes where `secondary-background-color` is semi-transparent — the page
+  behind showed through. Both now have a solid dark backing under the
+  theme's colour.
 
 ## [0.67.6] — 2026-11-12
 
 ### Changed
-- **Alle engines er nu rene (arkitekturregel 3.1 opfyldt, trin T2c).**
-  `remote_button_engine`, `sync_engine` og `window_engine` abonnerer på
-  tilstandsændringer via `coordinator.track_state_changes()`, og
-  `sync_engine`'s forsinkede bekræftelse kører via det nye
-  `coordinator.call_later(delay, action)` (pakket i `@callback`, returnerer
-  en annulleringsfunktion). `window_engine` læser tiden via
-  `engine/clock.py`. Ingen af de 15 moduler i `engine/` importerer længere
-  `homeassistant`, og en ny test fejler, hvis et engine-modul gør det igen.
-  Ingen adfærdsændring.
+- **All engines are now pure (architecture rule 3.1 met, step T2c).**
+  `remote_button_engine`, `sync_engine` and `window_engine` subscribe to
+  state changes via `coordinator.track_state_changes()`, and
+  `sync_engine`'s delayed confirmation runs via the new
+  `coordinator.call_later(delay, action)` (wrapped in `@callback`, returns
+  a cancel function). `window_engine` reads the time via
+  `engine/clock.py`. None of the 15 modules in `engine/` imports
+  `homeassistant` any more, and a new test fails if an engine module does
+  so again. No behaviour change.
 
 ## [0.67.5] — 2026-11-12
 
 ### Changed
-- **Tre engines mere er rene (arkitekturregel 3.1, trin T2b).**
-  `door_engine`, `preheat_engine` og `presence_engine` abonnerede selv på
-  tilstandsændringer via Home Assistant. Nu beder de coordinatoren om det
-  (`coordinator.track_state_changes(entity_ids, handler)`), som pakker
-  handleren i `@callback`, så Home Assistant stadig kører den i
-  event-loopet. `presence_engine` læser desuden tiden via `engine/clock.py`.
-  Ingen adfærdsændring. Testen for rene engines dækker nu også de tre
-  moduler, og en ny test sikrer `@callback`-indpakningen.
+- **Three more engines are pure (architecture rule 3.1, step T2b).**
+  `door_engine`, `preheat_engine` and `presence_engine` subscribed to
+  state changes through Home Assistant themselves. Now they ask the
+  coordinator to do it (`coordinator.track_state_changes(entity_ids,
+  handler)`), which wraps the handler in `@callback`, so Home Assistant
+  still runs it in the event loop. `presence_engine` also reads the time
+  via `engine/clock.py`. No behaviour change. The pure-engine test now
+  also covers the three modules, and a new test guards the `@callback`
+  wrapping.
 
 ## [0.67.4] — 2026-11-12
 
 ### Changed
-- **Fire engines er nu rene (arkitekturregel 3.1, trin T2a).**
-  `calibration_engine`, `controller`, `season_engine` og
-  `valve_protection_engine` importerede kun Home Assistant for at kende
-  klokken. De bruger nu det nye, rene `engine/clock.py` (`utcnow()`,
-  `local_now()`). Coordinatoren giver det Home Assistants egne
-  tidsfunktioner ved opstart, så engines ser præcis samme tid og tidszone
-  som før — ingen adfærdsændring. En ny test sikrer, at de fire moduler
-  ikke importerer `homeassistant` igen.
+- **Four engines are now pure (architecture rule 3.1, step T2a).**
+  `calibration_engine`, `controller`, `season_engine` and
+  `valve_protection_engine` only imported Home Assistant to know the time.
+  They now use the new, pure `engine/clock.py` (`utcnow()`,
+  `local_now()`). The coordinator gives it Home Assistant's own time
+  functions at startup, so engines see exactly the same time and time
+  zone as before — no behaviour change. A new test ensures the four
+  modules do not import `homeassistant` again.
 
 ## [0.67.3] — 2026-11-12
 
 ### Fixed
-- **mypy tjekkede ikke det, den skulle.** `custom_components/` har ingen
-  `__init__.py`, så mypy kaldte modulerne `heat_manager.*`, og ingen af de
-  strenge regler i `pyproject.toml` ramte nogensinde ("unused section").
-  Med `mypy_path = "."` og `explicit_package_bases = true` gælder de nu.
-  De 45 fejl, det afslørede, er rettet — bl.a. manglende `None`-tjek i
-  coordinatoren, et genbrugt variabelnavn i statuslinjens
-  fjernbetjeningstekst og forkert type på advarselslisten.
-- `EntityCategory` importeres fra `homeassistant.const` (ikke
-  `homeassistant.helpers.entity`, som ikke eksporterer den officielt).
-- Opslag af NET-TRV-relæet (webhook og fraværstemperatur) læser nu
-  `parent_device_id` på HA 2026.11's nye underenheder før
-  `via_device_id`, som giver en udfasningsadvarsel på dem (fjernes i HA
-  2027.9). NET-TRV bruger i dag almindelige enheder, så adfærden er uændret.
+- **mypy did not check what it was supposed to.** `custom_components/` has
+  no `__init__.py`, so mypy named the modules `heat_manager.*`, and none of
+  the strict rules in `pyproject.toml` ever matched ("unused section").
+  With `mypy_path = "."` and `explicit_package_bases = true` they now
+  apply. The 45 errors this revealed are fixed — among them missing `None`
+  checks in the coordinator, a reused variable name in the status line's
+  remote-control text and the wrong type on the warning list.
+- `EntityCategory` is imported from `homeassistant.const` (not
+  `homeassistant.helpers.entity`, which does not officially export it).
+- Lookup of the NET-TRV relay (webhook and away temperature) now reads
+  `parent_device_id` on HA 2026.11's new child devices before
+  `via_device_id`, which raises a deprecation warning on them (removed in
+  HA 2027.9). NET-TRV uses ordinary devices today, so behaviour is
+  unchanged.
 
 ### Changed
-- **Hele integrationen er nu `mypy --strict`** (`strict = true` i
-  `[tool.mypy]`), og CI har fået et `typecheck`-job, der håndhæver det.
-  Jobbet kører mod en fastlåst Home Assistant (2026.2.3), fordi HA's egne
-  typer ændrer sig mellem versioner: HA 2026.11 typer skemaer med
-  `probatio` i stedet for `voluptuous`, hvilket giver ~90 typefejl i
-  websocket- og opsætningsskemaerne. Det er ren typning — alt kører og
-  testes også på HA 2026.11 — og flytningen til `probatio` er et separat
-  skridt. `quality_scale.yaml`: `strict-typing` er nu `done`.
+- **The whole integration is now `mypy --strict`** (`strict = true` in
+  `[tool.mypy]`), and CI has a `typecheck` job that enforces it. The job
+  runs against a pinned Home Assistant (2026.2.3), because HA's own types
+  change between versions: HA 2026.11 types schemas with `probatio`
+  instead of `voluptuous`, which gives ~90 type errors in the websocket
+  and setup schemas. It is typing only — everything runs and is also
+  tested on HA 2026.11 — and the move to `probatio` is a separate step.
+  `quality_scale.yaml`: `strict-typing` is now `done`.
 
 ## [0.67.2] — 2026-11-12
 
 ### Changed
-- **Mobilkortets rum-ark (tryk og hold på et rum) følger panelets
-  rumkort.** Rækkerne er delt i sektionerne *Temperatur*, *Ventil*,
-  *Indeklima* og *Status* med de samme danske navne som panelet: *I
-  rummet*, *Mål nu*, *Komforttemperatur*, *Sendt til ventil*, *Ved
-  radiatoren*, *Varmebehov (PID)* osv. Netatmo-linjen er en sætning
-  ("Følger tidsplan «Vinter» · varmer ikke"), og en afvigelse mellem
-  Netatmos sætpunkt og det Heat Manager har sendt, skrives ud. Døre vises
-  pr. dør med navn. *Manuel temperatur* hedder *Midlertidig ændring* med
-  knapperne *Sæt* og *Tilbage til automatik*; varigheden "Permanent" hedder
-  "Indtil videre". Gruppering hedder *Ventilgruppe*.
-- **Rumfliserne viser rummets egen temperatur** (fra rumsensoren, når
-  rummet har en) i stedet for ventilens måling ved radiatoren, når
-  backend-data er hentet.
-- "TRV offline" hedder nu "Ventil offline".
+- **The mobile card's room sheet (press and hold a room) follows the
+  panel's room cards.** The rows are split into the sections
+  *Temperature*, *Valve*, *Indoor climate* and *Status* with the same
+  names as the panel: *In the room*, *Target now*, *Comfort temperature*,
+  *Sent to valve*, *At the radiator*, *Heat demand (PID)* and so on. The
+  Netatmo line is a sentence ("Following schedule «Winter» · not
+  heating"), and a mismatch between Netatmo's setpoint and what Heat
+  Manager has sent is spelled out. Doors are shown per door with their
+  name. *Manual temperature* is now *Temporary change* with the buttons
+  *Set* and *Back to automatic*; the duration "Permanent" is now "Until
+  further notice". Grouping is now *Valve group*. (The card's UI text is
+  Danish; the names above are the English meanings.)
+- **The room tiles show the room's own temperature** (from the room
+  sensor, when the room has one) instead of the valve's reading at the
+  radiator, once backend data has been fetched.
+- "TRV offline" is now "Valve offline".
 
 ### Fixed
-- **Rum uden ventil på mobilkortet.** Gang, Walk in og andre rum med kun
-  sensorer viste "Auto" og en streg i stedet for temperaturen. De vises nu
-  med en neutral "Sensorer"-mærkat, deres temperatur og uden mål; rum-arket
-  viser kun målinger — ingen PID, Netatmo-rækker eller manuel styring.
+- **Rooms without a valve on the mobile card.** Hallway, walk-in and other
+  sensor-only rooms showed "Auto" and a dash instead of the temperature.
+  They are now shown with a neutral "Sensors" badge, their temperature and
+  no target; the room sheet only shows measurements — no PID, Netatmo rows
+  or manual control.
 
 ## [0.67.1] — 2026-11-12
 
 ### Changed
-- **Rumkortene i Rum-fanen kan klappes sammen** og er sammenklappede som
-  standard. Et lukket kort viser rumnavn, mærker, tilstand og én linje med
-  det vigtigste — fx "21.1°C → mål 20°C · ventil 0% · fugt 54% · dør
-  åben" — samt advarsler (enheder der ikke svarer, manuel styring).
-  Klik på kortets hoved (eller Enter/mellemrum) folder det ud med alle
-  sektioner. "Fold alle ud / Fold alle sammen" står i sektionens hoved.
-  Hvilke rum der er foldet ud huskes i browserfanen (sessionStorage), så
-  det ikke nulstilles ved panelets opdatering hvert minut eller ved genindlæsning.
+- **The room cards in the Rooms tab can be collapsed** and are collapsed
+  by default. A closed card shows the room name, badges, state and one
+  line with the essentials — e.g. "21.1°C → target 20°C · valve 0% ·
+  humidity 54% · door open" — plus warnings (devices not responding,
+  manual control). Clicking the card's header (or Enter/space) expands it
+  with all sections. "Expand all / Collapse all" sits in the section
+  header. Which rooms are expanded is remembered in the browser tab
+  (sessionStorage), so it is not reset by the panel's refresh every
+  minute or by a reload.
 
 ## [0.67.0] — 2026-11-12
 
 ### Added
-- **Global laveste rumtemperatur** (`min_room_temp`, standard 17 °C — et
-  almindeligt minimum mod skimmel). Den gælder alle rum: PID'en sender
-  aldrig et lavere sætpunkt til en ventil, og nat-/vågnesænkningen går
-  aldrig under den. Kan sættes i opsætningens globale trin og live i
-  panelet under Indstillinger → *Temperaturgrænser*.
-- **Netatmos fraværstemperatur i panelet.** Med NET-TRV finder Heat Manager
-  relæets `number.<relæ>_away_temperature` og viser den under
-  *Temperaturgrænser*. Gem skriver værdien direkte til Netatmo
-  (`number.set_value`) — samme værdi som i Netatmo-appen, gemt på den
-  aktive tidsplan (navnet vises). Er den lavere end laveste rumtemperatur,
-  vises en advarsel. Med core netatmo står der, at den styres i
-  Netatmo-appen. Nyt felt i `heat_manager/get_state`: `netatmo_away_temp`.
+- **Global lowest room temperature** (`min_room_temp`, default 17 °C — a
+  common minimum against mould). It applies to every room: the PID never
+  sends a lower setpoint to a valve, and the night/wake setback never goes
+  below it. Can be set in the setup's global step and live in the panel
+  under Settings → *Temperature limits*.
+- **Netatmo's away temperature in the panel.** With NET-TRV, Heat Manager
+  finds the relay's `number.<relay>_away_temperature` and shows it under
+  *Temperature limits*. Save writes the value directly to Netatmo
+  (`number.set_value`) — the same value as in the Netatmo app, stored on
+  the active schedule (its name is shown). If it is lower than the lowest
+  room temperature, a warning is shown. With core netatmo, the panel says
+  it is controlled in the Netatmo app. New field in
+  `heat_manager/get_state`: `netatmo_away_temp`.
 
 ### Changed
-- **Den gamle "fraværstemperatur" pr. rum er fjernet.** Feltet
-  `away_temp_override` hed "Away temp"/"Fraværstemperatur", men styrede
-  aldrig temperaturen når huset er tomt (det gør Netatmos egen
-  fraværstemperatur). Det var kun bund for PID'en og natsænkningen — nu den
-  globale laveste rumtemperatur. Feltet er fjernet fra rumtrinnet i
-  opsætningen, fra rumkortet i panelet og fra mobilkortet, og gemte værdier
-  ryddes automatisk ved opstart (`STALE_ROOM_KEYS`). Bemærk: rum der før
-  havde 10 °C som bund, har nu 17 °C, indtil du ændrer den globale værdi.
-- Beskrivelser af sluk-temperatur ved åbent vindue, natsænkning og
-  udetemperatursensor er rettet, så de ikke længere henviser til den
-  fjernede rumværdi eller til en adaptiv fraværstemperatur.
+- **The old per-room "away temperature" is removed.** The field
+  `away_temp_override` was called "Away temp", but never controlled the
+  temperature while the house is empty (Netatmo's own away temperature
+  does that). It was only the floor for the PID and the night setback —
+  now the global lowest room temperature. The field is removed from the
+  room step in the setup, from the room card in the panel and from the
+  mobile card, and stored values are cleared automatically at startup
+  (`STALE_ROOM_KEYS`). Note: rooms that previously had 10 °C as their
+  floor now have 17 °C until you change the global value.
+- Descriptions of the window-open off temperature, night setback and
+  outdoor temperature sensor are corrected so they no longer refer to the
+  removed room value or to an adaptive away temperature.
 
 ### Removed
-- README beskrev en "adaptiv fraværstemperatur" (`away_temp_mild`,
-  `away_temp_cold`, `mild_threshold`), som ikke findes i koden. Afsnittet er
-  fjernet, og konfigurationstabellen viser nu `window_off_temp` og
-  `min_room_temp`.
+- The README described an "adaptive away temperature" (`away_temp_mild`,
+  `away_temp_cold`, `mild_threshold`) that does not exist in the code. The
+  section is removed, and the configuration table now shows
+  `window_off_temp` and `min_room_temp`.
 
 ## [0.66.0] — 2026-11-12
 
 ### Changed
-- **Rumkortene i panelets Rum-fane er bygget om.** Kortet er delt i
-  navngivne sektioner — *Temperatur*, *Ventil*, *Indeklima*, *Rummets
-  indstillinger* og *Midlertidig ændring* — og hver værdi har ét entydigt
-  dansk navn. Før stod "Target temp" tre steder med tre forskellige
-  betydninger. Nu hedder de *Mål nu* (det Heat Manager styrer efter lige
-  nu, med komforttemperaturen som undertekst), *Komforttemperatur* (den
-  gemte indstilling) og *Temperatur* under Midlertidig ændring. Øvrige
-  navne: *I rummet*, *Sendt til ventil*, *Ved radiatoren*, *Varmebehov
-  (PID)*, *Fraværstemperatur*. Knapperne hedder *Sæt*, *Tilbage til
-  automatik* og *Tving varme til*; varigheden "Permanent" hedder nu
-  "Indtil videre".
-- **Netatmo-linjen er skrevet som en sætning**, fx "Følger tidsplan
-  «Vinter» · varmer ikke", med Netatmos eget sætpunkt på en linje for sig.
-  Advarslen skrives ud ("Netatmo står på 22°C, Heat Manager har sendt
-  23.5°C") og sammenligner nu med det sætpunkt, PID har sendt til
-  ventilen, når det kendes — ikke med målet. Før blev normal PID-drift
-  (sætpunkt over målet) vist som en afvigelse.
-- **Én Gem-knap** for komfort- og fraværstemperatur, sendt i ét kald.
-  Panelets 60-sekunders opdatering springer rumkortene over, mens et
-  talfelt eller en rulleliste har fokus, så en indtastning ikke går tabt.
-- **Døre vises pr. dør med navn** ("Dør til Gang: Åben") i stedet for én
-  samlet "Dør Åben".
-- Oversigtens rumfliser og "Alle rum"-boksen bruger de samme danske navne
-  (*I rummet*, *Mål nu*, *Batteri*, *Sæt i alle rum*, *Alle tilbage til
-  automatik*).
+- **The room cards in the panel's Rooms tab are rebuilt.** The card is
+  split into named sections — *Temperature*, *Valve*, *Indoor climate*,
+  *Room settings* and *Temporary change* — and every value has one
+  unambiguous name. Before, "Target temp" appeared in three places with
+  three different meanings. Now they are *Target now* (what Heat Manager
+  is controlling to right now, with the comfort temperature as subtitle),
+  *Comfort temperature* (the stored setting) and *Temperature* under
+  Temporary change. Other names: *In the room*, *Sent to valve*, *At the
+  radiator*, *Heat demand (PID)*, *Away temperature*. The buttons are
+  *Set*, *Back to automatic* and *Force heating on*; the duration
+  "Permanent" is now "Until further notice". (The panel's UI text is
+  Danish; the names above are the English meanings.)
+- **The Netatmo line is written as a sentence**, e.g. "Following schedule
+  «Winter» · not heating", with Netatmo's own setpoint on a line of its
+  own. The warning is spelled out ("Netatmo is at 22°C, Heat Manager has
+  sent 23.5°C") and now compares with the setpoint the PID has sent to
+  the valve, when known — not with the target. Before, normal PID
+  operation (setpoint above target) was shown as a mismatch.
+- **One Save button** for comfort and away temperature, sent in one call.
+  The panel's 60-second refresh skips the room cards while a number field
+  or a dropdown has focus, so an entry is not lost.
+- **Doors are shown per door with their name** ("Door to Hallway: Open")
+  instead of one combined "Door Open".
+- The overview's room tiles and the "All rooms" box use the same names
+  (*In the room*, *Target now*, *Battery*, *Set in all rooms*, *All back to
+  automatic*).
 
 ### Fixed
-- **Rum uden ventil viste PID og manuel styring.** Rum med kun sensorer
-  (fx Gang og Walk in) viste "PID 0%" samt mål-skyder, Send, Schedule og
-  Tving til, selvom der intet er at styre. De markeres nu "Kun sensorer"
-  og viser kun målinger (temperatur, fugt, CO₂, døre). `heat_manager/get_state`
-  sender ikke længere `pid_power` for et rum uden klimaentitet.
+- **Rooms without a valve showed PID and manual control.** Sensor-only
+  rooms (e.g. Hallway and Walk-in) showed "PID 0%" plus the target slider,
+  Send, Schedule and Force on, even though there is nothing to control.
+  They are now marked "Sensors only" and show measurements only
+  (temperature, humidity, CO₂, doors). `heat_manager/get_state` no longer
+  sends `pid_power` for a room without a climate entity.
 
 ## [0.65.4] — 2026-11-12
 
 ### Fixed
-- **Falsk "climate entity not found at startup" efter genstart.** Heat
-  Manager startede tit før NET-TRV havde oprettet sine klimaentiteter. Det
-  gav en WARNING pr. rum og en reparationsmeddelelse ("climate entity
-  missing"), der først forsvandt ved næste reload. Nu:
-  - `manifest.json` har `after_dependencies: ["netatmo", "net_trv"]`, så HA
-    starter de Netatmo-integrationer, der er sat op, før Heat Manager.
-    Integrationer, der ikke er installeret eller er deaktiveret, ignoreres.
-  - En klimaentitet, der mangler ved opstart, logges som INFO. Først når
-    den har manglet i 5 minutter, kommer der en WARNING og en
-    reparationsmeddelelse (`MISSING_CLIMATE_GRACE_SECONDS`).
-  - Reparationsmeddelelsen fjernes automatisk i næste opdatering (inden for
-    et minut), når entiteten findes igen — uden reload. Tjekket kører nu i
-    hver coordinator-opdatering (`check_missing_climate_entities()`).
+- **False "climate entity not found at startup" after a restart.** Heat
+  Manager often started before NET-TRV had created its climate entities.
+  That gave a WARNING per room and a repair ("climate entity missing")
+  that only went away at the next reload. Now:
+  - `manifest.json` has `after_dependencies: ["netatmo", "net_trv"]`, so HA
+    starts the Netatmo integrations that are set up before Heat Manager.
+    Integrations that are not installed or are disabled are ignored.
+  - A climate entity missing at startup is logged as INFO. Only when it
+    has been missing for 5 minutes is there a WARNING and a repair
+    (`MISSING_CLIMATE_GRACE_SECONDS`).
+  - The repair is removed automatically at the next update (within a
+    minute) when the entity exists again — without a reload. The check now
+    runs in every coordinator update (`check_missing_climate_entities()`).
 
 ## [0.65.3] — 2026-11-12
 
 ### Added
-- **Panelet viser, hvem der styrer rummet i Netatmo.** Netatmo-linjen i
-  rumdetaljen ("🛰️ Netatmo:") viser nu NET-TRV's `netatmo_setpoint_mode`
-  på dansk — *tidsplan*, *manuel til 18:30*, *boost til 17:00*, *væk*,
-  *frostsikring*, *slukket* — med sluttidspunktet fra `setpoint_end_time`.
-  Det forklarer fx, hvorfor et rum står i "auto"/"schedule": PID's manuelle
-  setpunkt via HomeKit er udløbet, og rummet følger Netatmo-tidsplanen,
-  indtil PID skriver igen. Kun visning; styringen er uændret. Med core
-  netatmo (uden attributten) vises forvalget som før. Nye felter i
+- **The panel shows who controls the room in Netatmo.** The Netatmo line
+  in the room details ("🛰️ Netatmo:") now shows NET-TRV's
+  `netatmo_setpoint_mode` in plain words — *schedule*, *manual until
+  18:30*, *boost until 17:00*, *away*, *frost guard*, *off* — with the end
+  time from `setpoint_end_time`. This explains, for example, why a room is
+  in "auto"/"schedule": the PID's manual setpoint via HomeKit has expired,
+  and the room follows the Netatmo schedule until the PID writes again.
+  Display only; control is unchanged. With core netatmo (without the
+  attribute) the preset is shown as before. New fields in
   `heat_manager/get_state`: `cloud_setpoint_mode`,
   `cloud_setpoint_end_time`.
 
 ## [0.65.2] — 2026-11-12
 
 ### Removed
-- **Rester fra den fjernede energifunktion.** `energy_tracking`,
-  `_energy_history` og `room_wattage` fjernes automatisk fra den gemte
-  opsætning ved opstart (engangsoprydning, ingen genindlæsning). Navne og
-  ikoner for de fire sensorer, der ikke længere findes
+- **Leftovers from the removed energy feature.** `energy_tracking`,
+  `_energy_history` and `room_wattage` are removed automatically from the
+  stored configuration at startup (one-time cleanup, no reload). Names and
+  icons for the four sensors that no longer exist
   (`energy_wasted_today`, `energy_saved_today`, `efficiency_score`,
-  `heating_wasted`), er fjernet fra `strings.json`, oversættelserne og
-  `icons.json`. README og `hacs.json` beskriver ikke længere energifunktionen.
-- **Død kode:** `RemoteButtonEngine._is_single_press()` (erstattet i
-  v0.58.4) med tilhørende tests, de ubrugte konstanter `TRV_TYPE_OPTIONS`,
-  `SYNC_MODE_OPTIONS`, `ACTION_PAUSE_1H`, `ACTION_PAUSE_TODAY` og
-  `LOVELACE_RESOURCE_PATH`, samt de ubrugte frontend-funktioner
-  `_hubMirrorNumeric()` (kort), `_fmt()` og `_cfgSectionFooter()` (panel).
-- **Forældede kommentarhoveder** i panel (170 linjer) og kort (97 linjer):
-  gammel ændringslog og et forkert "Version: 0.17.2" er erstattet af et kort
-  hoved, der henviser til `CHANGELOG.md`.
+  `heating_wasted`) are removed from `strings.json`, the translations and
+  `icons.json`. The README and `hacs.json` no longer describe the energy
+  feature.
+- **Dead code:** `RemoteButtonEngine._is_single_press()` (replaced in
+  v0.58.4) with its tests, the unused constants `TRV_TYPE_OPTIONS`,
+  `SYNC_MODE_OPTIONS`, `ACTION_PAUSE_1H`, `ACTION_PAUSE_TODAY` and
+  `LOVELACE_RESOURCE_PATH`, and the unused frontend functions
+  `_hubMirrorNumeric()` (card), `_fmt()` and `_cfgSectionFooter()` (panel).
+- **Outdated comment headers** in the panel (170 lines) and card (97
+  lines): an old changelog and a wrong "Version: 0.17.2" are replaced by a
+  short header that points to `CHANGELOG.md`.
 
 ### Fixed
-- **Gamle reparationsbeskeder blev aldrig ryddet efter en genstart.**
-  Heat Manager huskede kun i hukommelsen, hvilke "persistent_*"-beskeder
-  den havde oprettet, så fx en løst cloud-udfald fra oktober blev liggende
-  i HA's register. Nu slettes integrationens egne "persistent_*"-beskeder
-  ved opstart; en tilstand, der stadig er aktiv, opretter sin besked igen
-  efter den normale tærskel.
-- **Forkerte hjælpetekster:** `pi_demand_entity` ("used for waste and
-  efficiency calculations") og `co2_sensor` ("energy waste
-  classification") beskriver nu, hvad felterne faktisk bruges til. README:
-  forkert versions-badge (0.9.4) og beskrivelse af tidsplan-skrivninger
-  rettet.
+- **Old repairs were never cleared after a restart.** Heat Manager only
+  remembered in memory which "persistent_*" repairs it had created, so,
+  for example, a resolved cloud outage from October stayed in HA's
+  registry. Now the integration's own "persistent_*" repairs are deleted
+  at startup; a condition that is still active creates its repair again
+  after the normal threshold.
+- **Wrong help texts:** `pi_demand_entity` ("used for waste and
+  efficiency calculations") and `co2_sensor` ("energy waste
+  classification") now describe what the fields are actually used for.
+  README: wrong version badge (0.9.4) and the description of schedule
+  writes corrected.
 
 ## [0.65.1] — 2026-11-12
 
 ### Fixed
-- **En deaktiveret Netatmo-integration tæller ikke længere som installeret.**
-  Heat Manager talte config entries med `hass.config_entries.async_entries()`,
-  som også returnerer deaktiverede entries. Var den valgte integration (core
-  eller NET-TRV) deaktiveret i stedet for slettet, kom reparationsbeskeden
-  fra v0.61.1 derfor ikke, og valgfeltet "Netatmo-integration" blev vist,
-  selvom kun én integration var aktiv. Nu tæller kun entries uden
-  `disabled_by`.
+- **A disabled Netatmo integration no longer counts as installed.** Heat
+  Manager counted config entries with `hass.config_entries.async_entries()`,
+  which also returns disabled entries. If the selected integration (core
+  or NET-TRV) was disabled instead of deleted, the repair from v0.61.1 was
+  therefore not raised, and the "Netatmo integration" choice was shown
+  even though only one integration was active. Now only entries without
+  `disabled_by` are counted.
 
 ## [0.65.0] — 2026-11-12
 
 ### Changed
-- **Ventilbeskyttelse springer ventiler over, der har bevæget sig.** Den
-  ugentlige motionering om natten (kun når controlleren er OFF) springer nu
-  en ventil over, hvis NET-TRV's `valve_position`-sensor har en
-  motorrapport fra Netatmo inden for den seneste uge (attributten
-  `netatmo_ts`). Ventilen er så beviseligt fri, og to setpunkt-skrivninger
-  spares. Har et rum flere ventiler, skal alle have bevæget sig. Uden
-  sensoren (slået fra som standard på nye NET-TRV-installationer, ikke i
-  core netatmo) eller uden rapport siden NET-TRV startede, motioneres
-  ventilen som før. Overspringene logges i hændelsesloggen.
+- **Valve protection skips valves that have moved.** The weekly night-time
+  exercise (only when the controller is OFF) now skips a valve if
+  NET-TRV's `valve_position` sensor has a motor report from Netatmo within
+  the last week (attribute `netatmo_ts`). The valve is then demonstrably
+  free, and two setpoint writes are saved. If a room has several valves,
+  all of them must have moved. Without the sensor (disabled by default on
+  new NET-TRV installs, not in core netatmo) or without a report since
+  NET-TRV started, the valve is exercised as before. The skips are
+  recorded in the event log.
 
 ## [0.64.0] — 2026-11-12
 
 ### Added
-- **Netatmos egen registrering af åbent vindue som valgfri vindueskilde.**
-  Ny indstilling pr. rum: "Brug ventilens egen registrering af åbent
-  vindue" (slået fra som standard). Når den er slået til, tæller
-  Netatmo-ventilens `open_window`-attribut (NET-TRV) som en vinduessensor
-  for rummet — med præcis samme adfærd som en kontaktsensor: sænkning til
-  vindues-temperaturen, rumtilstand `WINDOW_OPEN`, 30-minutters advarsel og
-  gendannelse, når vinduet lukkes. Tænkt til rum uden kontaktsensor; den
-  kan kombineres med kontaktsensorer (rummet er åbent, hvis én af dem er).
-  Der lægges ingen ekstra forsinkelse oveni, da Netatmo først melder åbent
-  vindue efter sin egen registrering. Kun Netatmo-ventiler; integrationer
-  uden attributten giver blot ingen hændelser.
-- Rummets "Vindue"-sensor oprettes nu også for rum, der kun bruger
-  Netatmos registrering, og "noget vindue åbent" og panelet medregner den.
+- **Netatmo's own open-window detection as an optional window source.**
+  New per-room setting: "Use the valve's own open-window detection"
+  (disabled by default). When enabled, the Netatmo valve's `open_window`
+  attribute (NET-TRV) counts as a window sensor for the room — with
+  exactly the same behaviour as a contact sensor: drop to the window
+  temperature, room state `WINDOW_OPEN`, 30-minute warning and restore
+  when the window is closed. Intended for rooms without a contact sensor;
+  it can be combined with contact sensors (the room is open if any of
+  them is). No extra delay is added, since Netatmo only reports an open
+  window after its own detection. Netatmo valves only; integrations
+  without the attribute simply produce no events.
+- The room's "Window" sensor is now also created for rooms that only use
+  Netatmo's detection, and "any window open" and the panel include it.
 
 ## [0.63.0] — 2026-11-12
 
 ### Fixed
-- **Et enkelt rum, der gives tilbage til tidsplanen, ophæver ikke længere
-  væk/frostsikring for hele huset (F5).** Heat Manager brugte
-  `preset_mode: schedule` til at give ét rum tilbage til Netatmo-tidsplanen
-  (vindue lukket, override udløbet/slået fra i panelet eller på kontakten,
-  controller OFF). I Netatmo er det en kommando for hele hjemmet — så fx et
-  vindue, der blev lukket, mens huset stod i væk, satte alle rum tilbage
-  til tidsplan. Nu bruges den ejende integrations
-  `clear_temperature_setting` (core `netatmo.` eller `net_trv.`), som kun
-  fjerner rummets manuelle setpunkt. Kaldet springes over, hvis rummet
-  allerede følger tidsplanen (NET-TRV's `netatmo_setpoint_mode`). Ukendt
-  ejer bruger det gamle kald.
-  `hvac_mode: auto` blev fravalgt: core netatmo oversætter det til samme
-  hjem-niveau-kommando (verificeret i HA-kildekoden).
+- **Handing a single room back to the schedule no longer cancels
+  away/frost guard for the whole house (F5).** Heat Manager used
+  `preset_mode: schedule` to hand one room back to the Netatmo schedule
+  (window closed, override expired/turned off in the panel or on the
+  switch, controller OFF). In Netatmo that is a command for the whole
+  home — so, for example, a window closed while the house was away put
+  every room back on schedule. Now the owning integration's
+  `clear_temperature_setting` is used (core `netatmo.` or `net_trv.`),
+  which only removes the room's manual setpoint. The call is skipped if
+  the room already follows the schedule (NET-TRV's
+  `netatmo_setpoint_mode`). An unknown owner uses the old call.
+  `hvac_mode: auto` was rejected: core netatmo translates it into the
+  same home-level command (verified in the HA source).
 
 ### Changed
-- **Væk og tilbage-til-tidsplan for hele huset sendes én gang (F6).**
-  Når alle forlader huset, ved hjemkomst og ved forvarmning blev Netatmos
-  hjem-niveau-forvalg sendt én gang pr. ventil (op til 5 kald). Nu sendes
-  det én gang, og de øvrige rum markeres blot. Zigbee-ventiler er uændrede.
-  `force_room_on` er bevidst uændret.
+- **Away and back-to-schedule for the whole house are sent once (F6).**
+  When everyone leaves, on arrival and on pre-heat, Netatmo's home-level
+  preset was sent once per valve (up to 5 calls). Now it is sent once,
+  and the other rooms are only marked. Zigbee valves are unchanged.
+  `force_room_on` is deliberately unchanged.
 
 ## [0.62.1] — 2026-11-12
 
 ### Changed
-- **Rumtemperatur læses fra NET-TRV før HomeKit.** Uden ekstern rumsensor
-  læste Heat Manager altid ventilens temperatur fra HomeKit først (0,5 °C).
-  Ejes rummets klimaenhed af NET-TRV, læses den nu derfra først — NET-TRV
-  får ændringer via webhook på under 1 sekund og har 0,1 °C opløsning.
-  HomeKit bruges, hvis NET-TRV er utilgængelig. Med core netatmo (pollet)
-  og alle andre integrationer er rækkefølgen uændret: HomeKit først. En
-  ekstern rumsensor vinder stadig altid. Ejeren læses fra entity registry.
+- **Room temperature is read from NET-TRV before HomeKit.** Without an
+  external room sensor, Heat Manager always read the valve's temperature
+  from HomeKit first (0.5 °C). If the room's climate entity is owned by
+  NET-TRV, it is now read from there first — NET-TRV gets changes via
+  webhook in under 1 second and has 0.1 °C resolution. HomeKit is used if
+  NET-TRV is unavailable. With core netatmo (polled) and all other
+  integrations the order is unchanged: HomeKit first. An external room
+  sensor still always wins. The owner is read from the entity registry.
 
 ## [0.62.0] — 2026-11-11
 
 ### Added
-- **Advarsler om Netatmo-ventilernes sundhed i statuslinjen.** Heat Manager
-  finder Netatmo-integrationens egne forbindelses- og batterisensorer på
-  samme enhed som ventilens klimaenhed (ud fra domæne, enhedsklasse og
-  unique id — ikke navn) og viser:
-  - **"Ventil offline: <rum>"** (advarsel), når integrationen melder
-    ventilen afbrudt. Rummet vises så ikke længere også under den generelle
-    "Netatmo utilgængelig"-linje.
-  - **"Lavt batteri: <rum>"** (advarsel) ved `low`/`very_low` — eller under
-    20 %, hvis der kun findes en %-sensor.
-  - **"Netatmo-realtid (webhook) nede"** (info), når NET-TRV's webhook er
-    slået fra, og data kun hentes hvert minut.
-  Kan snoozes som de øvrige advarsler. Integrationer uden disse sensorer
-  (fx core netatmo) giver blot ingen advarsel.
+- **Warnings about the Netatmo valves' health in the status line.** Heat
+  Manager finds the Netatmo integration's own connectivity and battery
+  sensors on the same device as the valve's climate entity (by domain,
+  device class and unique id — not name) and shows:
+  - **"Valve offline: <room>"** (warning) when the integration reports the
+    valve disconnected. The room is then no longer also listed under the
+    general "Netatmo unavailable" line.
+  - **"Low battery: <room>"** (warning) at `low`/`very_low` — or below
+    20 % if only a % sensor exists.
+  - **"Netatmo real-time (webhook) down"** (info) when NET-TRV's webhook
+    is off and data is only fetched every minute.
+  Can be snoozed like the other warnings. Integrations without these
+  sensors (e.g. core netatmo) simply produce no warning.
 
 ### Changed
-- **PID springer offline ventiler over.** Meldes en ventil offline, skrives
-  der ikke setpunkt til den; er alle rummets ventiler offline, nulstilles
-  rummets PID. Ukendt eller manglende forbindelsessensor ændrer intet.
+- **The PID skips offline valves.** If a valve is reported offline, no
+  setpoint is written to it; if all of a room's valves are offline, the
+  room's PID is reset. An unknown or missing connectivity sensor changes
+  nothing.
 
 ## [0.61.2] — 2026-11-11
 
 ### Changed
-- **HomeKit er nu et krav for PID på Netatmo-ventiler.** En Netatmo-ventil
-  uden HomeKit-klimaenhed får ikke længere PID-setpunkter via skyen (core
-  eller NET-TRV) — det kunne bruge op til 300 af Netatmos 500 API-kald i
-  timen. Ventilen følger i stedet sin Netatmo-tidsplan; forvalg, vinduer, væk
-  og boost virker som før. Er alle rummets ventiler sådan, nulstilles rummets
-  PID, så integralet ikke vokser, mens intet skrives. Zigbee-ventiler og
-  Netatmo-ventiler med HomeKit er uændrede. Ventiler uden `trv_type` regnes
-  som Netatmo, som alle andre steder i koden.
-- **Synligt i panelet:** statuslinjen viser "PID kræver HomeKit — følger
-  Netatmo-tidsplanen: <rum>" (info), når PID er slået til.
-- **HomeKit-feltet i ventilopsætningen** hedder nu "HomeKit-klimaenhed
-  (krævet for PID på Netatmo)" med en forklaring.
+- **HomeKit is now required for PID on Netatmo valves.** A Netatmo valve
+  without a HomeKit climate entity no longer gets PID setpoints via the
+  cloud (core or NET-TRV) — that could use up to 300 of Netatmo's 500 API
+  calls per hour. The valve follows its Netatmo schedule instead; presets,
+  windows, away and boost work as before. If all of a room's valves are
+  like this, the room's PID is reset so the integral does not grow while
+  nothing is written. Zigbee valves and Netatmo valves with HomeKit are
+  unchanged. Valves without `trv_type` count as Netatmo, as everywhere
+  else in the code.
+- **Visible in the panel:** the status line shows "PID requires HomeKit —
+  following the Netatmo schedule: <room>" (info) when PID is enabled.
+- **The HomeKit field in the valve setup** is now called "HomeKit climate
+  entity (required for PID on Netatmo)" with an explanation.
 
 ## [0.61.1] — 2026-11-11
 
 ### Added
-- **Valg af Netatmo-integration.** Nyt felt "Netatmo-integration" øverst i
-  de globale indstillinger (opsætning og Konfigurer): *Auto* (anbefalet —
-  NET-TRV hvis installeret, ellers core), *NET-TRV* eller *Netatmo (core)*.
-  Feltet vises kun, når begge integrationer er installeret, eller når et
-  eksplicit valg allerede er gemt.
-- **Validering af ventiler.** Med et eksplicit valg afvises en Netatmo-ventil,
-  hvis klimaenheden tilhører den anden integration (fejl
-  `netatmo_backend_mismatch`). Ejeren læses fra entity registry, ikke fra
-  navnet. Zigbee-ventiler og *Auto* påvirkes ikke.
-- **Reparation, når den valgte integration mangler.** Er der valgt core
-  eller NET-TRV, og integrationen ikke er installeret, oprettes et repair
-  issue under Reparationer. Det ryddes, så snart valget kan opfyldes igen
-  eller der skiftes til *Auto*. Tjekkes ved opstart og når de globale
-  indstillinger gemmes.
-- **Diagnostics** viser `netatmo_backend_choice` og
+- **Choice of Netatmo integration.** New field "Netatmo integration" at
+  the top of the global settings (setup and Configure): *Auto*
+  (recommended — NET-TRV if installed, otherwise core), *NET-TRV* or
+  *Netatmo (core)*. The field is only shown when both integrations are
+  installed, or when an explicit choice is already stored.
+- **Validation of valves.** With an explicit choice, a Netatmo valve is
+  rejected if its climate entity belongs to the other integration (error
+  `netatmo_backend_mismatch`). The owner is read from the entity registry,
+  not from the name. Zigbee valves and *Auto* are not affected.
+- **Repair when the selected integration is missing.** If core or NET-TRV
+  is selected and that integration is not installed, a repair issue is
+  created under Repairs. It is cleared as soon as the choice can be met
+  again or the setting is changed to *Auto*. Checked at startup and when
+  the global settings are saved.
+- **Diagnostics** show `netatmo_backend_choice` and
   `netatmo_backend_effective`.
 
 ## [0.61.0] — 2026-11-11
 
 ### Added
-- **Heat Manager ved nu, hvilken Netatmo-integration hver ventil hører til.**
-  Nyt rent engine-modul `engine/netatmo_backend.py` kender forskellen på core
-  `netatmo` og NET-TRV (`net_trv`). Ejeren læses fra entity registry
-  (`platform`), aldrig fra entitetsnavnet — navnebyttet 2026-11-11 gjorde
-  navnene upålidelige. Første skridt mod understøttelse af begge
-  integrationer; ingen styring ændres i denne version.
-- **Diagnostics** viser installerede Netatmo-integrationer
-  (`netatmo_backends_installed`) og for hver ventil `netatmo_backend`, samt
-  et samlet `netatmo_backend` pr. rum (`net_trv`, `netatmo`, `mixed` eller
+- **Heat Manager now knows which Netatmo integration each valve belongs
+  to.** New pure engine module `engine/netatmo_backend.py` knows the
+  difference between core `netatmo` and NET-TRV (`net_trv`). The owner is
+  read from the entity registry (`platform`), never from the entity name —
+  the renaming on 2026-11-11 made names unreliable. First step towards
+  supporting both integrations; no control changes in this version.
+- **Diagnostics** show the installed Netatmo integrations
+  (`netatmo_backends_installed`) and `netatmo_backend` for each valve, plus
+  a combined `netatmo_backend` per room (`net_trv`, `netatmo`, `mixed` or
   `none`).
-- **Panelets rumdata** (`heat_manager/get_state`) har det samme felt
-  `netatmo_backend` pr. rum. Frontend bruger det ikke endnu.
+- **The panel's room data** (`heat_manager/get_state`) has the same field
+  `netatmo_backend` per room. The frontend does not use it yet.
 
 ## [0.60.3] — 2026-11-11
 
 ### Fixed
-- **PID fortsætter via HomeKit, når Netatmo-skyen er nede (B27).** Var
-  rummets cloud-entitet (NET-TRV eller core `netatmo`) `unavailable` — fx ved
-  internet- eller Netatmo-udfald — nulstillede PID'en og sprang rummet over,
-  selvom HomeKit-entiteten stadig virkede lokalt via relæet. Nu behandles en
-  utilgængelig cloud-entitet som "ingen ny viden": PID'en beholder sit
-  integral og skriver fortsat setpunkter via HomeKit. Den nulstilles kun,
-  når rummet ikke har nogen tilgængelig skrivevej. Loggen får én advarsel,
-  når et rum går over til kun-HomeKit, og én info-linje, når skyen er
-  tilbage.
+- **The PID keeps running via HomeKit when the Netatmo cloud is down
+  (B27).** If a room's cloud entity (NET-TRV or core `netatmo`) was
+  `unavailable` — e.g. during an internet or Netatmo outage — the PID was
+  reset and the room skipped, even though the HomeKit entity still worked
+  locally via the relay. Now an unavailable cloud entity is treated as "no
+  new information": the PID keeps its integral and continues writing
+  setpoints via HomeKit. It is only reset when the room has no available
+  write path. The log gets one warning when a room switches to
+  HomeKit-only, and one info line when the cloud is back.
 
 ## [0.60.2] — 2026-10-30
 
 ### Fixed
-- **Boost bruger igen dine indstillede standardværdier.** "Standardtemperatur"
-  og "Standardvarighed" (panelets Indstillinger / options flow) blev ikke
-  længere læst siden v0.31.0 — al boost uden eksplicit temperatur/varighed
-  (panelets Boost-knap og langt tryk på fjernbetjeningens knap 3) brugte
-  altid de faste 24 °C / 30 min. Nu bruges de indstillede værdier igen, med
-  24 °C / 30 min kun som fallback.
-- **PID'en mister ikke længere sin opbyggede varme ved kortvarigt tab af
-  rumtemperatur.** Mangler temperaturen i et enkelt tick (rumsensor/HomeKit/
-  sky-udfald), springes tick'et blot over, og PID'ens integral bevares. Den
-  nulstilles stadig, hvis rummets klima-entitet selv er utilgængelig.
-- **CI var rød på både lint og tests.** Ruff stoppede på tre fejl, den ikke
-  selv må rette: `guarded` i `engine/controller.py` bruger nu PEP 695-
-  typeparametre (UP047), fjernbetjeningens tidsstempel i `websocket.py`
-  bruger `contextlib.suppress` (SIM105), og en ubrugt `heating_power`-
-  variabel er fjernet (F841). Pytest stoppede allerede ved indsamlingen, så
-  ingen tests blev kørt: `test_sensor.py` importerede de fjernede energi-
-  sensorer (de tre tests er fjernet), og `test_waste_calculator.py` tester
-  død kode og springes nu over. Testene kører igen; 104 ældre fejl står
-  tilbage og tages i en separat oprydning.
-- **De 104 ældre test-fejl er rettet (kun testfiler).** Næsten alle var
-  forældede mocks: klima-kald går nu via `async_call_climate_service()`,
-  nye koordinator-opslag (`get_control_mode`, `get_climate_entity`,
-  `get_room_target_temp`, lux/sol/dør-input) manglede, og ændret adfærd
-  (setpunkt-margin, PID-ventil %, "Vindue-/Dørsensor"-navne, rum uden TRV,
-  lokal tid i grace-perioden) var ikke fulgt med. De sidste tre fejlende
-  tests afslørede de to kodefejl ovenfor, som nu er rettet — alle tests
-  er grønne.
+- **Boost uses your configured defaults again.** "Default temperature" and
+  "Default duration" (the panel's Settings / options flow) had not been
+  read since v0.31.0 — every boost without an explicit temperature/duration
+  (the panel's Boost button and a long press on the remote's button 3)
+  always used the fixed 24 °C / 30 min. Now the configured values are used
+  again, with 24 °C / 30 min only as fallback.
+- **The PID no longer loses its built-up heat on a brief loss of room
+  temperature.** If the temperature is missing for a single tick (room
+  sensor/HomeKit/cloud outage), the tick is simply skipped and the PID's
+  integral is kept. It is still reset if the room's climate entity itself
+  is unavailable.
+- **CI was red on both lint and tests.** Ruff stopped on three errors it
+  may not fix itself: `guarded` in `engine/controller.py` now uses PEP 695
+  type parameters (UP047), the remote's timestamp in `websocket.py` uses
+  `contextlib.suppress` (SIM105), and an unused `heating_power` variable is
+  removed (F841). Pytest already stopped at collection, so no tests ran:
+  `test_sensor.py` imported the removed energy sensors (the three tests are
+  removed), and `test_waste_calculator.py` tests dead code and is now
+  skipped. The tests run again; 104 older failures remain and are handled
+  in a separate cleanup.
+- **The 104 older test failures are fixed (test files only).** Almost all
+  were outdated mocks: climate calls now go via
+  `async_call_climate_service()`, new coordinator lookups
+  (`get_control_mode`, `get_climate_entity`, `get_room_target_temp`,
+  lux/solar/door inputs) were missing, and changed behaviour (setpoint
+  margin, PID valve %, "Window/Door sensor" names, rooms without a TRV,
+  local time in the grace period) had not been followed. The last three
+  failing tests revealed the two code bugs above, which are now fixed —
+  all tests are green.
 
 ## [0.60.1] — 2026-10-30
 
 ### Changed
-- **Den smarte statuslinje sidder nu i headeren** mellem titlen og
-  Opdater-knappen (hvor det gamle status-felt sad), så den ikke længere
-  ligger klemt ind over fanerne. På smalle skærme (under 760 px) lægger den
-  sig på sin egen linje under titlen.
-- **"Varme aktiv"-mærket er flyttet ind under titlen** i stedet for at stå
-  ved siden af statusfeltet.
-- **Linjen under titlen (udetemperatur · sæson · vejr) er fjernet.**
-  Udetemperatur og regn/blæst vises nu i statuslinjens rolige tilstand;
-  sæsonen står allerede i Controller-sektionen.
+- **The smart status line now sits in the header** between the title and
+  the Refresh button (where the old status field was), so it no longer
+  squeezes in over the tabs. On narrow screens (below 760 px) it moves to
+  its own line under the title.
+- **The "Heating active" badge has moved under the title** instead of
+  standing next to the status field.
+- **The line under the title (outdoor temperature · season · weather) is
+  removed.** Outdoor temperature and rain/wind are now shown in the status
+  line's calm state; the season is already in the Controller section.
 
 ## [0.60.0] — 2026-10-30
 
-Én smart statuslinje i stedet for status-centret og AUTO/MANUEL-bjælken —
-den fortæller med én sætning, hvad der er vigtigst lige nu, kigger
-fremad og tilbyder de handlinger, der giver mening i situationen.
+One smart status line instead of the status centre and the AUTO/MANUAL
+bar — it says in one sentence what matters most right now, looks ahead
+and offers the actions that make sense in the situation.
 
 ### Added
-- **Smart statuslinje i panelet** (erstatter v0.32-status-centret og
-  v0.59-bjælken):
-  - Overskrift i hele sætninger, fx "Alt kører automatisk · 2 rum varmer
-    op" eller "Manuel i 3 af 7 rum · auto igen om 1 t 22 min".
-  - Prognoser: hvornår det koldeste rum når målet (ud fra rummets lærte
-    opvarmningshastighed), tid til natsænkning og udetemperatur.
-  - Nedtællingsring i ikonfeltet, når noget slutter af sig selv
-    (manuel styring, boost).
-  - Kvittering i 10 sek. efter et tryk på fjernbetjeningen — hvad der
-    skete, og hvilke rum der blev sprunget over og hvorfor.
-  - Handlinger efter situationen: "+1 time" og "Auto nu" ved manuel,
-    "Skjul 1 t" ved advarsler.
-  - Roterer hvert 6. sek. mellem flere beskeder (pauser ved hover);
-    kritiske fejl bliver stående.
-  - Fold ud for Styring, Advarsler (skjulte vises nedtonet med "Vis"),
-    **Hvorfor — rum for rum** (klik for den lange forklaring) og de
-    seneste hændelser.
-- **Kompakt smart linje i kortet** med ring, overskrift og "Auto nu";
-  tryk folder detaljer ud. Opdaterer straks via Status-sensoren.
-- **Lange tryk på fjernbetjeningen:** hold op-knappen = start boost, hold
-  auto/manuel-knappen = alle rum tilbage på automatik (uanset hvem der
-  satte dem på manuel). `long_release` udløser aldrig noget.
-- **Status-sensor** (`sensor.heat_manager_status`): slukket / pause /
-  vindue åbent / boost / manuel / automatisk med oversatte tilstande og
-  attributter for manuelle rum, åbne vinduer og tidspunkt for automatik.
-- **WebSocket:** `heat_manager/extend_overrides` (+N min på alle
-  tidsbegrænsede manuelle rum) og `heat_manager/snooze_issue` (skjul en
-  advarsel i N min; kritiske kan ikke skjules).
-- Advarsler i `active_issues` har nu et fast `id` (kategori + rum), så en
-  skjult advarsel kommer igen, hvis et nyt rum bliver ramt.
-- `remote_last_action` har nu `action`, `delta` og `skipped`.
+- **Smart status line in the panel** (replaces the v0.32 status centre and
+  the v0.59 bar):
+  - Headline in full sentences, e.g. "Everything runs automatically · 2
+    rooms heating up" or "Manual in 3 of 7 rooms · auto again in 1 h 22
+    min".
+  - Forecasts: when the coldest room reaches its target (from the room's
+    learned heating rate), time to night setback and outdoor temperature.
+  - Countdown ring in the icon field when something ends by itself (manual
+    control, boost).
+  - Acknowledgement for 10 s after a remote press — what happened, and
+    which rooms were skipped and why.
+  - Actions by situation: "+1 hour" and "Auto now" when manual, "Hide 1 h"
+    for warnings.
+  - Rotates every 6 s between several messages (pauses on hover);
+    critical errors stay put.
+  - Fold-out for Control, Warnings (hidden ones shown dimmed with "Show"),
+    **Why — room by room** (click for the long explanation) and the latest
+    events.
+- **Compact smart line on the card** with ring, headline and "Auto now";
+  tapping expands details. Updates immediately via the Status sensor.
+- **Long presses on the remote:** hold the up button = start boost, hold
+  the auto/manual button = every room back to automatic (whoever set it
+  manual). `long_release` never triggers anything.
+- **Status sensor** (`sensor.heat_manager_status`): off / pause / window
+  open / boost / manual / automatic with translated states and attributes
+  for manual rooms, open windows and time of return to automatic.
+- **WebSocket:** `heat_manager/extend_overrides` (+N min on every timed
+  manual room) and `heat_manager/snooze_issue` (hide a warning for N min;
+  critical ones cannot be hidden).
+- Warnings in `active_issues` now have a fixed `id` (category + rooms), so
+  a hidden warning returns if a new room is affected.
+- `remote_last_action` now has `action`, `delta` and `skipped`.
 
 ### Changed
-- Panelets header har ikke længere et separat status-felt — alt ligger i
-  statuslinjen under headeren.
+- The panel's header no longer has a separate status field — everything
+  is in the status line under the header.
 
 ### Tests
-- Ny `test_status_line.py` (forlæng, skjul, husstatus, lange tryk,
-  sprungne rum, WebSocket). `test_websocket_active_issues.py`'s mock
-  manglede `calibration_engine` — 5 gamle fejl rettet samtidig.
+- New `test_status_line.py` (extend, snooze, house status, long presses,
+  skipped rooms, WebSocket). The mock in `test_websocket_active_issues.py`
+  lacked `calibration_engine` — 5 old failures fixed at the same time.
 
 ## [0.59.0] — 2026-10-30
 
-Det skal altid være tydeligt, om huset kører automatisk eller manuelt — og
-om det var fjernbetjeningen, der overstyrede.
+It should always be clear whether the house runs automatically or
+manually — and whether it was the remote that overrode it.
 
 ### Added
-- **Styringstilstand-sensor** (`sensor.heat_manager_control_mode`) under
-  Hub-enheden: `auto`, `manual` eller `mixed`. Attributterne viser de
-  manuelle rum, hvem der satte dem på manuel, og hvornår de går tilbage til
-  automatik. Kan bruges direkte i automatiseringer.
-- **Statusbjælke i panelet** lige under headeren, synlig fra alle faner.
-  Grøn AUTO når intet er overstyret; lilla MANUEL med antal rum, kilde
-  (📡 fjernbetjening, 🖥 panel, 🔘 kontakt, 🎚 ventil) og tidspunkt for
-  automatisk tilbagevenden — plus en "Tilbage til auto"-knap.
-- **WebSocket-kommandoen `heat_manager/release_overrides`** bag knappen —
-  sætter alle manuelle rum tilbage på automatik via samme vej som
-  override-kontakten (inkl. gendannelse af planen, B23).
-- **Fjernbetjeningens overstyring udløber nu af sig selv** efter 2 timer
-  (ny indstilling i Fjernbetjening-trinnet, 0 = aldrig). Hvert tryk starter
-  nedtællingen forfra. Før holdt ét tryk hele huset på manuel, indtil
-  nogen trykkede på auto/manuel-knappen.
-- **"Siden"/"auto igen kl."** pr. rum i panel (Oversigt og Rum) og i
-  kortets rum-ark. `override_since`/`override_expires_at` er tilføjet til
-  rummenes state-sensor og `get_state`-payloaden.
-- **Kortet** har fået samme AUTO/MANUEL-linje under headeren.
-- **Bekræftelse af knaptryk:** statusbjælken og de berørte rumkort pulserer
-  i ~15 sekunder efter et tryk på fjernbetjeningen.
+- **Control mode sensor** (`sensor.heat_manager_control_mode`) under the
+  Hub device: `auto`, `manual` or `mixed`. The attributes show the manual
+  rooms, who set them to manual, and when they return to automatic. Can be
+  used directly in automations.
+- **Status bar in the panel** just below the header, visible from every
+  tab. Green AUTO when nothing is overridden; purple MANUAL with the number
+  of rooms, source (📡 remote, 🖥 panel, 🔘 switch, 🎚 valve) and time of
+  automatic return — plus a "Back to auto" button.
+- **The WebSocket command `heat_manager/release_overrides`** behind the
+  button — sets every manual room back to automatic via the same path as
+  the override switch (including restoring the schedule, B23).
+- **The remote's override now expires by itself** after 2 hours (new
+  setting in the Remote control step, 0 = never). Every press restarts the
+  countdown. Before, one press kept the whole house on manual until
+  someone pressed the auto/manual button.
+- **"Since" / "auto again at"** per room in the panel (Overview and Rooms)
+  and in the card's room sheet. `override_since`/`override_expires_at` are
+  added to the rooms' state sensor and the `get_state` payload.
+- **The card** has the same AUTO/MANUAL line under its header.
+- **Confirmation of button presses:** the status bar and the affected room
+  cards pulse for ~15 seconds after a remote press.
 
 ### Changed
-- Rum-pillen viser nu **Auto** i stedet for "Normal" og **Manuel** i
-  stedet for "Override" (med kildens ikon på kortet og kildens navn på
-  Rum-fanen).
-- Et tryk på fjernbetjeningen på et rum, der allerede var manuelt fra
-  panelet, overdrager rummet til fjernbetjeningen (kilde og nedtælling).
-- Manuel ændring direkte på ventilen (sync-tilstand `mirror`) registreres
-  nu med kilden `trv`, så den vises som "🎚 Ventil" i stedet for en
-  umærket overstyring.
+- The room pill now shows **Auto** instead of "Normal" and **Manual**
+  instead of "Override" (with the source's icon on the card and the
+  source's name on the Rooms tab).
+- A remote press on a room that was already manual from the panel hands
+  the room over to the remote (source and countdown).
+- A manual change directly on the valve (sync mode `mirror`) is now
+  recorded with the source `trv`, so it is shown as "🎚 Valve" instead of
+  an unlabelled override.
 
 ### Fixed
-- **Panelet var op til 60 sekunder om at vise et knaptryk**, fordi det kun
-  hentede status hvert minut. Det lytter nu på Styringstilstand-sensoren og
-  henter med det samme, når den ændrer sig.
-- **Kortets boost-nedtælling blev ikke stoppet**, når kortet blev fjernet
-  fra siden (`disconnectedCallback`).
+- **The panel took up to 60 seconds to show a button press**, because it
+  only fetched status every minute. It now listens to the Control mode
+  sensor and fetches immediately when it changes.
+- **The card's boost countdown was not stopped** when the card was removed
+  from the page (`disconnectedCallback`).
 
 ### Tests
-- Ny `test_control_mode.py` (udløb, siden-tidspunkt, auto/manuel/blandet,
-  release, sensor, WebSocket) samt tests for fjernbetjeningens nedtælling
-  og sync-kilden `trv`.
+- New `test_control_mode.py` (expiry, since time, auto/manual/mixed,
+  release, sensor, WebSocket) plus tests for the remote's countdown and the
+  sync source `trv`.
 
 ## [0.58.4] — 2026-10-30
 
-Fjernbetjeningen (Aqara W100 via Matter) virkede slet ikke — og et par
-fejl omkring den, der først blev synlige da den gjorde.
+The remote control (Aqara W100 via Matter) did not work at all — plus a
+few bugs around it that only became visible once it did.
 
 ### Fixed
-- **B22 — Fjernbetjeningens knapper blev altid ignoreret.** Motoren
-  accepterede kun `event_type == "single"`, men en W100 parret via Matter
-  sender `multi_press_1` ved et enkelt tryk. Nu accepteres `multi_press_1`
-  samt `single`/`single_<knap>` (Zigbee2MQTT). Langt tryk ignoreres stadig.
-- **B22 — Dobbelttryk på op/ned gav ingenting.** `multi_press_2`/`double`
-  på op- eller ned-knappen justerer nu to trin (±1,0 °C). Dobbelttryk på
-  auto/manuel-knappen ignoreres fortsat.
-- **B23 — "Tilbage til auto" gendannede ikke planen.** `async_set_room_override(False)`
-  ændrede kun rummets tilstand og sendte ingen kommando til ventilerne, så
-  en Netatmo-ventil kunne blive hængende på fjernbetjeningens manuelle
-  setpunkt. Kalder nu `async_restore_room_schedule()` som panelets nulstil
-  og udløb af manuel override gør. Gælder også override-kontakten.
-- **B24 — Hurtige tryk gik tabt.** Netatmo melder først det nye setpunkt
-  tilbage efter flere sekunder, så to hurtige tryk startede fra samme gamle
-  værdi. Tryk behandles nu ét ad gangen, og fjernbetjeningens eget seneste
-  setpunkt pr. rum bruges i 60 sekunder. Et rum hvor ingen ventil modtog
-  kommandoen rapporteres ikke længere som justeret.
-- **B25 — Risiko for spøgelsestryk ved genstart.** En tilstandsændring hvor
-  den forrige tilstand mangler eller er `unavailable`, eller hvor
-  tidsstemplet er uændret, tæller ikke længere som et tryk.
-- **B26 — Rumnavne vist to gange i statuslinjen.** Fjernbetjeningens
-  beskrivelse indeholder allerede rummene; `websocket.py` tilføjer nu kun
-  rum der ikke allerede er nævnt.
+- **B22 — The remote's buttons were always ignored.** The engine only
+  accepted `event_type == "single"`, but a W100 paired via Matter sends
+  `multi_press_1` on a single press. Now `multi_press_1` is accepted, as
+  well as `single`/`single_<button>` (Zigbee2MQTT). Long press is still
+  ignored.
+- **B22 — A double press on up/down did nothing.** `multi_press_2`/`double`
+  on the up or down button now adjusts two steps (±1.0 °C). A double press
+  on the auto/manual button is still ignored.
+- **B23 — "Back to auto" did not restore the schedule.**
+  `async_set_room_override(False)` only changed the room's state and sent
+  no command to the valves, so a Netatmo valve could stay stuck on the
+  remote's manual setpoint. It now calls `async_restore_room_schedule()`,
+  as the panel's reset and the expiry of a manual override do. Also
+  applies to the override switch.
+- **B24 — Fast presses were lost.** Netatmo only reports the new setpoint
+  back after several seconds, so two fast presses started from the same
+  old value. Presses are now handled one at a time, and the remote's own
+  latest setpoint per room is used for 60 seconds. A room where no valve
+  received the command is no longer reported as adjusted.
+- **B25 — Risk of ghost presses at restart.** A state change where the
+  previous state is missing or `unavailable`, or where the timestamp is
+  unchanged, no longer counts as a press.
+- **B26 — Room names shown twice in the status line.** The remote's
+  description already contains the rooms; `websocket.py` now only adds
+  rooms not already mentioned.
 
 ### Tests
-- Fjernbetjenings- og override-source-testene brugte stadig
-  `hass.services.async_call`, som koden ikke har kaldt siden 2026-09-16 —
-  6 tests fejlede derfor. Opdateret til `async_call_climate_service()` og
-  udvidet med regressionstests for B22–B26.
+- The remote and override-source tests still used
+  `hass.services.async_call`, which the code has not called since
+  2026-09-16 — 6 tests therefore failed. Updated to
+  `async_call_climate_service()` and extended with regression tests for
+  B22–B26.
 
 ## [0.58.3] — 2026-09-19
 
-Tilføjet den manglende introduktions-tekst i kroppen af de fem sektioner,
-der ikke allerede havde en (Alarmtavle, Vejrkompensation, Solindfald,
-Dør-varmedeling og Boost havde den i forvejen) — samme visuelle mønster,
-samme placering lige under headeren, før selve indstillingsrækkerne:
-Global konfiguration, Manuel TRV-kontrol, Grace-perioder, Auto-off ved
-mildt vejr, og Notifikationer.
+Added the missing introduction text in the body of the five sections that
+did not already have one (Alarm board, Weather compensation, Solar gain,
+Door heat sharing and Boost already had it) — same visual pattern, same
+placement just below the header, before the setting rows themselves:
+Global configuration, Manual TRV control, Grace periods, Auto-off in mild
+weather, and Notifications.
 
-Verificeret: `node --check` på den ændrede frontend-fil.
+Verified: `node --check` on the changed frontend file.
 
 ## [0.58.2] — 2026-09-19
 
-Rodfejlen bag hele aftenens "sektioner folder sig forkert"-forvirring
-rettet ved kilden, i stedet for endnu et lag ovenpå (v0.57.1/v0.58.1's
-fold-tilstands-huskeri): `toggle-field`-klikkeren genopbyggede hele
-Konfiguration-fanens HTML fra bunden (`_scheduleRender()`) for hver eneste
-"Slå til/fra"-klik. Ligegyldigt hvor godt fold-tilstanden huskes, betyder
-en fuld genopbygning altid en reel risiko for at ramme forkert — den
-rigtige løsning er slet ikke at genopbygge når kun én boolean ændrer sig.
+The root cause behind the evening's "sections fold the wrong way"
+confusion fixed at the source, instead of yet another layer on top
+(v0.57.1/v0.58.1's fold-state memory): the `toggle-field` click handler
+rebuilt the whole Configuration tab's HTML from scratch
+(`_scheduleRender()`) for every single "Turn on/off" click. No matter how
+well the fold state is remembered, a full rebuild always carries a real
+risk of getting it wrong — the right fix is not to rebuild at all when
+only one boolean changes.
 
 ### Fixed
-- **`toggle-field`-klikkeren rører nu ALDRIG DOM-træet ud over selve
-  knappen og dens sektions eget badge.** Opdaterer direkte: knap-tekst
-  (Slå til ↔ Slå fra) og `.active`-klasse, samt — via et nyt
-  `data-badge-field`-mærke på de fem Aktiv/Inaktiv-badgede sektioner (PID,
-  Vejrkompensation, Solindfald, Dør-varmedeling, Nat-sætpunkt) — badgens
-  farvede prik og tekst. Fejl reverterer begge dele visuelt igen. Ingen
-  sektion kan længere åbne eller lukke sig selv som bivirkning af et klik
-  på en helt anden sektions knap, fordi selve sektionens DOM-node aldrig
-  udskiftes.
-- `save-field`-knappen (tal-felternes "Gem") var allerede korrekt bygget
-  på samme måde — ingen ændring der, kun `toggle-field` manglede det.
+- **The `toggle-field` click handler now NEVER touches the DOM tree beyond
+  the button itself and its section's own badge.** It updates directly:
+  the button text (Turn on ↔ Turn off) and `.active` class, and — via a new
+  `data-badge-field` marker on the five Active/Inactive-badged sections
+  (PID, Weather compensation, Solar gain, Door heat sharing, Night
+  setpoint) — the badge's coloured dot and text. An error reverts both
+  visually. No section can open or close itself any more as a side effect
+  of a click on a completely different section's button, because the
+  section's DOM node is never replaced.
+- The `save-field` button (the number fields' "Save") was already built
+  correctly the same way — no change there, only `toggle-field` lacked it.
 
-Verificeret: `node --check` på den ændrede frontend-fil.
+Verified: `node --check` on the changed frontend file.
 
 ## [0.58.1] — 2026-09-19
 
-Fold-tilstand i Konfiguration nulstilles nu hver gang man klikker IND på
-fanen, i stedet for at huskes på ubestemt tid (v0.57.1). Løser en
-utilsigtet konsekvens af den rettelse: en sektion åbnet under tidligere
-test stod stadig åben, hver gang brugeren senere kom tilbage til fanen —
-også minutter eller timer efter — og så dermed anderledes ud (synlig
-"Slå fra"-knap) end de øvrige, sammenfoldede sektioner, selvom alle 14
-faktisk deler præcis samme skabelon.
+Fold state in Configuration is now reset every time you click INTO the
+tab, instead of being remembered indefinitely (v0.57.1). Fixes an
+unintended consequence of that fix: a section opened during earlier
+testing was still open every time the user later came back to the tab —
+even minutes or hours later — and therefore looked different (visible
+"Turn off" button) from the other, collapsed sections, even though all 14
+share exactly the same template.
 
 ### Changed
-- **`frontend/heat-manager-panel.js`**: fane-klik-handleren rydder nu
-  `this._expandedConfigSections`, hver gang der klikkes på
-  Konfiguration-fanen. Garanterer at alle 14 sektioner altid ser ens og
-  sammenfoldet ud, hver gang man lander på siden — mens en sektion,
-  brugeren rent faktisk sidder og redigerer i lige nu (fx lige har klikket
-  "Slå til" i), stadig får lov at blive stående åben, indtil man forlader
-  fanen.
+- **`frontend/heat-manager-panel.js`**: the tab click handler now clears
+  `this._expandedConfigSections` every time the Configuration tab is
+  clicked. Guarantees that all 14 sections always look the same and
+  collapsed every time you land on the page — while a section the user is
+  actually editing right now (e.g. has just clicked "Turn on" in) may
+  still stay open until the tab is left.
 
-Verificeret: `node --check` på den ændrede frontend-fil.
+Verified: `node --check` on the changed frontend file.
 
 ## [0.58.0] — 2026-09-19
 
-Konsekvent, altid-synlig beskrivelse under HVER indstillingsrække i
-Konfiguration-fanen, efter brugerens eget designeksempel — ikke kun
-titel/badge-niveau (v0.57.1) men helt ned på den enkelte række.
+Consistent, always-visible description under EVERY setting row in the
+Configuration tab, following the user's own design example — not just at
+title/badge level (v0.57.1) but all the way down to the individual row.
 
 ### Changed
-- **`_cfgNumberRow()`**: brugte før en (i)-hover-ikon (`_infoIcon()`) til
-  sin `desc`-tekst — skjult indtil man aktivt hoverede/tappede den, i
-  modstrid med `_cfgToggleRow()`'s egen altid-synlige beskrivelse. Nu
-  samme mønster begge steder: beskrivelsen står direkte under
-  label/input-rækken, aldrig skjult. Én ændring i denne delte funktion slår
-  igennem for alle ca. 20 tal-felter på tværs af alle 14 sektioner uden at
-  hvert enkelt kaldested skulle ændres. `_infoIcon()` selv er urørt og
-  bruges stadig de to andre steder (Rum-detaljers stat-bokse, Away
-  temp-feltet) — kun `_cfgNumberRow()`s brug af den er fjernet.
-- **Skrevet nye, tilpassede beskrivelser** til hver række der manglede en:
-  Kp/Ki/Kd/Setpoint-margin (PID), Standardtemperatur/-varighed (Boost),
-  Temperatur/Start/Slut (Nat-sætpunkt), Dag/Nat (Grace-perioder),
-  Temperaturgrænse/Dage i træk (Auto-off), samt to vindues-notifikations-
-  toggles og fire notifikations-toggles i Notifikationer-sektionen (de
-  eneste toggle-rækker uden allerede-forklarende tekst omkring sig i
-  forvejen — resten af "X aktiveret"-togglerne har allerede en fyldig
-  forklaring i selve sektionens header/introtekst, så en tredje forklaring
-  på togglen selv ville være en gentagelse). Setpoint-margins tidligere
-  meget lange changelog-agtige tekst er samtidig forkortet til en kort,
-  læsbar sætning, nu hvor den er altid synlig i stedet for skjult bag
-  hover.
+- **`_cfgNumberRow()`**: previously used an (i) hover icon (`_infoIcon()`)
+  for its `desc` text — hidden until actively hovered/tapped, contrary to
+  `_cfgToggleRow()`'s own always-visible description. Now the same pattern
+  in both places: the description sits directly under the label/input
+  row, never hidden. One change in this shared function applies to all ~20
+  number fields across all 14 sections without changing each call site.
+  `_infoIcon()` itself is untouched and still used in the two other places
+  (the room details' stat boxes, the Away temp field) — only
+  `_cfgNumberRow()`'s use of it is removed.
+- **Wrote new, tailored descriptions** for every row that lacked one:
+  Kp/Ki/Kd/Setpoint margin (PID), Default temperature/duration (Boost),
+  Temperature/Start/End (Night setpoint), Day/Night (Grace periods),
+  Temperature limit/Consecutive days (Auto-off), plus two window
+  notification toggles and four notification toggles in the Notifications
+  section (the only toggle rows without explanatory text around them
+  already — the rest of the "X enabled" toggles already have a full
+  explanation in the section's header/intro text, so a third explanation
+  on the toggle itself would be repetition). Setpoint margin's previously
+  very long changelog-like text is shortened to one short, readable
+  sentence, now that it is always visible instead of hidden behind hover.
 
-Verificeret: `node --check` på den ændrede frontend-fil.
+Verified: `node --check` on the changed frontend file.
 
 ## [0.57.3] — 2026-09-19
 
-Lille visuel forbedring til Konfiguration-fanens sektions-badges (ønske
-#2/#3): en lille farvet prik (grøn/grå) tilføjet foran "Aktiv"/"Inaktiv"/
-"Konfigureret"/"Ikke sat"-teksten på alle 7 badges (Alarmtavle, Manuel
-TRV-kontrol, PID, Vejrkompensation, Solindfald, Dør-varmedeling,
-Nat-sætpunkt) — hurtigere at aflæse status ved et blik, særligt når de
-fleste sektioner står sammenfoldet og kun viser headeren.
+Small visual improvement to the Configuration tab's section badges
+(requests #2/#3): a small coloured dot (green/grey) added in front of the
+"Active"/"Inactive"/"Configured"/"Not set" text on all 7 badges (Alarm
+board, Manual TRV control, PID, Weather compensation, Solar gain, Door heat
+sharing, Night setpoint) — faster to read status at a glance, especially
+when most sections are collapsed and only show the header.
 
-Bekræftet (ikke en fejl): sektioner der stadig viser deres indhold efter
-genstart er dem, brugeren selv har klikket åbne under test — fold-tilstand
-husker bevidst brugerens eget valg på tværs af felt-gemninger (se v0.57.1).
-Klik på headeren igen for at folde sammen og skjule til/fra-knappen, som
-allerede vist korrekt af "Manuel TRV-kontrol" i brugerens eget skærmbillede.
+Confirmed (not a bug): sections that still show their content after a
+restart are the ones the user clicked open during testing — the fold state
+deliberately remembers the user's own choice across field saves (see
+v0.57.1). Click the header again to collapse and hide the on/off button,
+as already shown correctly by "Manual TRV control" in the user's own
+screenshot.
 
-Verificeret: `node --check` på den ændrede frontend-fil.
+Verified: `node --check` on the changed frontend file.
 
 ## [0.57.2] — 2026-09-19
 
-**Vigtig proces-rettelse:** `panel.py` registrerer panelets JavaScript-URL
-(med cache-busting-parametrene `?v=<version>&m=<filens ændringstidspunkt>`)
-én gang pr. HA-proces, ved integrationens opstart — `async_unregister_
-panel()` bekræfter selv eksplicit "panel is process-level, skipping
-removal". En almindelig "Genindlæs integration" nulstiller IKKE dette, og
-ingen mængde browser-hård-genindlæsning kan hente en ny fil, så længe HA
-selv fortsat fortæller browseren at hente den GAMLE URL. **Tidligere
-beskeder i denne log, der sagde "kun browser-genindlæsning, ingen
-HA-genstart nødvendig" for rene frontend-ændringer (v0.55.0, v0.57.0,
-v0.57.1), var forkerte for dette specifikke panel** — en fuld HA-genstart
-har hele tiden været nødvendig, også for kun-frontend-ændringer. Det
-forklarer, hvorfor både v0.57.1's fold-tilstands-rettelse og de
-nye sektionsbeskrivelser aldrig nåede frem til browseren.
+**Important process correction:** `panel.py` registers the panel's
+JavaScript URL (with the cache-busting parameters
+`?v=<version>&m=<file modification time>`) once per HA process, at
+integration startup — `async_unregister_panel()` itself explicitly
+confirms "panel is process-level, skipping removal". An ordinary "Reload
+integration" does NOT reset this, and no amount of browser hard-reloading
+can fetch a new file as long as HA itself keeps telling the browser to
+fetch the OLD URL. **Earlier messages in this log that said "browser
+reload only, no HA restart needed" for frontend-only changes (v0.55.0,
+v0.57.0, v0.57.1) were wrong for this particular panel** — a full HA
+restart has been needed all along, also for frontend-only changes. This
+explains why both v0.57.1's fold-state fix and the new section
+descriptions never reached the browser.
 
 ### Fixed
-- **`frontend/heat-manager-panel.js`**: Controller-boksens eget status-badge
-  ("Varme aktiv"/"Pause"/"Slukket") delte utilsigtet CSS-klassen
-  `.section-box-badge` med Konfiguration-fanens egne sektions-badges
-  (Alarmtavle, PID, Vejrkompensation, osv.). `_patchControllerHero()`s
-  baggrunds-opdatering — som kører på HVER poll, uanset hvilken fane der
-  vises — brugte et uafgrænset `querySelector(".section-box-badge")`, der
-  ramte den FØRSTE matchende el i den AKTUELT viste fane. Står man på
-  Konfiguration, overskrev det Alarmtavlens "Konfigureret"/"Ikke sat"-badge
-  med controller-titlen ("Varme aktiv") i stedet. Rettet med en dedikeret
-  `.ctrl-status-badge`-klasse, kun på Controller-boksens eget badge.
+- **`frontend/heat-manager-panel.js`**: the Controller box's own status
+  badge ("Heating active"/"Pause"/"Off") unintentionally shared the CSS
+  class `.section-box-badge` with the Configuration tab's own section
+  badges (Alarm board, PID, Weather compensation, etc.).
+  `_patchControllerHero()`'s background update — which runs on EVERY poll,
+  regardless of which tab is shown — used an unscoped
+  `querySelector(".section-box-badge")`, which hit the FIRST matching
+  element in the CURRENTLY shown tab. On the Configuration tab, that
+  overwrote the Alarm board's "Configured"/"Not set" badge with the
+  controller title ("Heating active") instead. Fixed with a dedicated
+  `.ctrl-status-badge` class, only on the Controller box's own badge.
 
-Verificeret: `node --check` på den ændrede frontend-fil.
+Verified: `node --check` on the changed frontend file.
 
 ## [0.57.1] — 2026-09-19
 
-Fire relaterede Konfiguration-fane-forbedringer, udløst af rapporten om at
-Dør-varmedeling "stadig ikke kunne tændes" — som viste sig at være en
-regression fra v0.57.0's sammenfold-som-standard-ændring, ikke en ny
-backend-fejl.
+Four related Configuration tab improvements, triggered by the report that
+Door heat sharing "still could not be turned on" — which turned out to be
+a regression from v0.57.0's collapsed-by-default change, not a new
+backend bug.
 
 ### Fixed
-- **Kritisk regression: enhver felt-ændring foldede ALLE sektioner sammen
-  igen.** v0.57.0 hardkodede `collapsed` ind i selve HTML-skabelonen, så
-  enhver `_scheduleRender()` (som hvert `toggle-field`/`Gem`-klik udløser)
-  nulstillede samtlige 14 sektioner til lukket — den sektion man lige havde
-  åbnet for at trykke "Slå til" i, klappede sig selv sammen i samme
-  øjeblik. Det så ud som om klikket ikke virkede (Dør-varmedeling-rapporten),
-  fordi hele sektionen — badge, knap, det hele — forsvandt igen med det
-  samme. Rettet: fold-tilstand ligger nu i `this._expandedConfigSections`
-  (en `Set`, nøglet på et stabilt `data-section-id` pr. sektion) i stedet
-  for kun i en DOM-klasse en genopbygning altid overskriver.
+- **Critical regression: any field change collapsed ALL sections again.**
+  v0.57.0 hard-coded `collapsed` into the HTML template itself, so any
+  `_scheduleRender()` (which every `toggle-field`/`Save` click triggers)
+  reset all 14 sections to closed — the section you had just opened to
+  press "Turn on" in collapsed itself in the same instant. It looked as if
+  the click did nothing (the Door heat sharing report), because the whole
+  section — badge, button, everything — disappeared again immediately.
+  Fixed: fold state now lives in `this._expandedConfigSections` (a `Set`,
+  keyed on a stable `data-section-id` per section) instead of only in a
+  DOM class that a rebuild always overwrites.
 
 ### Added
-- **Altid-synlig kort beskrivelse i hver sektions-header** (Ønske #3):
-  hver af de 14 sektioner har nu en én-linjes beskrivelse under titlen,
-  inde i selve headeren — derfor aldrig skjult af sammenfoldning, modsat
-  den længere forklarende tekst i sektionens krop.
+- **Always-visible short description in every section header** (request
+  #3): each of the 14 sections now has a one-line description under the
+  title, inside the header itself — therefore never hidden by collapsing,
+  unlike the longer explanatory text in the section body.
 
 ### Changed
-- Med konsekvent header-struktur (titel + kort beskrivelse + evt. badge)
-  på alle 14 sektioner har de nu ensartet højde når sammenfoldet, hvilket
-  giver den efterspurgte størrelses-harmoni (Ønske #4) i to-kolonne-gridet
-  uden at ændre selve rækkefølgen — parringen (Alarmtavle+Manuel TRV,
-  PID+Vejrkompensation, Solindfald+Dør-varmedeling, osv.) var allerede
-  fornuftig, det var forskellen i UDFOLDET højde der skabte disharmonien.
+- With a consistent header structure (title + short description + optional
+  badge) on all 14 sections, they now have uniform height when collapsed,
+  which gives the requested size harmony (request #4) in the two-column
+  grid without changing the order — the pairing (Alarm board + Manual TRV,
+  PID + Weather compensation, Solar gain + Door heat sharing, etc.) was
+  already sensible; it was the difference in EXPANDED height that created
+  the disharmony.
 
-Verificeret: `node --check` på den ændrede frontend-fil, alle 14
-`data-section-id`-værdier bekræftet unikke.
+Verified: `node --check` on the changed frontend file, all 14
+`data-section-id` values confirmed unique.
 
 ## [0.57.0] — 2026-09-19
 
-Konfiguration-fanen fylder mindre: to-kolonne-layout på bred skærm, og alle
-13 sektioner er nu sammenfoldet som standard i stedet for udfoldet.
+The Configuration tab takes up less space: two-column layout on wide
+screens, and all 13 sections are now collapsed by default instead of
+expanded.
 
 ### Changed
-- **`frontend/heat-manager-panel.js`**: `_configTabHTML()`s output er nu
-  pakket i et `.config-grid`-wrapper-element (`display:grid;
-  grid-template-columns:1fr 1fr`, med `@media (max-width:760px)`-fallback
-  til én kolonne på mobil). Kun Konfiguration-fanen — Oversigt/Rum/
-  Historik-fanernes egne section-box'e står udenfor dette wrapper-element
-  og er uændrede.
-- Alle 13 sektioner i Konfiguration (Alarmtavle t/m Rum &amp;
-  klimaentiteter) har nu `collapsed`-klassen fra første render, i stedet
-  for at starte udfoldet — samme klap-mekanisme fra Trin 5
-  (2026-09-14), blot med modsat standardtilstand. Klik på en
-  sektions-header for at folde den ud, som før.
+- **`frontend/heat-manager-panel.js`**: `_configTabHTML()`'s output is now
+  wrapped in a `.config-grid` wrapper element (`display:grid;
+  grid-template-columns:1fr 1fr`, with a `@media (max-width:760px)`
+  fallback to one column on mobile). Configuration tab only — the
+  Overview/Rooms/History tabs' own section boxes are outside this wrapper
+  and unchanged.
+- All 13 sections in Configuration (Alarm board through Rooms &amp;
+  climate entities) now have the `collapsed` class from the first render,
+  instead of starting expanded — the same fold mechanism from Step 5
+  (2026-09-14), just with the opposite default state. Click a section
+  header to expand it, as before.
 
-Verificeret: `node --check` på den ændrede frontend-fil.
+Verified: `node --check` on the changed frontend file.
 
 ## [0.56.1] — 2026-09-19 (hotfix)
 
-Min egen fejl fra v0.50.0: `door_heat_share_enabled` blev tilføjet til
-`_BOOL_CONFIG_FIELD_DEFAULTS`, men aldrig til selve voluptuous-skemaet der
-validerer `ws_update_config`-beskeder — de tre numeriske felter
-(`door_heat_share_min_neighbor_power` osv.) kom med, men ikke selve
-til/fra-kontakten. Konsekvens: forsøg på at gemme "Dør-varmedeling
-aktiveret" fra Konfiguration fejlede med "not a valid option" og gemte
-aldrig værdien.
+My own mistake from v0.50.0: `door_heat_share_enabled` was added to
+`_BOOL_CONFIG_FIELD_DEFAULTS`, but never to the voluptuous schema itself
+that validates `ws_update_config` messages — the three numeric fields
+(`door_heat_share_min_neighbor_power` etc.) were included, but not the
+on/off switch itself. Consequence: trying to save "Door heat sharing
+enabled" from Configuration failed with "not a valid option" and never
+saved the value.
 
 ### Fixed
-- **`websocket.py`**: tilføjet den manglende `vol.Optional(CONF_DOOR_HEAT_
-  SHARE_ENABLED): bool` til skemaet. Krydstjekket samtidig ALLE øvrige
-  bool- og numeriske config-felter systematisk mod skemaet — dette var det
-  eneste hul.
+- **`websocket.py`**: added the missing
+  `vol.Optional(CONF_DOOR_HEAT_SHARE_ENABLED): bool` to the schema. At the
+  same time, ALL other bool and numeric config fields were systematically
+  cross-checked against the schema — this was the only gap.
 
-Verificeret: `mypy --strict` rent.
+Verified: `mypy --strict` clean.
 
 ## [0.56.0] — 2026-09-16
 
-To bekræftede løse ender fra en gennemgang af tidligere revisioners
-UI/UX-fund (de fleste andre punkter på den gamle liste viste sig allerede
-rettet i mellemliggende sessioner — se `_ctrlTitle`/toast-systemet/
-batteri-farver/aria-live, som alle allerede var på plads).
+Two confirmed loose ends from a review of earlier audits' UI/UX findings
+(most other items on the old list turned out to be fixed already in
+intervening sessions — see `_ctrlTitle`/the toast system/battery
+colours/aria-live, which were all already in place).
 
 ### Added
-- **panel.js: sæson kan nu ændres direkte fra Oversigt-fanens
-  Controller-boks** — "Sæson"-chippen er gået fra ren tekst til en
-  `<select>` (Auto/Vinter/Forår/Sommer/Efterår), der kalder HA's indbyggede
-  `select.select_option`-service direkte på den eksisterende
-  `select.<entry>_season_mode`-entity — ingen backendændring nødvendig,
-  samme handling som `select.py`s egen `SeasonModeSelect.async_select_
-  option()` allerede udfører. Før krævede en manuel sæson-tvang, at man gik
-  uden om det custom panel og ind på HA's egen entity-side.
-  `_patchControllerHero()` er samtidig omskrevet fra skør
-  positions-indeksering (`querySelectorAll("strong")[n]`) til eksplicitte
-  per-chip-klasser, så en fremtidig ny/fjernet chip ikke igen kan forskyde
-  alle efterfølgende chips ét indeks.
+- **panel.js: the season can now be changed directly from the Overview
+  tab's Controller box** — the "Season" chip has gone from plain text to a
+  `<select>` (Auto/Winter/Spring/Summer/Autumn) that calls HA's built-in
+  `select.select_option` service directly on the existing
+  `select.<entry>_season_mode` entity — no backend change needed, the same
+  action `select.py`'s own `SeasonModeSelect.async_select_option()`
+  already performs. Before, forcing the season manually meant going around
+  the custom panel to HA's own entity page. `_patchControllerHero()` is
+  rewritten at the same time from fragile position indexing
+  (`querySelectorAll("strong")[n]`) to explicit per-chip classes, so a
+  future new/removed chip cannot shift every following chip by one index
+  again.
 
 ### Fixed
-- **card.js: sprogblanding rettet.** `_hmCtrlLabel()` viste "On/Pause/Off"
-  på engelsk for præcis samme tre tilstande som panel.js's `_ctrlTitle()`
-  altid har vist korrekt på dansk ("Varme aktiv/Pause/Slukket"). Eneste
-  resterende engelsk-rest i mobilkortet.
+- **card.js: language mix fixed.** `_hmCtrlLabel()` showed "On/Pause/Off"
+  in English for exactly the same three states that panel.js's
+  `_ctrlTitle()` has always shown correctly in Danish ("Varme
+  aktiv/Pause/Slukket"). The only remaining English leftover in the mobile
+  card.
 
-**Bevidst ikke ændret:** mobilkortets sæson-visning forbliver ren tekst
-(samme minimale designfilosofi som resten af kortets header) — den
-interaktive kontrol lever i panelet, jeres primære kontrolflade.
+**Deliberately not changed:** the mobile card's season display stays
+plain text (same minimal design philosophy as the rest of the card's
+header) — the interactive control lives in the panel, the primary control
+surface.
 
-Verificeret: `node --check` på begge ændrede frontend-filer.
+Verified: `node --check` on both changed frontend files.
 
 ## [0.55.0] — 2026-09-16
 
-Fundet rodårsagen til Flemmings rapport: "den nye dør-logik virker ikke"
-(altandøren stoppede ikke varmen efter at være omregistreret fra vindue til
-dør). Selve logikken fra v0.49.0 var korrekt — problemet var, at de to nye
-felter (`door_styled_sensors`, `heated_door_sensors`) blev tilføjet til
-config-skemaet uden NOGEN oversat label eller beskrivelse i `strings.json`/
-`translations/da.json`. I UI'en så de derfor ud som rå, kryptiske
-feltnavne uden nogen forklaring på forskellen — nem at forveksle med
-hinanden, hvilket er præcis det der skete: en sensor sat i
-`heated_door_sensors` (ingen varmeafbrydelse overhovedet, med vilje) i
-stedet for `door_styled_sensors` (kosmetisk delmængde af de eksisterende
-vinduessensorer, samme fulde adfærd).
+Found the root cause of Flemming's report: "the new door logic doesn't
+work" (the balcony door did not stop the heating after being
+re-registered from window to door). The logic from v0.49.0 itself was
+correct — the problem was that the two new fields (`door_styled_sensors`,
+`heated_door_sensors`) were added to the config schema without ANY
+translated label or description in `strings.json`/`translations/da.json`.
+In the UI they therefore looked like raw, cryptic field names with no
+explanation of the difference — easy to mix up, which is exactly what
+happened: a sensor put in `heated_door_sensors` (no heating interruption
+at all, by design) instead of `door_styled_sensors` (cosmetic subset of
+the existing window sensors, same full behaviour).
 
 ### Fixed
-- **`strings.json`/`translations/da.json`**: tilføjet manglende labels og
-  data_description-tekster for `door_styled_sensors` ("Vis som dør i
-  stedet for vindue (kosmetisk)") og `heated_door_sensors` ("Døre til
-  opvarmet område (ingen varmeafbrydelse)") på alle tre steder, felterne
-  optræder (opsætningsflowets `room`-trin samt options-flowets `room_add`/
-  `room_edit`-trin). Beskrivelserne navngiver eksplicit begge lister over
-  for hinanden og advarer direkte mod at forveksle dem ("En sensor skal
-  OGSÅ vælges i Vindue-/dørsensorer, for at dette har nogen effekt — kun
-  at vælge den her gør ingenting" / "Tilføj ikke en sensor her I STEDET
-  FOR...").
+- **`strings.json`/`translations/da.json`**: added missing labels and
+  data_description texts for `door_styled_sensors` ("Show as door instead
+  of window (cosmetic)") and `heated_door_sensors` ("Doors to a heated
+  area (no heating interruption)") in all three places the fields appear
+  (the config flow's `room` step and the options flow's
+  `room_add`/`room_edit` steps). The descriptions explicitly name both
+  lists against each other and warn directly against mixing them up ("A
+  sensor must ALSO be selected in Window/door sensors for this to have any
+  effect — selecting it only here does nothing" / "Do not add a sensor
+  here INSTEAD OF...").
 
-Ingen kodeændring — selve dør/vindue-logikken fra v0.49.0 er stadig
-korrekt og uændret. Ren tekst-/oversættelsesfix.
+No code change — the door/window logic from v0.49.0 is still correct and
+unchanged. Text/translation fix only.
 
 ## [0.54.0] — 2026-09-16
 
-Nyt "Trv setpoint"-felt i Rum-detaljer — svar på "hvad er hvad"-forvirringen
-mellem de fire+ temperaturtal i panelet. Der fandtes allerede en (i)-tekst
-der ADVAREDE om at Target Temp ikke nødvendigvis er det, der sendes til
-TRV'en — men det faktiske tal blev aldrig vist noget sted.
+New "Trv setpoint" field in the room details — an answer to the "what is
+what" confusion between the four-plus temperature numbers in the panel.
+An (i) text already WARNED that Target Temp is not necessarily what is
+sent to the TRV — but the actual number was never shown anywhere.
 
 ### Added
-- **`websocket.py`**: nyt `trv_setpoint`-felt i rum-payloaden —
-  `coordinator.last_expected_setpoint[room_name]`, det setpoint PID'en
-  rent faktisk beregnede og sendte til TRV'en i sidste aktive cyklus
-  (efter effekt→setpoint-mapping OG setpoint-margin-loftet fra
-  overshoot-fixet). Gated på `room_state == NORMAL`: `last_expected_
-  setpoint` ryddes aldrig efter skrivning (`sync_engine.py` er afhængig af
-  det), så uden denne gæring ville et rum i AWAY/WINDOW_OPEN/OVERRIDE vise
-  en forældet værdi som om den var live.
-- **Panelet (Rum-detaljer)**: nyt femte felt "Trv setpoint" i stat-rækken,
-  ved siden af Rum temp/Target Temp/Trv temp/Trv batt, med egen
-  (i)-forklaring der præcist beskriver forskellen til Target Temp.
+- **`websocket.py`**: new `trv_setpoint` field in the room payload —
+  `coordinator.last_expected_setpoint[room_name]`, the setpoint the PID
+  actually computed and sent to the TRV in the last active cycle (after
+  the power→setpoint mapping AND the setpoint margin cap from the
+  overshoot fix). Gated on `room_state == NORMAL`:
+  `last_expected_setpoint` is never cleared after a write
+  (`sync_engine.py` depends on it), so without this gate a room in
+  AWAY/WINDOW_OPEN/OVERRIDE would show a stale value as if it were live.
+- **The panel (room details)**: new fifth field "Trv setpoint" in the stat
+  row, next to Room temp/Target Temp/Trv temp/Trv batt, with its own (i)
+  explanation that precisely describes the difference from Target Temp.
 
-Dermed er alle fire temperaturtal i panelet nu entydigt forklaret og
-synlige side om side: **Rum temp** (faktisk temperatur, bedste kilde),
-**Target Temp** (Heat Managers mål), **Trv setpoint** (det TRV'en reelt
-bliver bedt om lige nu), **Trv temp** (TRV'ens egen, ofte for varme,
-måling).
+With that, all four temperature numbers in the panel are now
+unambiguously explained and visible side by side: **Room temp** (actual
+temperature, best source), **Target Temp** (Heat Manager's target), **Trv
+setpoint** (what the TRV is actually asked for right now), **Trv temp**
+(the TRV's own, often too warm, reading).
 
-Verificeret: `websocket.py` + hele det tidligere verificerede
-punkt-1(B)-sæt (22 filer i alt) består `mypy --strict` rent; panel.js's
-JavaScript-syntaks bekræftet med `node --check`.
+Verified: `websocket.py` + the whole previously verified item-1(B) set
+(22 files in total) pass `mypy --strict` cleanly; panel.js's JavaScript
+syntax confirmed with `node --check`.
 
 ## [0.53.0] — 2026-09-16
 
-Deep-dive audit, del 3 (sidste): platform-filerne (`switch.py`, `number.py`,
-`select.py`, `binary_sensor.py`, `sensor.py`, `websocket.py`, `__init__.py`).
-Fandt én yderligere forekomst af samme fejlklasse.
+Deep-dive audit, part 3 (final): the platform files (`switch.py`,
+`number.py`, `select.py`, `binary_sensor.py`, `sensor.py`, `websocket.py`,
+`__init__.py`). Found one more occurrence of the same bug class.
 
 ### Fixed
-- **`websocket.py` (`ws_set_room_temp`)** — panelets manuelle TRV-kontrol
-  (både enkelt-rum-slideren og "Send til alle"-knappen). Begge grene
-  (gendan til schedule / sæt temperatur) kaldte
-  `hass.services.async_call("climate", ...)` direkte for hver TRV, uden
-  lås. Da "Send til alle" kalder denne WS-kommando én gang pr. rum i
-  rækkefølge, blev alle TRV'er i det rum stadig ramt uden pacing inden for
-  hvert enkelt kald. Rettet til `async_call_climate_service()` med
-  pr.-TRV `trv_needs_cloud_delay()`.
-- **Tegn-korruption**: ryddet op i tre steder i `websocket.py`, hvor en
-  tidligere redigering havde efterladt den litterale tekst `\u2014` i
-  stedet for en rigtig tankestreg i kommentarer — kosmetisk, ingen
-  funktionel betydning.
+- **`websocket.py` (`ws_set_room_temp`)** — the panel's manual TRV control
+  (both the single-room slider and the "Send to all" button). Both
+  branches (restore to schedule / set temperature) called
+  `hass.services.async_call("climate", ...)` directly for each TRV,
+  without the lock. Since "Send to all" calls this WS command once per
+  room in sequence, every TRV in that room was still hit without pacing
+  within each single call. Fixed to `async_call_climate_service()` with
+  per-TRV `trv_needs_cloud_delay()`.
+- **Character corruption**: cleaned up three places in `websocket.py`
+  where an earlier edit had left the literal text `—` instead of a
+  real em dash in comments — cosmetic, no functional impact.
 
-**Ingen fund** i `switch.py`, `number.py`, `select.py`, `binary_sensor.py`,
-`sensor.py` eller `__init__.py` — alle skrive-handlinger deri var enten
-allerede korrekt delegeret til `coordinator`'s (nu rettede) metoder, eller
-rene, ikke-Netatmo-relaterede kald (notify/HA-services).
+**No findings** in `switch.py`, `number.py`, `select.py`,
+`binary_sensor.py`, `sensor.py` or `__init__.py` — every write action
+there was either already correctly delegated to the `coordinator`'s (now
+fixed) methods, or plain, non-Netatmo calls (notify/HA services).
 
-**Samlet status for hele deep-dive-revisionen (runde 1-3):** 9 forekomster
-af samme grundlæggende fejlklasse fundet og rettet på tværs af 12
-engine-filer, `coordinator.py`, og `websocket.py` — hvert eneste sted i
-integrationen, der skriver til en "climate"-entity, går nu igennem den
-delte Netatmo-lås/pacing. Plus én separat tidszone-fejl
+**Overall status for the whole deep-dive audit (rounds 1-3):** 9
+occurrences of the same underlying bug class found and fixed across 12
+engine files, `coordinator.py` and `websocket.py` — every single place in
+the integration that writes to a "climate" entity now goes through the
+shared Netatmo lock/pacing. Plus one separate time-zone bug
 (`presence_engine.py`).
 
-Verificeret: alle 22 filer i det verificerede sæt består `mypy --strict`
-rent.
+Verified: all 22 files in the verified set pass `mypy --strict` cleanly.
 
 ## [0.52.0] — 2026-09-16
 
-Deep-dive audit, del 2: `coordinator.py` selv (2670+ linjer, den mest
-centrale fil). Fandt tre yderligere forekomster af samme fejlklasse som
-runde 1's engine-audit — heraf én i selve PID-tick'et, formentlig den
-vigtigste enkeltrettelse i hele revisionen, da den kører hvert 60. sekund
-for hvert rum, ikke kun ved lejlighedsvise brugerhandlinger.
+Deep-dive audit, part 2: `coordinator.py` itself (2,670+ lines, the most
+central file). Found three more occurrences of the same bug class as round
+1's engine audit — one of them in the PID tick itself, probably the most
+important single fix in the whole audit, since it runs every 60 seconds
+for every room, not just on occasional user actions.
 
 ### Fixed
-- **`_async_pid_tick()`'s eget setpoint-skriveloop** — højeste prioritet:
-  brugte `hass.services.async_call("climate", ...)` direkte for HVER
-  TRV's setpoint-opdatering, hver tick. For et rum hvor den primære TRV har
-  en nåelig HomeKit-entity er det harmløst (allerede lokalt) — men i et
-  multi-TRV-rum (B18-gruppering), hvor en SEKUNDÆR TRV ikke har sin egen
-  HomeKit-entity, eller for et Netatmo-rum konfigureret helt uden HomeKit,
-  går skrivningen direkte til Netatmo-cloud'en, uden lås, hver gang
-  setpointet ændrer sig — potentielt hvert 60. sekund. Rettet til at bruge
-  `async_call_climate_service()` med `trv_needs_cloud_delay()` pr. TRV.
-- **`async_boost_start()`** — samme mangel: Boost-knappen (formentlig den
-  mest brugte enkeltfunktion i panelet) rammer alle boost-klare rums TRV'er
-  i én arbejdsgang uden lås. Omskrevet til at iterere TRV'er direkte (i
-  stedet for den flade write-entity-liste) med korrekt pr.-TRV-forsinkelse.
-- **`async_set_room_override()`** — delt af override-kontakten (ét rum) OG
-  fjernbetjeningens tilstands-knap (alle kvalificerende rum på én gang,
-  jf. modulets egen dokumentation) — samme rettelse.
+- **`_async_pid_tick()`'s own setpoint write loop** — highest priority:
+  used `hass.services.async_call("climate", ...)` directly for EVERY TRV's
+  setpoint update, every tick. For a room where the primary TRV has a
+  reachable HomeKit entity this is harmless (already local) — but in a
+  multi-TRV room (B18 grouping) where a SECONDARY TRV does not have its
+  own HomeKit entity, or for a Netatmo room configured entirely without
+  HomeKit, the write goes directly to the Netatmo cloud, without the lock,
+  every time the setpoint changes — potentially every 60 seconds. Fixed to
+  use `async_call_climate_service()` with `trv_needs_cloud_delay()` per
+  TRV.
+- **`async_boost_start()`** — same gap: the Boost button (probably the most
+  used single function in the panel) hits every boost-eligible room's TRVs
+  in one go without the lock. Rewritten to iterate TRVs directly (instead
+  of the flat write-entity list) with correct per-TRV delay.
+- **`async_set_room_override()`** — shared by the override switch (one
+  room) AND the remote's mode button (every eligible room at once, per the
+  module's own documentation) — same fix.
 
-Gennemgået og bekræftet fri for fejl: `get_room_target_temp()`,
-`get_all_room_trvs()`/`get_room_trvs()` (TRV-cache/gruppe-toggle-logikken),
-`get_room_current_temp()`, `get_room_blocking_sources()`, og
-`_async_update_data()`s tick-orkestrering.
+Reviewed and confirmed free of bugs: `get_room_target_temp()`,
+`get_all_room_trvs()`/`get_room_trvs()` (the TRV cache/group toggle
+logic), `get_room_current_temp()`, `get_room_blocking_sources()`, and
+`_async_update_data()`'s tick orchestration.
 
-Verificeret: `coordinator.py` + hele det tidligere verificerede
-punkt-1(B)-sæt (22 filer i alt) består `mypy --strict` rent.
+Verified: `coordinator.py` + the whole previously verified item-1(B) set
+(22 files in total) pass `mypy --strict` cleanly.
 
 ## [0.51.0] — 2026-09-16
 
-Deep-dive audit af alle 12 engine-filer for reelle logikfejl (ikke typing,
-det blev dækket af punkt 1). Fandt og rettede fire forekomster af samme
-fejlklasse plus én separat tidszone-fejl. Ingen af de øvrige otte
-engine-filer (`calibration_engine.py`, `controller.py`, `door_engine.py`,
+Deep-dive audit of all 12 engine files for real logic bugs (not typing,
+which was covered by item 1). Found and fixed four occurrences of the same
+bug class plus one separate time-zone bug. None of the other eight engine
+files (`calibration_engine.py`, `controller.py`, `door_engine.py`,
 `pid_controller.py`, `schedule_engine.py`, `season_engine.py`,
-`valve_protection_engine.py`, `window_engine.py`) gav anledning til fund.
+`valve_protection_engine.py`, `window_engine.py`) gave rise to findings.
 
 ### Fixed
-- **Fire steder omgik `coordinator.async_call_climate_service()`s delte
-  Netatmo-lås/pacing** (samme mekanisme der allerede forhindrer 429-fejl i
-  `controller.py`, `presence_engine.py` og `window_engine.py`) ved at kalde
-  `hass.services.async_call("climate", ...)` direkte:
-  - **`remote_button_engine.py`** (`_async_adjust_all_rooms`) — mest
-    kritisk: en enkelt fjernbetjenings-tryk rammer *alle* konfigurerede
-    rum i én arbejdsgang, uden nogen lås eller forsinkelse mellem kaldene.
-    Omskrevet til at iterere rummets TRV'er direkte (i stedet for den
-    flade write-entity-liste) så hver skrivning kan få sin egen
-    `trv_needs_cloud_delay()`-afgørelse.
-  - **`preheat_engine.py`** (`_start_preheat`) — en forvarmnings-sweep
-    rører alle AWAY-rum i hurtig rækkefølge, samme byrdemønster som
-    låsen er bygget til at forhindre.
-  - **`sync_engine.py`** (`_async_lock_revert`) — kun relevant for rum med
-    `sync_mode: lock` (opt-in, formentlig sjældent brugt), men samme
-    grundlæggende hul.
-  Alle tre rettet til at bruge `async_call_climate_service()` med korrekt
-  per-TRV `trv_needs_cloud_delay()`-afgørelse, samme mønster som
-  `controller.py`s OFF-fallback og `valve_protection_engine.py` allerede
-  brugte korrekt.
-- **`presence_engine.py`** (`_grace_period_minutes`): brugte
-  `utcnow().hour` til at afgøre dag/nat-grace-periode, men
-  `CONF_NIGHT_START_HOUR`/`CONF_NIGHT_END_HOUR` er konfigureret som LOKALE
-  vægur-timer — samme felter som `coordinator.is_night_setback_active()`
-  allerede korrekt sammenligner med `homeassistant.util.dt.now()`. Med
-  Danmarks UTC+1/+2-forskydning betød det, at grace-periodens dag/nat-
-  skifte reelt skete 1-2 timer forskudt fra det konfigurerede tidspunkt.
-  Rettet til samme `now()`-mønster.
+- **Four places bypassed `coordinator.async_call_climate_service()`'s
+  shared Netatmo lock/pacing** (the same mechanism that already prevents
+  429 errors in `controller.py`, `presence_engine.py` and
+  `window_engine.py`) by calling `hass.services.async_call("climate", ...)`
+  directly:
+  - **`remote_button_engine.py`** (`_async_adjust_all_rooms`) — most
+    critical: a single remote press hits *every* configured room in one
+    go, without any lock or delay between the calls. Rewritten to iterate
+    the room's TRVs directly (instead of the flat write-entity list) so
+    each write can get its own `trv_needs_cloud_delay()` decision.
+  - **`preheat_engine.py`** (`_start_preheat`) — a pre-heat sweep touches
+    every AWAY room in quick succession, the same load pattern the lock
+    was built to prevent.
+  - **`sync_engine.py`** (`_async_lock_revert`) — only relevant for rooms
+    with `sync_mode: lock` (opt-in, probably rarely used), but the same
+    underlying gap.
+  All three fixed to use `async_call_climate_service()` with the correct
+  per-TRV `trv_needs_cloud_delay()` decision, the same pattern
+  `controller.py`'s OFF fallback and `valve_protection_engine.py` already
+  used correctly.
+- **`presence_engine.py`** (`_grace_period_minutes`): used
+  `utcnow().hour` to decide the day/night grace period, but
+  `CONF_NIGHT_START_HOUR`/`CONF_NIGHT_END_HOUR` are configured as LOCAL
+  wall-clock hours — the same fields that
+  `coordinator.is_night_setback_active()` already correctly compares with
+  `homeassistant.util.dt.now()`. With Denmark's UTC+1/+2 offset, this meant
+  the grace period's day/night switch actually happened 1-2 hours off from
+  the configured time. Fixed to the same `now()` pattern.
 
-Verificeret: alle 4 ændrede filer + hele det tidligere verificerede
-punkt-1(B)-sæt (22 filer i alt) består `mypy --strict` rent.
+Verified: all 4 changed files + the whole previously verified item-1(B)
+set (22 files in total) pass `mypy --strict` cleanly.
 
 ## [0.50.0] — 2026-09-16
 
-Punkt 8 (gruppe C) — dør-varmedeling: en åben indendørs dør til et varmere,
-aktivt opvarmende naborum reducerer nu PID-effekten i det koldere rum,
-i stedet for at bruge et rum-par-baseret "niveau C"-design der ville have
-sænket rummets eget mål midlertidigt. Den oprindelige model rejste et
-uåbnet ejerskabsspørgsmål (hvem "ejer" et rums mål når en dør midlertidigt
-har ændret det, og hvad sker der når døren lukkes) — den nye model
-sidestepper det helt ved aldrig at røre `comfort_temp`/`target_temp`
-overhovedet, samme mønster som vejrkompensation (punkt 7's forgænger) og
-solindfald (punkt 7) allerede bruger til at justere PID-effekten uden at
-ændre selve målet.
+Item 8 (group C) — door heat sharing: an open indoor door to a warmer,
+actively heating neighbouring room now reduces the PID power in the
+colder room, instead of using a room-pair-based "level C" design that
+would have lowered the room's own target temporarily. The original model
+raised an unresolved ownership question (who "owns" a room's target when
+a door has temporarily changed it, and what happens when the door
+closes) — the new model sidesteps it entirely by never touching
+`comfort_temp`/`target_temp` at all, the same pattern that weather
+compensation (item 7's predecessor) and solar gain (item 7) already use to
+adjust the PID power without changing the target itself.
 
 ### Added
 - **`CONF_DOOR_HEAT_SHARE_ENABLED`** (`const.py`, `config_flow.py`,
-  `coordinator.py`, `websocket.py`, panel): ny global sektion
-  "Dør-varmedeling" i Konfiguration. **Off som standard** — ingen
-  adfærdsændring for nogen installation før du selv slår den til. Fire
-  justerbare tærskler:
-  - `door_heat_share_min_neighbor_power` (standard **50%**, som aftalt) —
-    naborummets egen PID-effekt skal være mindst dette, før dets varme
-    tæller som reelt leveret lige nu (ikke bare "naboen er varmere fra
-    tidligere").
-  - `door_heat_share_min_temp_diff` (standard 1,5°C) — en reel
-    temperaturgradient skal være til stede, før noget meningsfuldt
-    strømmer gennem døråbningen.
-  - `door_heat_share_weight` og `door_heat_share_max_reduction` (loft) —
-    samme skaleringsmønster som solindfalds tilsvarende felter.
-- **`coordinator._door_heat_share_reduction()`**: ren funktion (samme
-  "aldrig øge, kun reducere"-form som `_solar_gain_reduction()`), anvendt
-  i `_async_pid_tick()` lige efter solindfald. **`comfort_temp` og
-  `target_temp` røres aldrig** — kun den effekt PID'en beder TRV'en om
-  lige nu, hvilket også betyder ingenting at rydde op i, når døren lukkes
-  igen; reduktionen stopper simpelthen ved næste tick.
-- **`coordinator.get_door_heat_share_inputs()`**: finder, blandt et rums
-  åbne indendørs døre, den nabo der bedst kvalificerer (højest PID-effekt)
-  og returnerer dens effekt + temperaturforskel. Et rum med flere åbne
-  døre bruger bevidst kun sin bedste nabo, ikke summen af alle, for at
-  undgå overdreven reduktion.
+  `coordinator.py`, `websocket.py`, panel): new global section "Door heat
+  sharing" in Configuration. **Off by default** — no behaviour change for
+  any installation until you turn it on yourself. Four adjustable
+  thresholds:
+  - `door_heat_share_min_neighbor_power` (default **50%**, as agreed) — the
+    neighbouring room's own PID power must be at least this before its
+    heat counts as actually delivered right now (not just "the neighbour is
+    warmer from earlier").
+  - `door_heat_share_min_temp_diff` (default 1.5°C) — a real temperature
+    gradient must be present before anything meaningful flows through the
+    doorway.
+  - `door_heat_share_weight` and `door_heat_share_max_reduction` (cap) —
+    the same scaling pattern as solar gain's corresponding fields.
+- **`coordinator._door_heat_share_reduction()`**: pure function (same
+  "never increase, only reduce" shape as `_solar_gain_reduction()`),
+  applied in `_async_pid_tick()` right after solar gain. **`comfort_temp`
+  and `target_temp` are never touched** — only the power the PID asks the
+  TRV for right now, which also means there is nothing to clean up when
+  the door closes again; the reduction simply stops at the next tick.
+- **`coordinator.get_door_heat_share_inputs()`**: finds, among a room's
+  open indoor doors, the neighbour that qualifies best (highest PID power)
+  and returns its power + temperature difference. A room with several open
+  doors deliberately only uses its best neighbour, not the sum of all, to
+  avoid excessive reduction.
 
 ### Fixed
-- **`config_flow.py`**: ryddet op i en eksisterende dobbelt-import af
-  `CONF_DOOR_STYLED_SENSORS`/`CONF_HEATED_DOOR_SENSORS` fra sidste
-  sessions "vindue vs. dør"-arbejde (v0.49.0) — harmløst ved runtime
-  (Python tillader det), men ryddet op for konsistens.
+- **`config_flow.py`**: cleaned up an existing double import of
+  `CONF_DOOR_STYLED_SENSORS`/`CONF_HEATED_DOOR_SENSORS` from the last
+  session's "window vs. door" work (v0.49.0) — harmless at runtime (Python
+  allows it), but cleaned up for consistency.
 
-Verificeret: alle 4 ændrede filer + hele det tidligere verificerede
-punkt-1(B)-sæt (22 filer i alt) består `mypy --strict` rent; skemaet
-verificeret til rent faktisk at bygge (tomt og udfyldt) i et isoleret
-testmiljø — samme test der fangede gårsdagens `NameError`-fejl før
-deploy denne gang. panel.js's JavaScript-syntaks bekræftet med
-`node --check`.
+Verified: all 4 changed files + the whole previously verified item-1(B)
+set (22 files in total) pass `mypy --strict` cleanly; the schema verified
+to actually build (empty and filled) in an isolated test environment — the
+same test that caught yesterday's `NameError` bug before deploy this time.
+panel.js's JavaScript syntax confirmed with `node --check`.
 
 ## [0.49.0] — 2026-09-15/16
 
-"Vindue vs dør": Flemmings fordør blev vist/logget som et "vindue" i systemet
-— misvisende, og udløste desuden fulde vindues-advarsler ved almindelig
-ind-/udgang. To uafhængige akser adskilt: (1) label/ikon (vindue vs. dør) og
-(2) reel adfærd (koldt udenfor vs. varmt/lukket bufferområde). Efter
-brugerens eget forslag: akse 1+2 (koldt udenfor) forbliver éN liste
-(`CONF_WINDOW_SENSORS`, uændret adfærd) med kun et kosmetisk
-label-overlay; "varmt område"-døre (fordør til opvarmet opgang) får sin
-egen, separate liste uden nogen grace/sluk/advarsel-logik overhovedet.
+"Window vs door": Flemming's front door was shown/logged as a "window" in
+the system — misleading, and it also triggered full window warnings on
+ordinary coming and going. Two independent axes separated: (1)
+label/icon (window vs. door) and (2) actual behaviour (cold outside vs.
+warm/closed buffer area). Following the user's own suggestion: axis 1+2
+(cold outside) remains ONE list (`CONF_WINDOW_SENSORS`, unchanged
+behaviour) with only a cosmetic label overlay; "warm area" doors (front
+door to a heated stairwell) get their own, separate list without any
+grace/off/warning logic at all.
 
 ### Added
-- **`CONF_DOOR_STYLED_SENSORS`** (`const.py`, `config_flow.py`): valgfri
-  delmængde af en rums `CONF_WINDOW_SENSORS` der skal vises/logges som
-  "Dør" i stedet for "Vindue" — rent kosmetisk, identisk grace/sluk-temp/
-  30-min-advarsel-adfærd, matcher f.eks. en altandør (samme reelle
-  varmetab som et vindue).
+- **`CONF_DOOR_STYLED_SENSORS`** (`const.py`, `config_flow.py`): optional
+  subset of a room's `CONF_WINDOW_SENSORS` to be shown/logged as "Door"
+  instead of "Window" — purely cosmetic, identical grace/off
+  temperature/30-min warning behaviour, matching e.g. a balcony door (same
+  real heat loss as a window).
 - **`CONF_HEATED_DOOR_SENSORS`** (`const.py`, `config_flow.py`,
   `door_engine.py`, `binary_sensor.py`, `coordinator.py`, `websocket.py`,
-  panel): helt separat liste — døre til et opvarmet/lukket bufferområde
-  (Flemmings fordør til opgangen). Ingen grace-periode, ingen sluk-temp,
-  ingen 30-min-advarsel — kun synlighed + hændelseslog, håndteret af
-  `door_engine.py` med samme genstart-sikre mønster som de interne døre.
-  Nye `coordinator.get_room_heated_doors()`/`is_room_heated_door_open()`/
-  `get_room_door_styled_sensors()`.
+  panel): a completely separate list — doors to a heated/closed buffer area
+  (Flemming's front door to the stairwell). No grace period, no off
+  temperature, no 30-min warning — only visibility + event log, handled by
+  `door_engine.py` with the same restart-safe pattern as the internal
+  doors. New `coordinator.get_room_heated_doors()`/
+  `is_room_heated_door_open()`/`get_room_door_styled_sensors()`.
 
 ### Changed
-- **`window_engine.py`**: alle 6 log-/notifikationssteder (åbn/luk/30-min-
-  advarsel) viser nu dynamisk "Door"/"Window" ud fra
-  `CONF_DOOR_STYLED_SENSORS` — selve reguleringen (grace, sluk-temp,
-  `RoomState.WINDOW_OPEN`, event_type til historik-filtrering) er 100%
-  uændret, kun den menneskelæselige tekst.
-- **`binary_sensor.py`**: `RawWindowContactMirror` viser korrekt
-  ikon/navn (Dør/Vindue) pr. sensor; ny `HeatedDoorContactMirror`-klasse
-  for de nye "varmt område"-døre.
-- **Panelet**: Rum-detaljer viser nu "🚪 Yderdør Åben/Lukket" som en
-  separat linje fra den eksisterende interne-dør-status, kun for rum med
-  mindst én `CONF_HEATED_DOOR_SENSORS` konfigureret.
+- **`window_engine.py`**: all 6 log/notification places (open/close/30-min
+  warning) now dynamically show "Door"/"Window" based on
+  `CONF_DOOR_STYLED_SENSORS` — the control itself (grace, off temperature,
+  `RoomState.WINDOW_OPEN`, event_type for history filtering) is 100%
+  unchanged, only the human-readable text.
+- **`binary_sensor.py`**: `RawWindowContactMirror` shows the correct
+  icon/name (Door/Window) per sensor; new `HeatedDoorContactMirror` class
+  for the new "warm area" doors.
+- **The panel**: the room details now show "🚪 Outer door Open/Closed" as a
+  separate line from the existing internal door status, only for rooms
+  with at least one `CONF_HEATED_DOOR_SENSORS` configured.
 
-Verificeret: alle 7 ændrede backend-filer + hele det tidligere
-verificerede punkt-1(B)-sæt (22 filer i alt) består `mypy --strict`
-rent; panel.js's JavaScript-syntaks bekræftet med `node --check`.
+Verified: all 7 changed backend files + the whole previously verified
+item-1(B) set (22 files in total) pass `mypy --strict` cleanly; panel.js's
+JavaScript syntax confirmed with `node --check`.
 
 ## [0.48.0] — 2026-09-15
 
-Restart-safety hardening, runde 2 — udløst af opdagelsen af, at punkt 5's
-udetemp-regression var 100% in-memory og blev nulstillet ved HVER HA-genstart
-(og der har været 15+ genstarter blot under denne uges udviklingsarbejde).
-Brugerens eget krav: "ikke kun dette emne men alt vigtig data". Følger det
-eksisterende `entry.options`-snapshot-mønster fra 2026-09-13's event-log/
-override-hårdføring uændret — ingen ny persisterings-mekanisme introduceret.
+Restart-safety hardening, round 2 — triggered by the discovery that item
+5's outdoor temperature regression was 100% in-memory and was reset at
+EVERY HA restart (and there have been 15+ restarts during this week's
+development work alone). The user's own requirement: "not just this topic
+but all important data". Follows the existing `entry.options` snapshot
+pattern from 2026-09-13's event log/override hardening unchanged — no new
+persistence mechanism introduced.
 
 ### Fixed
-- **`engine/calibration_engine.py`**: punkt 5's udetemp-regression
-  (`_heatup_mean_x/y/xy/xx`, `_heatup_sample_count`) og
-  kalibrerings-offset-writerens `_last_written` overlever nu en HA-genstart.
-  Gemmes én gang dagligt (samme kadence som event-loggen) plus ved
-  nedlukning — aldrig pr. tick, da regressionen kun flytter sig lidt pr.
-  prøve. Bevidst IKKE persisteret: `_heatup_anomaly_streak` og
-  `_heatup_baseline_*` — kortlivet bogføring for den aktuelle
-  opvarmningscyklus, sikkert at nulstille.
-- **`engine/controller.py`**: hele hus-tilstanden (Tænd/Pause/Sluk,
-  `pause_until`, `auto_off_reason`) overlever nu en genstart — en manuel
-  Pause eller Sluk gik før stille tilbage til Tænd ved næste genstart,
-  hvilket kunne genoptage varmen præcis når brugeren bevidst havde slået
-  den fra. Gemmes på HVER tilstandsændring (billigt — kun bruger-/
-  sæson-udløst, aldrig pr. tick). En gemt Pause hvis udløbstid allerede er
-  passeret, mens HA var nede, genoprettes bevidst IKKE — samme "allerede
-  udløbet"-regel som `_restore_override_snapshot()` allerede brugte.
-- **`engine/season_engine.py`**: den flerdages tæller til auto-off ved
-  mildt vejr (`_days_above`) overlevede før ikke en genstart — en
-  installation 4 dage inde i en 5-dages mild-vejrs-stræk mistede
-  fremskridtet og skulle starte forfra. Samme daglig+nedlukning-kadence som
-  kalibreringen ovenfor.
-- **`coordinator.py`**: `room_group_enabled` (per-rum "hold TRV'er
-  grupperet"-toggle) overlever nu en genstart — et rum hvis sekundære
-  TRV'er var bevidst frigivet til manuel kontrol blev før stille grupperet
-  igen ved næste genstart. Gemmes med det samme ved hvert toggle.
+- **`engine/calibration_engine.py`**: item 5's outdoor temperature
+  regression (`_heatup_mean_x/y/xy/xx`, `_heatup_sample_count`) and the
+  calibration offset writer's `_last_written` now survive an HA restart.
+  Saved once a day (same cadence as the event log) plus at shutdown —
+  never per tick, since the regression only moves a little per sample.
+  Deliberately NOT persisted: `_heatup_anomaly_streak` and
+  `_heatup_baseline_*` — short-lived bookkeeping for the current heat-up
+  cycle, safe to reset.
+- **`engine/controller.py`**: the whole house state (On/Pause/Off,
+  `pause_until`, `auto_off_reason`) now survives a restart — a manual
+  Pause or Off previously went silently back to On at the next restart,
+  which could resume heating exactly when the user had deliberately turned
+  it off. Saved on EVERY state change (cheap — only user/season-triggered,
+  never per tick). A saved Pause whose expiry has already passed while HA
+  was down is deliberately NOT restored — the same "already expired" rule
+  that `_restore_override_snapshot()` already used.
+- **`engine/season_engine.py`**: the multi-day counter for auto-off in mild
+  weather (`_days_above`) previously did not survive a restart — an
+  installation 4 days into a 5-day mild-weather stretch lost the progress
+  and had to start over. Same daily + shutdown cadence as the calibration
+  above.
+- **`coordinator.py`**: `room_group_enabled` (the per-room "keep TRVs
+  grouped" toggle) now survives a restart — a room whose secondary TRVs
+  had been deliberately released to manual control was previously
+  silently regrouped at the next restart. Saved immediately on every
+  toggle.
 
 ## [0.47.0] — 2026-09-15
 
-Punkt 1(B) FULDFØRT: sidste bid af strict typing (runde 3) — alle 7
-resterende platform-filer (`switch.py`, `sensor.py`, `binary_sensor.py`,
-`select.py`, `number.py`, `websocket.py`, `config_flow.py`). Sammen med
-runde 1 (`engine/`, v0.44.0) og runde 2 (`coordinator.py`, v0.46.0) er nu
-HVER første-parts .py-fil i integrationen, undtaget kun `__init__.py`,
-`diagnostics.py`, `migrations.py` og `panel.py` (aldrig i scope — små,
-lavrisiko glue-filer), verificeret `mypy --strict`-ren.
+Item 1(B) COMPLETE: the last piece of strict typing (round 3) — all 7
+remaining platform files (`switch.py`, `sensor.py`, `binary_sensor.py`,
+`select.py`, `number.py`, `websocket.py`, `config_flow.py`). Together with
+round 1 (`engine/`, v0.44.0) and round 2 (`coordinator.py`, v0.46.0),
+EVERY first-party .py file in the integration, except only `__init__.py`,
+`diagnostics.py`, `migrations.py` and `panel.py` (never in scope — small,
+low-risk glue files), is now verified `mypy --strict`-clean.
 
 ### Fixed
-- **Strukturel rodfejl fundet og rettet i alle fire entity-platform-filer**:
-  hver entity-klasse arvede fra en utype-parameteriseret `CoordinatorEntity`,
-  hvilket gjorde `self.coordinator` til `Any` overalt — IKKE løst af blot
-  at parameterisere `CoordinatorEntity[HeatManagerCoordinator]`, fordi
-  `homeassistant-stubs`' `BaseCoordinatorEntity` selv erklærer
-  `coordinator: Incomplete` på klasse-niveau, hvilket overskygger den
-  generiske TypeVar-baserede inferens. Løst med en eksplicit re-annotering
-  (`self.coordinator: HeatManagerCoordinator = coordinator`) i hver klasses
-  `__init__`, umiddelbart efter `super().__init__(coordinator)` — verificeret
-  med et minimalt mypy-repro før det blev anvendt bredt. Ren typing-fix,
-  ingen adfærdsændring.
-- **`websocket.py`/`coordinator.py`-mønster genkendt igen**: genbrug af et
-  løkkevariabelnavn (`default`) i to separate `for`-løkker i
-  `ws_update_config()` låste mypy's typeinferens forkert fast — omdøbt til
-  `numeric_default` i den anden løkke, samme mønster som gårsdagens
-  `controller_off_pid`/`dormant_pid`-fix i `coordinator.py`.
-- **~50 mekaniske annoteringsfejl rettet** på tværs af de 7 filer: utypede
-  `dict`/`list[dict]`/`frozenset` (nu `dict[str, Any]` osv.), `**kwargs`
-  uden type i `switch.py`'s `async_turn_on`/`async_turn_off` (plus et
-  forkert `# type: ignore[override]`, som reelt skulle have været
-  `no-untyped-def`), samt et par `description_placeholders`-dicts der fik
-  en `str | None`-værdi hvor HA's egen type kræver `str` (nu `or ""`).
+- **Structural root bug found and fixed in all four entity platform
+  files**: every entity class inherited from an untyped-parameterised
+  `CoordinatorEntity`, which made `self.coordinator` `Any` everywhere — NOT
+  solved by merely parameterising `CoordinatorEntity[HeatManagerCoordinator]`,
+  because `homeassistant-stubs`' `BaseCoordinatorEntity` itself declares
+  `coordinator: Incomplete` at class level, which shadows the generic
+  TypeVar-based inference. Solved with an explicit re-annotation
+  (`self.coordinator: HeatManagerCoordinator = coordinator`) in each
+  class's `__init__`, immediately after `super().__init__(coordinator)` —
+  verified with a minimal mypy repro before it was applied broadly. Pure
+  typing fix, no behaviour change.
+- **`websocket.py`/`coordinator.py` pattern recognised again**: reusing a
+  loop variable name (`default`) in two separate `for` loops in
+  `ws_update_config()` locked mypy's type inference in wrongly — renamed
+  to `numeric_default` in the second loop, the same pattern as yesterday's
+  `controller_off_pid`/`dormant_pid` fix in `coordinator.py`.
+- **~50 mechanical annotation errors fixed** across the 7 files: untyped
+  `dict`/`list[dict]`/`frozenset` (now `dict[str, Any]` etc.), `**kwargs`
+  without a type in `switch.py`'s `async_turn_on`/`async_turn_off` (plus a
+  wrong `# type: ignore[override]`, which should really have been
+  `no-untyped-def`), and a few `description_placeholders` dicts that got a
+  `str | None` value where HA's own type requires `str` (now `or ""`).
 
 ### Added
-- **`pyproject.toml`**: `[[tool.mypy.overrides]]` udvidet til at dække alle
-  7 platform-filer, med samme `strict = true`. Dokumenterer begge
-  strukturelle fælder ovenfor direkte i kommentaren, så de ikke skal
-  genopdages næste gang overridet fejler efter en HA-/stub-opdatering.
-  Verificeret ved rent faktisk at køre `mypy --config-file pyproject.toml`
-  mod alle 21 filer på én gang.
+- **`pyproject.toml`**: `[[tool.mypy.overrides]]` extended to cover all 7
+  platform files, with the same `strict = true`. Documents both structural
+  traps above directly in the comment, so they do not have to be
+  rediscovered next time the override fails after an HA/stub update.
+  Verified by actually running `mypy --config-file pyproject.toml` against
+  all 21 files at once.
 
 ## [0.46.0] — 2026-09-15
 
-Første bid af punkt 1(B) (strict typing, resten af kodebasen): `coordinator.py`
-tilføjet til `mypy --strict`-settet fra v0.44.0 (som dækkede `engine/`).
-Resterende platform-filer (`sensor.py`, `binary_sensor.py`, `number.py`,
-`select.py`, `config_flow.py`, `websocket.py`) er stadig ikke dækket — tages
-som senere bidder.
+First piece of item 1(B) (strict typing, the rest of the codebase):
+`coordinator.py` added to the `mypy --strict` set from v0.44.0 (which
+covered `engine/`). The remaining platform files (`sensor.py`,
+`binary_sensor.py`, `number.py`, `select.py`, `config_flow.py`,
+`websocket.py`) are still not covered — taken as later pieces.
 
 ### Fixed
-- **13 `mypy --strict`-fejl rettet i `coordinator.py`**:
-  - `_weather_compensation_feedforward()`/`_solar_gain_reduction()`: `config`-
-    parameteren var en utypet `dict`, og `config.get(...)`-kaldene returnerede
-    `Any` ind i funktioner der lover `float` retur — nu `dict[str, Any]` plus
-    eksplicitte `float(...)`-casts på hvert opslået tal.
-  - `rooms`/`persons`/`doors`-properties og `get_door_other_room()`: samme
-    mønster — `self.config.get(...)` returnerer `Any` fra en `dict[str, Any]`,
-    tilføjet eksplicitte `cast()`/`str()` på returværdien.
-  - `global_device_info()`: `entry_type="service"` (en rå streng med et
-    overset `# type: ignore`) erstattet med den rigtige
-    `DeviceEntryType.SERVICE`-enum — en reel rettelse, ikke kun en
-    typeannotation.
-  - `room_device_info()`: `via_device_id`-feltet er ukendt for den lokale
-    `homeassistant-stubs`-pakke (formentlig en stub/runtime-versionsforskel,
-    ikke en reel fejl) — dokumenteret `# type: ignore[typeddict-unknown-key]`
-    med forklaring, adfærd uændret.
-  - `_async_pid_tick()`: to tidlige "nulstil alle PID'er"-løkker genbrugte
-    løkkevariablen `pid` (samme navn som den senere per-rum `pid: PidController
-    | None`), hvilket fik mypy til at låse variablens type forkert fast —
-    omdøbt til `controller_off_pid`/`dormant_pid`, ingen adfærdsændring.
+- **13 `mypy --strict` errors fixed in `coordinator.py`**:
+  - `_weather_compensation_feedforward()`/`_solar_gain_reduction()`: the
+    `config` parameter was an untyped `dict`, and the `config.get(...)`
+    calls returned `Any` into functions that promise a `float` return —
+    now `dict[str, Any]` plus explicit `float(...)` casts on every looked-up
+    number.
+  - The `rooms`/`persons`/`doors` properties and `get_door_other_room()`:
+    the same pattern — `self.config.get(...)` returns `Any` from a
+    `dict[str, Any]`, added explicit `cast()`/`str()` on the return value.
+  - `global_device_info()`: `entry_type="service"` (a raw string with an
+    overlooked `# type: ignore`) replaced with the proper
+    `DeviceEntryType.SERVICE` enum — a real fix, not just a type
+    annotation.
+  - `room_device_info()`: the `via_device_id` field is unknown to the local
+    `homeassistant-stubs` package (probably a stub/runtime version
+    difference, not a real bug) — documented
+    `# type: ignore[typeddict-unknown-key]` with an explanation, behaviour
+    unchanged.
+  - `_async_pid_tick()`: two early "reset all PIDs" loops reused the loop
+    variable `pid` (the same name as the later per-room
+    `pid: PidController | None`), which made mypy lock the variable's type
+    in wrongly — renamed to `controller_off_pid`/`dormant_pid`, no
+    behaviour change.
 - **`pyproject.toml`**: `[[tool.mypy.overrides]]` for
-  `custom_components.heat_manager.coordinator` tilføjet med `strict = true`,
-  ved siden af `engine.*`-overridet fra v0.44.0. Verificeret ved rent faktisk
-  at køre `mypy --config-file pyproject.toml` mod begge — 0 fejl i alle 14
-  filer.
+  `custom_components.heat_manager.coordinator` added with `strict = true`,
+  next to the `engine.*` override from v0.44.0. Verified by actually
+  running `mypy --config-file pyproject.toml` against both — 0 errors in
+  all 14 files.
 
 ## [0.45.0] — 2026-09-15
 
-Overshoot-undersøgelse: rum med 21°C mål holdt sig konsekvent på 22-25°C.
-Rodfundet: `PidController.power_to_setpoint()` sender straks `trv_max`
-(24°C i brugerens config) ved 100% PID-effekt — og Kp=0,5 mætter effekten
-allerede ved ≈ 2°C fejl, længe før rummet reelt er tæt på sit mål. Kombineret
-med fjernvarme/TRV-termisk træghed forårsagede det gentaget overskydning.
-Alle 7 rum bekræftet allerede at bruge en dedikeret Indeklima
-rumtemperatur-sensor (`room_temp_sensor`) — sensorpræcision var IKKE rodfundet.
+Overshoot investigation: rooms with a 21°C target consistently stayed at
+22-25°C. Root cause: `PidController.power_to_setpoint()` immediately sends
+`trv_max` (24°C in the user's config) at 100% PID power — and Kp=0.5
+saturates the power already at ≈ 2°C error, long before the room is
+actually close to its target. Combined with district heating/TRV thermal
+inertia, this caused repeated overshoot. All 7 rooms confirmed to already
+use a dedicated Indeklima room temperature sensor (`room_temp_sensor`) —
+sensor accuracy was NOT the root cause.
 
 ### Added
-- **Ny `CONF_PID_SETPOINT_MARGIN`** (`const.py`, `coordinator.py`,
-  `config_flow.py`, `websocket.py`, `heat-manager-panel.js`): caps det
-  faktiske TRV-setpoint ved `target_temp + margin` (standard 2,0°C) —
-  relativt til HVERT rums eget mål, ikke det globale `trv_max`. Fuld
-  PID-effekt driver stadig TRV'en hårdt mens rummet reelt er langt fra målet,
-  men rammer nu et kontrolleret, indstilleligt loft i stedet for at hoppe
-  direkte til `trv_max`, når effekten mætter tidligt. `trv_max` er stadig
-  den absolutte hardware-grænse; margin-loftet lægges oven i, i
-  `_async_pid_tick()` lige efter `power_to_setpoint()`. Redigerbart fra
-  Konfiguration → PID-regulator, med samme live-gem-mønster som Kp/Ki/Kd.
-  Standardværdien (2°C) er bevidst rummelig — sænk den gradvist når
-  effekten er bekræftet i praksis.
+- **New `CONF_PID_SETPOINT_MARGIN`** (`const.py`, `coordinator.py`,
+  `config_flow.py`, `websocket.py`, `heat-manager-panel.js`): caps the
+  actual TRV setpoint at `target_temp + margin` (default 2.0°C) — relative
+  to EACH room's own target, not the global `trv_max`. Full PID power
+  still drives the TRV hard while the room is really far from its target,
+  but now hits a controlled, adjustable cap instead of jumping straight to
+  `trv_max` when the power saturates early. `trv_max` is still the
+  absolute hardware limit; the margin cap is applied on top, in
+  `_async_pid_tick()` right after `power_to_setpoint()`. Editable from
+  Configuration → PID controller, with the same live-save pattern as
+  Kp/Ki/Kd. The default (2°C) is deliberately generous — lower it
+  gradually once the effect is confirmed in practice.
 
 ## [0.44.0] — 2026-09-14/15
 
-Implementerer punkt 1 (gruppe C), niveau "C" af den prioriterede
-implementeringsplan: `mypy --strict` på hele `engine/`-laget (de 12
-motor-filer — PID, kalibrering, vindue, dør, sync, schedule, sæson,
-tilstedeværelse, preheat, controller, fjernbetjening,
-ventilbeskyttelse). `coordinator.py` og platform-filerne
-(sensor/binary_sensor/number/select/config_flow/websocket) er bevidst
-**ikke** dækket endnu — det er niveau "B", som tages senere i mindre bider.
+Implements item 1 (group C), level "C" of the prioritised implementation
+plan: `mypy --strict` on the whole `engine/` layer (the 12 engine files —
+PID, calibration, window, door, sync, schedule, season, presence,
+pre-heat, controller, remote control, valve protection). `coordinator.py`
+and the platform files (sensor/binary_sensor/number/select/config_flow/
+websocket) are deliberately **not** covered yet — that is level "B", taken
+later in smaller pieces.
 
 ### Added
-- **`pyproject.toml`**: ny `[tool.mypy]`-sektion + `[[tool.mypy.overrides]]`
-  scoped til `custom_components.heat_manager.engine.*` med `strict = true`.
-  Kan køres med `mypy -p custom_components.heat_manager.engine` (eller
-  tilføjes CI). `waste_calculator.py` er eksplicit undtaget
-  (`ignore_errors = true`) — den er afkoblet død kode siden "Energi i
-  dag"-fjernelsen og ikke værd at type-annotere. En separat override for
-  `yaml`-modulet gør tjekket uafhængigt af, om `types-PyYAML` er
-  installeret lokalt.
+- **`pyproject.toml`**: new `[tool.mypy]` section + `[[tool.mypy.overrides]]`
+  scoped to `custom_components.heat_manager.engine.*` with `strict = true`.
+  Can be run with `mypy -p custom_components.heat_manager.engine` (or added
+  to CI). `waste_calculator.py` is explicitly exempted
+  (`ignore_errors = true`) — it has been disconnected dead code since the
+  "Energy today" removal and is not worth annotating. A separate override
+  for the `yaml` module makes the check independent of whether
+  `types-PyYAML` is installed locally.
 
 ### Fixed
-- **9 reelle `mypy --strict`-fejl rettet på tværs af 6 filer** — fundet
-  ved at køre mypy mod hele `engine/`-pakken og rette hver fejl konkret,
-  ikke blot undertrykke dem:
-  - **`calibration_engine.py`** (reel latent bug, ikke kun kosmetik):
-    `_nearest_select_option()` returnerede en `dict[str, float | str]`
-    (label + værdi blandet i ét dict), så mypy aldrig kunne garantere at
-    den udlæste værdi rent faktisk var et tal på kaldestedet, hvor den
-    indgår i en `abs(a - b)`-sammenligning mod et andet flydende tal.
-    Erstattet med en typet `tuple[str, float]`.
-  - **`controller.py`**: `guarded`-dekoratorens `Callable` manglede
-    typeparametre (`Callable[..., Any]` via en `TypeVar`, så dekoratorens
-    returtype forbliver bundet til den dekorerede funktions egen type);
-    `getattr(self, "coordinator", None)` blev tildelt en
-    ikke-Optional-annoteret variabel.
-  - **`schedule_engine.py`**: to hjælpefunktioner manglede
-    parametertyper (`state: Any`, `value: Any`).
-  - **`sync_engine.py`**: `_make_confirm_callback()` manglede returtype
+- **9 real `mypy --strict` errors fixed across 6 files** — found by running
+  mypy against the whole `engine/` package and fixing each error
+  concretely, not just suppressing them:
+  - **`calibration_engine.py`** (a real latent bug, not just cosmetics):
+    `_nearest_select_option()` returned a `dict[str, float | str]` (label +
+    value mixed in one dict), so mypy could never guarantee that the
+    extracted value was actually a number at the call site, where it is
+    used in an `abs(a - b)` comparison against another float. Replaced with
+    a typed `tuple[str, float]`.
+  - **`controller.py`**: the `guarded` decorator's `Callable` lacked type
+    parameters (`Callable[..., Any]` via a `TypeVar`, so the decorator's
+    return type stays bound to the decorated function's own type);
+    `getattr(self, "coordinator", None)` was assigned to a
+    non-Optional-annotated variable.
+  - **`schedule_engine.py`**: two helper functions lacked parameter types
+    (`state: Any`, `value: Any`).
+  - **`sync_engine.py`**: `_make_confirm_callback()` lacked a return type
     (`Callable[[Any], None]`).
-  - **`window_engine.py`**: `_cancel_task()`'s `task_dict`-parameter var en
-    utypet `dict` — nu `dict[str, asyncio.Task[Any]]`.
-  - **`presence_engine.py`**: `_notify()`'s `actions`-parameter var en
-    utypet `dict` — nu `list[dict[str, str]] | None`.
-  - De øvrige 6 engine-filer (`pid_controller.py`, `door_engine.py`,
+  - **`window_engine.py`**: `_cancel_task()`'s `task_dict` parameter was an
+    untyped `dict` — now `dict[str, asyncio.Task[Any]]`.
+  - **`presence_engine.py`**: `_notify()`'s `actions` parameter was an
+    untyped `dict` — now `list[dict[str, str]] | None`.
+  - The other 6 engine files (`pid_controller.py`, `door_engine.py`,
     `preheat_engine.py`, `season_engine.py`, `remote_button_engine.py`,
-    `valve_protection_engine.py`) bestod allerede `mypy --strict` uden
-    ændringer.
+    `valve_protection_engine.py`) already passed `mypy --strict` without
+    changes.
 
 ## [0.43.0] — 2026-09-14
 
-Implementerer punkt 7 (gruppe C) af den prioriterede implementeringsplan:
-solindfald via `sun.sun` + valgfri per-rum lux-sensor.
+Implements item 7 (group C) of the prioritised implementation plan: solar
+gain via `sun.sun` + an optional per-room lux sensor.
 
 ### Added
-- **Punkt 7 — Solindfald** (`const.py`, `coordinator.py`, `config_flow.py`,
-  `websocket.py`, `heat-manager-panel.js`): nyt `CONF_LUX_SENSOR` — en
-  valgfri lux-sensor pr. rum (i dag: Stuen, Køkken, Gang — tilføjes for
-  flere rum når der købes sensorer, uden kodeændringer). Ny
-  `coordinator._solar_gain_reduction()`: når `sun.sun`'s elevation er over
-  horisonten OG rummets lux overstiger en konfigurerbar grænse, reduceres
-  PID'ens beregnede effekt — aldrig øges, kun trækkes fra, anvendt EFTER
-  vejrkompensations-feedforward'en så de to kan modvirke hinanden på en
-  kold-men-solrig dag. Bevidst målt (lux) frem for beregnet (sol-position +
-  husorientering) — en lux-af læsning fanger automatisk skydække, gardiner
-  og årstid uden at nogen skal konfigurere en vinkel. Ny global sektion
-  "Solindfald" i Konfiguration-fanen (lux-grænse/vægt/maks-reduktion, samme
-  mønster som Vejrkompensation) — **off by default**, ingen
-  adfærdsændring for nogen installation før både dette slås til OG mindst
-  ét rum har en lux-sensor sat. Lux vist som ny chip på rumkort (Oversigt)
-  og i Rum-detaljer, side om side med fugt/CO₂.
+- **Item 7 — Solar gain** (`const.py`, `coordinator.py`, `config_flow.py`,
+  `websocket.py`, `heat-manager-panel.js`): new `CONF_LUX_SENSOR` — an
+  optional lux sensor per room (today: Living room, Kitchen, Hallway —
+  added for more rooms when sensors are bought, without code changes). New
+  `coordinator._solar_gain_reduction()`: when `sun.sun`'s elevation is
+  above the horizon AND the room's lux exceeds a configurable limit, the
+  PID's computed power is reduced — never increased, only subtracted,
+  applied AFTER the weather compensation feedforward so the two can offset
+  each other on a cold-but-sunny day. Deliberately measured (lux) rather
+  than computed (sun position + house orientation) — a lux reading
+  automatically captures cloud cover, curtains and season without anyone
+  having to configure an angle. New global section "Solar gain" in the
+  Configuration tab (lux limit/weight/max reduction, same pattern as
+  Weather compensation) — **off by default**, no behaviour change for any
+  installation until both this is turned on AND at least one room has a
+  lux sensor set. Lux shown as a new chip on room cards (Overview) and in
+  the room details, side by side with humidity/CO₂.
 
 ## [0.42.0] — 2026-09-14
 
-Implementerer punkt 5 og 12 af den prioriterede implementeringsplan
-(gruppe B): udetemperatur som covariate i opvarmningsrate-læringen, og
-card/panel data-parity for Lovelace-kortets press-and-hold-sheet.
+Implements items 5 and 12 of the prioritised implementation plan (group
+B): outdoor temperature as a covariate in the heating-rate learning, and
+card/panel data parity for the Lovelace card's press-and-hold sheet.
 
 ### Changed
-- **Punkt 5 — Opvarmningsrate-læring: udetemperatur som covariate**
-  (`engine/calibration_engine.py`): den lærte opvarmningsrate pr.
-  (rum, dør-tilstand) var én flad EMA, uafhængig af udetemperatur —
-  erstattet med en eksponentielt vægtet lineær regression
-  (`rate ≈ intercept + slope × udetemp`), samme fysiske intuition som
-  PID'ens eksisterende vejrkompensations-feedforward. `get_room_heatup_rate()`
-  beregner nu en forudsigelse for den AKTUELLE udetemperatur i stedet for
-  ét gennemsnit på tværs af alle tidligere observerede udetemperaturer.
-  Falder automatisk tilbage til den gamle flade middelværdi, indtil der er
-  observeret nok spredning i udetemperaturen til at fitte en pålidelig
-  hældning (eller hvis intet udetemperatur-sensor/vejr-entity er
-  konfigureret) — ingen adfærdsændring for en frisk installation før det.
-  Anomali-detektionen (`get_room_heatup_anomaly`) sammenligner nu også mod
-  den forudsagte rate for dagens udetemperatur i stedet for et fladt
-  gennemsnit — et rum der varmer langsommere udelukkende fordi det er
-  markant koldere udenfor lige nu, fejlmærkes ikke længere som anomalt.
-  Metodesignaturen `get_room_heatup_rate(room, door_open, outdoor_temp=None)`
-  er bagudkompatibel — eksisterende kald uden det nye argument får
-  automatisk `coordinator.outdoor_temperature` indsat. Explicit forarbejde
-  til punkt 6 (EKF-model), som planen selv anbefaler skal vente til denne
-  regression har kørt en fuld opvarmningssæson.
+- **Item 5 — Heating-rate learning: outdoor temperature as covariate**
+  (`engine/calibration_engine.py`): the learned heating rate per (room,
+  door state) was one flat EMA, independent of outdoor temperature —
+  replaced with an exponentially weighted linear regression
+  (`rate ≈ intercept + slope × outdoor temp`), the same physical intuition
+  as the PID's existing weather compensation feedforward.
+  `get_room_heatup_rate()` now computes a prediction for the CURRENT
+  outdoor temperature instead of one average across all previously
+  observed outdoor temperatures. Falls back automatically to the old flat
+  mean until enough spread in the outdoor temperature has been observed to
+  fit a reliable slope (or if no outdoor temperature sensor/weather entity
+  is configured) — no behaviour change for a fresh install before then.
+  The anomaly detection (`get_room_heatup_anomaly`) now also compares
+  against the predicted rate for today's outdoor temperature instead of a
+  flat average — a room that heats more slowly only because it is markedly
+  colder outside right now is no longer mislabelled as anomalous. The
+  method signature `get_room_heatup_rate(room, door_open, outdoor_temp=None)`
+  is backwards compatible — existing calls without the new argument
+  automatically get `coordinator.outdoor_temperature` inserted. Explicit
+  groundwork for item 6 (EKF model), which the plan itself recommends
+  should wait until this regression has run a full heating season.
 
 ### Added
-- **Punkt 12 — Card/panel data-parity** (`frontend/heat-manager-card.js`,
-  press-and-hold-sheeten): tilføjet de felter, kortet manglede i forhold
-  til panelets Rum-detaljer — Mål-temp (`target_temp`) og Away-temp
-  (`away_temp_override`) som egne linjer, Netatmo cloud-diagnostik
-  (preset mode, schedule, cloud-sætpunkt, hvac-action) for Netatmo-rum,
-  og — som bonus, da backend allerede leverer det efter punkt 4 —
-  sundhedsscore-badgen. Alle er rene læsninger fra det eksisterende
-  `_roomData`-snapshot (opdateret hvert 60. sekund via `get_state`-poll),
-  ingen ny backend- eller pollinglogik. "Flyt felter fra bottom-sheet til
-  hovedlinje" (samme punkt i planen) er bevidst ikke lavet i denne omgang —
-  ren layout-omrokering med lav prioritet, jf. planens egen vurdering af
-  punkt 12 som "lav prioritet — poler, ikke funktion".
+- **Item 12 — Card/panel data parity** (`frontend/heat-manager-card.js`,
+  the press-and-hold sheet): added the fields the card lacked compared to
+  the panel's room details — Target temp (`target_temp`) and Away temp
+  (`away_temp_override`) as their own lines, Netatmo cloud diagnostics
+  (preset mode, schedule, cloud setpoint, hvac action) for Netatmo rooms,
+  and — as a bonus, since the backend already delivers it after item 4 —
+  the health score badge. All are plain reads from the existing
+  `_roomData` snapshot (updated every 60 seconds via the `get_state` poll),
+  no new backend or polling logic. "Move fields from bottom sheet to the
+  main line" (same item in the plan) is deliberately not done this time —
+  pure layout reshuffling with low priority, per the plan's own assessment
+  of item 12 as "low priority — polish, not function".
 
 ## [0.41.1] — 2026-09-14 (hotfix)
 
 Critical bugfix for v0.41.0: the entire integration frontend broke after
-upgrade — panel showed "Ingen forbindelse til Heat Manager" and "0 rum
-konfigureret" on every tab, immediately after a full HA restart.
+upgrade — panel showed "Ingen forbindelse til Heat Manager" (no connection
+to Heat Manager) and "0 rum konfigureret" (0 rooms configured) on every
+tab, immediately after a full HA restart.
 
 ### Fixed
 - **`websocket.py` (`ws_get_state`)**: v0.41.0's new per-room health-score
@@ -1565,7 +1680,7 @@ konfigureret" on every tab, immediately after a full HA restart.
   plain `NameError` on every single call, which crashed `ws_get_state()`
   entirely before it could return anything. The panel's WS call therefore
   always failed, falling back to its empty client-side snapshot (0 rooms,
-  "Ingen forbindelse"). Fixed by moving the health-score block to after
+  "no connection"). Fixed by moving the health-score block to after
   `unavailable_entities` is populated — no behavioural change to the score
   itself, purely an ordering fix. Caught immediately by the user after
   deploying v0.41.0; not caught beforehand since this repo has no automated
@@ -1575,47 +1690,50 @@ konfigureret" on every tab, immediately after a full HA restart.
 
 ## [0.41.0] — 2026-09-14
 
-Implementer trin 2–5 af den prioriterede implementeringsplan
+Implements steps 2–5 of the prioritised implementation plan
 (`planning/heat_manager_prioriteret_implementeringsplan_2026-09-13.md`,
-gruppe A/B): statuscenter-dedup, per-rum sundhedsscore, en udvidet HA
-Repairs-integration, og sammenklappelige sektioner i panelets
-Konfiguration-fane.
+groups A/B): status centre dedup, per-room health score, an extended HA
+Repairs integration, and collapsible sections in the panel's
+Configuration tab.
 
 ### Added
-- **Punkt 4 — Sundhedsscore pr. rum** (`websocket.py`, `heat-manager-panel.js`):
-  nyt `health_score` (0–100) og `health_label` ("god"/"ok"/"dårlig") felt pr.
-  rum i `ws_get_state()`-payloaden — en simpel, additiv vægtning af allerede
-  eksisterende signaler (lavt batteri, skimmelrisiko, utilgængelige enheder,
-  opvarmningsrate-afvigelse). Vist som et nyt 🩺-badge på Oversigt-rumkortene,
-  kun når scoren er under 100 (et fuldt sundt rum får intet ekstra badge).
-- **Punkt 2 — Udvidet HA Repairs-integration** (`coordinator.py`, `__init__.py`,
-  `const.py`, `strings.json`/`translations/da.json`): `_report_issue()`’s
-  eksisterende statuscenter-tracker rejser nu også en rigtig HA Repair-issue
-  (synlig i Indstillinger → Reparationer og HA-mobilappens badge) for tre
-  kategorier, når de har været uafbrudt aktive forbi `issue_escalation_minutes`
-  (samme tærskel push-notifikationen allerede bruger): `cloud_down` (hele
-  huset — alle Netatmo-rum utilgængelige), `mold_risk:<rum>` (vedvarende
-  skimmelrisiko, genbruger den eksisterende kategori), og det nye
-  `room_override_stuck:<rum>` (et rum der har stået i manuel override længe —
-  ofte bare glemt boost/manuel justering). Én delt oversat streng
-  (`persistent_issue`, med `{message}`/`{duration_min}`-placeholders) i stedet
-  for en per-kategori oversat streng. Ryddes automatisk når kategorien igen
-  bliver inaktiv, og ved entry-unload.
-- **Punkt 5 — Sammenklappelige sektioner** (`heat-manager-panel.js`,
-  Konfiguration-fanen): hver `.section-box`-header i fanen kan nu klappes
-  sammen/ud ved klik — tilstanden ligger udelukkende som en `.collapsed`-klasse
-  på selve `.section-box`, uden per-sektion-id eller persisteret state (nulstilles
-  ved næste fulde render af fanen, fx faneskift). Reducerer scroll-mængden
-  på særligt mobil, hvor Konfiguration-fanen har 12 sektioner.
+- **Item 4 — Health score per room** (`websocket.py`,
+  `heat-manager-panel.js`): new `health_score` (0–100) and `health_label`
+  ("good"/"ok"/"poor") field per room in the `ws_get_state()` payload — a
+  simple, additive weighting of already existing signals (low battery,
+  mould risk, unavailable devices, heating-rate deviation). Shown as a new
+  🩺 badge on the Overview room cards, only when the score is below 100 (a
+  fully healthy room gets no extra badge).
+- **Item 2 — Extended HA Repairs integration** (`coordinator.py`,
+  `__init__.py`, `const.py`, `strings.json`/`translations/da.json`):
+  `_report_issue()`'s existing status centre tracker now also raises a real
+  HA Repair issue (visible in Settings → Repairs and the HA mobile app's
+  badge) for three categories, when they have been continuously active
+  past `issue_escalation_minutes` (the same threshold the push
+  notification already uses): `cloud_down` (the whole house — all Netatmo
+  rooms unavailable), `mold_risk:<room>` (persistent mould risk, reuses the
+  existing category), and the new `room_override_stuck:<room>` (a room that
+  has been in manual override for a long time — often just a forgotten
+  boost/manual adjustment). One shared translated string
+  (`persistent_issue`, with `{message}`/`{duration_min}` placeholders)
+  instead of a translated string per category. Cleared automatically when
+  the category becomes inactive again, and at entry unload.
+- **Item 5 — Collapsible sections** (`heat-manager-panel.js`, the
+  Configuration tab): every `.section-box` header in the tab can now be
+  collapsed/expanded on click — the state lives solely as a `.collapsed`
+  class on the `.section-box` itself, without a per-section id or
+  persisted state (reset at the next full render of the tab, e.g. a tab
+  switch). Reduces the amount of scrolling, especially on mobile, where
+  the Configuration tab has 12 sections.
 
 ### Changed
-- **Punkt 3 — Dedup/gruppering af statuscenter-issues** (`websocket.py`
-  `_build_active_issues()`): kategorierne “utilgængelige entiteter”,
-  “skimmelrisiko”, “åbent vindue” og “opvarmningsanomali” viser nu én samlet
-  linje (fx “5 rum har utilgængelige sensorer/enheder”) i stedet for én linje
-  pr. ramt rum, når mere end ét rum er ramt samtidig — uddrag af sidste sæsons
-støjende statuscenter. Et enkelt ramt rum viser stadig den samme,
-rum-specifikke besked som før.
+- **Item 3 — Dedup/grouping of status centre issues** (`websocket.py`
+  `_build_active_issues()`): the categories "unavailable entities", "mould
+  risk", "open window" and "heating anomaly" now show one combined line
+  (e.g. "5 rooms have unavailable sensors/devices") instead of one line per
+  affected room, when more than one room is affected at the same time — a
+  takeaway from last season's noisy status centre. A single affected room
+  still shows the same room-specific message as before.
 
 ## [0.40.1] — 2026-09-14
 
@@ -2731,8 +2849,8 @@ Hotfix for a regression from 0.18.0's own "Fixed" section (E).
 
 ## [0.18.1] — 2026-09-10
 
-Frontend/config dead-code sweep — "alt vi har på frontend eller i konfig
-skal være i brug og være funktionel eller fjernes". Follow-up to 0.18.0:
+Frontend/config dead-code sweep — "everything we have in the frontend or
+in the config must be in use and functional, or be removed". Follow-up to 0.18.0:
 that audit covered the backend only; this round covers the panel
 (`heat-manager-panel.js`) and the config surface, plus one piece of
 self-cleanup left behind by 0.18.0 itself.
@@ -3930,8 +4048,8 @@ new fields behaves exactly as it did in 0.8.0.
   `_last_known_persons`, new in `coordinator.py`) and only reloads when
   those actually changed — the only case that genuinely needs new/removed
   entities. Every other `entry.options` write now applies live with no
-  reload, matching the project's own stability goal ("reducer kant-cases
-  der får heat_manager til at gå unavailable").
+  reload, matching the project's own stability goal ("reduce edge cases
+  that make heat_manager go unavailable").
 - **BUG** `engine/season_engine.py` — `_maybe_trigger_voice()` used raw
   `asyncio.ensure_future()`, inconsistent with the rest of the codebase
   which explicitly moved away from this exact pattern (see

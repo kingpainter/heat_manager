@@ -7,7 +7,7 @@ custom integration. It manages presence-based heating, open window detection,
 pre-heating on arrival, seasonal on/off control, mold risk monitoring, and
 weather-aware PID control — all from the UI.
 
-[![Version](https://img.shields.io/badge/version-0.68.0-blue)](https://github.com/kingpainter/heat-manager/releases)
+[![Version](https://img.shields.io/badge/version-0.72.0-blue)](https://github.com/kingpainter/heat-manager/releases)
 [![HA min version](https://img.shields.io/badge/Home%20Assistant-%3E%3D2026.9-blue)](https://www.home-assistant.io)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange)](https://hacs.xyz)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -36,15 +36,18 @@ Off shuts everything down permanently — with the correct fallback per season.
 - **Presence engine** — grace periods configurable per time of day (day/night), alarm panel integration with selectable "house empty" alarm states (e.g. armed away but not armed home)
 - **Window detection** — per-room state machine with weather-aware notifications: CO₂ context, rain (🌧️) and wind (💨) override
 - **Adaptive window delay** — reduces to 1 min automatically when wind ≥ 6 m/s or it is raining
-- **Season engine** — AUTO mode detects Winter/Summer from outdoor temperature history
+- **Season engine** — AUTO mode detects Winter/Summer from outdoor temperature history. In winter an optional WAKING phase lowers every target while the house is already warm (indoor sensor at or above a threshold) **and** it is mild outside (`wake_min_outdoor_temp`, v0.70.0); the panel shows why the effective season is what it is
 - **Lowest room temperature and away temperature** *(v0.67.0)* — one global lowest room temperature (default 17 °C, a common minimum against mould) floors the PID's setpoint and the night setback in every room. Netatmo's own away temperature (NET-TRV `number.<relay>_away_temperature`) is shown and editable in the panel's settings, with a warning when it is below the lowest room temperature
 - **ON / PAUSE / OFF controller** — manual and automatic (season + sustained outdoor temp)
 - **Pre-heat engine** — starts heating before arrival using `sensor.<person>_travel_time_home`, per-person lead time up to 90 min
 - **PID controller** — discrete-time PI controller sends proportional setpoints every 60 s via HomeKit (local LAN)
+- **PID adjustments** — weather compensation adds power only while a room is below its target (v0.69.1); optional solar gain (`sun.sun` + per-room lux sensor) and door heat sharing (open door to a warmer, actively heated room) only ever reduce it. None of them change the room's target
+- **Boost** — timed comfort boost from the panel, a service or a long press on the remote, using the configured default temperature and duration
+- **House Voice** *(opt-in)* — spoken announcements via the House Voice integration for controller pause/off and summer/winter switches
 - **Night setback** — optional: reduce PID target by N°C during configured night hours (default 23:00–07:00, disabled by default)
 - **HomeKit-first write routing** — all `set_temperature` writes prefer the local HomeKit entity over the Netatmo cloud, eliminating 429 rate-limit errors for those calls
 - **Netatmo open-window detection** *(v0.64.0, opt-in per room)* — the valve's own `open_window` (NET-TRV) can count as a window sensor for rooms without a contact sensor; same suppression, warning and restore as a contact sensor, no extra delay
-- **Clear room cards in the panel** *(v0.66.0)* — each room in the Rooms tab is split into named sections (temperature, valve, indoor climate, room settings, temporary change), with one distinct Danish name per value: current room temperature, the target right now, the setpoint sent to the valve and the valve's own reading. Rooms without a valve are marked "sensors only" and show measurements only — no PID, target or manual controls. Since v0.67.1 the cards are collapsed by default to a one-line summary (temperature, target, valve, humidity, open doors) and expand on click; "expand/collapse all" sits in the section header. The mobile card's press-and-hold room sheet uses the same sections and names *(v0.67.2)*
+- **Clear room cards in the panel** *(v0.66.0)* — each room in the Rooms tab is split into named sections (temperature, valve, indoor climate, room settings, temporary change), with one distinct name per value: current room temperature, the target right now, the setpoint sent to the valve and the valve's own reading. Rooms without a valve are marked "sensors only" and show measurements only — no PID, target or manual controls. Since v0.67.1 the cards are collapsed by default to a one-line summary (temperature, target, valve, humidity, open doors) and expand on click; "expand/collapse all" sits in the section header. The mobile card's press-and-hold room sheet uses the same sections and names *(v0.67.2)*
 - **Netatmo control mode in the panel** *(v0.65.3)* — each room's Netatmo line shows who controls the room right now (schedule / manual until HH:MM / boost / away / frost guard), from NET-TRV's `netatmo_setpoint_mode` and `setpoint_end_time`
 - **Room-only schedule restore** *(v0.63.0)* — handing one room back to its Netatmo schedule (window closed, override ended, controller OFF) uses the owning integration's `clear_temperature_setting`, so away / frost guard for the rest of the house is never cancelled; home-level away/schedule is sent once instead of once per valve
 - **Best room temperature source** *(v0.62.1)* — without an external room sensor, NET-TRV rooms read the cloud entity first (webhook push, 0.1 °C) and fall back to HomeKit; core netatmo rooms keep HomeKit first (local, live)
@@ -56,15 +59,15 @@ Off shuts everything down permanently — with the correct fallback per season.
 - **Repair issues** — HA Repairs panel shows a warning when a configured climate entity has been missing for 5 minutes; it clears by itself as soon as the entity is back *(v0.65.4)*. Heat Manager starts after core `netatmo` / NET-TRV when they are set up, so a normal restart does not raise it
 - **Device registry** — entities grouped by room device in HA Settings → Devices
 - **Cloud availability sensor** — `binary_sensor.cloud_available` for use in HA automations
-- **PID power sensor** — per-room diagnostic sensor showing current PID output 0–100 %
+- **PID power sensor** — per-room diagnostic sensor showing the power the valve setpoint is computed from, 0–100 % (PID + weather compensation − solar gain − door heat, v0.69.1); the PID term alone is in the `pid_output` attribute
 - **Netatmo weather station** — outdoor humidity, precipitation and wind speed sensors optionally used for smarter window logic and mold risk context
 - **Cloud status banner** — panel auto-detects Netatmo outages via entity state and staleness; links to health.netatmo.com
-- **Inline config editing** — alarm panel and notify service editable directly in the panel's Konfiguration tab
+- **Inline config editing** — alarm panel, alarm states and notify service editable directly in the panel's settings tab
 - **Season mode persistence** — manual season override survives HA restarts
 - **Sidebar panel** — Indeklima design language: SVG controller ring, room state grid, smart status line, event log
-- **Lovelace card** — matching design: amber heat palette, SVG ring, room state chips
+- **Lovelace card** — matching design: amber heat palette, SVG ring, room state chips. Rooms are matched by name, or by `climate_entity` when the card's room name differs from Heat Manager's (v0.69.2); a room that matches neither is labelled as unknown
 - **Diagnostics** — downloadable snapshot from Settings → Heat Manager → ⋮ → Download diagnostics
-- **Full English + Danish translations**
+- **English as the default language, with a Danish translation** — config flow, entities, repairs, the sidebar panel, the Lovelace card, the status line and the event log follow the language in your Home Assistant profile; push notifications follow the system language *(panel and card since v0.71.0, event log and notifications since v0.72.0)*
 - **Device calibration** *(v0.9.0)* — optional per-room: writes the delta between an external room sensor and a TRV's own raw reading to the TRV's own `number.*` calibration entity (e.g. Zigbee2MQTT `local_temperature_calibration`), so the device's internal loop stays accurate even when Heat Manager isn't actively writing to it
 - **Sync modes** *(v0.9.0)* — optional per-room: `mirror` or `lock` reacts to a manual/external change on a room's write entity (Netatmo app, TRV dial, another automation) — mirror hands control to the existing override switch, lock reverts the change back
 - **Group offset** *(v0.9.0)* — `number.heat_manager_group_offset`, a ±5 °C slider layered non-destructively on every room's target, persists across restarts, auto-resets on boost
@@ -110,7 +113,10 @@ Off shuts everything down permanently — with the correct fallback per season.
 
 Heat Manager is configured entirely through the UI. After adding the integration,
 a 4-step wizard guides you through setup. Alarm panel and notify service can also
-be changed at any time from the sidebar panel's Konfiguration tab without a restart.
+be changed at any time from the sidebar panel's settings tab without a restart.
+
+Optional entity fields can be cleared in the options flow to remove a sensor
+(v0.69.3).
 
 ### Step 1 — Season & global settings
 
@@ -124,7 +130,7 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 | `wind_speed_sensor` | sensor | — | **Optional.** Wind speed (m/s). Triggers faster window delay above 6 m/s |
 | `notify_service` | string | — | HA notify service, e.g. `notify.mobile_app_my_phone`. Also editable in panel |
 | `alarm_panel` | entity | — | `alarm_control_panel.*` — entering one of `alarm_away_states` triggers instant away mode. Also editable in panel |
-| `alarm_away_states` | list | `armed_away` | *(v0.68.0)* Alarm states that mean "house empty": any of `armed_away`, `armed_vacation`, `armed_night`, `armed_home`, `armed_custom_bypass`. Disarmed or any other armed state resumes heating when someone is home. Also editable in panel (Alarmtavle) |
+| `alarm_away_states` | list | `armed_away` | *(v0.68.0)* Alarm states that mean "house empty": any of `armed_away`, `armed_vacation`, `armed_night`, `armed_home`, `armed_custom_bypass`. Disarmed or any other armed state resumes heating when someone is home. Also editable in the panel (alarm board) |
 | `window_off_temp` | °C | 10.0 | Setpoint sent to a room's valve while its window is open |
 | `min_room_temp` | °C | 17.0 | *(v0.67.0)* Lowest room temperature in every room: floor for the PID's setpoint and the night setback. Also editable in panel |
 | `grace_day_min` | min | 30 | Grace period before away mode (daytime) |
@@ -156,7 +162,7 @@ be changed at any time from the sidebar panel's Konfiguration tab without a rest
 | `co2_threshold` | ppm | 900 | **Optional.** Per-room CO₂ ventilation threshold. Overrides global 900 ppm default. Higher = more tolerant (e.g. bedrooms) |
 | `room_temp_sensor` | sensor | — | **Optional.** Wall probe for PID feedback — avoids radiator-body bias of TRV built-in sensor |
 | `humidity_sensor` | sensor | — | **Optional.** Indoor humidity (%) for mold risk detection |
-| `battery_sensor` | sensor | — | **Optional.** TRV battery level (%), shown in Rum-detaljer and the room overview cards. Falls back to the climate entity's own `battery_level` attribute when unset |
+| `battery_sensor` | sensor | — | **Optional.** TRV battery level (%), shown in the room details and the room overview cards. Falls back to the climate entity's own `battery_level` attribute when unset |
 
 ### Step 3 — Persons (repeatable)
 
@@ -238,9 +244,9 @@ data:
 | `sensor.heat_manager_control_mode` | Sensor | **on** | auto / manual / mixed — attributes list the manual rooms, who set them and when they return to auto *(v0.59.0)* |
 | `sensor.heat_manager_<room>_state` | Sensor | **on** | normal / window_open / away / pre_heat / override — attributes `override_source`, `override_since`, `override_expires_at` |
 | `sensor.heat_manager_<room>_window_duration` | Sensor | disabled | Minutes window open today (DIAGNOSTIC) |
-| `sensor.heat_manager_<room>_pid_power` | Sensor | disabled | PID output 0–100 % — only for rooms with HomeKit entity (DIAGNOSTIC) |
+| `sensor.heat_manager_<room>_pid_power` | Sensor | disabled | Applied power 0–100 % (PID + feed-forward − solar − door); attribute `pid_output` = PID term — only for rooms with a valve (DIAGNOSTIC) |
 | `binary_sensor.heat_manager_any_window_open` | Binary | **on** | True when any configured window is open |
-| `binary_sensor.heat_manager_cloud_available` | Binary | **on** | False when Netatmo cloud is unavailable or data stale ≥ 10 min |
+| `binary_sensor.heat_manager_cloud_available` | Binary | **on** | False when Netatmo cloud is unavailable or has not reported for ≥ 10 min (newest of `last_updated`/`last_reported`) |
 | `binary_sensor.heat_manager_<room>_window` | Binary | disabled | Per-room window open (DIAGNOSTIC) |
 | `binary_sensor.heat_manager_<room>_mold_risk` | Binary | **on** | Mold risk: RH ≥ 70 % AND T ≤ dewpoint + 1 °C — requires `humidity_sensor` |
 | `switch.heat_manager_<room>_override` | Switch | disabled | Manual heating override per room (CONFIG) |
@@ -290,12 +296,13 @@ today.
 
 ### Room temperature (for PID feedback)
 ```
-1. room_temp_sensor       — wall probe, best accuracy
-2. homekit_climate_entity — Netatmo local HAP, <100 ms
-3. climate_entity         — cloud entity, last resort
+1. room_temp_sensor       — wall probe, best accuracy (always wins)
+2. NET-TRV rooms:  climate_entity (webhook, 0.1 °C) → homekit_climate_entity
+   other rooms:    homekit_climate_entity (local HAP) → climate_entity
 ```
+Readings outside -20 … 50 °C are ignored.
 
-### TRV battery (Rum-detaljer / room overview cards)
+### TRV battery (room details / room overview cards)
 ```
 1. battery_sensor         — dedicated sensor.* entity (typical for Zigbee)
 2. climate_entity.battery_level attribute — some Netatmo setups expose it this way
@@ -329,7 +336,7 @@ The TRV's built-in sensor sits on the hot valve body and reads 1–3 °C above a
 
 ### Netatmo cloud banner showing in panel
 
-The panel shows a cloud status banner when all cloud climate entities are `unavailable` or their data is stale (≥ 10 min). Check [health.netatmo.com](https://health.netatmo.com) for outages. The banner dismisses itself automatically once cloud recovers. You can also use `binary_sensor.heat_manager_cloud_available` in an automation to get notified.
+The panel shows a cloud status banner when all cloud climate entities are `unavailable` or have not reported for 10 minutes (a stable value that is still reported does not count as stale). Check [health.netatmo.com](https://health.netatmo.com) for outages. The banner dismisses itself automatically once cloud recovers. You can also use `binary_sensor.heat_manager_cloud_available` in an automation to get notified.
 
 ### Window delay not reducing despite wind/rain
 
@@ -352,6 +359,19 @@ logger:
 - PID writes via HomeKit require the Netatmo Relay paired as HomeKit Controller in HA.
 - If the Netatmo cloud entity goes unavailable (internet or cloud outage), the PID keeps running on the HomeKit entity alone; presets, schedules and cloud-only features pause until the cloud entity is back.
 - Valve protection fires once per ISO week at 02:00–03:00 local time, only when the controller is OFF. From v0.65.0 a valve whose motor moved within the last week (NET-TRV `valve_position` sensor, `netatmo_ts`) is skipped; without that sensor every valve is exercised.
+
+---
+
+## Translations
+
+English is the default language; every other language is a translation.
+
+- Config flow, entities and repairs: `custom_components/heat_manager/translations/<language>.json` (Home Assistant's own mechanism).
+- Sidebar panel, Lovelace card, event log and push notifications: `custom_components/heat_manager/frontend/translations/<language>.json`, served to the frontend by the WebSocket command `heat_manager/get_translations`. A missing language, or a missing string in a language, falls back to English.
+
+To add a language, copy both `en.json` files to `<language>.json` (e.g. `de.json`), translate the values, keep the keys and `{placeholders}` unchanged, and restart Home Assistant. The test suite checks that every translation has exactly the keys and placeholders of English.
+
+The event log is shown in each viewer's language (new entries since v0.72.0). Push notifications and Heat Manager's own repair texts use the Home Assistant system language, read at startup — restart Home Assistant after changing it.
 
 ---
 

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from _texts import english_text
+
 from custom_components.heat_manager.const import (
     CONF_CO2_THRESHOLD,
     DEFAULT_CO2_VENTILATION_THRESHOLD,
@@ -121,6 +123,7 @@ def test_window_engine_co2_label_uses_per_room_threshold():
     coord.is_raining = MagicMock(return_value=False)
     coord.get_wind_speed = MagicMock(return_value=None)
     coord.get_room_co2_threshold = MagicMock(return_value=1000)
+    coord.text = english_text
 
     engine = WindowEngine.__new__(WindowEngine)
     engine.coordinator = coord

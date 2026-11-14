@@ -329,16 +329,17 @@ class RemoteButtonEngine:
             rooms_adjusted.append(f"{room_name} → {new_target:.1f}°C")
 
         if rooms_adjusted:
-            sign = "+" if delta > 0 else ""
             rooms_str = ", ".join(rooms_adjusted)
-            description = f"Remote: {sign}{delta:.1f}°C — {rooms_str}"
-            self.coordinator.log_event(description, "Remote", "override")
+            params = {"delta": f"{delta:+.1f}", "rooms": rooms_str}
+            self.coordinator.log_message("remote_temp", "override", "remote", **params)
             self.coordinator.set_remote_last_action(
-                description,
+                self.coordinator.text("event.remote_temp", "en", **params),
                 [room.split(" → ")[0] for room in rooms_adjusted],
                 action="temp_up" if delta > 0 else "temp_down",
                 delta=delta,
                 skipped=self._skipped_rooms(),
+                text_key="remote_temp",
+                text_params=params,
             )
             _LOGGER.info("RemoteButtonEngine: temp %+.1f°C — %s", delta, rooms_str)
 
@@ -432,15 +433,17 @@ class RemoteButtonEngine:
         if rooms_changed:
             label = "manual" if enable else "auto"
             rooms_str = ", ".join(rooms_changed)
-            description = f"Remote: switched to {label} — {rooms_str}"
-            self.coordinator.log_event(
-                description, "Remote", "override" if enable else "normal"
+            key = f"remote_{label}"
+            self.coordinator.log_message(
+                key, "override" if enable else "normal", "remote", rooms=rooms_str
             )
             self.coordinator.set_remote_last_action(
-                description,
+                self.coordinator.text(f"event.{key}", "en", rooms=rooms_str),
                 rooms_changed,
                 action=label,
                 skipped=self._skipped_rooms(),
+                text_key=key,
+                text_params={"rooms": rooms_str},
             )
             _LOGGER.info("RemoteButtonEngine: mode → %s for %s", label, rooms_str)
 
@@ -462,10 +465,15 @@ class RemoteButtonEngine:
             boosted = await self.coordinator.async_boost_start()
             if not boosted:
                 return
-            description = f"Remote: boost — {', '.join(boosted)}"
-            self.coordinator.log_event(description, "Remote", "boost")
+            params = {"rooms": ", ".join(boosted)}
+            self.coordinator.log_message("remote_boost", "boost", "remote", **params)
             self.coordinator.set_remote_last_action(
-                description, boosted, action="boost", skipped=skipped
+                self.coordinator.text("event.remote_boost", "en", **params),
+                boosted,
+                action="boost",
+                skipped=skipped,
+                text_key="remote_boost",
+                text_params=params,
             )
             _LOGGER.info("RemoteButtonEngine: boost started for %s", boosted)
 
@@ -474,16 +482,19 @@ class RemoteButtonEngine:
         in manual (remote, panel, switch or the radiator itself)."""
         async with self._lock:
             released = await self.coordinator.async_release_all_overrides(
-                reason="Remote"
+                reason="remote"
             )
             for room_name in released:
                 self._pending_setpoints.pop(room_name, None)
             if not released:
                 return
+            params = {"rooms": ", ".join(released)}
             self.coordinator.set_remote_last_action(
-                f"Remote: all rooms back to auto — {', '.join(released)}",
+                self.coordinator.text("event.remote_release", "en", **params),
                 released,
                 action="release",
+                text_key="remote_release",
+                text_params=params,
             )
             _LOGGER.info("RemoteButtonEngine: released overrides for %s", released)
 

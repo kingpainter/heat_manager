@@ -43,10 +43,15 @@ class HeatManagerCoordinator(CoordinatorPid):
     periodic tick driving all time-based logic.
     """
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        texts: dict[str, dict[str, str]] | None = None,
+    ) -> None:
         # All shared state is created by CoordinatorBase.__init__; engines
         # come after it because their constructors read that state.
-        super().__init__(hass, entry)
+        super().__init__(hass, entry, texts)
 
         # ── Engines ───────────────────────────────────────────────────────────
         self.controller = ControllerEngine(self)

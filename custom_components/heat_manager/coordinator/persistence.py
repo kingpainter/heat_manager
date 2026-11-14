@@ -10,12 +10,14 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
+from typing import Any
 
 from homeassistant.util.dt import utcnow
 
 from ..const import (
     RoomState,
 )
+from ..messages import EVENT_KEYS
 from .base import CoordinatorBase
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,20 +66,47 @@ class CoordinatorPersistence(CoordinatorBase):
         reason: str = "",
         event_type: str = "normal",
     ) -> None:
+        self._append_event(
+            {"description": description, "reason": reason, "type": event_type}
+        )
+
+    def log_message(
+        self,
+        key: str,
+        event_type: str = "normal",
+        reason_key: str = "",
+        **params: Any,
+    ) -> None:
+        """Log a translatable event (v0.72.0).
+
+        `key`/`reason_key` name texts in the "event"/"reason" groups of
+        frontend/translations; `params` fill their {placeholders}. The
+        English text is stored as `description`/`reason` (for anything that
+        reads those), and key/params so the panel shows the event in the
+        viewer's language. Params must be JSON-serialisable — the log is
+        persisted in entry.options.
+        """
+        if key not in EVENT_KEYS:
+            _LOGGER.warning("Unknown event text key: %s", key)
+        self._append_event(
+            {
+                "description": self.text(f"event.{key}", "en", **params),
+                "reason": self.text(f"reason.{reason_key}", "en") if reason_key else "",
+                "type": event_type,
+                "key": key,
+                "params": params,
+                "reason_key": reason_key,
+            }
+        )
+
+    def _append_event(self, event: dict[str, Any]) -> None:
         from homeassistant.util.dt import now as ha_now
 
         now = ha_now()
-        time_str = now.strftime("%H:%M")
         self._event_log.appendleft(
-            {
-                "time": time_str,
-                "description": description,
-                "reason": reason,
-                "type": event_type,
-                "timestamp": now.isoformat(),
-            }
+            {"time": now.strftime("%H:%M"), **event, "timestamp": now.isoformat()}
         )
-        _LOGGER.debug("Event logged: %s (%s)", description, reason)
+        _LOGGER.debug("Event logged: %s (%s)", event["description"], event["reason"])
 
     def _persist_event_log_snapshot(self) -> None:
         """Persist the event log snapshot into entry.options (survives HA restarts).

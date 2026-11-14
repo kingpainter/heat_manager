@@ -25,6 +25,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from _texts import english_text
 
 from custom_components.heat_manager.coordinator import HeatManagerCoordinator
 
@@ -37,6 +38,7 @@ _NOW = datetime(2026, 9, 13, 12, 0, 0, tzinfo=UTC)
 
 def _make_coordinator(config: dict | None = None) -> MagicMock:
     coord = MagicMock()
+    coord.text = english_text
     coord.config = config or {}
     coord.hass = MagicMock()
     coord.hass.bus.async_fire = MagicMock()

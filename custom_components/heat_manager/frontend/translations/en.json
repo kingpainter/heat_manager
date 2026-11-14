@@ -1,0 +1,875 @@
+{
+  "ack": {
+    "auto": "Automatic control turned back on in {rooms}",
+    "boost": "Boost started in {rooms}",
+    "down": "Down",
+    "manual": "Manual control turned on in {rooms}",
+    "received": "Remote press received",
+    "release": "All rooms back on automatic ({rooms})",
+    "remote_at": "Remote · at {time}",
+    "rooms": "{count} rooms",
+    "skipped": "Skipped: {rooms}",
+    "temp_sent": "{delta} received · sent to {rooms}",
+    "up": "Up"
+  },
+  "alarm": {
+    "armed_away": "Armed away",
+    "armed_custom_bypass": "Armed custom bypass",
+    "armed_home": "Armed home",
+    "armed_night": "Armed night",
+    "armed_vacation": "Armed vacation",
+    "footer": "When the alarm enters {states}, away mode is activated immediately without a grace period. On disarmed or another armed state, heating resumes when someone is home.",
+    "none_selected": "No alarm state is selected — the alarm does not put the house in away.",
+    "or": " or ",
+    "turns_off_at": "Turns the heating off (away) on:"
+  },
+  "auto_off": {
+    "active": "Active",
+    "calendar_season": "Calendar season",
+    "days_above": "Days above limit",
+    "effective_season": "Effective season",
+    "off": "Off",
+    "off_reason": "Off ({reason})",
+    "outdoor": "Outdoor temperature",
+    "outdoor_value": "{temp} / {threshold}°C limit",
+    "reason_season": "season",
+    "reason_temperature": "temperature",
+    "title": "Auto-off status",
+    "wake_line": "Indoor {indoor} {cmp_in} {threshold} · outdoor {outdoor} {cmp_out} {min_outdoor}"
+  },
+  "away": {
+    "desc": "Netatmo's own away temperature — the one every valve goes to when the house is empty. The same value as in the Netatmo app.{schedule}",
+    "in_app": "Controlled in the Netatmo app",
+    "in_app_desc": "With NET-TRV it can be set from here. It is used by every Netatmo valve when the house is empty.",
+    "label": "Away temperature",
+    "schedule": " Stored on the Netatmo schedule «{schedule}».",
+    "too_low": "⚠ The away temperature ({away} °C) is lower than the lowest room temperature ({min} °C). Rooms can get colder than the minimum while the house is empty."
+  },
+  "blocking": {
+    "controller_off": "Controller off",
+    "controller_pause": "Controller paused",
+    "presence": "Away",
+    "window": "Window open"
+  },
+  "card": {
+    "ack": {
+      "auto": "Automatic again in {count} rooms",
+      "boost": "Boost started in {count} rooms",
+      "manual": "Manual in {count} rooms",
+      "release": "All rooms on automatic",
+      "temp": "{delta} sent to {count} rooms"
+    },
+    "boost_info": "Raises the heat to {temp}°C in all active rooms for {minutes} min, then restores.",
+    "boost_left": "{time} left",
+    "boost_stop": "Stop boost",
+    "cloud": {
+      "all_down": "Netatmo cloud/gateway down — all rooms unavailable",
+      "some_down": "Netatmo: {count}/{total} rooms unavailable",
+      "stale": "Netatmo data {minutes} min behind"
+    },
+    "mold": "Mould",
+    "netatmo": {
+      "away": "Away",
+      "hg": "Frost guard",
+      "manual": "Manual",
+      "max": "Boost",
+      "off": "Off",
+      "until": "{mode} until {time}"
+    },
+    "no_rooms": "No rooms configured in the card",
+    "outdoor": "{temp} outdoor",
+    "pause_in": "Pause for",
+    "press_again": "Press again",
+    "rooms_count": "{count} rooms",
+    "sensors": "Sensors",
+    "sl": {
+      "auto_in": "auto in {duration}",
+      "boost": "Boost · {duration} left",
+      "manual": "Manual in {count} rooms · {expiry}",
+      "nothing_else": "Nothing else to note",
+      "off": "Heating is off",
+      "ok": "Everything runs automatically",
+      "pause": "Pause · {duration} left"
+    },
+    "state_manual_icon": "Manual {icon}",
+    "toast": {
+      "already_auto": "Everything is already running automatically",
+      "boost_start_failed": "Could not start boost",
+      "boost_stop_failed": "Could not stop boost"
+    },
+    "unknown_room": "Unknown room",
+    "unknown_room_title": "The room does not exist in Heat Manager — check room_name/climate_entity in the card's YAML",
+    "valve_offline": "Valve offline",
+    "valve_offline_title": "The room's valve (climate entity) is not responding"
+  },
+  "cfg": {
+    "auto_off_temp_days": {
+      "desc": "Number of consecutive days above the temperature limit before the whole house is turned off automatically for the season.",
+      "label": "Consecutive days"
+    },
+    "auto_off_temp_threshold": {
+      "desc": "Outdoor temperature above which a day counts towards the run of mild days below.",
+      "label": "Temperature limit"
+    },
+    "boost_default_minutes": {
+      "desc": "How long Boost lasts when started without specifying another duration.",
+      "label": "Default duration"
+    },
+    "boost_default_temp": {
+      "desc": "The temperature the room is set to when Boost is started without specifying another one.",
+      "label": "Default temperature"
+    },
+    "door_heat_share_enabled": {
+      "label": "Door heat sharing enabled"
+    },
+    "door_heat_share_max_reduction": {
+      "desc": "Cap — door heat sharing alone never removes more than this share of the power.",
+      "label": "Maximum reduction"
+    },
+    "door_heat_share_min_neighbor_power": {
+      "desc": "The neighbouring room's own PID power must be at least this before its heat counts as actually delivered right now.",
+      "label": "Neighbour's minimum power"
+    },
+    "door_heat_share_min_temp_diff": {
+      "desc": "How much warmer the neighbouring room must at least be before any reduction happens.",
+      "label": "Minimum temperature difference"
+    },
+    "door_heat_share_weight": {
+      "desc": "How much the power is reduced per degree the temperature difference exceeds the limit.",
+      "label": "Weight"
+    },
+    "ff_max_contribution": {
+      "desc": "Cap — weather compensation alone never adds more than this share of the power.",
+      "label": "Maximum contribution"
+    },
+    "ff_reference_outdoor_temp": {
+      "desc": "Outdoor temperature at or above which weather compensation contributes 0.",
+      "label": "Reference outdoor temperature"
+    },
+    "ff_weight": {
+      "desc": "Extra share of power added per °C the outdoor temperature is below the reference.",
+      "label": "Weight"
+    },
+    "grace_day_min": {
+      "desc": "How long to wait, after everyone has left, before the house is set to the away temperature during the day.",
+      "label": "Day"
+    },
+    "grace_night_min": {
+      "desc": "The same wait, but at night — typically shorter, since people rarely leave the house in the middle of the night without reason.",
+      "label": "Night"
+    },
+    "issue_escalation_minutes": {
+      "desc": "A status problem (mould, open window, slow heating and more) that has been ongoing for this many minutes sends one push notification.",
+      "label": "Escalate after"
+    },
+    "manual_trv": {
+      "desc": "Adds a slider and Send button per room — set a temporary temperature directly from the panel.",
+      "label": "Show manual temperature control in the Rooms tab"
+    },
+    "min_room_temp": {
+      "desc": "Applies to every room. The PID never sends a lower setpoint to a valve, and the night setback never goes below it. Default 17 °C — a common minimum against mould.",
+      "label": "Lowest room temperature"
+    },
+    "night_end_hour": {
+      "desc": "Time of day (local time) when the room heats to the full target temperature again.",
+      "label": "End hour"
+    },
+    "night_setback_enabled": {
+      "label": "Night setpoint enabled"
+    },
+    "night_setback_temp": {
+      "desc": "Number of degrees subtracted from the target temperature during the night period. Never goes below the lowest room temperature (Temperature limits).",
+      "label": "Temperature (setback)"
+    },
+    "night_start_hour": {
+      "desc": "Time of day (local time) when the night setback begins.",
+      "label": "Start hour"
+    },
+    "notify_issue_escalation": {
+      "desc": "Send one notification when a status problem has been ongoing for at least as many minutes as set below.",
+      "label": "Escalate long-running problems"
+    },
+    "notify_mold_risk": {
+      "desc": "Send a notification when high humidity close to the dew point is detected in a room.",
+      "label": "Mould risk"
+    },
+    "notify_preheat": {
+      "desc": "Send a notification when pre-heating starts ahead of a person's arrival.",
+      "label": "Pre-heating"
+    },
+    "notify_presence": {
+      "desc": "Send a notification when someone comes home, or everyone leaves.",
+      "label": "Presence/away"
+    },
+    "notify_window_warning_30": {
+      "desc": "Send an extra reminder if the window is still open after the time set in «Warning after» above.",
+      "label": "30-minute warning"
+    },
+    "notify_windows": {
+      "desc": "Send a notification when a window is opened or closed.",
+      "label": "Notification on open window"
+    },
+    "outdoor_temp_sensor": "Outdoor temp sensor",
+    "pid_enabled": {
+      "label": "PID control enabled"
+    },
+    "pid_kd": {
+      "desc": "Reacts to how fast the temperature is changing. Rarely needed, since TRVs have several minutes of delay of their own.",
+      "label": "Kd"
+    },
+    "pid_ki": {
+      "desc": "Corrects a persistent, slow deviation over time. Keep it low — too high gives overshoot.",
+      "label": "Ki"
+    },
+    "pid_kp": {
+      "desc": "How strongly the power reacts to the current temperature deviation. Higher = faster but less stable control.",
+      "label": "Kp"
+    },
+    "pid_setpoint_margin": {
+      "desc": "Cap on how many degrees ABOVE the room's own target a TRV may be asked to go, regardless of trv_max. Lower it for tighter control, raise it if heating feels too slow.",
+      "label": "Setpoint margin"
+    },
+    "push": {
+      "desc": "Sent on: window opened/closed, away mode, arrival, pre-heat and valve protection.",
+      "title": "Push notifications"
+    },
+    "rooms": {
+      "calibration": "Calibration",
+      "none": "No rooms",
+      "sync": "Sync: {mode}"
+    },
+    "sec": {
+      "alarm": {
+        "title": "Alarm board"
+      },
+      "auto_off": {
+        "footer": "Turns the whole house off automatically for the season if the outdoor temperature stays above the limit for the given number of consecutive days — typically relevant in the transition to spring/summer.",
+        "title": "Auto-off in mild weather"
+      },
+      "boost": {
+        "footer": "Used by the Boost button and {service} when nothing else is given explicitly.",
+        "title": "Boost — defaults"
+      },
+      "door_heat_share": {
+        "footer": "Reduces the PID power when an open indoor door leads to a warmer neighbouring room that is actively heating itself. Never changes the room's target — only the power.",
+        "title": "Door heat sharing"
+      },
+      "global": {
+        "footer": "The weather entity provides the outdoor temperature for season, weather compensation, auto-off and night setpoint. Set during setup — cannot be edited from here.",
+        "title": "Global configuration"
+      },
+      "grace": {
+        "footer": "How long Heat Manager waits, after everyone has left home, before a room is actually set to the away temperature — so a short trip out to the car does not cause needless cooling.",
+        "title": "Grace periods"
+      },
+      "manual_trv": {
+        "footer": "Shows an extra control in the Rooms tab for setting a temporary temperature directly on one or all valves — bypassing schedule and PID. For quick adjustments.",
+        "title": "Manual TRV control"
+      },
+      "night_setback": {
+        "footer": "Lowers the rooms' target temperature automatically during the night period and raises it again in the morning.",
+        "title": "Night setpoint"
+      },
+      "notifications": {
+        "footer": "Choose which events send a push notification via Home Assistant's notify service, and/or a spoken announcement via House Voice if it is installed.",
+        "title": "Notifications"
+      },
+      "pid": {
+        "footer": "The PID controller decides how much power each room asks its TRVs for, based on the deviation between the room's current temperature and the target.",
+        "title": "PID controller"
+      },
+      "rooms_summary": {
+        "footer": "Read-only overview of each room's climate entity and optional extras. Changed via Home Assistant's reconfiguration of the integration.",
+        "title": "Rooms & climate entities"
+      },
+      "solar_gain": {
+        "footer": "Reduces the PID power in rooms with a lux sensor while the sun is up and the sensor shows light — direct sunshine needs less heat from the TRV.",
+        "title": "Solar gain"
+      },
+      "temp_limits": {
+        "footer": "Heat Manager controls the lowest room temperature itself. The away temperature is Netatmo's own and is used when the house is empty.",
+        "title": "Temperature limits"
+      },
+      "weather_comp": {
+        "footer": "Adds a proactive power contribution based on the outdoor temperature, on top of the PID's reactive correction — a classic \"heating curve\".",
+        "title": "Weather compensation"
+      },
+      "window": {
+        "footer": "Controls when and how the heating is turned down while a window is open — and when you are told about it.",
+        "title": "Window"
+      }
+    },
+    "solar_gain_enabled": {
+      "label": "Solar gain enabled"
+    },
+    "solar_gain_lux_threshold": {
+      "desc": "Lux level above which the room counts as getting real sunshine right now.",
+      "label": "Lux limit"
+    },
+    "solar_gain_max_reduction": {
+      "desc": "Cap — solar gain alone never removes more than this share of the power.",
+      "label": "Maximum reduction"
+    },
+    "solar_gain_weight": {
+      "desc": "How much the power is reduced each time the room's lux exceeds the limit.",
+      "label": "Weight"
+    },
+    "unit_days": "days",
+    "voice": {
+      "desc": "Spoken announcements on: controller pause/off and season change summer/winter.",
+      "off": "Off",
+      "pause": "Pause",
+      "summer": "Summer",
+      "winter": "Winter"
+    },
+    "weather_compensation_enabled": {
+      "label": "Weather compensation enabled"
+    },
+    "weather_entity": "Weather entity",
+    "window_delay_default_min": {
+      "desc": "How long a window must be open before the heating is actually turned down. Applies to every room. Lowered automatically in strong wind or rain.",
+      "label": "Delay before off"
+    },
+    "window_off_temp": {
+      "desc": "The temperature sent to the room's valve when the heating is turned down because of an open window. Only applies while the window is open and is independent of the lowest room temperature.",
+      "label": "Off temperature"
+    },
+    "window_warning_min": {
+      "desc": "How long a window must have been open before you get an extra reminder that it is still open — does not affect the turn-off itself above.",
+      "label": "Warning after"
+    }
+  },
+  "common": {
+    "active": "Active",
+    "close_message": "Close message",
+    "configured": "Configured",
+    "decimal_sep": ".",
+    "inactive": "Inactive",
+    "invalid_value": "Invalid value",
+    "loading": "Loading Heat Manager…",
+    "not_set": "Not set",
+    "refresh": "Refresh",
+    "save": "Save",
+    "turn_off": "Turn off",
+    "turn_on": "Turn on"
+  },
+  "conn": {
+    "last_ok": " — last OK at {time}",
+    "lost": "No connection to Heat Manager{since}",
+    "no_answer": " — no answer received yet"
+  },
+  "ctrl": {
+    "boost_minutes": "Boost ({minutes} min)",
+    "boost_title": "Boost — heat up quickly",
+    "btn_off": "Off",
+    "btn_off_confirm": "Press again to turn off",
+    "btn_on": "On",
+    "btn_pause": "Pause",
+    "dur_1h": "1 hour",
+    "dur_2h": "2 hours",
+    "dur_30m": "30 min",
+    "dur_4h": "4 hours",
+    "dur_tomorrow": "Until tomorrow",
+    "netatmo_mixed": "Mixed",
+    "outdoor": "Outdoor",
+    "pause_duration": "Pause duration",
+    "pause_left": "Pause — {minutes} min left",
+    "resume_now": "Resume now",
+    "rooms_configured": "{count} rooms configured",
+    "season": "Season",
+    "season_title": "Change the season mode manually — Auto lets Heat Manager handle the switch",
+    "section": "Controller",
+    "status": "Status",
+    "title": {
+      "off": "Off",
+      "on": "Heating active",
+      "pause": "Pause"
+    }
+  },
+  "dur": {
+    "h": "{h} h",
+    "h_m": "{h} h {m} min",
+    "m": "{m} min",
+    "under_1m": "under 1 min"
+  },
+  "editor": {
+    "add_room": "+ Add room",
+    "boost": "Boost settings",
+    "boost_minutes": "Boost duration (min)",
+    "boost_temp": "Boost temperature (°C)",
+    "climate": "Climate entity",
+    "climate_hint": "Used to show the current temperature",
+    "delete": "Delete",
+    "global": "Global settings",
+    "no_rooms": "No rooms yet — click \"+ Add room\"",
+    "room_n": "Room {n}",
+    "room_name": "Room name (matches the Heat Manager config)",
+    "room_name_placeholder": "e.g. Kitchen",
+    "rooms": "Rooms",
+    "weather": "Weather entity (for the outdoor temperature in the header)"
+  },
+  "eff_season": {
+    "active": "Active",
+    "dormant": "Dormant",
+    "waking": "Waking"
+  },
+  "event": {
+    "alarm_armed": "Heating off — alarm armed",
+    "alarm_disarmed": "Heating resumed — alarm disarmed",
+    "away_nobody_home": "Away mode — nobody home for {minutes} min",
+    "away_room": "Away mode — {room}",
+    "away_room_off": "Away mode — {room} (hvac_mode: off)",
+    "boost_started": "Boost activated — {rooms}",
+    "boost_started_none": "Boost activated — no rooms ready for boost",
+    "boost_stopped": "Boost deactivated",
+    "config_updated": "Settings updated: {fields}",
+    "door_closed": "Door closed: {door}",
+    "door_closed_away": "Door closed in {room} — nobody home, staying away",
+    "door_closed_between": "Door closed between {room_a} and {room_b}",
+    "door_closed_monitoring": "Door closed in {room} (no TRV — monitoring only)",
+    "door_closed_resumed": "Door closed in {room} — heating resumed",
+    "door_open_heating": "Door open in {room} — heating to {temp}°C (via {via})",
+    "door_open_minutes": "Door open {minutes} min in {room}",
+    "door_open_monitoring": "Door open in {room} (no TRV — monitoring only)",
+    "door_opened": "Door opened: {door}",
+    "door_opened_between": "Door opened between {room_a} and {room_b}",
+    "forced_on": "Heating forced on for {room}",
+    "forced_on_windows_open": "Heating forced on for {room} (windows still open — may be costly!)",
+    "group_off": "Group off — {room} (extra TRVs released)",
+    "group_on": "Group on — {room} (all TRVs controlled again)",
+    "mold_risk": "Mould risk — {room} ({rh}% RH, {temp}°C)",
+    "netatmo_preset_set": "Netatmo preset for {room} set to {preset}",
+    "offset_set": "Offset ({room}) set to {offset}°C",
+    "override_expired": "{room}: manual override expired — schedule restored",
+    "override_extended": "Manual override extended by {minutes} min — {rooms}",
+    "override_off": "Override off — {room} returning to normal",
+    "override_on": "Override on — {room}",
+    "override_released": "Manual override released — {rooms}",
+    "remote_auto": "Remote: switched to automatic — {rooms}",
+    "remote_boost": "Remote: boost — {rooms}",
+    "remote_manual": "Remote: switched to manual — {rooms}",
+    "remote_release": "Remote: all rooms back to automatic — {rooms}",
+    "remote_temp": "Remote: {delta}°C — {rooms}",
+    "room_config_updated": "{room}: {fields} updated",
+    "room_schedule_restored": "{room}: schedule restored",
+    "room_temp_set": "{room}: {temp}°C (until further notice)",
+    "room_temp_set_for": "{room}: {temp}°C ({minutes} min)",
+    "season_mode_set": "Season mode set to {season}",
+    "sync_accepted": "Manual change accepted — {room} ({temp}°C)",
+    "sync_reverted": "Manual change rejected — {room} back to {temp}°C",
+    "valve_exercise_done": "Valve exercise completed — {rooms}",
+    "valve_exercise_skipped": "Valve exercise skipped (moved recently) — {rooms}",
+    "welcome_home": "Heating resumed — welcome home",
+    "window_closed_away": "Window closed in {room} — nobody home, staying away",
+    "window_closed_monitoring": "Window closed in {room} (no TRV — monitoring only)",
+    "window_closed_resumed": "Window closed in {room} — heating resumed",
+    "window_open_heating": "Window open in {room} — heating to {temp}°C (via {via})",
+    "window_open_minutes": "Window open {minutes} min in {room}",
+    "window_open_monitoring": "Window open in {room} (no TRV — monitoring only)"
+  },
+  "event_type": {
+    "all": "All",
+    "away": "Away",
+    "boost": "Boost",
+    "door": "Door",
+    "manual": "Manual",
+    "normal": "Normal",
+    "override": "Override",
+    "window_open": "Window"
+  },
+  "header": {
+    "version_title": "Heat Manager integration version"
+  },
+  "health": {
+    "good": "good",
+    "ok": "ok",
+    "poor": "poor",
+    "title": "Health score — combines battery, mould risk, unavailable devices and heating deviation"
+  },
+  "history": {
+    "days_7": "7 days",
+    "no_events": "No events yet",
+    "no_events_type": "No events of this type",
+    "title": "Event log",
+    "updated_at": "Updated at {time}"
+  },
+  "issue": {
+    "battery_low": "Low battery: {rooms}",
+    "boost": "Boost active — {minutes} min left",
+    "boost_rooms": "Boost active ({rooms}) — {minutes} min left",
+    "cloud_down": "Netatmo cloud/gateway down — all rooms unavailable",
+    "cloud_stale": "Netatmo data not updated for 10+ min: {rooms}",
+    "cloud_unavailable": "Netatmo unavailable: {rooms}",
+    "entities_unavailable_many": "{count} rooms have unavailable sensors/devices ({total} in total): {rooms}",
+    "entities_unavailable_one": "{room}: {count} sensor(s)/device(s) unavailable",
+    "heatup_anomaly_many": "{count} rooms heating slower than normal — possibly a stuck valve: {rooms}",
+    "heatup_anomaly_one": "{room}: heating slower than normal — possibly a stuck valve",
+    "mold_risk_many": "Mould risk ({count} rooms): {rooms}",
+    "mold_risk_one": "Mould risk — {room}",
+    "pid_needs_homekit": "PID requires HomeKit — following the Netatmo schedule: {rooms}",
+    "remote_action": "{description}",
+    "remote_action_rooms": "{description} — {rooms}",
+    "valve_offline": "Valve offline: {rooms}",
+    "webhook_down": "Netatmo real-time (webhook) down — updated every minute",
+    "window_open_many": "Window open ({count} rooms): {rooms}",
+    "window_open_one": "Window open — {room}"
+  },
+  "netatmo_mode": {
+    "away": "away",
+    "hg": "frost guard",
+    "manual": "manual",
+    "max": "boost",
+    "off": "off",
+    "schedule": "schedule",
+    "until": "{mode} until {time}"
+  },
+  "notify": {
+    "action_heat_anyway": "Heat anyway",
+    "action_show_windows": "Show open windows",
+    "alarm_armed": "Heating off — alarm armed.",
+    "alarm_disarmed": "Heating resumed — alarm disarmed, someone home.",
+    "away_nobody_home": "Heating off — nobody home for {minutes} min.",
+    "ctx_co2_heat_loss": "  (CO₂: {ppm} ppm — heat loss)",
+    "ctx_co2_ventilation": "  (CO₂: {ppm} ppm — ventilation)",
+    "ctx_rain": "  (🌧️ {mm} mm — rain: heat loss)",
+    "ctx_wind": "  (💨 {speed} m/s — wind: heat loss)",
+    "door_closed": "Door closed — {room}",
+    "door_closed_resumed": "Door closed — {room} heating resumed{context}",
+    "door_open": "Door open — {room}",
+    "door_open_set": "Door open — {room} set to {temp}°C{context}",
+    "door_still_open": "Door still open in {room} ({minutes} min) — heating suppressed{context}",
+    "escalation": "{message} (active for {minutes}+ min)",
+    "forced_on": "Heating forced on for {room}",
+    "forced_on_windows_open": "Heating forced on for {room} (windows still open — may be costly!)",
+    "mold_risk": "Mould risk — {room} ({rh}% RH, {temp}°C)",
+    "override_stuck": "{room}: has been on manual override for a long time",
+    "preheat_started": "Pre-heating started — {person} arriving soon. Rooms: {rooms}",
+    "valve_exercise_done": "Valve protection: {count} rooms exercised ({rooms})",
+    "welcome_home": "Heating resumed — welcome home.",
+    "window_closed": "Window closed — {room}",
+    "window_closed_resumed": "Window closed — {room} heating resumed{context}",
+    "window_open": "Window open — {room}",
+    "window_open_set": "Window open — {room} set to {temp}°C{context}",
+    "window_still_open": "Window still open in {room} ({minutes} min) — heating suppressed{context}",
+    "windows_block_heat": "Heating not resumed — one or more windows are open."
+  },
+  "override_info": {
+    "no_expiry": "no expiry",
+    "since": "since {time}",
+    "until": "auto again at {time}"
+  },
+  "overview": {
+    "no_rooms": "No rooms configured",
+    "presence": "Presence",
+    "qs_active": "Active",
+    "qs_away": "Away",
+    "qs_doors": "Open doors",
+    "qs_passive": "Passive",
+    "qs_preheat": "Pre-heating",
+    "qs_window": "Window open",
+    "rooms": "Rooms"
+  },
+  "persons": {
+    "follows_house": "Follows the house",
+    "home": "Home",
+    "no_tracking": "No tracking",
+    "none": "No persons configured",
+    "not_home": "Not home",
+    "since": "since {time}"
+  },
+  "rd": {
+    "all_rooms_temporary": "All rooms — temporary change",
+    "at_radiator": "At the radiator",
+    "battery": "Battery",
+    "calibration": "Calibration",
+    "closed": "Closed",
+    "co2": "CO₂",
+    "collapse": "Collapse",
+    "collapse_all": "Collapse all",
+    "comfort": "Comfort temperature",
+    "comfort_desc": "The temperature the room should have when someone is home. Night setback and offset are subtracted from it, but never below the lowest room temperature (Settings).",
+    "comfort_sub": "comfort {temp}°C",
+    "door_to": "Door to {room}",
+    "door_unavailable": "unavailable",
+    "duration": "Duration",
+    "expand_all": "Expand all",
+    "follows_schedule": "Following schedule",
+    "follows_schedule_named": "Following schedule «{schedule}»",
+    "force_title": "Force the room to heat now, regardless of presence and windows (heat_manager.force_room_on)",
+    "global_note": "Sets {count} rooms with a valve to the same temperature — sensor-only rooms are skipped.",
+    "grouped": "Grouped",
+    "heat_demand": "Heat demand (PID)",
+    "heat_demand_desc": "How much heat the PID controller is asking for right now, 0-100%.",
+    "humidity": "Humidity",
+    "hvac_heating": "heating",
+    "hvac_idle": "not heating",
+    "hvac_off": "off",
+    "in_room": "In the room",
+    "light": "Light",
+    "netatmo_diverge_sent": "⚠ Netatmo is at {cloud}°C, Heat Manager has sent {ref}°C.",
+    "netatmo_diverge_wants": "⚠ Netatmo is at {cloud}°C, Heat Manager wants {ref}°C.",
+    "netatmo_setpoint": "Setpoint in Netatmo",
+    "netatmo_setpoint_desc": "The setpoint Netatmo itself shows for the room — not necessarily what Heat Manager wants.",
+    "not_in_auto": "not in auto",
+    "offset": "Offset",
+    "open": "Open",
+    "opening": "Opening",
+    "outer_door": "Outer door",
+    "pid_setpoint": "PID setpoint",
+    "preset": "Preset: {preset}",
+    "radiator_desc": "The valve's own reading. It sits on the radiator and typically shows 1-3°C more than the room.",
+    "released": "Released",
+    "released_note": "The extra valves are not controlled by Heat Manager right now — only the primary valve follows the schedule.",
+    "reset_title": "Remove the temporary change and follow the schedule again",
+    "room_temp_desc": "The room's actual temperature — from an external temperature sensor if the room has one, otherwise from the valve's own reading.",
+    "schedule_named": "Schedule «{schedule}»",
+    "sec_climate": "Indoor climate",
+    "sec_settings": "Room settings",
+    "sec_temperature": "Temperature",
+    "sec_temporary": "Temporary change",
+    "sec_valve": "Valve",
+    "sec_valve_group": "Valve group",
+    "sensors_only": "Sensors only",
+    "sent_desc": "The setpoint the PID is sending to the valve right now. Can be above the target while the room is still cold. Only shown in normal, automatic operation.",
+    "sent_to_valve": "Sent to valve",
+    "show_details": "Show details",
+    "sum_battery": "battery {value}%",
+    "sum_door_open": "door open",
+    "sum_humidity": "humidity {value}%",
+    "sum_target": "target {temp}",
+    "sum_valve": "valve {value}%",
+    "target_desc": "The temperature Heat Manager is controlling to right now: the comfort temperature after schedule, offset, night setback and away.",
+    "target_now": "Target now",
+    "temperature": "Temperature",
+    "title": "Rooms — details",
+    "unavailable_many": "⚠ {count} devices are not responding: {list}",
+    "unavailable_one": "⚠ {count} device is not responding: {list}",
+    "until_further": "Until further notice",
+    "valve_reading": "valve reading",
+    "valves": "{count} valves",
+    "window_today": "Window open today"
+  },
+  "reason": {
+    "alarm": "Alarm",
+    "auto": "Automatic",
+    "door": "Door",
+    "grace_period": "Grace period",
+    "group": "Group",
+    "manual": "Manual",
+    "mold_risk": "Mould risk",
+    "override": "Override",
+    "panel": "Panel",
+    "presence": "Presence",
+    "remote": "Remote",
+    "sync_lock": "sync mode: lock",
+    "sync_mirror": "sync mode: mirror",
+    "valve_protection": "Valve protection",
+    "window": "Window",
+    "window_warning": "Window warning"
+  },
+  "room_card": {
+    "battery": "Battery",
+    "in_room": "In the room",
+    "mold": "Mould risk",
+    "mold_title": "High humidity close to the dew point — risk of mould growth",
+    "schedule": "Schedule",
+    "schedule_title": "Schedule entity configured",
+    "sync_title": "Sync mode",
+    "target_now": "Target now",
+    "valves": "{count} valves",
+    "valves_title": "Number of valves in the room",
+    "window_pending": "waiting",
+    "window_pending_title": "Window physically open — waiting for the delay before the heating is turned down"
+  },
+  "rooms": {
+    "all_back_to_auto": "All back to automatic",
+    "back_to_auto": "Back to automatic",
+    "error": "Error",
+    "force_failed": "{room}: could not force heating on",
+    "force_on": "Force heating on",
+    "group_entity_missing": "{room}: could not find the group entity",
+    "group_failed": "{room}: could not change grouping",
+    "heating_badge": "{heating} / {total} heating",
+    "no_valve_rooms": "No rooms with a valve to set",
+    "offset_entity_missing": "{room}: could not find the offset entity",
+    "offset_failed": "{room}: could not set the offset",
+    "reset_all_ok": "{ok} rooms back to automatic",
+    "reset_all_partial": "{ok}/{total} rooms restored — failed: {failed}",
+    "reset_failed": "{room}: could not go back to automatic",
+    "save_failed": "{room}: could not save the room's settings",
+    "sending": "Sending {done}/{total}…",
+    "sent": "Sent",
+    "set": "Set",
+    "set_all": "Set in all rooms",
+    "set_all_ok": "{ok} rooms set to {temp}°C",
+    "set_all_partial": "{ok}/{total} rooms set to {temp}°C — failed: {failed}",
+    "set_failed": "{room}: could not set the temperature"
+  },
+  "season": {
+    "auto": "Auto",
+    "autumn": "Autumn",
+    "spring": "Spring",
+    "summer": "Summer",
+    "winter": "Winter"
+  },
+  "sheet": {
+    "auto_again": "automatic again at {time}",
+    "back_to_auto": "{room}: back to automatic",
+    "blocked_by": "Blocked by",
+    "close": "Close",
+    "deviates": "⚠ Differs",
+    "door": "Door",
+    "enter_temp": "Enter a temperature",
+    "extra_valves": "Extra valves follow the group",
+    "group_failed": "Could not change grouping",
+    "health": "Health",
+    "heating": "Heating up",
+    "hm_sent": "Heat Manager has sent {temp}",
+    "hm_wants": "Heat Manager wants {temp}",
+    "manual_control": "Manual control",
+    "no_data": "No further data for this room",
+    "rate_door_closed": "closed {rate}°C/h",
+    "rate_door_open": "door open {rate}°C/h",
+    "reset_failed": "Could not go back to automatic",
+    "send_failed": "Could not send the temperature",
+    "status": "Status",
+    "sync": "Sync",
+    "temp_set": "{room}: {temp}°C set",
+    "valve_group": "Valve group ({count} valves)",
+    "valves_in_room": "Valves in the room"
+  },
+  "sl": {
+    "and": " and ",
+    "auto_at": "auto {time}",
+    "auto_in": "{count} · auto again in {duration}",
+    "auto_now": "Auto now",
+    "boost_left": "Boost active · {duration} left",
+    "click_details": "click for details",
+    "cloud_tip": "Rooms with local (HomeKit/Zigbee) control keep running",
+    "entities_tip": "See the room's sensors in the Rooms tab",
+    "fetching": "Fetching…",
+    "forecast": "{room} reaches {temp} at about {time}",
+    "heatup_tip": "Check that the valve is not stuck",
+    "hidden_until": "hidden until {time}",
+    "hide_1h": "Hide 1 h",
+    "manual_all": "Manual in all rooms",
+    "manual_some": "Manual in {count} of {total} rooms",
+    "message_n_of": "Message {n} of {total}",
+    "mold_tip": "Air out for 5–10 min and keep the temperature even",
+    "night_in": "Night setback in {duration}",
+    "night_until": "Night setback until {time}",
+    "no_events": "No events yet",
+    "no_expiry": "{count} · no expiry",
+    "no_expiry_short": "no expiry",
+    "no_warnings": "No warnings 🎉",
+    "off_sub": "Turn on under Controller to start automatic control again",
+    "off_title": "Heating is off for the whole house",
+    "ok_all_on_target": "Everything runs automatically · all rooms on target",
+    "ok_heating": "Everything runs automatically · {count} rooms heating up",
+    "outdoor": "Outdoor {temp}",
+    "pause_sub": "Resumes by itself afterwards",
+    "pause_title": "Heating is paused",
+    "pause_title_left": "Heating is paused · {duration} left",
+    "plus_1h": "+1 hour",
+    "rain": "rain",
+    "sec_control": "Control",
+    "sec_latest": "Latest",
+    "sec_warnings": "Warnings",
+    "sec_why": "Why — room by room",
+    "set_via": "set via {sources}",
+    "set_via_at": "set via {sources} at {time}",
+    "show": "Show",
+    "since": "since {time} · ",
+    "wind": "wind",
+    "window_lowered_in": "Heating is lowered in {rooms}",
+    "window_will_lower": "Heating is lowered if it stays open"
+  },
+  "source": {
+    "panel": "Panel",
+    "remote": "Remote",
+    "switch": "Switch",
+    "trv": "Valve"
+  },
+  "state": {
+    "away": "Away",
+    "normal": "Auto",
+    "override": "Manual",
+    "override_with_source": "Manual · {source}",
+    "pre_heat": "Pre-heating",
+    "window_open": "Window open"
+  },
+  "state_word": {
+    "away": "away",
+    "pre_heat": "pre-heating",
+    "window_open": "window open"
+  },
+  "sync_mode": {
+    "disabled": "Disabled",
+    "lock": "Lock",
+    "mirror": "Mirror"
+  },
+  "tabs": {
+    "config": "Settings",
+    "history": "History",
+    "overview": "Overview",
+    "rooms": "Rooms"
+  },
+  "toast": {
+    "already_auto": "All rooms are already running automatically",
+    "boost_failed": "Could not change boost",
+    "boost_off": "Boost deactivated",
+    "boost_on": "Boost activated",
+    "controller_failed": "Could not change the heating state",
+    "extended": "Manual control extended by 1 hour",
+    "fetch_failed": "Could not fetch status from Heat Manager — showing last known data",
+    "nothing_to_extend": "Nothing to extend",
+    "pause_failed": "Could not pause",
+    "release_failed": "Could not set the rooms back to automatic",
+    "released": "{count} rooms back on automatic",
+    "resume_failed": "Could not resume heating control",
+    "save_alarm_failed": "Could not save the alarm panel",
+    "save_alarm_states_failed": "Could not save the alarm states",
+    "save_away_failed": "Could not save the away temperature in Netatmo",
+    "save_field_failed": "Could not save {field}",
+    "save_manual_trv_failed": "Could not save Manual TRV control",
+    "save_notify_failed": "Could not save the notify service",
+    "season_entity_missing": "Season entity not found",
+    "season_failed": "Could not change the season",
+    "season_set": "Season set to {season}",
+    "snoozed": "Hidden for 1 hour",
+    "try_again": "That did not work — try again",
+    "unsnoozed": "Shown again"
+  },
+  "why": {
+    "above_long": "The room is warmer than the target, so it is not heating right now. {facts}",
+    "above_short": "Above target ({temps}) — the radiator holds back",
+    "away_long": "Everyone is out, so the room is kept at the away temperature. It heats up again when someone comes home. {facts}",
+    "away_short": "Away temperature — nobody home",
+    "boost_long": "Boost is active and stops by itself. {facts}",
+    "boost_short": "Boost — running at boost temperature",
+    "eta": " · about {time}",
+    "fact_pid": "PID {value}%",
+    "fact_room": "room {temp}",
+    "fact_target": "target {temp}",
+    "fact_valve": "valve {value}%",
+    "heating_long": "The room is below target, so the radiator opens. {facts}",
+    "heating_short": "Heating up: {temps}{eta}",
+    "manual_change": "manual change",
+    "manual_long": "Automatic control is not running this room right now, because it was set manually via {source}. {expiry} {facts}",
+    "manual_long_forever": "It stays manual until someone sets it back.",
+    "manual_long_until": "It returns to automatic by itself at {time}.",
+    "manual_short": "Manual via {source} — {expiry}",
+    "off_long": "The controller is set to Off. {facts}",
+    "off_short": "Heating is off for the whole house",
+    "on_target_long": "The room is holding its temperature. {facts}",
+    "on_target_short": "On target: {temp}",
+    "pause_long": "The controller is paused and resumes by itself. {facts}",
+    "pause_short": "The whole house is paused",
+    "preheat_long": "The room is heated before arrival based on the travel time home. {facts}",
+    "preheat_short": "Pre-heating — someone is on the way home",
+    "sensors_long": "The room has no thermostat in Heat Manager, so it is only measured.",
+    "sensors_short": "Measuring only — no radiator is controlled here",
+    "window_long": "A window is open, so the heating is lowered. It comes back once the window has been closed for the configured delay. {facts}",
+    "window_short": "Heating lowered — window open"
+  }
+}

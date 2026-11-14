@@ -156,7 +156,7 @@ async def test_season_mode_select_option_valid_persists_and_notifies():
             "season_mode": "summer",
         },
     )
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
     coord.async_update_listeners.assert_called_once()
 
 
@@ -170,7 +170,7 @@ async def test_season_mode_select_option_invalid_is_ignored():
 
     assert coord.season_mode == SeasonMode.AUTO
     coord.hass.config_entries.async_update_entry.assert_not_called()
-    coord.log_event.assert_not_called()
+    coord.log_message.assert_not_called()
     coord.async_update_listeners.assert_not_called()
 
 
@@ -279,7 +279,7 @@ async def test_netatmo_preset_select_option_calls_climate_service_with_delay():
         {"preset_mode": "away"},
         needs_delay=True,
     )
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
     coord.async_update_listeners.assert_called_once()
 
 

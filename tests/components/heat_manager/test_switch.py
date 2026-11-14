@@ -167,7 +167,7 @@ async def test_turn_on_zigbee_sets_hvac_mode_via_write_entity():
         blocking=True,
     )
     coord.set_room_state.assert_called_once_with("Bathroom", RoomState.OVERRIDE)
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -220,7 +220,7 @@ async def test_turn_on_service_failure_is_caught_and_does_not_set_override_state
     await switch.async_turn_on()  # must not raise
 
     coord.set_room_state.assert_not_called()
-    coord.log_event.assert_not_called()
+    coord.log_message.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -253,7 +253,7 @@ async def test_turn_off_resets_room_state_and_logs():
     await switch.async_turn_off()
 
     coord.set_room_state.assert_called_once_with("Bathroom", RoomState.NORMAL)
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
     coord.hass.services.async_call.assert_not_called()
 
 
@@ -326,7 +326,7 @@ async def test_group_toggle_turn_off_calls_coordinator_and_logs():
     await switch.async_turn_off()
 
     coord.set_room_group_enabled.assert_called_once_with("Living room", False)
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -337,7 +337,7 @@ async def test_group_toggle_turn_on_calls_coordinator_and_logs():
     await switch.async_turn_on()
 
     coord.set_room_group_enabled.assert_called_once_with("Living room", True)
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
 
 
 # ── async_setup_entry: group toggle only for 2+ TRV rooms ────────────────────

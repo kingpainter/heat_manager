@@ -109,7 +109,7 @@ async def test_set_native_value_updates_coordinator_and_logs():
 
     assert entity.native_value == 3.0
     assert coord.room_offsets["Stue"] == 3.0
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
     entity.async_write_ha_state.assert_called_once()
 
 

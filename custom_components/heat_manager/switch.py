@@ -101,16 +101,14 @@ class RoomOverrideSwitch(CoordinatorEntity[HeatManagerCoordinator], SwitchEntity
             self._room_name, True, source="switch"
         )
         if ok:
-            self.coordinator.log_event(
-                f"Override ON — {self._room_name}", "Override", "override"
+            self.coordinator.log_message(
+                "override_on", "override", "override", room=self._room_name
             )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_room_override(self._room_name, False)
-        self.coordinator.log_event(
-            f"Override OFF — {self._room_name} returning to normal",
-            "Override",
-            "normal",
+        self.coordinator.log_message(
+            "override_off", "normal", "override", room=self._room_name
         )
         _LOGGER.info("Override OFF: %s — returning to normal", self._room_name)
 
@@ -168,18 +166,14 @@ class RoomGroupToggleSwitch(CoordinatorEntity[HeatManagerCoordinator], SwitchEnt
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         self.coordinator.set_room_group_enabled(self._room_name, True)
-        self.coordinator.log_event(
-            f"Gruppe TIL — {self._room_name} (alle TRV'er styres igen)",
-            "Gruppe",
-            "normal",
+        self.coordinator.log_message(
+            "group_on", "normal", "group", room=self._room_name
         )
         _LOGGER.info("Group toggle ON: %s — all TRVs grouped again", self._room_name)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         self.coordinator.set_room_group_enabled(self._room_name, False)
-        self.coordinator.log_event(
-            f"Gruppe FRA — {self._room_name} (ekstra TRV'er frigivet)",
-            "Gruppe",
-            "warning",
+        self.coordinator.log_message(
+            "group_off", "warning", "group", room=self._room_name
         )
         _LOGGER.info("Group toggle OFF: %s — secondary TRVs released", self._room_name)

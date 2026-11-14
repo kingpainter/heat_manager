@@ -33,6 +33,7 @@ from .const import (
     SeasonMode,
 )
 from .coordinator import HeatManagerCoordinator
+from .frontend_translations import text_ref
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -155,8 +156,11 @@ class SeasonModeSelect(CoordinatorEntity[HeatManagerCoordinator], SelectEntity):
         self.coordinator.hass.config_entries.async_update_entry(
             self.coordinator.entry, options=new_options
         )
-        self.coordinator.log_event(
-            f"Season mode set to {new_mode.value}", "Manual", "normal"
+        self.coordinator.log_message(
+            "season_mode_set",
+            "normal",
+            "manual",
+            season=text_ref(f"season.{new_mode.value}"),
         )
         self.coordinator.async_update_listeners()
         _LOGGER.info("Season mode set to: %s (persisted)", new_mode.value)
@@ -226,9 +230,11 @@ class NetatmoPresetModeSelect(CoordinatorEntity[HeatManagerCoordinator], SelectE
             {"preset_mode": option},
             needs_delay=True,
         )
-        self.coordinator.log_event(
-            f"Netatmo preset mode for {self._room_name} set to {option}",
-            "Manual",
+        self.coordinator.log_message(
+            "netatmo_preset_set",
             "normal",
+            "manual",
+            room=self._room_name,
+            preset=option,
         )
         self.coordinator.async_update_listeners()

@@ -32,6 +32,7 @@ from .const import (
     ControllerState,
 )
 from .coordinator import HeatManagerCoordinator
+from .frontend_translations import load_languages
 from .migrations import migrate_rooms_to_trvs, strip_stale_config
 from .panel import (
     async_register_panel,
@@ -86,7 +87,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _async_strip_stale_config(hass, entry)
     _async_clear_stale_persistent_issues(hass, entry)
 
-    coordinator = HeatManagerCoordinator(hass, entry)
+    # v0.72.0: the event log is stored in English (the panel shows it in the
+    # viewer's language from its key/params); push notifications use the
+    # Home Assistant system language.
+    texts = await hass.async_add_executor_job(
+        load_languages, ["en", hass.config.language or "en"]
+    )
+    coordinator = HeatManagerCoordinator(hass, entry, texts)
 
     try:
         await coordinator.async_config_entry_first_refresh()

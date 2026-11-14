@@ -115,6 +115,7 @@ from .const import (
 )
 from .engine.mold import is_mold_risk
 from .engine.readings import seconds_since_report
+from .frontend_translations import text_ref
 
 if TYPE_CHECKING:
     pass
@@ -143,14 +144,63 @@ def _coerce_float(value: Any) -> float | None:
 # ordered list. The panel's header status field renders this directly instead
 # of duplicating any of these heuristics itself. One thing deliberately stays
 # client-side: a dead websocket connection can't be reported *by* the server
-# whose connection is dead — the panel still injects its own "Ingen
-# forbindelse" entry into the same list locally when polling fails.
+# whose connection is dead — the panel still injects its own "no connection"
+# entry into the same list locally when polling fails.
+#
+# v0.71.0: every issue carries `key` + `params` so the panel and card show it
+# in the user's language (frontend/translations: "issue.<key>"); `message` is
+# the English text, kept for anything that reads it directly (the Status
+# sensor, push escalation, older frontends). English templates — must match
+# en.json's "issue" group (tests/…/test_frontend_translations.py checks it).
+ISSUE_TEMPLATES: dict[str, str] = {
+    "cloud_down": "Netatmo cloud/gateway down — all rooms unavailable",
+    "cloud_unavailable": "Netatmo unavailable: {rooms}",
+    "cloud_stale": "Netatmo data not updated for 10+ min: {rooms}",
+    "valve_offline": "Valve offline: {rooms}",
+    "battery_low": "Low battery: {rooms}",
+    "webhook_down": "Netatmo real-time (webhook) down — updated every minute",
+    "entities_unavailable_one": "{room}: {count} sensor(s)/device(s) unavailable",
+    "entities_unavailable_many": (
+        "{count} rooms have unavailable sensors/devices ({total} in total): {rooms}"
+    ),
+    "mold_risk_one": "Mould risk — {room}",
+    "mold_risk_many": "Mould risk ({count} rooms): {rooms}",
+    "window_open_one": "Window open — {room}",
+    "window_open_many": "Window open ({count} rooms): {rooms}",
+    "heatup_anomaly_one": "{room}: heating slower than normal — possibly a stuck valve",
+    "heatup_anomaly_many": (
+        "{count} rooms heating slower than normal — possibly a stuck valve: {rooms}"
+    ),
+    "boost": "Boost active — {minutes} min left",
+    "boost_rooms": "Boost active ({rooms}) — {minutes} min left",
+    "pid_needs_homekit": "PID requires HomeKit — following the Netatmo schedule: {rooms}",
+    "remote_action": "{description}",
+    "remote_action_rooms": "{description} — {rooms}",
+}
+
+
+def _issue_text(key: str, **params: Any) -> dict[str, Any]:
+    """`message` (English) + `key`/`params` for the frontend's translation.
+
+    A param may be a text reference ({"key": …, "params": …}, see
+    frontend_translations.text_ref) for the frontend; `_english` then holds
+    the English replacements used for `message`.
+    """
+    english = params.pop("_english", None) or {}
+    return {
+        "message": ISSUE_TEMPLATES[key].format(**{**params, **english}),
+        "key": key,
+        "params": params,
+    }
+
+
 def build_active_issues(
     coordinator: Any, rooms: list[dict[str, Any]]
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Return every currently-active status/warning/error as
-    {"severity": "critical"|"warning"|"info", "icon": str, "message": str},
-    ordered critical -> warning -> info (stable within each severity)."""
+    {"id", "severity": "critical"|"warning"|"info", "icon", "message" (English),
+    "key", "params"}, ordered critical -> warning -> info (stable within each
+    severity)."""
     hass = coordinator.hass
     issues: list[dict[str, Any]] = []
 
@@ -195,7 +245,7 @@ def build_active_issues(
                 "id": "cloud_down",
                 "severity": "critical",
                 "icon": "☁️",
-                "message": "Netatmo cloud/gateway nede — alle rum utilgængelige",
+                **_issue_text("cloud_down"),
             }
         )
     elif unavailable_rooms:
@@ -204,7 +254,7 @@ def build_active_issues(
                 "id": _issue_id("cloud_unavailable", unavailable_rooms),
                 "severity": "warning",
                 "icon": "☁️",
-                "message": f"Netatmo utilgængelig: {', '.join(unavailable_rooms)}",
+                **_issue_text("cloud_unavailable", rooms=", ".join(unavailable_rooms)),
             }
         )
     elif stale_rooms:
@@ -213,7 +263,7 @@ def build_active_issues(
                 "id": _issue_id("cloud_stale", stale_rooms),
                 "severity": "warning",
                 "icon": "☁️",
-                "message": f"Netatmo-data ikke opdateret i 10+ min: {', '.join(stale_rooms)}",
+                **_issue_text("cloud_stale", rooms=", ".join(stale_rooms)),
             }
         )
 
@@ -223,7 +273,7 @@ def build_active_issues(
                 "id": _issue_id("valve_offline", offline_rooms),
                 "severity": "warning",
                 "icon": "📡",
-                "message": f"Ventil offline: {', '.join(offline_rooms)}",
+                **_issue_text("valve_offline", rooms=", ".join(offline_rooms)),
             }
         )
     low_battery_rooms: list[str] = list(health.get("low_battery_rooms", []))
@@ -233,7 +283,7 @@ def build_active_issues(
                 "id": _issue_id("battery_low", low_battery_rooms),
                 "severity": "warning",
                 "icon": "🪫",
-                "message": f"Lavt batteri: {', '.join(low_battery_rooms)}",
+                **_issue_text("battery_low", rooms=", ".join(low_battery_rooms)),
             }
         )
     if health.get("webhook_down"):
@@ -242,7 +292,7 @@ def build_active_issues(
                 "id": "webhook_down",
                 "severity": "info",
                 "icon": "⏱️",
-                "message": "Netatmo-realtid (webhook) nede — opdateres hvert minut",
+                **_issue_text("webhook_down"),
             }
         )
 
@@ -269,7 +319,7 @@ def build_active_issues(
                 "id": _issue_id("entities_unavailable", [room_name]),
                 "severity": "warning",
                 "icon": "⚠️",
-                "message": f"{room_name}: {count} sensor(er)/enhed(er) utilgængelig(e)",
+                **_issue_text("entities_unavailable_one", room=room_name, count=count),
             }
         )
     elif unavailable_entity_rooms:
@@ -282,8 +332,12 @@ def build_active_issues(
                 ),
                 "severity": "warning",
                 "icon": "⚠️",
-                "message": f"{len(unavailable_entity_rooms)} rum har utilgængelige"
-                f" sensorer/enheder ({total_entities} i alt): {names}",
+                **_issue_text(
+                    "entities_unavailable_many",
+                    count=len(unavailable_entity_rooms),
+                    total=total_entities,
+                    rooms=names,
+                ),
             }
         )
 
@@ -296,7 +350,7 @@ def build_active_issues(
                 "id": _issue_id("mold_risk", mold_rooms),
                 "severity": "warning",
                 "icon": "💧",
-                "message": f"Skimmelrisiko — {mold_rooms[0]}",
+                **_issue_text("mold_risk_one", room=mold_rooms[0]),
             }
         )
     elif mold_rooms:
@@ -305,7 +359,9 @@ def build_active_issues(
                 "id": _issue_id("mold_risk", mold_rooms),
                 "severity": "warning",
                 "icon": "💧",
-                "message": f"Skimmelrisiko ({len(mold_rooms)} rum): {', '.join(mold_rooms)}",
+                **_issue_text(
+                    "mold_risk_many", count=len(mold_rooms), rooms=", ".join(mold_rooms)
+                ),
             }
         )
 
@@ -317,7 +373,7 @@ def build_active_issues(
                 "id": _issue_id("window_open", window_rooms),
                 "severity": "warning",
                 "icon": "🪟",
-                "message": f"Vindue åbent — {window_rooms[0]}",
+                **_issue_text("window_open_one", room=window_rooms[0]),
             }
         )
     elif window_rooms:
@@ -326,7 +382,11 @@ def build_active_issues(
                 "id": _issue_id("window_open", window_rooms),
                 "severity": "warning",
                 "icon": "🪟",
-                "message": f"Vindue åbent ({len(window_rooms)} rum): {', '.join(window_rooms)}",
+                **_issue_text(
+                    "window_open_many",
+                    count=len(window_rooms),
+                    rooms=", ".join(window_rooms),
+                ),
             }
         )
 
@@ -348,8 +408,7 @@ def build_active_issues(
                 "id": _issue_id("heatup_anomaly", anomaly_rooms),
                 "severity": "warning",
                 "icon": "🐌",
-                "message": f"{anomaly_rooms[0]}: varmer langsommere end normalt — muligvis"
-                " fastsiddende ventil",
+                **_issue_text("heatup_anomaly_one", room=anomaly_rooms[0]),
             }
         )
     elif anomaly_rooms:
@@ -358,8 +417,11 @@ def build_active_issues(
                 "id": _issue_id("heatup_anomaly", anomaly_rooms),
                 "severity": "warning",
                 "icon": "🐌",
-                "message": f"{len(anomaly_rooms)} rum varmer langsommere end normalt —"
-                f" muligvis fastsiddende ventil: {', '.join(anomaly_rooms)}",
+                **_issue_text(
+                    "heatup_anomaly_many",
+                    count=len(anomaly_rooms),
+                    rooms=", ".join(anomaly_rooms),
+                ),
             }
         )
 
@@ -369,13 +431,18 @@ def build_active_issues(
         active_rooms = sorted(
             name for name, active in coordinator.boost_active_rooms.items() if active
         )
-        rooms_str = f" ({', '.join(active_rooms)})" if active_rooms else ""
         issues.append(
             {
                 "id": "boost",
                 "severity": "info",
                 "icon": "🔥",
-                "message": f"Boost aktivt{rooms_str} — {remaining} min tilbage",
+                **(
+                    _issue_text(
+                        "boost_rooms", rooms=", ".join(active_rooms), minutes=remaining
+                    )
+                    if active_rooms
+                    else _issue_text("boost", minutes=remaining)
+                ),
             }
         )
 
@@ -388,8 +455,7 @@ def build_active_issues(
                 "id": _issue_id("pid_needs_homekit", pid_hk_rooms),
                 "severity": "info",
                 "icon": "🏠",
-                "message": "PID kræver HomeKit — følger Netatmo-tidsplanen:"
-                f" {', '.join(pid_hk_rooms)}",
+                **_issue_text("pid_needs_homekit", rooms=", ".join(pid_hk_rooms)),
             }
         )
 
@@ -414,13 +480,31 @@ def build_active_issues(
                 r for r in (rla.get("rooms") or []) if r not in description
             ]
             rla_rooms = ", ".join(rla_room_names)
+            # v0.72.0: the remote's own event text, in the viewer's language.
+            desc_param: Any = (
+                text_ref(f"event.{rla['key']}", **(rla.get("params") or {}))
+                if rla.get("key")
+                else description
+            )
             issues.append(
                 {
                     "id": "remote_action",
                     "severity": "info",
                     "icon": "📡",
-                    "message": f"Fjernbetjening: {description}"
-                    + (f" — {rla_rooms}" if rla_rooms else ""),
+                    **(
+                        _issue_text(
+                            "remote_action_rooms",
+                            description=desc_param,
+                            rooms=rla_rooms,
+                            _english={"description": description},
+                        )
+                        if rla_rooms
+                        else _issue_text(
+                            "remote_action",
+                            description=desc_param,
+                            _english={"description": description},
+                        )
+                    ),
                 }
             )
 
@@ -779,11 +863,11 @@ def build_state_payload(
             _health_penalty += 20
         health_score = max(0, 100 - _health_penalty)
         if health_score >= 80:
-            health_label = "god"
+            health_label = "good"
         elif health_score >= 50:
             health_label = "ok"
         else:
-            health_label = "dårlig"
+            health_label = "poor"
 
         rooms.append(
             {

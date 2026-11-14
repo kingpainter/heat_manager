@@ -226,10 +226,12 @@ class SyncEngine:
             # v0.59.0: record who engaged OVERRIDE so the panel/card can
             # show "manual on the radiator" instead of an unlabelled override.
             self.coordinator.room_override_source[room_name] = "trv"
-            self.coordinator.log_event(
-                f"Manuel ændring accepteret — {room_name} ({observed:.1f}°C)",
-                "sync_mode: mirror",
+            self.coordinator.log_message(
+                "sync_accepted",
                 "override",
+                "sync_mirror",
+                room=room_name,
+                temp=f"{observed:.1f}",
             )
             _LOGGER.info(
                 "Sync [mirror]: %s manually set to %.1f°C — switched to OVERRIDE",
@@ -255,10 +257,12 @@ class SyncEngine:
                 {"temperature": expected},
                 needs_delay=self.coordinator.trv_needs_cloud_delay(trv),
             )
-            self.coordinator.log_event(
-                f"Manuel ændring afvist — {room_name} tilbage til {expected:.1f}°C",
-                "sync_mode: lock",
+            self.coordinator.log_message(
+                "sync_reverted",
                 "warning",
+                "sync_lock",
+                room=room_name,
+                temp=f"{expected:.1f}",
             )
             _LOGGER.info(
                 "Sync [lock]: %s reverted to expected %.1f°C", room_name, expected

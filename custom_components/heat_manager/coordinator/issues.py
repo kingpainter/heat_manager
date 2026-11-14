@@ -115,7 +115,10 @@ class CoordinatorIssues(CoordinatorOverrides):
             was_at_risk = self._mold_risk_state.get(room_name, False)
             self._mold_risk_state[room_name] = at_risk
 
-            msg = f"Mold risk — {room_name} ({rh:.0f}% RH, {temp:.1f}°C)"
+            mold_params = {"room": room_name, "rh": f"{rh:.0f}", "temp": f"{temp:.1f}"}
+            # v0.72.0: repairs/push in the system language, the log in
+            # English + key/params.
+            msg = self.text("notify.mold_risk", **mold_params)
             # 2026-09-13 (architecture review #4): feed the generic
             # status-center issue tracker regardless of the transition —
             # _report_issue() itself figures out started/cleared/escalate.
@@ -130,7 +133,7 @@ class CoordinatorIssues(CoordinatorOverrides):
                 rh,
                 temp,
             )
-            self.log_event(msg, "Mold risk", "mold_risk")
+            self.log_message("mold_risk", "mold_risk", "mold_risk", **mold_params)
             await self._notify_mold_risk(msg)
 
     async def _notify_mold_risk(self, message: str) -> None:
@@ -372,7 +375,9 @@ class CoordinatorIssues(CoordinatorOverrides):
         domain, _, service_name = service.partition(".")
         if not service_name:
             return
-        full_message = f"{message} (aktiv i {int(threshold_min)}+ min)"
+        full_message = self.text(
+            "notify.escalation", message=message, minutes=int(threshold_min)
+        )
         try:
             await self.hass.services.async_call(
                 domain,
@@ -402,7 +407,7 @@ class CoordinatorIssues(CoordinatorOverrides):
                 f"window_open:{room_name}",
                 is_open,
                 "warning",
-                f"Vindue åbent — {room_name}",
+                self.text("issue.window_open_one", room=room_name),
             )
 
     async def _async_check_cloud_issue_events(self) -> None:
@@ -432,7 +437,7 @@ class CoordinatorIssues(CoordinatorOverrides):
             "cloud_down",
             active,
             "critical",
-            "Netatmo cloud/gateway nede — alle rum utilgængelige",
+            self.text("issue.cloud_down"),
         )
 
     async def _async_check_room_override_stuck_events(self) -> None:
@@ -453,7 +458,7 @@ class CoordinatorIssues(CoordinatorOverrides):
                 f"room_override_stuck:{room_name}",
                 is_override,
                 "warning",
-                f"{room_name}: har stået i manuel override i lang tid",
+                self.text("notify.override_stuck", room=room_name),
             )
 
     async def _async_check_heatup_anomaly_events(self) -> None:
@@ -471,6 +476,5 @@ class CoordinatorIssues(CoordinatorOverrides):
                 f"heatup_anomaly:{room_name}",
                 anomaly,
                 "warning",
-                f"{room_name}: varmer langsommere end normalt — muligvis"
-                " fastsiddende ventil",
+                self.text("issue.heatup_anomaly_one", room=room_name),
             )

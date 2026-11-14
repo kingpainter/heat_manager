@@ -244,10 +244,8 @@ class ValveProtectionEngine:
 
         if rooms_done:
             rooms_str = ", ".join(rooms_done)
-            self.coordinator.log_event(
-                f"Valve exercise completed — {rooms_str}",
-                "Valve protection",
-                "normal",
+            self.coordinator.log_message(
+                "valve_exercise_done", "normal", "valve_protection", rooms=rooms_str
             )
             _LOGGER.info(
                 "ValveProtectionEngine: exercise complete for %d room(s): %s",
@@ -255,15 +253,20 @@ class ValveProtectionEngine:
                 rooms_str,
             )
             await self._notify(
-                f"Ventilbeskyttelse: {len(rooms_done)} rum gennemkørt ({rooms_str})"
+                self.coordinator.text(
+                    "notify.valve_exercise_done",
+                    count=len(rooms_done),
+                    rooms=rooms_str,
+                )
             )
         else:
             _LOGGER.info("ValveProtectionEngine: no rooms exercised this week")
         if rooms_skipped:
-            self.coordinator.log_event(
-                f"Valve exercise skipped (moved recently) — {', '.join(rooms_skipped)}",
-                "Valve protection",
+            self.coordinator.log_message(
+                "valve_exercise_skipped",
                 "normal",
+                "valve_protection",
+                rooms=", ".join(rooms_skipped),
             )
 
     # ── Notification ──────────────────────────────────────────────────────────

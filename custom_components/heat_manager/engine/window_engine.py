@@ -122,17 +122,19 @@ class WindowEngine:
     # CONF_DOOR_STYLED_SENSORS for the full rationale (a balcony door still
     # loses heat exactly like a window; only its name in the log differs).
 
-    def _sensor_label(self, room_name: str, sensor_id: str) -> str:
-        """ "Door" or "Window" for a specific sensor that just triggered an
+    def _sensor_kind(self, room_name: str, sensor_id: str) -> str:
+        """ "door" or "window" for a specific sensor that just triggered an
         event — the common case, since every open/close handler already
-        knows which sensor fired."""
+        knows which sensor fired. Picks the text key family
+        ("window_…"/"door_…") — separate texts, since languages inflect
+        "open"/"closed" differently for a door and a window."""
         door_styled = self.coordinator.get_room_door_styled_sensors(room_name)
-        return "Door" if sensor_id in door_styled else "Window"
+        return "door" if sensor_id in door_styled else "window"
 
-    def _room_label(self, room_name: str) -> str:
+    def _room_kind(self, room_name: str) -> str:
         """Room-level fallback for the 30-min warning, which iterates by
-        room rather than by sensor: "Door" only if EVERY window sensor
-        configured for this room is door-styled, else "Window" (the safer
+        room rather than by sensor: "door" only if EVERY window sensor
+        configured for this room is door-styled, else "window" (the safer
         default for a room mixing both)."""
         for room in self.coordinator.rooms:
             if room.get("room_name") != room_name:
@@ -140,9 +142,9 @@ class WindowEngine:
             sensors = room.get(CONF_WINDOW_SENSORS, []) or []
             door_styled = set(self.coordinator.get_room_door_styled_sensors(room_name))
             if sensors and all(s in door_styled for s in sensors):
-                return "Door"
+                return "door"
             break
-        return "Window"
+        return "window"
 
     def _register_listeners(self) -> None:
         sensors = list(self._sensor_to_room.keys())
@@ -268,12 +270,15 @@ class WindowEngine:
             self.coordinator.set_room_state(room_name, RoomState.WINDOW_OPEN)
             self._window_opened_at[room_name] = utcnow()
             self._warning_sent[room_name] = False
-            label = self._sensor_label(room_name, sensor_id)
-            log_msg = f"{label} open in {room_name} (no TRV — monitoring only)"
-            _LOGGER.info(log_msg)
-            self.coordinator.log_event(log_msg, label, "window_open")
+            kind = self._sensor_kind(room_name, sensor_id)
+            _LOGGER.info("%s open in %s (no TRV — monitoring only)", kind, room_name)
+            self.coordinator.log_message(
+                f"{kind}_open_monitoring", "window_open", kind, room=room_name
+            )
             if self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
-                await self._notify(f"{label} open — {room_name}")
+                await self._notify(
+                    self.coordinator.text(f"notify.{kind}_open", room=room_name)
+                )
             return
 
         # H-1: write setpoint via preferred local entity (HomeKit if
@@ -308,22 +313,35 @@ class WindowEngine:
             co2_ppm = self.coordinator.get_room_co2(room_name)
             co2_label = self._co2_context_label(co2_ppm, room_name)
             via = "HomeKit" if any(w != climate_id for w in write_entities) else "cloud"
-            label = self._sensor_label(room_name, sensor_id)
-            log_msg = (
-                f"{label} open in {room_name} — heating to {target_temp:.0f}°C"
-                f" (via {via})"
-            )
-            notif_msg = (
-                f"{label} open — {room_name} set to {target_temp:.0f}°C{co2_label}"
-            )
+            kind = self._sensor_kind(room_name, sensor_id)
+            temp_str = f"{target_temp:.0f}"
 
             _LOGGER.info(
-                "%s%s", log_msg, f"  CO₂: {co2_ppm:.0f} ppm" if co2_ppm else ""
+                "%s open in %s — heating to %s°C (via %s)%s",
+                kind,
+                room_name,
+                temp_str,
+                via,
+                f"  CO₂: {co2_ppm:.0f} ppm" if co2_ppm else "",
             )
-            self.coordinator.log_event(log_msg, label, "window_open")
+            self.coordinator.log_message(
+                f"{kind}_open_heating",
+                "window_open",
+                kind,
+                room=room_name,
+                temp=temp_str,
+                via=via,
+            )
 
             if self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
-                await self._notify(notif_msg)
+                await self._notify(
+                    self.coordinator.text(
+                        f"notify.{kind}_open_set",
+                        room=room_name,
+                        temp=temp_str,
+                        context=co2_label,
+                    )
+                )
         # broad-except-rationale: one entity failing must not abort the others in this loop
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Failed to suppress heating in '%s': %s", room_name, err)
@@ -380,14 +398,12 @@ class WindowEngine:
         self._warning_sent.pop(room_name, None)
 
         if not self.coordinator.someone_home():
-            label = self._sensor_label(room_name, sensor_id)
+            kind = self._sensor_kind(room_name, sensor_id)
             _LOGGER.info(
-                "%s closed in '%s' but nobody home — leaving AWAY", label, room_name
+                "%s closed in '%s' but nobody home — leaving AWAY", kind, room_name
             )
-            self.coordinator.log_event(
-                f"{label} closed in {room_name} — nobody home, staying away",
-                label,
-                "away",
+            self.coordinator.log_message(
+                f"{kind}_closed_away", "away", kind, room=room_name
             )
             self.coordinator.set_room_state(room_name, RoomState.AWAY)
             return
@@ -406,12 +422,15 @@ class WindowEngine:
             # dropped. See that method's comment for the full rationale
             # (Flemming's "Gang" front-door case).
             self.coordinator.set_room_state(room_name, RoomState.NORMAL)
-            label = self._sensor_label(room_name, sensor_id)
-            log_msg = f"{label} closed in {room_name} (no TRV — monitoring only)"
-            _LOGGER.info(log_msg)
-            self.coordinator.log_event(log_msg, label, "normal")
+            kind = self._sensor_kind(room_name, sensor_id)
+            _LOGGER.info("%s closed in %s (no TRV — monitoring only)", kind, room_name)
+            self.coordinator.log_message(
+                f"{kind}_closed_monitoring", "normal", kind, room=room_name
+            )
             if self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
-                await self._notify(f"{label} closed — {room_name}")
+                await self._notify(
+                    self.coordinator.text(f"notify.{kind}_closed", room=room_name)
+                )
             return
 
         # 2026-09 429 fix: this method runs as its own independent
@@ -457,15 +476,20 @@ class WindowEngine:
             # ── CO₂-aware close notification ──────────────────────────────
             co2_ppm = self.coordinator.get_room_co2(room_name)
             co2_label = self._co2_context_label(co2_ppm, room_name)
-            label = self._sensor_label(room_name, sensor_id)
-            notif_msg = f"{label} closed — {room_name} heating resumed{co2_label}"
+            kind = self._sensor_kind(room_name, sensor_id)
 
-            _LOGGER.info("%s closed in '%s' — restored to schedule", label, room_name)
-            self.coordinator.log_event(
-                f"{label} closed in {room_name} — heating resumed", label, "normal"
+            _LOGGER.info("%s closed in '%s' — restored to schedule", kind, room_name)
+            self.coordinator.log_message(
+                f"{kind}_closed_resumed", "normal", kind, room=room_name
             )
             if self.coordinator.config.get(CONF_NOTIFY_WINDOWS, True):
-                await self._notify(notif_msg)
+                await self._notify(
+                    self.coordinator.text(
+                        f"notify.{kind}_closed_resumed",
+                        room=room_name,
+                        context=co2_label,
+                    )
+                )
 
     async def async_tick(self) -> None:
         """B2 FIX: Send 30-min escalation warning with CO₂ context."""
@@ -487,23 +511,31 @@ class WindowEngine:
                 co2_ppm = self.coordinator.get_room_co2(room_name)
                 co2_label = self._co2_context_label(co2_ppm, room_name)
 
-                label = self._room_label(room_name)
-                log_msg = f"{label} open {minutes_open} min in {room_name}"
-                notif_msg = (
-                    f"{label} still open in {room_name} ({minutes_open} min)"
-                    f" — heating suppressed{co2_label}"
-                )
+                kind = self._room_kind(room_name)
 
                 _LOGGER.info(
                     "%s in '%s' open %d min%s — sending warning",
-                    label,
+                    kind,
                     room_name,
                     minutes_open,
                     f"  CO₂: {co2_ppm:.0f} ppm" if co2_ppm else "",
                 )
-                self.coordinator.log_event(log_msg, "30-min warning", "window_open")
+                self.coordinator.log_message(
+                    f"{kind}_open_minutes",
+                    "window_open",
+                    "window_warning",
+                    room=room_name,
+                    minutes=minutes_open,
+                )
                 if self.coordinator.config.get(CONF_NOTIFY_WINDOW_WARNING_30, True):
-                    await self._notify(notif_msg)
+                    await self._notify(
+                        self.coordinator.text(
+                            f"notify.{kind}_still_open",
+                            room=room_name,
+                            minutes=minutes_open,
+                            context=co2_label,
+                        )
+                    )
                 self._warning_sent[room_name] = True
 
     # ── CO₂ context helpers ───────────────────────────────────────────────────
@@ -518,12 +550,12 @@ class WindowEngine:
         # Rain: always heat loss, add rain hint
         if self.coordinator.is_raining():
             precip = self.coordinator.get_precipitation()
-            return f"  (🌧️ {precip:.1f} mm — regn: varmetab)"
+            return self.coordinator.text("notify.ctx_rain", mm=f"{precip:.1f}")
 
         # Wind: fast wind means rapid heat loss
         wind = self.coordinator.get_wind_speed()
         if wind is not None and wind >= WIND_FAST_MS:
-            return f"  (💨 {wind:.1f} m/s — vind: varmetab)"
+            return self.coordinator.text("notify.ctx_wind", speed=f"{wind:.1f}")
 
         # CO₂ context — use per-room threshold when available
         if co2_ppm is None:
@@ -533,9 +565,12 @@ class WindowEngine:
             if room_name
             else DEFAULT_CO2_VENTILATION_THRESHOLD
         )
-        if co2_ppm >= threshold:
-            return f"  (CO₂: {co2_ppm:.0f} ppm — ventilation)"
-        return f"  (CO₂: {co2_ppm:.0f} ppm — varmetab)"
+        key = (
+            "notify.ctx_co2_ventilation"
+            if co2_ppm >= threshold
+            else "notify.ctx_co2_heat_loss"
+        )
+        return self.coordinator.text(key, ppm=f"{co2_ppm:.0f}")
 
     # ── Remaining helpers (unchanged) ─────────────────────────────────────────
 

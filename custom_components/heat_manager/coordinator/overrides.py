@@ -173,10 +173,12 @@ class CoordinatorOverrides(CoordinatorNetatmo):
             )
             extended.append(room_name)
         if extended:
-            self.log_event(
-                f"Manual override extended by {minutes} min — {', '.join(extended)}",
-                "Panel",
+            self.log_message(
+                "override_extended",
                 "override",
+                "panel",
+                minutes=minutes,
+                rooms=", ".join(extended),
             )
             self.async_update_listeners()
         return extended
@@ -245,7 +247,7 @@ class CoordinatorOverrides(CoordinatorNetatmo):
             else 0,
         }
 
-    async def async_release_all_overrides(self, reason: str = "Panel") -> list[str]:
+    async def async_release_all_overrides(self, reason: str = "panel") -> list[str]:
         """Return every room in OVERRIDE to automatic control (v0.59.0) —
         the panel's "Tilbage til auto" button. Same per-room path as the
         override switch and the remote's auto/manual button
@@ -258,10 +260,9 @@ class CoordinatorOverrides(CoordinatorNetatmo):
             await self.async_set_room_override(room_name, False)
             released.append(room_name)
         if released:
-            self.log_event(
-                f"Manual override released — {', '.join(released)}",
-                reason,
-                "normal",
+            # `reason` is a "reason" text key ("panel", "remote").
+            self.log_message(
+                "override_released", "normal", reason, rooms=", ".join(released)
             )
         return released
 
@@ -273,6 +274,8 @@ class CoordinatorOverrides(CoordinatorNetatmo):
         action: str | None = None,
         delta: float | None = None,
         skipped: dict[str, str] | None = None,
+        text_key: str | None = None,
+        text_params: dict[str, Any] | None = None,
     ) -> None:
         """Record the most recent action taken by the global physical
         remote (v0.14.0's temp up/down/mode toggle buttons) — called from
@@ -295,6 +298,10 @@ class CoordinatorOverrides(CoordinatorNetatmo):
             "action": action,
             "delta": delta,
             "skipped": dict(skipped or {}),
+            # v0.72.0: the description's "event" text key + params, so the
+            # status line can show it in the viewer's language.
+            "key": text_key,
+            "params": dict(text_params or {}),
         }
         self.async_update_listeners()
 
@@ -404,10 +411,12 @@ class CoordinatorOverrides(CoordinatorNetatmo):
         else:
             self.boost_expires_at = None
 
-        detail = (
-            f" — {', '.join(boosted)}" if boosted else " — ingen rum klar til boost"
-        )
-        self.log_event(f"Boost aktiveret{detail}", reason="manuel", event_type="boost")
+        if boosted:
+            self.log_message(
+                "boost_started", "boost", "manual", rooms=", ".join(boosted)
+            )
+        else:
+            self.log_message("boost_started_none", "boost", "manual")
         _LOGGER.info(
             "Boost started — %d room(s) boosted to %.1f°C: %s",
             len(boosted),
@@ -437,7 +446,7 @@ class CoordinatorOverrides(CoordinatorNetatmo):
 
         self.boost_active_rooms.clear()
         self.boost_expires_at = None
-        self.log_event("Boost deaktiveret", reason="manuel", event_type="boost")
+        self.log_message("boost_stopped", "boost", "manual")
         _LOGGER.info("Boost stopped — restored %d room(s)", len(boosted_rooms))
         return boosted_rooms
 
@@ -504,9 +513,5 @@ class CoordinatorOverrides(CoordinatorNetatmo):
                     "Room override expiry restore failed for '%s': %s", room_name, err
                 )
             self.set_room_state(room_name, RoomState.NORMAL)
-            self.log_event(
-                f"{room_name}: manuel override udløbet — plan gendannet",
-                reason="auto",
-                event_type="manual",
-            )
+            self.log_message("override_expired", "manual", "auto", room=room_name)
             _LOGGER.info("Room '%s' manual override expired — auto-restored", room_name)

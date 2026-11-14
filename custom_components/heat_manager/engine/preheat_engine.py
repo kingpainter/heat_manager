@@ -238,7 +238,9 @@ class PreheatEngine:
             person_name = person_id.split(".")[-1].capitalize()
             rooms_str = ", ".join(rooms_preheated)
             await self._notify(
-                f"Pre-heating started — {person_name} arriving soon. Rooms: {rooms_str}"
+                self.coordinator.text(
+                    "notify.preheat_started", person=person_name, rooms=rooms_str
+                )
             )
 
     def _clear_preheat_states(self) -> None:

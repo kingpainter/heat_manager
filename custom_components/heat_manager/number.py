@@ -119,7 +119,11 @@ class RoomOffsetNumber(RestoreNumber):
         self._attr_native_value = value
         self.coordinator.room_offsets[self._room_name] = float(value)
         self.async_write_ha_state()
-        self.coordinator.log_event(
-            f"Offset ({self._room_name}) sat til {value:+.1f}°C", "manuel", "offset"
+        self.coordinator.log_message(
+            "offset_set",
+            "offset",
+            "manual",
+            room=self._room_name,
+            offset=f"{value:+.1f}",
         )
         _LOGGER.info("Room offset [%s] set to %.1f°C", self._room_name, value)

@@ -124,13 +124,13 @@ class DoorEngine:
             room_a, room_b = rooms
             if new == "on":
                 _LOGGER.info("Door opened between '%s' and '%s'", room_a, room_b)
-                self.coordinator.log_event(
-                    f"Dør åbnet mellem {room_a} og {room_b}", "Dør", "door"
+                self.coordinator.log_message(
+                    "door_opened_between", "door", "door", room_a=room_a, room_b=room_b
                 )
             else:
                 _LOGGER.info("Door closed between '%s' and '%s'", room_a, room_b)
-                self.coordinator.log_event(
-                    f"Dør lukket mellem {room_a} og {room_b}", "Dør", "door"
+                self.coordinator.log_message(
+                    "door_closed_between", "door", "door", room_a=room_a, room_b=room_b
                 )
             return
 
@@ -147,10 +147,14 @@ class DoorEngine:
             )
             if new == "on":
                 _LOGGER.info("Heated-area door opened: %s (%s)", friendly, heated_room)
-                self.coordinator.log_event(f"Dør åbnet: {friendly}", "Dør", "door")
+                self.coordinator.log_message(
+                    "door_opened", "door", "door", door=friendly
+                )
             else:
                 _LOGGER.info("Heated-area door closed: %s (%s)", friendly, heated_room)
-                self.coordinator.log_event(f"Dør lukket: {friendly}", "Dør", "door")
+                self.coordinator.log_message(
+                    "door_closed", "door", "door", door=friendly
+                )
 
     async def async_shutdown(self) -> None:
         for unsub in self._unsubs:

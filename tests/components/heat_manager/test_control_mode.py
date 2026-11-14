@@ -221,7 +221,7 @@ async def test_release_all_overrides_restores_every_manual_room():
     coord.async_restore_room_schedule.assert_awaited_once_with("Stue")
     assert coord.room_states["Stue"] == RoomState.NORMAL
     assert "Stue" not in coord.room_override_source
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -232,7 +232,7 @@ async def test_release_all_overrides_noop_when_all_auto():
 
     assert released == []
     coord.async_restore_room_schedule.assert_not_called()
-    coord.log_event.assert_not_called()
+    coord.log_message.assert_not_called()
 
 
 # ── ControlModeSensor ────────────────────────────────────────────────────────

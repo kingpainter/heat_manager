@@ -4,7 +4,62 @@
 // Design: unified with Indeklima — DM Sans/DM Mono, section-box system,
 // amber/orange heat palette.
 
+// ── i18n (v0.71.0) ───────────────────────────────────────────────────────────
+// English is the default; other languages come from
+// frontend/translations/<lang>.json via heat_manager/get_translations (the
+// backend fills in English for any key a translation lacks). Shared by every
+// card instance on the page and the card editor.
+
+var _hmI18n = (window.__heatManagerCardI18n = window.__heatManagerCardI18n || { lang: null, strings: null, loading: null });
+
+function _hmLang(hass) {
+  return hass?.locale?.language || hass?.language || "en";
+}
+
+// True when the strings for the user's current language still have to be
+// fetched (first load, or the user switched language in their profile).
+function _hmNeedsTranslations(hass) {
+  return !!hass?.callWS && (_hmI18n.lang !== _hmLang(hass) || (!_hmI18n.strings && !_hmI18n.loading));
+}
+
+function _hmLoadTranslations(hass) {
+  const lang = _hmLang(hass);
+  if (_hmI18n.lang === lang && _hmI18n.loading) return _hmI18n.loading;
+  _hmI18n.lang = lang;
+  _hmI18n.loading = hass.callWS({ type: "heat_manager/get_translations", language: lang })
+    .then((res) => { if (_hmI18n.lang === lang) _hmI18n.strings = res?.resources ?? {}; })
+    .catch((e) => { console.error("[HeatManager] translations", e); _hmI18n.strings = _hmI18n.strings ?? {}; })
+    .finally(() => { _hmI18n.loading = null; });
+  return _hmI18n.loading;
+}
+
+// Translate `key`, replacing {name} placeholders from `params`. Before the
+// strings have arrived it returns "" (the card re-renders once they land).
+function _hmT(key, params) {
+  if (!_hmI18n.strings) return "";
+  let s = _hmI18n.strings[key];
+  if (s == null) s = key;
+  if (params) s = s.replace(/\{(\w+)\}/g, (m, k) => {
+    const v = params[k];
+    if (v == null) return m;
+    // v0.72.0: a param can reference another text ({key, params}).
+    if (typeof v === "object" && v.key) return _hmT(v.key, v.params);
+    return String(v);
+  });
+  return s;
+}
+
 // ── Shared helpers ────────────────────────────────────────────────────────────
+
+// v0.71.0: an issue from build_active_issues() in the user's language —
+// `key`/`params` when the backend sends them, the English `message` otherwise.
+function _hmIssueText(issue) {
+  if (issue?.key && _hmI18n.strings) {
+    const txt = _hmT(`issue.${issue.key}`, issue.params ?? {});
+    if (txt !== `issue.${issue.key}`) return txt;
+  }
+  return issue?.message ?? "";
+}
 
 function _hmEsc(s) {
   return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -21,13 +76,13 @@ function _hmStateColor(s) {
 function _hmStateLabel(s, source) {
   if (s === "override") {
     const icon = _hmOverrideSourceIcon(source);
-    return icon ? `Manuel ${icon}` : "Manuel";
+    return icon ? _hmT("card.state_manual_icon", { icon }) : _hmT("state.override");
   }
-  return ({ normal:"Auto", away:"Fraværende", window_open:"Vindue åbent", pre_heat:"Forvarmning" })[s] ?? (s || "–");
+  return ["normal", "away", "window_open", "pre_heat"].includes(s) ? _hmT(`state.${s}`) : (s || "–");
 }
 
 function _hmOverrideSourceName(src) {
-  return ({ remote:"Fjernbetjening", panel:"Panel", switch:"Kontakt", trv:"Ventil" })[src] ?? null;
+  return ["remote", "panel", "switch", "trv"].includes(src) ? _hmT(`source.${src}`) : null;
 }
 
 function _hmOverrideSourceIcon(src) {
@@ -43,7 +98,7 @@ function _hmHhmm(iso) {
 }
 
 // v0.67.2: Netatmo's own view of a room as one Danish phrase — same wording
-// as the panel ("Følger tidsplan «Vinter» · varmer ikke").
+// as the panel ("Following schedule «Winter» · not heating").
 function _hmNetatmoModeText(rd) {
   if (!rd) return "";
   const parts = [];
@@ -51,15 +106,17 @@ function _hmNetatmoModeText(rd) {
   const sched = rd.cloud_selected_schedule;
   const until = _hmHhmm(rd.cloud_setpoint_end_time);
   if (mode === "schedule" || mode === "home") {
-    parts.push(sched ? `Følger tidsplan «${sched}»` : "Følger tidsplan");
+    parts.push(sched ? _hmT("rd.follows_schedule_named", { schedule: sched }) : _hmT("rd.follows_schedule"));
   } else if (mode) {
-    const label = ({ manual: "Manuel", max: "Boost", away: "Væk", hg: "Frostsikring", off: "Slukket" })[mode] ?? mode;
-    parts.push(until && (mode === "manual" || mode === "max") ? `${label} til ${until}` : label);
+    const label = ["manual", "max", "away", "hg", "off"].includes(mode) ? _hmT(`card.netatmo.${mode}`) : mode;
+    parts.push(until && (mode === "manual" || mode === "max") ? _hmT("card.netatmo.until", { mode: label, time: until }) : label);
   } else if (rd.cloud_preset_mode) {
-    parts.push(sched ? `Forvalg: ${rd.cloud_preset_mode} («${sched}»)` : `Forvalg: ${rd.cloud_preset_mode}`);
+    const preset = _hmT("rd.preset", { preset: rd.cloud_preset_mode });
+    parts.push(sched ? `${preset} («${sched}»)` : preset);
   }
   if (rd.cloud_hvac_action) {
-    parts.push(({ heating: "varmer", idle: "varmer ikke", off: "slukket" })[rd.cloud_hvac_action] ?? rd.cloud_hvac_action);
+    const a = rd.cloud_hvac_action;
+    parts.push(["heating", "idle", "off"].includes(a) ? _hmT(`rd.hvac_${a}`) : a);
   }
   return parts.join(" · ");
 }
@@ -73,25 +130,20 @@ function _hmCtrlLabel(s) {
   // Danish ("Varme aktiv"/"Pause"/"Slukket") for these same three states —
   // this was the one place in the card still showing raw English for the
   // identical concept.
-  return ({ on:"Varme aktiv", pause:"Pause", off:"Slukket" })[s] ?? (s || "–");
+  return ["on", "pause", "off"].includes(s) ? _hmT(`ctrl.title.${s}`) : (s || "–");
 }
 
 // v0.9.0: self-reporting diagnostics — short Danish tags for the neutral
 // blocking_sources codes coordinator.get_room_blocking_sources() returns.
 function _hmBlockingLabel(s) {
-  return ({
-    controller_off:   "Controller slukket",
-    controller_pause: "Controller pause",
-    window:           "Vindue åbent",
-    presence:         "Fraværende",
-  })[s] ?? s;
+  return ["controller_off", "controller_pause", "window", "presence"].includes(s) ? _hmT(`blocking.${s}`) : s;
 }
 
 // Card/panel data-parity (2026-09-13) — same labels as panel.js's own
 // _syncModeLabel(), so a room configured with sync_mode shows the identical
 // Danish label on both surfaces.
 function _hmSyncModeLabel(mode) {
-  return ({ disabled: "Deaktiveret", mirror: "Spejl", lock: "Lås" })[mode] ?? mode;
+  return ["disabled", "mirror", "lock"].includes(mode) ? _hmT(`sync_mode.${mode}`) : mode;
 }
 
 
@@ -131,6 +183,9 @@ class HeatManagerCard extends HTMLElement {
 
   set hass(h) {
     this._hass = h;
+    // v0.71.0: fetch the UI strings for the user's language (again, if they
+    // switched language) and rebuild once they are in.
+    if (_hmNeedsTranslations(h)) _hmLoadTranslations(h).then(() => this._render());
     // 2026-09-11 mobil-sætpunkt fix: kick off the first target_temp fetch as
     // soon as hass is actually available, so the correct setpoint shows
     // without waiting for the first 60s poll tick — but only once. set
@@ -416,9 +471,9 @@ class HeatManagerCard extends HTMLElement {
 
   _durText(ms) {
     const min = Math.max(0, Math.round(ms / 60000));
-    if (min < 1) return "under 1 min";
+    if (min < 1) return _hmT("dur.under_1m");
     const h = Math.floor(min / 60), m = min % 60;
-    return h ? (m ? `${h} t ${m} min` : `${h} t`) : `${m} min`;
+    return h ? (m ? _hmT("dur.h_m", { h, m }) : _hmT("dur.h", { h })) : _hmT("dur.m", { m });
   }
 
   _smartMessages() {
@@ -430,23 +485,26 @@ class HeatManagerCard extends HTMLElement {
     const age = rla?.timestamp ? Date.now() - Date.parse(rla.timestamp) : NaN;
     if (!isNaN(age) && age > -60000 && age < 10000) {
       const n = rla.rooms?.length ?? 0;
-      const dlt = rla.delta != null ? `${rla.delta > 0 ? "+" : "−"}${String(Math.abs(rla.delta)).replace(".", ",")}°` : "";
+      const dlt = rla.delta != null ? `${rla.delta > 0 ? "+" : "−"}${String(Math.abs(rla.delta)).replace(".", _hmT("common.decimal_sep"))}°` : "";
       const title = ({
-        temp_up: `${dlt} sendt til ${n} rum`, temp_down: `${dlt} sendt til ${n} rum`,
-        manual: `Manuel i ${n} rum`, auto: `Automatik igen i ${n} rum`,
-        boost: `Boost startet i ${n} rum`, release: `Alle rum på automatik`,
-      })[rla.action] ?? "Fjernbetjening modtaget";
+        temp_up: () => _hmT("card.ack.temp", { delta: dlt, count: n }),
+        temp_down: () => _hmT("card.ack.temp", { delta: dlt, count: n }),
+        manual: () => _hmT("card.ack.manual", { count: n }),
+        auto: () => _hmT("card.ack.auto", { count: n }),
+        boost: () => _hmT("card.ack.boost", { count: n }),
+        release: () => _hmT("card.ack.release"),
+      })[rla.action]?.() ?? _hmT("ack.received");
       const skipped = Object.keys(rla.skipped ?? {});
-      msgs.push({ tone: "ack", icon: "✓", title, subs: skipped.length ? [`Sprunget over: ${skipped.join(", ")}`] : [] });
+      msgs.push({ tone: "ack", icon: "✓", title, subs: skipped.length ? [_hmT("ack.skipped", { rooms: skipped.join(", ") })] : [] });
       return msgs;
     }
     for (const i of (d.active_issues ?? []).filter(i => i.severity === "critical")) {
-      msgs.push({ tone: "critical", icon: i.icon ?? "!", title: i.message, subs: [] });
+      msgs.push({ tone: "critical", icon: i.icon ?? "!", title: _hmIssueText(i), subs: [] });
     }
-    if (hs?.state === "off") msgs.push({ tone: "off", icon: "⏻", title: "Varmen er slukket", subs: [] });
-    if (hs?.state === "paused") msgs.push({ tone: "pause", icon: "⏸", title: `Pause · ${this._durText((a.pause_remaining_min ?? 0) * 60000)} tilbage`, subs: [] });
+    if (hs?.state === "off") msgs.push({ tone: "off", icon: "⏻", title: _hmT("card.sl.off"), subs: [] });
+    if (hs?.state === "paused") msgs.push({ tone: "pause", icon: "⏸", title: _hmT("card.sl.pause", { duration: this._durText((a.pause_remaining_min ?? 0) * 60000) }), subs: [] });
     for (const i of (d.active_issues ?? []).filter(i => i.severity === "warning" && !i.snoozed)) {
-      msgs.push({ tone: "warning", icon: i.icon ?? "!", title: i.message, subs: [] });
+      msgs.push({ tone: "warning", icon: i.icon ?? "!", title: _hmIssueText(i), subs: [] });
     }
     const manual = a.manual_rooms ?? [];
     if (manual.length) {
@@ -463,16 +521,19 @@ class HeatManagerCard extends HTMLElement {
       msgs.push({
         tone: "manual",
         icon: srcs.length === 1 ? (_hmOverrideSourceIcon(srcs[0]) ?? "✋") : "✋",
-        title: `Manuel i ${manual.length} rum · ${isNaN(until) ? "uden udløb" : `auto om ${this._durText(until - Date.now())}`}`,
+        title: _hmT("card.sl.manual", {
+          count: manual.length,
+          expiry: isNaN(until) ? _hmT("sl.no_expiry_short") : _hmT("card.sl.auto_in", { duration: this._durText(until - Date.now()) }),
+        }),
         subs: [manual.join(", ")],
         ring,
-        action: { act: "release", label: "Auto nu" },
+        action: { act: "release", label: _hmT("sl.auto_now") },
       });
     }
     if ((a.boost_remaining_min ?? 0) > 0) {
-      msgs.push({ tone: "ack", icon: "⚡", title: `Boost · ${this._durText(a.boost_remaining_min * 60000)} tilbage`, subs: [] });
+      msgs.push({ tone: "ack", icon: "⚡", title: _hmT("card.sl.boost", { duration: this._durText(a.boost_remaining_min * 60000) }), subs: [] });
     }
-    if (!msgs.length) msgs.push({ tone: "ok", icon: "✓", title: "Alt kører automatisk", subs: [] });
+    if (!msgs.length) msgs.push({ tone: "ok", icon: "✓", title: _hmT("card.sl.ok"), subs: [] });
     return msgs;
   }
 
@@ -489,7 +550,7 @@ class HeatManagerCard extends HTMLElement {
     const detail = open
       ? `<div class="slc-detail">${[...(m.subs ?? []).map(t => `<div class="slc-line">${_hmEsc(t)}</div>`),
           ...msgs.slice(1).map(x => `<div class="slc-line">${_hmEsc(x.icon)} ${_hmEsc(x.title)}</div>`)].join("")
-          || `<div class="slc-line">Intet andet at bemærke</div>`}</div>`
+          || `<div class="slc-line">${_hmT("card.sl.nothing_else")}</div>`}</div>`
       : "";
     return { tone: m.tone, html: `<div class="slc-main" data-slc="toggle" role="button" tabindex="0" aria-expanded="${open}">
         <div class="slc-tile">${ring}<span class="slc-icon">${_hmEsc(m.icon)}</span></div>
@@ -512,9 +573,9 @@ class HeatManagerCard extends HTMLElement {
       try {
         const res = await this._hass.callWS({ type: "heat_manager/release_overrides" });
         const n = res?.rooms_released?.length ?? 0;
-        this._showToast(n ? `${n} rum tilbage på automatik` : "Alt kører allerede automatisk", "success");
+        this._showToast(n ? _hmT("toast.released", { count: n }) : _hmT("card.toast.already_auto"), "success");
       } catch (err) {
-        this._showToast("Det lykkedes ikke — prøv igen", "error");
+        this._showToast(_hmT("toast.try_again"), "error");
       }
       this._loadTargetTemps();
       return;
@@ -676,12 +737,12 @@ class HeatManagerCard extends HTMLElement {
     const s = this._netatmoCloudStatus();
     if (s.ok) return { show: false, text: "", color: "" };
     if (s.allUnavailable) {
-      return { show: true, color: "#ef4444", text: "☁️ Netatmo cloud/gateway nede — alle rum utilgængelige" };
+      return { show: true, color: "#ef4444", text: "☁️ " + _hmT("card.cloud.all_down") };
     }
     if (s.unavailableCount > 0) {
-      return { show: true, color: "#f97316", text: `☁️ Netatmo: ${s.unavailableCount}/${s.totalCount} rum utilgængelige` };
+      return { show: true, color: "#f97316", text: "☁️ " + _hmT("card.cloud.some_down", { count: s.unavailableCount, total: s.totalCount }) };
     }
-    return { show: true, color: "#f97316", text: `☁️ Netatmo-data ${s.staleMinutes} min forsinket` };
+    return { show: true, color: "#f97316", text: "☁️ " + _hmT("card.cloud.stale", { minutes: s.staleMinutes }) };
   }
 
   // Mold-risk binary_sensor — same friendly_name discovery, different domain.
@@ -719,7 +780,7 @@ class HeatManagerCard extends HTMLElement {
   }
 
   _seasonLabel(s) {
-    return ({ winter:"Vinter", summer:"Sommer", auto:"Auto" })[s] ?? s ?? "Auto";
+    return ["auto", "winter", "spring", "summer", "autumn"].includes(s) ? _hmT(`season.${s}`) : (s ?? _hmT("season.auto"));
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -743,7 +804,7 @@ class HeatManagerCard extends HTMLElement {
       await this._hass.callService("heat_manager", "set_controller_state", { state });
     } catch (e) {
       console.error("[HeatManager]", e);
-      this._showToast("Kunne ikke ændre varme-tilstand");
+      this._showToast(_hmT("toast.controller_failed"));
     }
   }
   async _pause() {
@@ -751,7 +812,7 @@ class HeatManagerCard extends HTMLElement {
       await this._hass.callService("heat_manager", "pause", { duration_minutes: this._pauseMinutes });
     } catch (e) {
       console.error("[HeatManager]", e);
-      this._showToast("Kunne ikke sætte pause");
+      this._showToast(_hmT("toast.pause_failed"));
     }
   }
   async _resume() {
@@ -759,7 +820,7 @@ class HeatManagerCard extends HTMLElement {
       await this._hass.callService("heat_manager", "resume", {});
     } catch (e) {
       console.error("[HeatManager]", e);
-      this._showToast("Kunne ikke genoptage varmestyring");
+      this._showToast(_hmT("toast.resume_failed"));
     }
   }
 
@@ -791,7 +852,7 @@ class HeatManagerCard extends HTMLElement {
       });
     } catch (e) {
       console.warn("Heat Manager boost_start failed:", e);
-      this._showToast("Kunne ikke starte boost");
+      this._showToast(_hmT("card.toast.boost_start_failed"));
       return;
     }
 
@@ -819,7 +880,7 @@ class HeatManagerCard extends HTMLElement {
       await this._hass.callWS({ type: "heat_manager/boost_stop" });
     } catch (e) {
       console.warn("Heat Manager boost_stop failed:", e);
-      this._showToast("Kunne ikke stoppe boost");
+      this._showToast(_hmT("card.toast.boost_stop_failed"));
     }
     this._render();
   }
@@ -833,8 +894,8 @@ class HeatManagerCard extends HTMLElement {
       const m = Math.floor(this._boostRemain / 60);
       const s = String(this._boostRemain % 60).padStart(2, "0");
       cntd.style.display = "inline";
-      cntd.textContent   = m + ":" + s + " tilbage";
-      btn.textContent    = "⏹ Stop boost";
+      cntd.textContent   = _hmT("card.boost_left", { time: m + ":" + s });
+      btn.textContent    = "⏹ " + _hmT("card.boost_stop");
       btn.style.cssText  = "background:rgba(239,68,68,0.18);border-color:#ef4444;color:#fca5a5;";
     } else {
       cntd.style.display = "none";
@@ -1256,7 +1317,7 @@ class HeatManagerCard extends HTMLElement {
     const otemp     = this._outdoorTemp();
 
     const ctrlColor = _hmCtrlColor(ctrl);
-    const sub       = [this._seasonLabel(season), otemp ? otemp + " ude" : null].filter(Boolean).join(" · ");
+    const sub       = [this._seasonLabel(season), otemp ? _hmT("card.outdoor", { temp: otemp }) : null].filter(Boolean).join(" · ");
     const showPause = ctrl === "pause" && pauseLeft > 0;
 
     const btnStyle = (name) => {
@@ -1278,8 +1339,8 @@ class HeatManagerCard extends HTMLElement {
           // Sensor-only rooms have no heating state to colour by: neutral slate.
           const color = hasValve ? _hmStateColor(state) : "#64748b";
           // Short pill on the narrow tile; the sheet says "Kun sensorer".
-          const label = room.hm_missing ? "Ukendt rum"
-            : hasValve ? _hmStateLabel(state, this._roomOverrideSource(roomName)) : "Sensorer";
+          const label = room.hm_missing ? _hmT("card.unknown_room")
+            : hasValve ? _hmStateLabel(state, this._roomOverrideSource(roomName)) : _hmT("card.sensors");
           const temp  = this._roomTempText(room);
           const setpt = hasValve ? this._roomSetpoint(room) : null;
           // 2026-09-07 audit fix (5.1-5.3 mobile): valve % straight off
@@ -1291,13 +1352,13 @@ class HeatManagerCard extends HTMLElement {
             ? `<div class="room-valve-badge${valve > 0 ? " room-valve-heating" : ""}">${valve > 0 ? "🔥" : "❄"} ${Math.round(valve)}%</div>`
             : "";
           const moldBadge = moldRisk
-            ? `<div class="room-mold-badge" title="Høj fugt tæt på dugpunktet — risiko for skimmelvækst">⚠️ Skimmel</div>`
+            ? `<div class="room-mold-badge" title="${_hmT("room_card.mold_title")}">⚠️ ${_hmT("card.mold")}</div>`
             : "";
           // 2026-09 audit fix (UI/UX #8) mobile follow-up — own CSS class,
           // not .room-mold-badge: a room can show both badges at once, and
           // _updateInPlace() manages each badge class independently.
           const trvDownBadge = trvDown
-            ? `<div class="room-health-badge" title="Rummets ventil (klimaentitet) svarer ikke">⚠️ Ventil offline</div>`
+            ? `<div class="room-health-badge" title="${_hmT("card.valve_offline_title")}">⚠️ ${_hmT("card.valve_offline")}</div>`
             : "";
           // Fase 2, del 2 (2026-09-13) — humidity/CO2/battery/PID/calibration/
           // window-duration chips and the blocking-sources/ungrouped badges
@@ -1322,7 +1383,7 @@ class HeatManagerCard extends HTMLElement {
               </div>
             </div>`;
         }).join("")
-      : `<div style="color:var(--sub);font-size:12px;padding:4px 0;">Ingen rum konfigureret i kortet</div>`;
+      : `<div style="color:var(--sub);font-size:12px;padding:4px 0;">${_hmT("card.no_rooms")}</div>`;
 
     const globalBlocked = this._globalBlockingSources();
     const smart = this._smartCompactHTML(); // v0.60.0
@@ -1352,29 +1413,29 @@ class HeatManagerCard extends HTMLElement {
 
       <div class="section-box">
         <div class="section-header">
-          <div class="section-title">Controller</div>
+          <div class="section-title">${_hmT("ctrl.section")}</div>
           <div class="section-badge" id="ctrl-state-badge"
             style="background:${ctrlColor}20;color:${ctrlColor}">${_hmCtrlLabel(ctrl)}</div>
         </div>
         <div class="section-body">
           <div class="ctrl-btn-row">
-            <button id="btn-on"    class="ctrl-btn" style="${btnStyle("on")}">🔥 Tænd</button>
-            <button id="btn-pause" class="ctrl-btn" style="${btnStyle("pause")}">⏸ Pause</button>
-            <button id="btn-off"   class="ctrl-btn" style="${btnStyle("off")}">❄️ Sluk</button>
+            <button id="btn-on"    class="ctrl-btn" style="${btnStyle("on")}">🔥 ${_hmT("ctrl.btn_on")}</button>
+            <button id="btn-pause" class="ctrl-btn" style="${btnStyle("pause")}">⏸ ${_hmT("ctrl.btn_pause")}</button>
+            <button id="btn-off"   class="ctrl-btn" style="${btnStyle("off")}">❄️ ${_hmT("ctrl.btn_off")}</button>
           </div>
           <div class="ctrl-pause-row">
-            <span class="ctrl-pause-label">Pause i</span>
+            <span class="ctrl-pause-label">${_hmT("card.pause_in")}</span>
             <select id="pause-dur" class="ctrl-pause-select">
-              <option value="30">30 min</option>
-              <option value="60">1 time</option>
-              <option value="120" selected>2 timer</option>
-              <option value="240">4 timer</option>
-              <option value="480">Til i morgen</option>
+              <option value="30">${_hmT("ctrl.dur_30m")}</option>
+              <option value="60">${_hmT("ctrl.dur_1h")}</option>
+              <option value="120" selected>${_hmT("ctrl.dur_2h")}</option>
+              <option value="240">${_hmT("ctrl.dur_4h")}</option>
+              <option value="480">${_hmT("ctrl.dur_tomorrow")}</option>
             </select>
           </div>
           <div id="pause-bar" class="pause-bar" style="display:${showPause ? "flex" : "none"}">
-            <span id="pause-bar-text" class="pause-bar-text">⏸ Pause — ${pauseLeft} min tilbage</span>
-            <button class="resume-btn" id="resume-btn">Genoptag nu</button>
+            <span id="pause-bar-text" class="pause-bar-text">⏸ ${_hmT("ctrl.pause_left", { minutes: pauseLeft })}</span>
+            <button class="resume-btn" id="resume-btn">${_hmT("ctrl.resume_now")}</button>
           </div>
         </div>
       </div>
@@ -1389,8 +1450,7 @@ class HeatManagerCard extends HTMLElement {
         <div class="boost-row">
           <button id="boost-btn" class="boost-btn">🔥 Boost</button>
           <div class="boost-info">
-            Øger varmen til ${this._config.boost_temp ?? 24}°C i alle aktive rum i
-            ${this._config.boost_minutes ?? 30} min, derefter restore.
+            ${_hmT("card.boost_info", { temp: this._config.boost_temp ?? 24, minutes: this._config.boost_minutes ?? 30 })}
           </div>
           <span id="boost-countdown" class="boost-countdown"></span>
         </div>
@@ -1399,9 +1459,9 @@ class HeatManagerCard extends HTMLElement {
       ${rooms.length ? `
       <div class="section-box rooms-section">
         <div class="section-header">
-          <div class="section-title">Rum</div>
+          <div class="section-title">${_hmT("overview.rooms")}</div>
           <div class="section-badge" style="background:rgba(249,115,22,0.15);color:#f97316">
-            ${rooms.length} rum
+            ${_hmT("card.rooms_count", { count: rooms.length })}
           </div>
         </div>
         <div class="section-body">
@@ -1424,7 +1484,7 @@ class HeatManagerCard extends HTMLElement {
     const pauseLeft = this._pauseLeft();
     const otemp     = this._outdoorTemp();
     const ctrlColor = _hmCtrlColor(ctrl);
-    const sub       = [this._seasonLabel(season), otemp ? otemp + " ude" : null].filter(Boolean).join(" · ");
+    const sub       = [this._seasonLabel(season), otemp ? _hmT("card.outdoor", { temp: otemp }) : null].filter(Boolean).join(" · ");
     const showPause = ctrl === "pause" && pauseLeft > 0;
 
     const subEl = root.querySelector("#hdr-sub");
@@ -1454,7 +1514,7 @@ class HeatManagerCard extends HTMLElement {
     const btxt = root.querySelector("#pause-bar-text");
     if (bar) {
       bar.style.display = showPause ? "flex" : "none";
-      if (btxt && showPause) btxt.textContent = "⏸ Pause — " + pauseLeft + " min tilbage";
+      if (btxt && showPause) btxt.textContent = "⏸ " + _hmT("ctrl.pause_left", { minutes: pauseLeft });
     }
 
     // v0.60.0: compact smart status line
@@ -1488,14 +1548,14 @@ class HeatManagerCard extends HTMLElement {
       const state = this._roomState(room.room_name ?? "");
       const hasValve = this._roomHasValve(room);
       const color = hasValve ? _hmStateColor(state) : "#64748b";
-      const label = room.hm_missing ? "Ukendt rum"
-        : hasValve ? _hmStateLabel(state, this._roomOverrideSource(room.room_name ?? "")) : "Sensorer";
+      const label = room.hm_missing ? _hmT("card.unknown_room")
+        : hasValve ? _hmStateLabel(state, this._roomOverrideSource(room.room_name ?? "")) : _hmT("card.sensors");
       const temp  = this._roomTempText(room);
       const setpt = hasValve ? this._roomSetpoint(room) : null;
       // v0.69.2: the resolved Heat Manager name can change once the first
       // get_state poll lands — keep press-and-hold pointed at it.
       cards[i].dataset.roomName = room.room_name ?? "";
-      if (room.hm_missing) cards[i].title = "Rummet findes ikke i Heat Manager — tjek room_name/climate_entity i kortets YAML";
+      if (room.hm_missing) cards[i].title = _hmT("card.unknown_room_title");
       else cards[i].removeAttribute("title");
       cards[i].style.borderLeftColor = color;
       cards[i].style.backgroundImage = `linear-gradient(90deg,${color}0e 0%,transparent 40%)`;
@@ -1542,8 +1602,8 @@ class HeatManagerCard extends HTMLElement {
         if (!mb) {
           mb = document.createElement("div");
           mb.className = "room-mold-badge";
-          mb.title = "Høj fugt tæt på dugpunktet — risiko for skimmelvækst";
-          mb.textContent = "⚠️ Skimmel";
+          mb.title = _hmT("room_card.mold_title");
+          mb.textContent = "⚠️ " + _hmT("card.mold");
           tempsBox?.appendChild(mb);
         }
       } else if (mb) { mb.remove(); }
@@ -1554,8 +1614,8 @@ class HeatManagerCard extends HTMLElement {
         if (!hb) {
           hb = document.createElement("div");
           hb.className = "room-health-badge";
-          hb.title = "Rummets ventil (klimaentitet) svarer ikke";
-          hb.textContent = "⚠️ Ventil offline";
+          hb.title = _hmT("card.valve_offline_title");
+          hb.textContent = "⚠️ " + _hmT("card.valve_offline");
           tempsBox?.appendChild(hb);
         }
       } else if (hb) { hb.remove(); }
@@ -1582,13 +1642,13 @@ class HeatManagerCard extends HTMLElement {
       if (btn.dataset.confirmOff === "1") {
         clearTimeout(this._offConfirmTimer);
         delete btn.dataset.confirmOff;
-        btn.textContent = btn.dataset.offOrigLabel || "❄️ Sluk";
+        btn.textContent = btn.dataset.offOrigLabel || "❄️ " + _hmT("ctrl.btn_off");
         this._setCtrl("off");
         return;
       }
       btn.dataset.offOrigLabel = btn.dataset.offOrigLabel || btn.textContent;
       btn.dataset.confirmOff = "1";
-      btn.textContent = "Tryk igen";
+      btn.textContent = _hmT("card.press_again");
       this._offConfirmTimer = setTimeout(() => {
         delete btn.dataset.confirmOff;
         btn.textContent = btn.dataset.offOrigLabel;
@@ -1692,7 +1752,7 @@ class HeatManagerCard extends HTMLElement {
     const color = _hmStateColor(state);
     const label = hasValve
       ? _hmStateLabel(state, rd?.override_source ?? this._roomOverrideSource(roomName))
-      : "Kun sensorer";
+      : _hmT("rd.sensors_only");
     const pillStyle = hasValve
       ? `background:${color}22;color:${color}`
       : "background:rgba(148,163,184,0.15);color:var(--sub)";
@@ -1713,12 +1773,12 @@ class HeatManagerCard extends HTMLElement {
 
     // Temperatur
     const roomTemp = rd?.current_temp ?? null;
-    add("Temperatur", [
-      ["I rummet", fmt(roomTemp) ?? (hasValve ? this._climateTemp(room.climate_entity ?? "") : null)],
-      hasValve ? ["Mål nu", fmt(rd?.target_temp ?? this._targetTemps?.[roomName])] : null,
-      hasValve && rd?.comfort_temp != null ? ["Komforttemperatur", fmt(rd.comfort_temp)] : null,
-      hasValve ? ["Sendt til ventil", fmt(rd?.trv_setpoint)] : null,
-      hasValve ? ["Ved radiatoren", this._climateTemp(room.climate_entity ?? rd?.climate_entity ?? "")] : null,
+    add(_hmT("rd.sec_temperature"), [
+      [_hmT("rd.in_room"), fmt(roomTemp) ?? (hasValve ? this._climateTemp(room.climate_entity ?? "") : null)],
+      hasValve ? [_hmT("rd.target_now"), fmt(rd?.target_temp ?? this._targetTemps?.[roomName])] : null,
+      hasValve && rd?.comfort_temp != null ? [_hmT("rd.comfort"), fmt(rd.comfort_temp)] : null,
+      hasValve ? [_hmT("rd.sent_to_valve"), fmt(rd?.trv_setpoint)] : null,
+      hasValve ? [_hmT("rd.at_radiator"), this._climateTemp(room.climate_entity ?? rd?.climate_entity ?? "")] : null,
     ]);
 
     // Ventil
@@ -1728,18 +1788,18 @@ class HeatManagerCard extends HTMLElement {
       const mode = _hmNetatmoModeText(rd);
       if (mode) netatmo.push(["Netatmo", mode]);
       if (rd?.cloud_temperature != null) {
-        netatmo.push(["Sætpunkt i Netatmo", fmt(rd.cloud_temperature)]);
+        netatmo.push([_hmT("rd.netatmo_setpoint"), fmt(rd.cloud_temperature)]);
         const ref = rd.trv_setpoint ?? rd.target_temp;
         if (ref != null && Math.abs(rd.cloud_temperature - ref) >= 0.5) {
-          netatmo.push(["⚠ Afviger", `Heat Manager ${rd.trv_setpoint != null ? "har sendt" : "vil have"} ${fmt(ref)}`]);
+          netatmo.push([_hmT("sheet.deviates"), _hmT(rd.trv_setpoint != null ? "sheet.hm_sent" : "sheet.hm_wants", { temp: fmt(ref) })]);
         }
       }
-      add("Ventil", [
-        ["Åbning", valve != null ? `${Math.round(valve)}%` : null],
-        ["Varmebehov (PID)", pidPower != null ? `${Math.round(pidPower)}%` : null],
-        ["Kalibrering", calib != null ? `${calib >= 0 ? "+" : ""}${calib.toFixed(1)}°C` : null],
-        ["Batteri", battery != null ? `${Math.round(battery)}%` : null],
-        rd?.trv_count > 1 ? ["Ventiler i rummet", String(rd.trv_count)] : null,
+      add(_hmT("rd.sec_valve"), [
+        [_hmT("rd.opening"), valve != null ? `${Math.round(valve)}%` : null],
+        [_hmT("rd.heat_demand"), pidPower != null ? `${Math.round(pidPower)}%` : null],
+        [_hmT("rd.calibration"), calib != null ? `${calib >= 0 ? "+" : ""}${calib.toFixed(1)}°C` : null],
+        [_hmT("rd.battery"), battery != null ? `${Math.round(battery)}%` : null],
+        rd?.trv_count > 1 ? [_hmT("sheet.valves_in_room"), String(rd.trv_count)] : null,
         ...netatmo,
       ]);
     }
@@ -1748,15 +1808,15 @@ class HeatManagerCard extends HTMLElement {
     const doors = (this._wsData?.doors ?? []).filter(d => d.room_a === roomName || d.room_b === roomName);
     const doorRows = doors.map(d => {
       const other = d.room_a === roomName ? d.room_b : d.room_a;
-      return [`Dør til ${other}`, d.available === false ? "utilgængelig" : (d.is_open ? "Åben" : "Lukket")];
+      return [_hmT("rd.door_to", { room: other }), _hmT(d.available === false ? "rd.door_unavailable" : (d.is_open ? "rd.open" : "rd.closed"))];
     });
-    if (!doors.length && rd?.door_open != null) doorRows.push(["Dør", rd.door_open ? "Åben" : "Lukket"]);
-    add("Indeklima", [
-      ["Luftfugtighed", humidity != null ? `${Math.round(humidity)}%` : null],
-      ["CO₂", co2 != null ? `${Math.round(co2)} ppm` : null],
-      ["Vindue åbent i dag", windowDur != null ? `${Math.round(windowDur)} min` : null],
+    if (!doors.length && rd?.door_open != null) doorRows.push([_hmT("sheet.door"), _hmT(rd.door_open ? "rd.open" : "rd.closed")]);
+    add(_hmT("rd.sec_climate"), [
+      [_hmT("rd.humidity"), humidity != null ? `${Math.round(humidity)}%` : null],
+      [_hmT("rd.co2"), co2 != null ? `${Math.round(co2)} ppm` : null],
+      [_hmT("rd.window_today"), windowDur != null ? `${Math.round(windowDur)} min` : null],
       ...doorRows,
-      rd?.has_heated_doors ? ["Yderdør", rd.heated_door_open ? "Åben" : "Lukket"] : null,
+      rd?.has_heated_doors ? [_hmT("rd.outer_door"), _hmT(rd.heated_door_open ? "rd.open" : "rd.closed")] : null,
     ]);
 
     // Status
@@ -1765,30 +1825,33 @@ class HeatManagerCard extends HTMLElement {
       const src   = rd?.override_source ?? this._roomOverrideSource(roomName);
       const since = _hmHhmm(rd?.override_since ?? this._roomStateAttr(roomName, "override_since"));
       const until = _hmHhmm(rd?.override_expires_at ?? this._roomStateAttr(roomName, "override_expires_at"));
-      const parts = [`${_hmOverrideSourceIcon(src) ?? "✋"} ${_hmOverrideSourceName(src) ?? "Manuel"}`];
-      if (since) parts.push(`siden ${since}`);
-      parts.push(until ? `automatik igen kl. ${until}` : "uden udløb");
-      status.push(["Manuel styring", parts.join(" · ")]);
+      const parts = [`${_hmOverrideSourceIcon(src) ?? "✋"} ${_hmOverrideSourceName(src) ?? _hmT("state.override")}`];
+      if (since) parts.push(_hmT("override_info.since", { time: since }));
+      parts.push(until ? _hmT("sheet.auto_again", { time: until }) : _hmT("override_info.no_expiry"));
+      status.push([_hmT("sheet.manual_control"), parts.join(" · ")]);
     }
     const extraBlocking = rd?.blocking_sources
       ? rd.blocking_sources.filter(s => !((s === "window" && state === "window_open") || (s === "presence" && state === "away")))
       : this._roomExtraBlocking(roomName, state);
     if (hasValve && extraBlocking.length) {
-      status.push(["Blokeret af", extraBlocking.map(s => _hmBlockingLabel(s)).join(", ")]);
+      status.push([_hmT("sheet.blocked_by"), extraBlocking.map(s => _hmBlockingLabel(s)).join(", ")]);
     }
     if (rd?.health_score != null && rd.health_score < 100) {
-      status.push(["Sundhed", `${Math.round(rd.health_score)}% (${rd.health_label ?? "–"})`]);
+      // v0.71.0: health_label is "good"/"ok"/"poor"; older backends sent Danish.
+      const hl = ({ god: "good", "dårlig": "poor" })[rd.health_label] ?? rd.health_label;
+      const hlText = ["good", "ok", "poor"].includes(hl) ? _hmT(`health.${hl}`) : (hl ?? "–");
+      status.push([_hmT("sheet.health"), `${Math.round(rd.health_score)}% (${hlText})`]);
     }
     if (hasValve && rd?.sync_mode && rd.sync_mode !== "disabled") {
-      status.push(["Sync", _hmSyncModeLabel(rd.sync_mode)]);
+      status.push([_hmT("sheet.sync"), _hmSyncModeLabel(rd.sync_mode)]);
     }
     if (rd?.heatup_rate_door_open != null || rd?.heatup_rate_door_closed != null) {
       const parts = [];
-      if (rd.heatup_rate_door_open != null)   parts.push(`dør åben ${rd.heatup_rate_door_open.toFixed(1)}°C/t`);
-      if (rd.heatup_rate_door_closed != null) parts.push(`lukket ${rd.heatup_rate_door_closed.toFixed(1)}°C/t`);
-      status.push(["Opvarmning", parts.join(" · ")]);
+      if (rd.heatup_rate_door_open != null)   parts.push(_hmT("sheet.rate_door_open", { rate: rd.heatup_rate_door_open.toFixed(1) }));
+      if (rd.heatup_rate_door_closed != null) parts.push(_hmT("sheet.rate_door_closed", { rate: rd.heatup_rate_door_closed.toFixed(1) }));
+      status.push([_hmT("sheet.heating"), parts.join(" · ")]);
     }
-    add("Status", status);
+    add(_hmT("sheet.status"), status);
 
     const sectionsHTML = sections.length
       ? sections.map(([title, rows]) => `
@@ -1796,7 +1859,7 @@ class HeatManagerCard extends HTMLElement {
           <div class="sheet-section-title">${_hmEsc(title)}</div>
           ${rows.map(([k, v]) => `<div class="sheet-row"><span class="sheet-row-k">${_hmEsc(k)}</span><span class="sheet-row-v">${_hmEsc(v)}</span></div>`).join("")}
         </div>`).join("")
-      : `<div class="sheet-section"><div class="sheet-empty">Ingen yderligere data for dette rum</div></div>`;
+      : `<div class="sheet-section"><div class="sheet-empty">${_hmT("sheet.no_data")}</div></div>`;
 
     const trvCount     = rd?.trv_count ?? 1;
     const groupEnabled = rd?.group_enabled ?? this._roomGroupEnabled(roomName);
@@ -1811,36 +1874,36 @@ class HeatManagerCard extends HTMLElement {
             <div class="sheet-title">${_hmEsc(this._roomLabel(roomName))}</div>
             <div class="room-state-pill" style="${pillStyle}">${_hmEsc(label)}</div>
           </div>
-          <button class="sheet-close-btn" data-action="close-sheet" aria-label="Luk">✕</button>
+          <button class="sheet-close-btn" data-action="close-sheet" aria-label="${_hmT("sheet.close")}">✕</button>
         </div>
 
         ${sectionsHTML}
 
         ${hasValve ? `
         <div class="sheet-section">
-          <div class="sheet-section-title">Midlertidig ændring</div>
+          <div class="sheet-section-title">${_hmT("rd.sec_temporary")}</div>
           <div class="sheet-manual-row">
             <input type="number" class="sheet-temp-input" id="sheet-temp-input" min="10" max="30" step="0.5"
-              aria-label="Temperatur"
+              aria-label="${_hmT("rd.temperature")}"
               placeholder="${currentSetpoint != null ? currentSetpoint.toFixed(1) : "—"}">
-            <select class="sheet-dur-select" id="sheet-dur-select" aria-label="Varighed">
-              <option value="60" selected>1 time</option>
-              <option value="120">2 timer</option>
-              <option value="240">4 timer</option>
-              <option value="0">Indtil videre</option>
+            <select class="sheet-dur-select" id="sheet-dur-select" aria-label="${_hmT("rd.duration")}">
+              <option value="60" selected>${_hmT("ctrl.dur_1h")}</option>
+              <option value="120">${_hmT("ctrl.dur_2h")}</option>
+              <option value="240">${_hmT("ctrl.dur_4h")}</option>
+              <option value="0">${_hmT("rd.until_further")}</option>
             </select>
-            <button class="sheet-send-btn" data-action="sheet-send-temp">Sæt</button>
+            <button class="sheet-send-btn" data-action="sheet-send-temp">${_hmT("rooms.set")}</button>
           </div>
-          <button class="sheet-reset-btn" data-action="sheet-reset-temp">↺ Tilbage til automatik</button>
+          <button class="sheet-reset-btn" data-action="sheet-reset-temp">↺ ${_hmT("rooms.back_to_auto")}</button>
         </div>` : ""}
 
         ${showGrouping ? `
         <div class="sheet-section">
-          <div class="sheet-section-title">Ventilgruppe (${trvCount} ventiler)</div>
+          <div class="sheet-section-title">${_hmT("sheet.valve_group", { count: trvCount })}</div>
           <div class="sheet-manual-row" style="justify-content:space-between">
-            <span style="font-size:12px;color:var(--sub)">Ekstra ventiler følger gruppen</span>
+            <span style="font-size:12px;color:var(--sub)">${_hmT("sheet.extra_valves")}</span>
             <button class="toggle-btn${groupEnabled ? " active" : ""}" data-action="sheet-toggle-group">
-              ${groupEnabled ? "Slå fra" : "Slå til"}
+              ${_hmT(groupEnabled ? "common.turn_off" : "common.turn_on")}
             </button>
           </div>
         </div>` : ""}
@@ -1858,7 +1921,7 @@ class HeatManagerCard extends HTMLElement {
       const dur   = overlay.querySelector("#sheet-dur-select");
       const temp  = parseFloat(input?.value);
       if (Number.isNaN(temp)) {
-        this._showToast("Angiv en temperatur", "error");
+        this._showToast(_hmT("sheet.enter_temp"), "error");
         return;
       }
       try {
@@ -1868,11 +1931,11 @@ class HeatManagerCard extends HTMLElement {
           temperature: temp,
           duration_min: parseInt(dur?.value ?? "60", 10),
         });
-        this._showToast(`${this._roomLabel(roomName)}: ${temp}°C sat`, "success");
+        this._showToast(_hmT("sheet.temp_set", { room: this._roomLabel(roomName), temp }), "success");
         setTimeout(() => this._loadTargetTemps(), 300);
       } catch (e) {
         console.error("Heat Manager: sheet send temp failed", e);
-        this._showToast("Kunne ikke sende temperatur", "error");
+        this._showToast(_hmT("sheet.send_failed"), "error");
       }
     });
 
@@ -1883,11 +1946,11 @@ class HeatManagerCard extends HTMLElement {
           room_name: roomName,
           temperature: null,
         });
-        this._showToast(`${this._roomLabel(roomName)}: tilbage til automatik`, "success");
+        this._showToast(_hmT("sheet.back_to_auto", { room: this._roomLabel(roomName) }), "success");
         setTimeout(() => this._loadTargetTemps(), 300);
       } catch (e) {
         console.error("Heat Manager: sheet reset temp failed", e);
-        this._showToast("Kunne ikke gå tilbage til automatik", "error");
+        this._showToast(_hmT("sheet.reset_failed"), "error");
       }
     });
 
@@ -1899,10 +1962,10 @@ class HeatManagerCard extends HTMLElement {
       try {
         await this._hass.callService("switch", currentlyEnabled ? "turn_off" : "turn_on", { entity_id: entityId });
         btn.classList.toggle("active");
-        btn.textContent = currentlyEnabled ? "Slå til" : "Slå fra";
+        btn.textContent = _hmT(currentlyEnabled ? "common.turn_on" : "common.turn_off");
       } catch (e2) {
         console.error("Heat Manager: sheet group toggle failed", e2);
-        this._showToast("Kunne ikke ændre gruppering", "error");
+        this._showToast(_hmT("sheet.group_failed"), "error");
       }
     });
   }
@@ -1921,7 +1984,7 @@ if (!window.customCards.find(c => c.type === "heat-manager-card")) {
   window.customCards.push({
     type: "heat-manager-card",
     name: "Heat Manager",
-    description: "ON/PAUSE/OFF controller, rum-oversigt og energistatistik",
+    description: "ON/PAUSE/OFF controller, room overview and smart status line",
     preview: true,
     documentationURL: "https://github.com/kingpainter/heat-manager",
   });
@@ -1944,6 +2007,8 @@ class HeatManagerCardEditor extends HTMLElement {
 
   set hass(h) {
     this._hass = h;
+    // v0.71.0: same shared strings as the card; re-render once they land.
+    if (_hmNeedsTranslations(h)) _hmLoadTranslations(h).then(() => this._render());
     if (!this._rendered) this._render();
   }
 
@@ -2034,45 +2099,45 @@ class HeatManagerCardEditor extends HTMLElement {
       ? r.map((room, i) => `
           <div class="room-block">
             <div class="room-hdr">
-              <span class="room-title">Rum ${i + 1}${room.room_name ? " — " + this._esc(room.room_name) : ""}</span>
-              <button class="del-btn" data-del="${i}">Slet</button>
+              <span class="room-title">${_hmT("editor.room_n", { n: i + 1 })}${room.room_name ? " — " + this._esc(room.room_name) : ""}</span>
+              <button class="del-btn" data-del="${i}">${_hmT("editor.delete")}</button>
             </div>
             <div class="field">
-              <label>Rumnavn (matcher Heat Manager config)</label>
+              <label>${_hmT("editor.room_name")}</label>
               <input class="room-name" data-idx="${i}" type="text"
-                value="${this._esc(room.room_name || "")}" placeholder="f.eks. Køkken">
+                value="${this._esc(room.room_name || "")}" placeholder="${this._esc(_hmT("editor.room_name_placeholder"))}">
             </div>
             <div class="field">
-              <label>Klimaenhed</label>
+              <label>${_hmT("editor.climate")}</label>
               <input class="room-climate" data-idx="${i}" type="text"
-                value="${this._esc(room.climate_entity || "")}" placeholder="climate.koekken">
-              <div class="hint">Bruges til at vise aktuel temperatur</div>
+                value="${this._esc(room.climate_entity || "")}" placeholder="climate.kitchen">
+              <div class="hint">${_hmT("editor.climate_hint")}</div>
             </div>
           </div>`).join("")
-      : `<div class="empty-rooms">Ingen rum endnu — klik "+ Tilføj rum"</div>`;
+      : `<div class="empty-rooms">${this._esc(_hmT("editor.no_rooms"))}</div>`;
 
     // Editor uses innerHTML — fine here since it's not the card's ShadowRoot
     this.shadowRoot.innerHTML = `
       <style>${this._css()}</style>
-      <div class="section-title first">Globale indstillinger</div>
+      <div class="section-title first">${_hmT("editor.global")}</div>
       <div class="field">
-        <label>Vejr-entitet (til ude-temperatur i header)</label>
+        <label>${_hmT("editor.weather")}</label>
         <input id="weather" type="text"
           value="${this._esc(c.weather_entity || "")}" placeholder="weather.forecast_home">
       </div>
-      <div class="section-title">Boost-indstillinger</div>
+      <div class="section-title">${_hmT("editor.boost")}</div>
       <div class="field">
-        <label>Boost-temperatur (°C)</label>
+        <label>${_hmT("editor.boost_temp")}</label>
         <input id="boost-temp" type="number" min="18" max="30" step="0.5"
           value="${this._esc(String(c.boost_temp ?? 24))}" placeholder="24">
       </div>
       <div class="field">
-        <label>Boost-varighed (min)</label>
+        <label>${_hmT("editor.boost_minutes")}</label>
         <input id="boost-minutes" type="number" min="5" max="120" step="5"
           value="${this._esc(String(c.boost_minutes ?? 30))}" placeholder="30">
       </div>
       <div class="section-title">
-        Rum <button class="add-btn" id="add-room">+ Tilføj rum</button>
+        ${_hmT("editor.rooms")} <button class="add-btn" id="add-room">${_hmT("editor.add_room")}</button>
       </div>
       <div id="rooms-container">${roomsHTML}</div>`;
 

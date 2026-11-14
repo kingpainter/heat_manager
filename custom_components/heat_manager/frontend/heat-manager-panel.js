@@ -43,12 +43,78 @@ class HeatManagerPanel extends HTMLElement {
     // nothing. Tracked by stable data-section-id (not DOM state, which a
     // rebuild always discards) and consulted when building the class list.
     this._expandedConfigSections = new Set();
+    // v0.71.0: UI strings come from frontend/translations/<lang>.json via
+    // heat_manager/get_translations (English is the default; the backend
+    // fills in English for any key a translation lacks).
+    this._i18n     = null;
+    this._i18nLang = null;
+  }
+
+  // ── i18n (v0.71.0) ────────────────────────────────────────────────────────
+
+  _lang() {
+    return this._hass?.locale?.language || this._hass?.language || "en";
+  }
+
+  async _loadTranslations() {
+    const lang = this._lang();
+    if (this._i18n && this._i18nLang === lang) return;
+    try {
+      const res = await this._hass.callWS({ type: "heat_manager/get_translations", language: lang });
+      this._i18n = res?.resources ?? {};
+    } catch (e) {
+      // An older backend without the command, or a dropped connection: keep
+      // whatever we had so the panel still renders (keys show as-is).
+      console.error("[HeatManager] translations", e);
+      this._i18n = this._i18n ?? {};
+    }
+    this._i18nLang = lang;
+  }
+
+  // Translate `key`, replacing {name} placeholders from `params`. Values in
+  // params are inserted as-is — escape user data before passing it when the
+  // result goes into innerHTML.
+  _t(key, params) {
+    let s = this._i18n?.[key];
+    if (s == null) s = key;
+    if (params) s = s.replace(/\{(\w+)\}/g, (m, k) => {
+      const v = params[k];
+      if (v == null) return m;
+      // v0.72.0: a param can reference another text ({key, params}), rendered
+      // in the same language — e.g. "season.winter" inside an event.
+      if (typeof v === "object" && v.key) return this._t(v.key, v.params);
+      return String(v);
+    });
+    return s;
+  }
+
+  // v0.72.0: an event-log entry in the viewer's language — key/params when
+  // the backend stored them, the stored (English/older) text otherwise.
+  _eventText(e) {
+    if (e?.key) {
+      const txt = this._t(`event.${e.key}`, e.params ?? {});
+      if (txt !== `event.${e.key}`) return txt;
+    }
+    return e?.description ?? "";
+  }
+
+  _eventReason(e) {
+    if (e?.reason_key) {
+      const txt = this._t(`reason.${e.reason_key}`);
+      if (txt !== `reason.${e.reason_key}`) return txt;
+    }
+    return e?.reason ?? "";
   }
 
   set hass(h) {
     const wasNull = !this._hass;
     this._hass = h;
     if (wasNull) { this._load(); return; }
+    // v0.71.0: the user switched language in their profile — reload strings
+    // and rebuild the panel once they are in.
+    if (this._i18nLang && this._lang() !== this._i18nLang) {
+      this._loadTranslations().then(() => this._scheduleRender());
+    }
     if (!this._data) return;
     this._syncFromEntities();
     this._checkControlModeChange();
@@ -105,7 +171,7 @@ class HeatManagerPanel extends HTMLElement {
       });
     }
     if (!root.querySelector(".panel")) {
-      this._srAppendHTML(`<div class="panel"><div class="loading-wrap"><div class="loading-icon">🔥</div><div class="loading-text">Indlæser Heat Manager…</div></div></div>`);
+      this._srAppendHTML(`<div class="panel"><div class="loading-wrap"><div class="loading-icon">🔥</div><div class="loading-text">${this._i18n ? this._t("common.loading") : "Heat Manager…"}</div></div></div>`);
     }
     if (this._data) this._scheduleRender();
     // 2026-09-07 audit fix (4.1, UI/UX-1): poll at the same cadence as the
@@ -158,7 +224,7 @@ class HeatManagerPanel extends HTMLElement {
     toast.innerHTML = `
       <span class="toast-icon">${kind === "error" ? "⚠️" : "✅"}</span>
       <span class="toast-msg">${this._esc(message)}</span>
-      <button class="toast-close" aria-label="Luk besked">✕</button>`;
+      <button class="toast-close" aria-label="${this._t("common.close_message")}">✕</button>`;
     const remove = () => {
       toast.classList.add("toast-out");
       setTimeout(() => toast.remove(), 220);
@@ -175,6 +241,7 @@ class HeatManagerPanel extends HTMLElement {
     this._loadInFlight = true;
     if (fromRefreshBtn) { this._refreshing = true; this._patchRefreshBtn(); }
     try {
+      await this._loadTranslations();
       this._data     = await this._hass.callWS({ type: "heat_manager/get_state" });
       this._errCount = 0;
       this._wsError  = false;
@@ -191,10 +258,7 @@ class HeatManagerPanel extends HTMLElement {
       // Surface it — previously only console.error, indistinguishable from
       // a quiet, working panel to anyone not watching devtools.
       if (this._errCount === 1 || this._errCount % 5 === 0) {
-        this._showToast(
-          "Kunne ikke hente status fra Heat Manager — viser sidst kendte data",
-          "error"
-        );
+        this._showToast(this._t("toast.fetch_failed"), "error");
       }
     } finally {
       this._loadInFlight = false;
@@ -306,7 +370,7 @@ class HeatManagerPanel extends HTMLElement {
     if (bar) {
       const show = ctrl === "pause" && pauseLeft > 0;
       bar.style.display = show ? "flex" : "none";
-      if (txt && show) txt.textContent = `Pause — ${pauseLeft} min tilbage`;
+      if (txt && show) txt.textContent = this._t("ctrl.pause_left", { minutes: pauseLeft });
     }
   }
 
@@ -364,16 +428,27 @@ class HeatManagerPanel extends HTMLElement {
     const issues = (this._data?.active_issues ?? []).slice();
     if (this._wsError) {
       const since = this._lastSyncTime
-        ? ` — sidst OK kl. ${String(this._lastSyncTime.getHours()).padStart(2, "0")}:${String(this._lastSyncTime.getMinutes()).padStart(2, "0")}`
-        : " — intet svar modtaget endnu";
+        ? this._t("conn.last_ok", { time: `${String(this._lastSyncTime.getHours()).padStart(2, "0")}:${String(this._lastSyncTime.getMinutes()).padStart(2, "0")}` })
+        : this._t("conn.no_answer");
       issues.unshift({
         severity: "critical",
         icon: "🔌",
-        message: `Ingen forbindelse til Heat Manager${since}`,
+        message: this._t("conn.lost", { since }),
       });
     }
     const order = { critical: 0, warning: 1, info: 2 };
     return issues.sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3));
+  }
+
+  // v0.71.0: an issue from build_active_issues() in the user's language —
+  // `key`/`params` when the backend sends them, the English `message`
+  // otherwise (older backend, or the client-side "no connection" entry).
+  _issueText(issue) {
+    if (issue?.key) {
+      const txt = this._t(`issue.${issue.key}`, issue.params ?? {});
+      if (txt !== `issue.${issue.key}`) return txt;
+    }
+    return issue?.message ?? "";
   }
 
   // v0.60.0: the v0.32 status center now lives inside the smart status
@@ -426,7 +501,7 @@ class HeatManagerPanel extends HTMLElement {
     if (cards.length !== rooms.length) {
       grid.innerHTML = rooms.length
         ? rooms.map(r => this._roomCardHTML(r)).join("")
-        : `<div class="empty">Ingen rum konfigureret</div>`;
+        : `<div class="empty">${this._t("overview.no_rooms")}</div>`;
       return;
     }
 
@@ -519,8 +594,8 @@ class HeatManagerPanel extends HTMLElement {
         if (!wpb) {
           wpb = document.createElement("div");
           wpb.className = "room-window-pending-badge";
-          wpb.title = "Vindue fysisk åbent — venter på forsinkelse før varmen slås fra";
-          wpb.textContent = "🪟 venter";
+          wpb.title = this._t("room_card.window_pending_title");
+          wpb.textContent = "🪟 " + this._t("room_card.window_pending");
           card.appendChild(wpb);
         }
       } else if (wpb) { wpb.remove(); }
@@ -545,8 +620,8 @@ class HeatManagerPanel extends HTMLElement {
         if (!moldBadge) {
           moldBadge = document.createElement("div");
           moldBadge.className = "room-mold-badge";
-          moldBadge.title = "Høj fugt tæt på dugpunktet — risiko for skimmelvækst";
-          moldBadge.textContent = "⚠️ Skimmelrisiko";
+          moldBadge.title = this._t("room_card.mold_title");
+          moldBadge.textContent = "⚠️ " + this._t("room_card.mold");
           card.appendChild(moldBadge);
         }
       } else if (moldBadge) { moldBadge.remove(); }
@@ -554,11 +629,11 @@ class HeatManagerPanel extends HTMLElement {
       // 2026-09-14 (punkt 4): combined per-room health score badge.
       let healthBadge = card.querySelector(".room-health-badge");
       if (room.health_score != null && room.health_score < 100) {
-        const healthColor = room.health_label === "dårlig" ? "var(--red)" : room.health_label === "ok" ? "var(--amber)" : "var(--sub)";
+        const healthColor = this._healthColor(room.health_label);
         if (!healthBadge) {
           healthBadge = document.createElement("div");
           healthBadge.className = "room-health-badge";
-          healthBadge.title = "Sundhedsscore — kombinerer batteri, skimmelrisiko, utilgængelige enheder og opvarmningsafvigelse";
+          healthBadge.title = this._t("health.title");
           card.appendChild(healthBadge);
         }
         healthBadge.style.color = healthColor;
@@ -568,13 +643,13 @@ class HeatManagerPanel extends HTMLElement {
       // 2026-09-07 audit fix (5.6/5.9): sync-mode / schedule / TRV-count.
       const metaBadges = [];
       if (room.sync_mode && room.sync_mode !== "disabled") {
-        metaBadges.push(`<span class="room-meta-badge" title="Synkroniseringstilstand">🔄 ${this._esc(this._syncModeLabel(room.sync_mode))}</span>`);
+        metaBadges.push(`<span class="room-meta-badge" title="${this._t("room_card.sync_title")}">🔄 ${this._esc(this._syncModeLabel(room.sync_mode))}</span>`);
       }
       if (room.schedule_entity) {
-        metaBadges.push(`<span class="room-meta-badge" title="Schedule-entity konfigureret">🗓 Schedule</span>`);
+        metaBadges.push(`<span class="room-meta-badge" title="${this._t("room_card.schedule_title")}">🗓 ${this._t("room_card.schedule")}</span>`);
       }
       if (room.trv_count > 1) {
-        metaBadges.push(`<span class="room-meta-badge" title="Antal ventiler i rummet">🔧 ${room.trv_count} ventiler</span>`);
+        metaBadges.push(`<span class="room-meta-badge" title="${this._t("room_card.valves_title")}">🔧 ${this._t("room_card.valves", { count: room.trv_count })}</span>`);
       }
       let metaRow = card.querySelector(".room-meta-row");
       if (metaBadges.length) {
@@ -611,7 +686,7 @@ class HeatManagerPanel extends HTMLElement {
     const btn = this.shadowRoot.querySelector("[data-action='refresh']");
     if (!btn) return;
     if (this._refreshing) {
-      btn.innerHTML = '<span class="refresh-spinner">↻</span> Opdater';
+      btn.innerHTML = `<span class="refresh-spinner">↻</span> ${this._t("common.refresh")}`;
       btn.disabled = true;
     } else {
       // UX3: show last sync time
@@ -620,7 +695,7 @@ class HeatManagerPanel extends HTMLElement {
         const mm = String(this._lastSyncTime.getMinutes()).padStart(2,"0");
         btn.textContent = `↻ ${hh}:${mm}`;
       } else {
-        btn.textContent = "↻ Opdater";
+        btn.textContent = "↻ " + this._t("common.refresh");
       }
       btn.style.animation = "";
       btn.disabled = false;
@@ -652,7 +727,7 @@ class HeatManagerPanel extends HTMLElement {
     if (ctrlTitle) { ctrlTitle.textContent = this._ctrlTitle(ctrl); ctrlTitle.style.color = ringColor; }
 
     const ctrlSub = root.querySelector(".ctrl-sub");
-    if (ctrlSub) ctrlSub.textContent = `${(this._data?.rooms ?? []).length} rum konfigureret`;
+    if (ctrlSub) ctrlSub.textContent = this._t("ctrl.rooms_configured", { count: (this._data?.rooms ?? []).length });
 
     // Meta chips
     // 2026-09-16 ("Sæson"-kontrol): switched from positional indexing
@@ -726,7 +801,7 @@ class HeatManagerPanel extends HTMLElement {
       boostBtn.classList.toggle("active", anyBoostActive);
       const remain = this._data?.boost_remaining_minutes;
       boostBtn.textContent = anyBoostActive && remain != null && remain > 0
-        ? `⚡ Boost (${remain} min)`
+        ? "⚡ " + this._t("ctrl.boost_minutes", { minutes: remain })
         : "⚡ Boost";
     }
   }
@@ -814,11 +889,11 @@ class HeatManagerPanel extends HTMLElement {
     const heatingCount = rooms.filter(r => (r.valve_position ?? 0) > 0).length;
     // Update badge
     const badge = root.querySelector(".rooms-detail-badge");
-    if (badge) badge.textContent = `${heatingCount} / ${rooms.length} varmer`;
+    if (badge) badge.textContent = this._t("rooms.heating_badge", { heating: heatingCount, total: rooms.length });
     // Rebuild rows (they're cheap — just text + one bar per room)
     container.innerHTML = rooms.length
       ? rooms.map(r => this._roomDetailRowHTML(r)).join("")
-      : `<div class="empty">Ingen rum konfigureret</div>`;
+      : `<div class="empty">${this._t("overview.no_rooms")}</div>`;
     // The innerHTML rebuild above drops any listeners the previous rows
     // had — re-wire the manual-control and B18 Fase 3 grouping controls.
     this._attachRoomDetailEvents();
@@ -898,12 +973,12 @@ class HeatManagerPanel extends HTMLElement {
             temperature: temp,
             duration_min: duration,
           });
-          btn.textContent = "✓ Sendt";
-          setTimeout(() => { btn.textContent = "Sæt"; btn.classList.remove("sending"); }, 2000);
+          btn.textContent = "✓ " + this._t("rooms.sent");
+          setTimeout(() => { btn.textContent = this._t("rooms.set"); btn.classList.remove("sending"); }, 2000);
         } catch (e) {
-          btn.textContent = "Fejl ✗";
-          setTimeout(() => { btn.textContent = "Sæt"; btn.classList.remove("sending"); }, 2000);
-          this._showToast(`${roomName}: kunne ikke sætte temperatur`, "error"); // v0.3.9
+          btn.textContent = this._t("rooms.error") + " ✗";
+          setTimeout(() => { btn.textContent = this._t("rooms.set"); btn.classList.remove("sending"); }, 2000);
+          this._showToast(this._t("rooms.set_failed", { room: roomName }), "error"); // v0.3.9
           console.error("[HeatManager] set_room_temp failed:", e);
         }
       });
@@ -924,11 +999,11 @@ class HeatManagerPanel extends HTMLElement {
           });
           btn.textContent = "↺ OK";
         } catch (e) {
-          btn.textContent = "↺ Fejl";
-          this._showToast(`${roomName}: kunne ikke gå tilbage til automatik`, "error"); // v0.3.9
+          btn.textContent = "↺ " + this._t("rooms.error");
+          this._showToast(this._t("rooms.reset_failed", { room: roomName }), "error"); // v0.3.9
           console.error("[HeatManager] reset_room_temp failed:", e);
         }
-        setTimeout(() => { btn.textContent = "↺ Tilbage til automatik"; }, 1500);
+        setTimeout(() => { btn.textContent = "↺ " + this._t("rooms.back_to_auto"); }, 1500);
       });
     });
 
@@ -947,11 +1022,11 @@ class HeatManagerPanel extends HTMLElement {
           });
           btn.textContent = "⚡ OK";
         } catch (e) {
-          btn.textContent = "⚡ Fejl";
-          this._showToast(`${roomName}: kunne ikke tvinge varme til`, "error");
+          btn.textContent = "⚡ " + this._t("rooms.error");
+          this._showToast(this._t("rooms.force_failed", { room: roomName }), "error");
           console.error("[HeatManager] force_room_on failed:", e);
         }
-        setTimeout(() => { btn.textContent = "⚡ Tving varme til"; }, 1500);
+        setTimeout(() => { btn.textContent = "⚡ " + this._t("rooms.force_on"); }, 1500);
       });
     });
 
@@ -972,11 +1047,11 @@ class HeatManagerPanel extends HTMLElement {
         const duration = parseInt(durSel?.value ?? "60", 10);
         const rooms = (this._data?.rooms ?? []).filter(r => r.climate_entity);
         if (!rooms.length) {
-          this._showToast("Ingen rum med ventil at sætte", "error");
+          this._showToast(this._t("rooms.no_valve_rooms"), "error");
           return;
         }
         globalSendBtn.classList.add("sending");
-        globalSendBtn.textContent = `Sender 0/${rooms.length}…`;
+        globalSendBtn.textContent = this._t("rooms.sending", { done: 0, total: rooms.length });
         let ok = 0;
         const failed = [];
         for (const room of rooms) {
@@ -992,14 +1067,14 @@ class HeatManagerPanel extends HTMLElement {
             failed.push(room.name);
             console.error("[HeatManager] global set_room_temp failed for", room.name, e);
           }
-          globalSendBtn.textContent = `Sender ${ok + failed.length}/${rooms.length}…`;
+          globalSendBtn.textContent = this._t("rooms.sending", { done: ok + failed.length, total: rooms.length });
         }
         globalSendBtn.classList.remove("sending");
-        globalSendBtn.textContent = "Sæt i alle rum";
+        globalSendBtn.textContent = this._t("rooms.set_all");
         if (failed.length) {
-          this._showToast(`${ok}/${rooms.length} rum sat til ${temp}°C — fejlede: ${failed.join(", ")}`, "error");
+          this._showToast(this._t("rooms.set_all_partial", { ok, total: rooms.length, temp, failed: failed.join(", ") }), "error");
         } else {
-          this._showToast(`${ok} rum sat til ${temp}°C`, "success");
+          this._showToast(this._t("rooms.set_all_ok", { ok, temp }), "success");
         }
       });
     }
@@ -1028,11 +1103,11 @@ class HeatManagerPanel extends HTMLElement {
           }
         }
         globalResetBtn.classList.remove("sending");
-        globalResetBtn.textContent = "↺ Alle tilbage til automatik";
+        globalResetBtn.textContent = "↺ " + this._t("rooms.all_back_to_auto");
         if (failed.length) {
-          this._showToast(`${ok}/${rooms.length} rum gendannet — fejlede: ${failed.join(", ")}`, "error");
+          this._showToast(this._t("rooms.reset_all_partial", { ok, total: rooms.length, failed: failed.join(", ") }), "error");
         } else {
-          this._showToast(`${ok} rum tilbage til automatik`, "success");
+          this._showToast(this._t("rooms.reset_all_ok", { ok }), "success");
         }
       });
     }
@@ -1057,7 +1132,7 @@ class HeatManagerPanel extends HTMLElement {
         if (!roomName) return;
         const entityId = this._roomOffsetEntityId(roomName);
         if (!entityId) {
-          this._showToast(`${roomName}: kunne ikke finde offset-entity`, "error");
+          this._showToast(this._t("rooms.offset_entity_missing", { room: roomName }), "error");
           return;
         }
         const val = parseFloat(slider.value);
@@ -1066,7 +1141,7 @@ class HeatManagerPanel extends HTMLElement {
           const room = (this._data?.rooms ?? []).find(r => r.name === roomName);
           if (room) room.offset = val;
         } catch (e) {
-          this._showToast(`${roomName}: kunne ikke sætte offset`, "error");
+          this._showToast(this._t("rooms.offset_failed", { room: roomName }), "error");
           console.error("[HeatManager] set room offset failed:", e);
         }
       });
@@ -1080,7 +1155,7 @@ class HeatManagerPanel extends HTMLElement {
         if (!roomName) return;
         const entityId = this._roomGroupToggleEntityId(roomName);
         if (!entityId) {
-          this._showToast(`${roomName}: kunne ikke finde gruppe-entity`, "error");
+          this._showToast(this._t("rooms.group_entity_missing", { room: roomName }), "error");
           return;
         }
         const turningOn = !btn.classList.contains("active");
@@ -1093,7 +1168,7 @@ class HeatManagerPanel extends HTMLElement {
           if (room) room.group_enabled = turningOn;
           this._patchRoomsTab();
         } catch (e) {
-          this._showToast(`${roomName}: kunne ikke ændre gruppering`, "error");
+          this._showToast(this._t("rooms.group_failed", { room: roomName }), "error");
           console.error("[HeatManager] toggle room group failed:", e);
         } finally {
           btn.disabled = false;
@@ -1121,7 +1196,7 @@ class HeatManagerPanel extends HTMLElement {
           if (input.value === "") continue;
           const val = parseFloat(input.value);
           if (Number.isNaN(val)) {
-            this._showToast("Ugyldig værdi", "error");
+            this._showToast(this._t("common.invalid_value"), "error");
             return;
           }
           payload[input.dataset.field] = val;
@@ -1141,7 +1216,7 @@ class HeatManagerPanel extends HTMLElement {
             setTimeout(() => ok?.classList.remove("visible"), 2500);
           }
         } catch (e) {
-          this._showToast(`${roomName}: kunne ikke gemme rummets indstillinger`, "error");
+          this._showToast(this._t("rooms.save_failed", { room: roomName }), "error");
           console.error("[HeatManager] save room config failed for", roomName, e);
         }
         btn.disabled = false;
@@ -1160,7 +1235,7 @@ class HeatManagerPanel extends HTMLElement {
     if (tsEl && this._historyFetchedAt) {
       const hh = String(this._historyFetchedAt.getHours()).padStart(2,"0");
       const mm = String(this._historyFetchedAt.getMinutes()).padStart(2,"0");
-      tsEl.textContent = `Opdateret kl. ${hh}:${mm}`;
+      tsEl.textContent = this._t("history.updated_at", { time: `${hh}:${mm}` });
     }
     // v0.3.9: keep filter chip active-state in sync.
     const filterRow = root.querySelector("#hist-filter-row");
@@ -1180,7 +1255,7 @@ class HeatManagerPanel extends HTMLElement {
       this._startPauseCountdown();
     } catch (e) {
       console.error("[HeatManager]", e);
-      this._showToast("Kunne ikke ændre varme-tilstand", "error");
+      this._showToast(this._t("toast.controller_failed"), "error");
     }
   }
 
@@ -1195,7 +1270,7 @@ class HeatManagerPanel extends HTMLElement {
       this._startPauseCountdown();
     } catch (e) {
       console.error("[HeatManager]", e);
-      this._showToast("Kunne ikke sætte pause", "error");
+      this._showToast(this._t("toast.pause_failed"), "error");
     }
   }
 
@@ -1210,7 +1285,7 @@ class HeatManagerPanel extends HTMLElement {
       this._patchTopbarBadge();
     } catch (e) {
       console.error("[HeatManager]", e);
-      this._showToast("Kunne ikke genoptage varmestyring", "error");
+      this._showToast(this._t("toast.resume_failed"), "error");
     }
   }
 
@@ -1226,12 +1301,12 @@ class HeatManagerPanel extends HTMLElement {
   _stateLabel(s, source, withSource = true) {
     if (s === "override") {
       const src = withSource ? this._overrideSourceName(source) : null;
-      return src ? `Manuel · ${src}` : "Manuel";
+      return src ? this._t("state.override_with_source", { source: src }) : this._t("state.override");
     }
-    return ({ normal:"Auto", away:"Fraværende", window_open:"Vindue åbent", pre_heat:"Forvarmning" })[s] ?? s ?? "–";
+    return ["normal", "away", "window_open", "pre_heat"].includes(s) ? this._t(`state.${s}`) : (s ?? "–");
   }
   _overrideSourceName(src) {
-    return ({ remote:"Fjernbetjening", panel:"Panel", switch:"Kontakt", trv:"Ventil" })[src] ?? null;
+    return ["remote", "panel", "switch", "trv"].includes(src) ? this._t(`source.${src}`) : null;
   }
   _overrideSourceIcon(src) {
     return ({ remote:"📡", panel:"🖥", switch:"🔘", trv:"🎚" })[src] ?? "✋";
@@ -1242,17 +1317,11 @@ class HeatManagerPanel extends HTMLElement {
   _netatmoModeLabel(room) {
     const mode = room.cloud_setpoint_mode;
     if (!mode) return "";
-    const label = ({
-      schedule: "tidsplan",
-      home:     "tidsplan",
-      manual:   "manuel",
-      max:      "boost",
-      away:     "væk",
-      hg:       "frostsikring",
-      off:      "slukket",
-    })[mode] ?? mode;
+    const code  = mode === "home" ? "schedule" : mode;
+    const label = ["schedule", "manual", "max", "away", "hg", "off"].includes(code)
+      ? this._t(`netatmo_mode.${code}`) : mode;
     const until = room.cloud_setpoint_end_time ? this._hhmm(room.cloud_setpoint_end_time) : "";
-    return until && (mode === "manual" || mode === "max") ? `${label} til ${until}` : label;
+    return until && (mode === "manual" || mode === "max") ? this._t("netatmo_mode.until", { mode: label, time: until }) : label;
   }
 
   // "20:42" from an ISO timestamp, in the browser's local time.
@@ -1266,12 +1335,12 @@ class HeatManagerPanel extends HTMLElement {
   _overrideInfoText(room) {
     if (room?.state !== "override") return "";
     const src   = room.override_source;
-    const name  = this._overrideSourceName(src) ?? "Manuel";
+    const name  = this._overrideSourceName(src) ?? this._t("state.override");
     const until = this._hhmm(room.override_expires_at);
     const since = this._hhmm(room.override_since);
     const parts = [`${this._overrideSourceIcon(src)} ${name}`];
-    if (since) parts.push(`siden ${since}`);
-    parts.push(until ? `auto igen kl. ${until}` : "uden udløb");
+    if (since) parts.push(this._t("override_info.since", { time: since }));
+    parts.push(until ? this._t("override_info.until", { time: until }) : this._t("override_info.no_expiry"));
     return parts.join(" · ");
   }
   _stateColor(s) {
@@ -1290,18 +1359,14 @@ class HeatManagerPanel extends HTMLElement {
   // v0.9.0: self-reporting diagnostics — short Danish tags for the neutral
   // blocking_sources codes the backend sends (coordinator.get_room_blocking_sources).
   _blockingLabel(src) {
-    return ({
-      controller_off:   "Controller slukket",
-      controller_pause: "Controller pause",
-      window:           "Vindue åbent",
-      presence:         "Fraværende",
-    })[src] ?? src;
+    return ["controller_off", "controller_pause", "window", "presence"].includes(src)
+      ? this._t(`blocking.${src}`) : src;
   }
 
   // v0.9.0: Konfiguration tab — read-only display label for a room's sync
   // mode (the config-flow wizard remains the way to actually set this).
   _syncModeLabel(mode) {
-    return ({ disabled: "Deaktiveret", mirror: "Spejl", lock: "Lås" })[mode] ?? mode;
+    return ["disabled", "mirror", "lock"].includes(mode) ? this._t(`sync_mode.${mode}`) : mode;
   }
 
   // Per-room blocking sources, minus whatever the room's own state pill
@@ -1320,21 +1385,24 @@ class HeatManagerPanel extends HTMLElement {
   // Covers every event_type written via coordinator.log_event() across the
   // engines (normal, away, window_open, override, boost, manual).
   _eventTypeInfo(type) {
-    return ({
-      all:         { label: "Alle",     color: "#94a3b8" },
-      normal:      { label: "Normal",   color: "#f97316" },
-      away:        { label: "Fravær",   color: "#64748b" },
-      window_open: { label: "Vindue",   color: "#ef4444" },
-      boost:       { label: "Boost",    color: "#c084fc" },
-      manual:      { label: "Manuel",   color: "#0ea5e9" },
-      override:    { label: "Override", color: "#a855f7" },
+    const colors = ({
+      all:         "#94a3b8",
+      normal:      "#f97316",
+      away:        "#64748b",
+      window_open: "#ef4444",
+      boost:       "#c084fc",
+      manual:      "#0ea5e9",
+      override:    "#a855f7",
       // 2026-09-11 door feature: interior door open/close events, logged by
       // DoorEngine with event_type="door" — kept separate from window_open
       // (an interior door has no heat-suppression meaning, see
       // engine/door_engine.py) so the "Vindue" filter isn't diluted with
       // unrelated internal door traffic.
-      door:        { label: "Dør",      color: "#14b8a6" },
-    })[type] ?? { label: type ?? "–", color: "#64748b" };
+      door:        "#14b8a6",
+    });
+    return colors[type]
+      ? { label: this._t(`event_type.${type}`), color: colors[type] }
+      : { label: type ?? "–", color: "#64748b" };
   }
 
   // Filter chip row for the Historik tab. Active filter highlighted with its
@@ -1352,17 +1420,26 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   _ctrlIcon(s) { return ({ on:"🔥", pause:"⏸", off:"❄️" })[s] ?? "●"; }
-  _ctrlTitle(s) { return ({ on:"Varme aktiv", pause:"Pause", off:"Slukket" })[s] ?? s; }
+  _ctrlTitle(s) { return ["on", "pause", "off"].includes(s) ? this._t(`ctrl.title.${s}`) : s; }
+
+  // v0.71.0: health_label is "good"/"ok"/"poor" (older backends sent the
+  // Danish "god"/"ok"/"dårlig" — still accepted).
+  _healthColor(label) {
+    if (label === "poor" || label === "dårlig") return "var(--red)";
+    if (label === "ok") return "var(--amber)";
+    return "var(--sub)";
+  }
 
   // v0.3.9: effective_season (dormant/waking/active) → label + icon + colour.
   // Used for the controller-hero meta-chip and the auto-off "Effektiv sæson"
   // card. Distinct from calendar_season/season_mode (winter/spring/...).
   _effSeasonInfo(season) {
-    return ({
-      dormant: { label: "Dvale",     icon: "😴", color: "#64748b" },
-      waking:  { label: "Opvågning", icon: "🌅", color: "#eab308" },
-      active:  { label: "Aktiv",      icon: "🔥", color: "#f97316" },
-    })[season] ?? { label: "–", icon: "•", color: "#64748b" };
+    const info = ({
+      dormant: { icon: "😴", color: "#64748b" },
+      waking:  { icon: "🌅", color: "#eab308" },
+      active:  { icon: "🔥", color: "#f97316" },
+    })[season];
+    return info ? { ...info, label: this._t(`eff_season.${season}`) } : { label: "–", icon: "•", color: "#64748b" };
   }
 
   // 2026-09-11: house-level rollup of the same cloud_preset_mode/
@@ -1383,7 +1460,7 @@ class HeatManagerPanel extends HTMLElement {
       const detail = rooms
         .map(r => `${r.name}: ${r.cloud_preset_mode ?? "–"}${r.cloud_selected_schedule ? ` (${r.cloud_selected_schedule})` : ""}`)
         .join(", ");
-      return { label: "Blandet", title: detail };
+      return { label: this._t("ctrl.netatmo_mixed"), title: detail };
     }
     const mode  = modes[0] ?? "–";
     const sched = scheds[0];
@@ -1571,14 +1648,14 @@ class HeatManagerPanel extends HTMLElement {
       .tab:hover:not(.active) { color: var(--text); background: rgba(255,255,255,0.04); }
 
       /* ── Section boxes (Indeklima system) ── */
-      /* 2026-09-19 ("panel fylder mindre") — Konfiguration-fanen lægges i to
-         kolonner på bred skærm, så sektionerne (de fleste nu sammenfoldet som
-         standard, se .section-box.collapsed nedenfor) ikke bruger dobbelt så
-         meget lodret plads som nødvendigt. Ét-kolonne på smal skærm/mobil.
-         align-items:start forhindrer grid'et i at strække korte bokse til
-         samme højde som en længere nabo-boks i samme række. Kun brugt af
-         _configTabHTML() — andre faners section-box'e står udenfor dette
-         wrapper-element og forbliver én kolonne. */
+      /* 2026-09-19 ("make the panel smaller") — the Settings tab is laid
+         out in two columns on wide screens, so the sections (most of them
+         collapsed by default, see .section-box.collapsed below) don't take
+         twice the vertical space they need. One column on narrow
+         screens/mobile. align-items:start keeps the grid from stretching
+         short boxes to the height of a longer neighbour in the same row.
+         Only used by _configTabHTML() — other tabs' section boxes sit outside
+         this wrapper and stay one column. */
       .config-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -1614,22 +1691,21 @@ class HeatManagerPanel extends HTMLElement {
         transition: transform .2s;
       }
       .section-box.collapsed .section-box-header.collapsible::after { transform: rotate(-90deg); }
-      /* 2026-09-19 (endelig tredelt struktur): titel+badge (header) og den
-         nye altid-synlige bund-beskrivelse (.section-box-footer) er begge
-         undtaget fra sammenfoldnings-skjulningen — kun selve
-         indstillingerne imellem dem (toggle/number-rækker, evt. længere
-         introtekst) skjules. */
+      /* 2026-09-19 (final three-part structure): title+badge (header) and
+         the always-visible bottom description (.section-box-footer) are both
+         exempt from collapsing — only the settings between them
+         (toggle/number rows, any longer intro text) are hidden. */
       .section-box.collapsed > *:not(.section-box-header):not(.section-box-footer) { display: none !important; }
       .section-box-title {
         font-size: 11px; font-weight: 600;
         text-transform: uppercase; letter-spacing: 1px;
         color: var(--sub); flex: 1; min-width: 0;
       }
-      /* 2026-09-19: altid-synlig kort beskrivelse i BUNDEN af hver sektion,
-         adskilt fra titlen — titlen står nu alene i headeren (grøn/i brugerens
-         illustration), selve indstillingerne er den sammenfoldelige midte
-         (rød), og denne footer er den altid-synlige bund (blå). Erstatter
-         den tidligere .section-box-desc, som sad lige under titlen. */
+      /* 2026-09-19: always-visible short description at the BOTTOM of each
+         section, separate from the title — the title stands alone in the
+         header, the settings are the collapsible middle, and this footer is
+         the always-visible bottom. Replaces the earlier .section-box-desc,
+         which sat right under the title. */
       .section-box-footer {
         font-size: 12px; color: var(--sub); line-height: 1.5;
         padding: 10px 16px;
@@ -2425,14 +2501,14 @@ class HeatManagerPanel extends HTMLElement {
           </div>
         </div>
         ${this._smartLineHTML()}
-        <button class="header-refresh" data-action="refresh">↻ Opdater</button>
-        <div class="app-version" title="Heat Manager integration version">v${this._esc(d?.version ?? "–")}</div>
+        <button class="header-refresh" data-action="refresh">↻ ${this._t("common.refresh")}</button>
+        <div class="app-version" title="${this._t("header.version_title")}">v${this._esc(d?.version ?? "–")}</div>
       </div>
       <div class="tabs" role="tablist">${[
-        { id:"overview", label:"Oversigt"  },
-        { id:"rooms",    label:"Rum"       },
-        { id:"history",  label:"Historik"  },
-        { id:"config",   label:"Konfiguration" },
+        { id:"overview", label:this._t("tabs.overview") },
+        { id:"rooms",    label:this._t("tabs.rooms")    },
+        { id:"history",  label:this._t("tabs.history")  },
+        { id:"config",   label:this._t("tabs.config")   },
       ].map(t => `<button class="tab${this._tab===t.id?" active":""}" data-tab="${t.id}" role="tab" aria-selected="${this._tab===t.id}">${t.label}</button>`).join("")}</div>`;
   }
 
@@ -2468,7 +2544,7 @@ class HeatManagerPanel extends HTMLElement {
     return `
       <div class="section-box">
         <div class="section-box-header">
-          <div class="section-box-title">Controller</div>
+          <div class="section-box-title">${this._t("ctrl.section")}</div>
           <div class="section-box-badge ctrl-status-badge" style="background:${ringColor}22;color:${ringColor}">
             ${this._ctrlTitle(ctrl)}
           </div>
@@ -2489,25 +2565,22 @@ class HeatManagerPanel extends HTMLElement {
           </div>
           <div class="ctrl-info">
             <div class="ctrl-title" style="color:${ringColor}">${this._ctrlTitle(ctrl)}</div>
-            <div class="ctrl-sub">${(this._data?.rooms ?? []).length} rum konfigureret</div>
+            <div class="ctrl-sub">${this._t("ctrl.rooms_configured", { count: (this._data?.rooms ?? []).length })}</div>
             <div class="ctrl-blocking-row" id="ctrl-blocking-row" style="display:${blockingSrc.length ? "flex" : "none"}">⛔ ${this._esc(blockingSrc.map(s => this._blockingLabel(s)).join(", "))}</div>
             <div class="ctrl-meta-row">
               <div class="ctrl-meta-chip ctrl-chip-outdoor">
-                🌡️ <span>Ude</span>
+                🌡️ <span>${this._t("ctrl.outdoor")}</span>
                 <strong>${otemp != null ? Math.round(otemp) + "°C" : "–"}</strong>
               </div>
               <div class="ctrl-meta-chip ctrl-chip-season">
-                🍂 <span>Sæson</span>
-                <select class="ctrl-season-select" data-action="change-season-mode" title="Skift sæsontilstand manuelt — Auto lader Heat Manager selv styre skiftet">
-                  <option value="auto" ${season === "auto" ? "selected" : ""}>Auto</option>
-                  <option value="winter" ${season === "winter" ? "selected" : ""}>Vinter</option>
-                  <option value="spring" ${season === "spring" ? "selected" : ""}>Forår</option>
-                  <option value="summer" ${season === "summer" ? "selected" : ""}>Sommer</option>
-                  <option value="autumn" ${season === "autumn" ? "selected" : ""}>Efterår</option>
+                🍂 <span>${this._t("ctrl.season")}</span>
+                <select class="ctrl-season-select" data-action="change-season-mode" title="${this._t("ctrl.season_title")}">
+                  ${["auto", "winter", "spring", "summer", "autumn"].map(s =>
+                    `<option value="${s}" ${season === s ? "selected" : ""}>${this._t(`season.${s}`)}</option>`).join("")}
                 </select>
               </div>
               <div class="ctrl-meta-chip ctrl-chip-status">
-                ${eff.icon} <span>Status</span>
+                ${eff.icon} <span>${this._t("ctrl.status")}</span>
                 <strong>${eff.label}</strong>
               </div>
               ${netatmoSummary ? `
@@ -2521,27 +2594,27 @@ class HeatManagerPanel extends HTMLElement {
 
         <div class="ctrl-btns-wrap">
           <div class="ctrl-btn-row">
-            <button id="ctrl-btn-on"    class="ctrl-btn" data-action="on">🔥 Tænd</button>
-            <button id="ctrl-btn-pause" class="ctrl-btn" data-action="pause">⏸ Pause</button>
-            <button id="ctrl-btn-off"   class="ctrl-btn" data-action="off">❄️ Sluk</button>
+            <button id="ctrl-btn-on"    class="ctrl-btn" data-action="on">🔥 ${this._t("ctrl.btn_on")}</button>
+            <button id="ctrl-btn-pause" class="ctrl-btn" data-action="pause">⏸ ${this._t("ctrl.btn_pause")}</button>
+            <button id="ctrl-btn-off"   class="ctrl-btn" data-action="off">❄️ ${this._t("ctrl.btn_off")}</button>
             <button id="ctrl-btn-boost" class="ctrl-btn ctrl-btn-boost" data-action="boost"
-              title="Boost — varm op hurtigt">⚡ Boost</button>
+              title="${this._t("ctrl.boost_title")}">⚡ Boost</button>
           </div>
           <div class="ctrl-pause-row">
-            <span class="ctrl-pause-label">Pause varighed</span>
+            <span class="ctrl-pause-label">${this._t("ctrl.pause_duration")}</span>
             <select class="ctrl-pause-select" id="pause-dur">
-              <option value="30">30 min</option>
-              <option value="60">1 time</option>
-              <option value="120" selected>2 timer</option>
-              <option value="240">4 timer</option>
-              <option value="480">Til i morgen</option>
+              <option value="30">${this._t("ctrl.dur_30m")}</option>
+              <option value="60">${this._t("ctrl.dur_1h")}</option>
+              <option value="120" selected>${this._t("ctrl.dur_2h")}</option>
+              <option value="240">${this._t("ctrl.dur_4h")}</option>
+              <option value="480">${this._t("ctrl.dur_tomorrow")}</option>
             </select>
           </div>
         </div>
 
         <div id="pause-bar" class="pause-bar" style="display:${showPause?"flex":"none"}">
-          <span id="pause-bar-text" class="pause-bar-text">⏸ Pause — ${pauseLeft} min tilbage</span>
-          <button class="resume-btn" data-action="resume">Genoptag nu</button>
+          <span id="pause-bar-text" class="pause-bar-text">⏸ ${this._t("ctrl.pause_left", { minutes: pauseLeft })}</span>
+          <button class="resume-btn" data-action="resume">${this._t("ctrl.resume_now")}</button>
         </div>
       </div>`;
   }
@@ -2571,13 +2644,13 @@ class HeatManagerPanel extends HTMLElement {
   // "1 t 22 min" / "22 min" / "under 1 min"
   _durText(ms) {
     const min = Math.max(0, Math.round(ms / 60000));
-    if (min < 1) return "under 1 min";
+    if (min < 1) return this._t("dur.under_1m");
     const h = Math.floor(min / 60), m = min % 60;
-    return h ? (m ? `${h} t ${m} min` : `${h} t`) : `${m} min`;
+    return h ? (m ? this._t("dur.h_m", { h, m }) : this._t("dur.h", { h })) : this._t("dur.m", { m });
   }
 
   _fmtTemp(v) {
-    return v == null || isNaN(v) ? "–" : `${(Math.round(v * 10) / 10).toString().replace(".", ",")}°`;
+    return v == null || isNaN(v) ? "–" : `${(Math.round(v * 10) / 10).toString().replace(".", this._t("common.decimal_sep"))}°`;
   }
 
   // Forecast for the room furthest from its target that is still heating:
@@ -2596,10 +2669,10 @@ class HeatManagerPanel extends HTMLElement {
     }
     if (!best) return null;
     const at = new Date(Date.now() + best.etaMs);
-    return `${best.room.name} når ${this._fmtTemp(best.room.target_temp)} ca. kl. ${this._hhmm(at.toISOString())}`;
+    return this._t("sl.forecast", { room: best.room.name, temp: this._fmtTemp(best.room.target_temp), time: this._hhmm(at.toISOString()) });
   }
 
-  // "Natsænkning om 3 t 40 min" / "Natsænkning til kl. 07:00" (within 12 h).
+  // "Night setback in 3 h 40 min" / "Night setback until 07:00" (within 12 h).
   _nightSetbackText() {
     const cfg = this._data?.config ?? {};
     if (!cfg.night_setback_enabled) return null;
@@ -2608,16 +2681,16 @@ class HeatManagerPanel extends HTMLElement {
     const now = new Date();
     const h = now.getHours() + now.getMinutes() / 60;
     const inNight = start > end ? (h >= start || h < end) : (h >= start && h < end);
-    if (inNight) return `Natsænkning til kl. ${String(end).padStart(2, "0")}:00`;
+    if (inNight) return this._t("sl.night_until", { time: `${String(end).padStart(2, "0")}:00` });
     const next = new Date(now);
     next.setHours(start, 0, 0, 0);
     if (next <= now) next.setDate(next.getDate() + 1);
     const ms = next - now;
-    return ms <= 12 * 3600000 ? `Natsænkning om ${this._durText(ms)}` : null;
+    return ms <= 12 * 3600000 ? this._t("sl.night_in", { duration: this._durText(ms) }) : null;
   }
 
   _roomStateWord(state) {
-    return ({ window_open: "vindue åbent", away: "fraværende", pre_heat: "forvarmning" })[state] ?? state;
+    return ["window_open", "away", "pre_heat"].includes(state) ? this._t(`state_word.${state}`) : state;
   }
 
   // Plain-language "why" for one room — short line + longer explanation.
@@ -2628,46 +2701,54 @@ class HeatManagerPanel extends HTMLElement {
     const temps = `${this._fmtTemp(cur)} → ${this._fmtTemp(tgt)}`;
     const valve = room.valve_position != null ? Math.round(room.valve_position) : null;
     const facts = [];
-    if (cur != null) facts.push(`rum ${this._fmtTemp(cur)}`);
-    if (tgt != null) facts.push(`mål ${this._fmtTemp(tgt)}`);
-    if (valve != null) facts.push(`ventil ${valve}%`);
-    if (room.pid_power != null) facts.push(`PID ${Math.round(room.pid_power)}%`);
-    const factLine = facts.join(" · ");
+    if (cur != null) facts.push(this._t("why.fact_room", { temp: this._fmtTemp(cur) }));
+    if (tgt != null) facts.push(this._t("why.fact_target", { temp: this._fmtTemp(tgt) }));
+    if (valve != null) facts.push(this._t("why.fact_valve", { value: valve }));
+    if (room.pid_power != null) facts.push(this._t("why.fact_pid", { value: Math.round(room.pid_power) }));
+    const facts_ = { facts: facts.join(" · ") };
     if (!room.climate_entity) {
-      return { tone: "muted", short: "Kun måling — ingen radiator styres her", long: "Rummet har ingen termostat i Heat Manager, så det måles kun." };
+      return { tone: "muted", short: this._t("why.sensors_short"), long: this._t("why.sensors_long") };
     }
     if (blocking.includes("controller_off")) {
-      return { tone: "muted", short: "Varmen er slukket for hele huset", long: `Controlleren står på Sluk. ${factLine}` };
+      return { tone: "muted", short: this._t("why.off_short"), long: this._t("why.off_long", facts_) };
     }
     if (blocking.includes("controller_pause")) {
-      return { tone: "muted", short: "Hele huset er på pause", long: `Controlleren står på Pause og fortsætter af sig selv. ${factLine}` };
+      return { tone: "muted", short: this._t("why.pause_short"), long: this._t("why.pause_long", facts_) };
     }
     if (st === "window_open") {
-      return { tone: "warning", short: "Varmen sænket — vindue åbent", long: `Et vindue er åbent, så varmen er sænket. Den kommer igen, når vinduet har været lukket i den indstillede forsinkelse. ${factLine}` };
+      return { tone: "warning", short: this._t("why.window_short"), long: this._t("why.window_long", facts_) };
     }
     if (st === "away") {
-      return { tone: "muted", short: "Fraværstemperatur — ingen hjemme", long: `Alle er væk, så rummet holdes på fraværstemperatur. Det varmes op igen, når nogen kommer hjem. ${factLine}` };
+      return { tone: "muted", short: this._t("why.away_short"), long: this._t("why.away_long", facts_) };
     }
     if (st === "pre_heat") {
-      return { tone: "info", short: "Forvarmer — nogen er på vej hjem", long: `Rummet varmes op før ankomst ud fra rejsetiden hjem. ${factLine}` };
+      return { tone: "info", short: this._t("why.preheat_short"), long: this._t("why.preheat_long", facts_) };
     }
     if (st === "override") {
-      const src = this._overrideSourceName(room.override_source) ?? "manuel ændring";
+      const src = (this._overrideSourceName(room.override_source) ?? this._t("why.manual_change")).toLowerCase();
       const until = this._hhmm(room.override_expires_at);
-      return { tone: "manual", short: `Manuel via ${src.toLowerCase()} — ${until ? `auto igen kl. ${until}` : "uden udløb"}`, long: `Automatikken styrer ikke rummet lige nu, fordi det er sat manuelt via ${src.toLowerCase()}. ${until ? `Det går selv tilbage til automatik kl. ${until}.` : "Det bliver manuelt, indtil nogen sætter det tilbage."} ${factLine}` };
+      return {
+        tone: "manual",
+        short: this._t("why.manual_short", { source: src, expiry: until ? this._t("override_info.until", { time: until }) : this._t("override_info.no_expiry") }),
+        long: this._t("why.manual_long", {
+          source: src,
+          expiry: until ? this._t("why.manual_long_until", { time: until }) : this._t("why.manual_long_forever"),
+          facts: facts_.facts,
+        }),
+      };
     }
     if (room.boost_active) {
-      return { tone: "info", short: "Boost — kører på boost-temperatur", long: `Boost er aktivt og stopper af sig selv. ${factLine}` };
+      return { tone: "info", short: this._t("why.boost_short"), long: this._t("why.boost_long", facts_) };
     }
     if (cur != null && tgt != null && tgt - cur >= 0.3) {
       const rate = room.heatup_rate_door_closed ?? room.heatup_rate_door_open;
-      const eta = rate > 0 ? ` · ca. kl. ${this._hhmm(new Date(Date.now() + ((tgt - cur) / rate) * 3600000).toISOString())}` : "";
-      return { tone: "ok", short: `Varmer op: ${temps}${eta}`, long: `Rummet er under målet, så radiatoren åbner. ${factLine}` };
+      const eta = rate > 0 ? this._t("why.eta", { time: this._hhmm(new Date(Date.now() + ((tgt - cur) / rate) * 3600000).toISOString()) }) : "";
+      return { tone: "ok", short: this._t("why.heating_short", { temps, eta }), long: this._t("why.heating_long", facts_) };
     }
     if (cur != null && tgt != null && cur - tgt >= 0.5) {
-      return { tone: "ok", short: `Over mål (${temps}) — radiatoren holder igen`, long: `Rummet er varmere end målet, så der varmes ikke lige nu. ${factLine}` };
+      return { tone: "ok", short: this._t("why.above_short", { temps }), long: this._t("why.above_long", facts_) };
     }
-    return { tone: "ok", short: `På mål: ${this._fmtTemp(cur ?? tgt)}`, long: `Rummet holder sin temperatur. ${factLine}` };
+    return { tone: "ok", short: this._t("why.on_target_short", { temp: this._fmtTemp(cur ?? tgt) }), long: this._t("why.on_target_long", facts_) };
   }
 
   // Acknowledgement of a remote press within the last 10 s, or null.
@@ -2676,20 +2757,20 @@ class HeatManagerPanel extends HTMLElement {
     const rla = this._data?.remote_last_action;
     if (age == null || age >= 10000 || !rla) return null;
     const n = rla.rooms?.length ?? 0;
-    const roomsTxt = `${n} rum`;
-    const d = rla.delta != null ? `${rla.delta > 0 ? "+" : "−"}${String(Math.abs(rla.delta)).replace(".", ",")}°` : null;
+    const rooms = this._t("ack.rooms", { count: n });
+    const d = rla.delta != null ? `${rla.delta > 0 ? "+" : "−"}${String(Math.abs(rla.delta)).replace(".", this._t("common.decimal_sep"))}°` : null;
     const title = ({
-      temp_up:   `${d ?? "Op"} modtaget · sendt til ${roomsTxt}`,
-      temp_down: `${d ?? "Ned"} modtaget · sendt til ${roomsTxt}`,
-      manual:    `Manuel styring slået til i ${roomsTxt}`,
-      auto:      `Automatik slået til igen i ${roomsTxt}`,
-      boost:     `Boost startet i ${roomsTxt}`,
-      release:   `Alle rum tilbage på automatik (${roomsTxt})`,
-    })[rla.action] ?? "Fjernbetjening modtaget";
-    const subs = [`📡 Fjernbetjening · kl. ${this._hhmm(rla.timestamp)}`];
+      temp_up:   () => this._t("ack.temp_sent", { delta: d ?? this._t("ack.up"), rooms }),
+      temp_down: () => this._t("ack.temp_sent", { delta: d ?? this._t("ack.down"), rooms }),
+      manual:    () => this._t("ack.manual", { rooms }),
+      auto:      () => this._t("ack.auto", { rooms }),
+      boost:     () => this._t("ack.boost", { rooms }),
+      release:   () => this._t("ack.release", { rooms }),
+    })[rla.action]?.() ?? this._t("ack.received");
+    const subs = ["📡 " + this._t("ack.remote_at", { time: this._hhmm(rla.timestamp) })];
     const skipped = Object.entries(rla.skipped ?? {});
     if (skipped.length) {
-      subs.push(`Sprunget over: ${skipped.map(([room, st]) => `${room} (${this._roomStateWord(st)})`).join(", ")}`);
+      subs.push(this._t("ack.skipped", { rooms: skipped.map(([room, st]) => `${room} (${this._roomStateWord(st)})`).join(", ") }));
     }
     return { key: `ack:${rla.timestamp}`, tone: "ack", icon: "✓", title, subs, actions: [] };
   }
@@ -2704,34 +2785,34 @@ class HeatManagerPanel extends HTMLElement {
       const subs = [];
       if (issue.id?.startsWith("window_open")) {
         const lowered = rooms.filter(r => r.state === "window_open").map(r => r.name);
-        if (lowered.length) subs.push(`Varmen er sænket i ${lowered.join(", ")}`);
-        else subs.push("Varmen sænkes, hvis det bliver ved");
+        if (lowered.length) subs.push(this._t("sl.window_lowered_in", { rooms: lowered.join(", ") }));
+        else subs.push(this._t("sl.window_will_lower"));
       } else if (issue.id?.startsWith("mold_risk")) {
-        subs.push("Luft ud i 5–10 min og hold temperaturen jævn");
+        subs.push(this._t("sl.mold_tip"));
       } else if (issue.id?.startsWith("heatup_anomaly")) {
-        subs.push("Tjek at ventilen ikke sidder fast");
+        subs.push(this._t("sl.heatup_tip"));
       } else if (issue.id?.startsWith("cloud")) {
-        subs.push("Rum med lokal (HomeKit/Zigbee) styring kører videre");
+        subs.push(this._t("sl.cloud_tip"));
       } else if (issue.id?.startsWith("entities_unavailable")) {
-        subs.push("Se rummets sensorer under Rum-fanen");
+        subs.push(this._t("sl.entities_tip"));
       }
       return subs;
     };
 
     for (const issue of issues.filter(i => i.severity === "critical")) {
-      msgs.push({ key: `issue:${issue.id ?? issue.message}`, tone: "critical", icon: issue.icon ?? "!", title: issue.message, subs: issueSubs(issue), actions: [], pinned: true });
+      msgs.push({ key: `issue:${issue.id ?? issue.message}`, tone: "critical", icon: issue.icon ?? "!", title: this._issueText(issue), subs: issueSubs(issue), actions: [], pinned: true });
     }
 
     const ctrl = d.controller_state;
     if (ctrl === "off") {
-      msgs.push({ key: "ctrl:off", tone: "off", icon: "⏻", title: "Varmen er slukket for hele huset", subs: ["Tænd under Controller for at starte automatikken igen"], actions: [] });
+      msgs.push({ key: "ctrl:off", tone: "off", icon: "⏻", title: this._t("sl.off_title"), subs: [this._t("sl.off_sub")], actions: [] });
     } else if (ctrl === "pause") {
       const left = d.pause_remaining ?? 0;
-      msgs.push({ key: "ctrl:pause", tone: "pause", icon: "⏸", title: `Varmen er sat på pause${left ? ` · ${this._durText(left * 60000)} tilbage` : ""}`, subs: ["Fortsætter af sig selv bagefter"], actions: [] });
+      msgs.push({ key: "ctrl:pause", tone: "pause", icon: "⏸", title: left ? this._t("sl.pause_title_left", { duration: this._durText(left * 60000) }) : this._t("sl.pause_title"), subs: [this._t("sl.pause_sub")], actions: [] });
     }
 
     for (const issue of issues.filter(i => i.severity === "warning" && !i.snoozed)) {
-      msgs.push({ key: `issue:${issue.id ?? issue.message}`, tone: "warning", icon: issue.icon ?? "!", title: issue.message, subs: issueSubs(issue), actions: issue.id ? [{ act: "snooze", id: issue.id, label: "🔕 Skjul 1 t" }] : [] });
+      msgs.push({ key: `issue:${issue.id ?? issue.message}`, tone: "warning", icon: issue.icon ?? "!", title: this._issueText(issue), subs: issueSubs(issue), actions: issue.id ? [{ act: "snooze", id: issue.id, label: "🔕 " + this._t("sl.hide_1h") }] : [] });
     }
 
     const manual = rooms.filter(r => r.state === "override");
@@ -2740,20 +2821,22 @@ class HeatManagerPanel extends HTMLElement {
       const exp = manual.map(r => r.override_expires_at ? Date.parse(r.override_expires_at) : NaN);
       const allExp = exp.every(t => !isNaN(t));
       const last = allExp ? Math.max(...exp) : NaN;
-      const countTxt = manual.length >= controllable ? "Manuel i alle rum" : `Manuel i ${manual.length} af ${controllable} rum`;
-      const title = allExp ? `${countTxt} · auto igen om ${this._durText(last - Date.now())}` : `${countTxt} · uden udløb`;
+      const countTxt = manual.length >= controllable ? this._t("sl.manual_all") : this._t("sl.manual_some", { count: manual.length, total: controllable });
+      const title = allExp ? this._t("sl.auto_in", { count: countTxt, duration: this._durText(last - Date.now()) }) : this._t("sl.no_expiry", { count: countTxt });
       const sources = [...new Set(manual.map(r => r.override_source))];
       const since = manual.map(r => r.override_since ? Date.parse(r.override_since) : NaN).filter(t => !isNaN(t));
       const firstSince = since.length ? Math.min(...since) : NaN;
-      const srcTxt = sources.map(s => (this._overrideSourceName(s) ?? "manuel ændring").toLowerCase()).join(" og ");
-      const subs = [manual.map(r => r.name).join(", "), `sat via ${srcTxt}${!isNaN(firstSince) ? ` kl. ${this._hhmm(new Date(firstSince).toISOString())}` : ""}`];
+      const srcTxt = sources.map(s => (this._overrideSourceName(s) ?? this._t("why.manual_change")).toLowerCase()).join(this._t("sl.and"));
+      const subs = [manual.map(r => r.name).join(", "), !isNaN(firstSince)
+        ? this._t("sl.set_via_at", { sources: srcTxt, time: this._hhmm(new Date(firstSince).toISOString()) })
+        : this._t("sl.set_via", { sources: srcTxt })];
       let ring = null;
       if (allExp && !isNaN(firstSince) && last > firstSince) {
         ring = Math.min(1, Math.max(0, (last - Date.now()) / (last - firstSince)));
       }
       const actions = [];
-      if (exp.some(t => !isNaN(t))) actions.push({ act: "extend", label: "+1 time" });
-      actions.push({ act: "release", label: "Auto nu" });
+      if (exp.some(t => !isNaN(t))) actions.push({ act: "extend", label: this._t("sl.plus_1h") });
+      actions.push({ act: "release", label: this._t("sl.auto_now") });
       msgs.push({ key: "manual", tone: "manual", icon: this._overrideSourceIcon(sources.length === 1 ? sources[0] : null), title, subs, actions, ring });
     }
 
@@ -2761,7 +2844,7 @@ class HeatManagerPanel extends HTMLElement {
     if (boostLeft > 0) {
       const total = Number(d.config?.boost_default_minutes) || 0;
       const boosted = rooms.filter(r => r.boost_active).map(r => r.name);
-      msgs.push({ key: "boost", tone: "ack", icon: "⚡", title: `Boost aktivt · ${this._durText(boostLeft * 60000)} tilbage`, subs: boosted.length ? [boosted.join(", ")] : [], actions: [], ring: total > 0 ? Math.min(1, boostLeft / total) : null });
+      msgs.push({ key: "boost", tone: "ack", icon: "⚡", title: this._t("sl.boost_left", { duration: this._durText(boostLeft * 60000) }), subs: boosted.length ? [boosted.join(", ")] : [], actions: [], ring: total > 0 ? Math.min(1, boostLeft / total) : null });
     }
 
     if (!msgs.length) {
@@ -2773,9 +2856,9 @@ class HeatManagerPanel extends HTMLElement {
       if (night) subs.push(`🌙 ${night}`);
       // Outdoor temp + weather moved here from the header sub-line (v0.60.1).
       // 6.0 m/s mirrors const.py's WIND_FAST_MS — keep in sync if that changes.
-      const wx = [d.precipitation > 0 ? "🌧️ regn" : null, d.wind_speed != null && d.wind_speed >= 6.0 ? "💨 blæst" : null].filter(Boolean);
-      if (d.outdoor_temp != null) subs.push(`🌡 Ude ${this._fmtTemp(d.outdoor_temp)}${wx.length ? ` · ${wx.join(" · ")}` : ""}`);
-      msgs.push({ key: "ok", tone: "ok", icon: "✓", title: heating ? `Alt kører automatisk · ${heating} rum varmer op` : "Alt kører automatisk · alle rum er på mål", subs, actions: [] });
+      const wx = [d.precipitation > 0 ? "🌧️ " + this._t("sl.rain") : null, d.wind_speed != null && d.wind_speed >= 6.0 ? "💨 " + this._t("sl.wind") : null].filter(Boolean);
+      if (d.outdoor_temp != null) subs.push(`🌡 ${this._t("sl.outdoor", { temp: this._fmtTemp(d.outdoor_temp) })}${wx.length ? ` · ${wx.join(" · ")}` : ""}`);
+      msgs.push({ key: "ok", tone: "ok", icon: "✓", title: heating ? this._t("sl.ok_heating", { count: heating }) : this._t("sl.ok_all_on_target"), subs, actions: [] });
     }
     return msgs;
   }
@@ -2810,7 +2893,7 @@ class HeatManagerPanel extends HTMLElement {
     const actions = (m.actions ?? []).map(a =>
       `<button class="sl-btn act-${a.act}" data-sl-act="${a.act}"${a.id ? ` data-sl-id="${this._esc(a.id)}"` : ""}>${this._esc(a.label)}</button>`).join("");
     const dots = pool.length > 1
-      ? `<div class="sl-dots">${pool.map((_, i) => `<button class="sl-dot${i === this._slIndex ? " on" : ""}" data-sl-dot="${i}" aria-label="Besked ${i + 1} af ${pool.length}"></button>`).join("")}</div>`
+      ? `<div class="sl-dots">${pool.map((_, i) => `<button class="sl-dot${i === this._slIndex ? " on" : ""}" data-sl-dot="${i}" aria-label="${this._t("sl.message_n_of", { n: i + 1, total: pool.length })}"></button>`).join("")}</div>`
       : "";
     const others = this._activeIssues().filter(i => i.severity !== "info").length;
     main.innerHTML = `${tile}
@@ -2834,25 +2917,25 @@ class HeatManagerPanel extends HTMLElement {
 
     const manual = rooms.filter(r => r.state === "override");
     if (manual.length) {
-      sections.push(`<div class="sl-sec"><div class="sl-sec-title">Styring</div>${manual.map(r => {
+      sections.push(`<div class="sl-sec"><div class="sl-sec-title">${this._t("sl.sec_control")}</div>${manual.map(r => {
         const since = this._hhmm(r.override_since), until = this._hhmm(r.override_expires_at);
         return `<div class="sl-row"><span class="sl-row-icon">${this._overrideSourceIcon(r.override_source)}</span>
-          <span class="sl-row-text">${this._esc(r.name)} · ${this._esc((this._overrideSourceName(r.override_source) ?? "manuel ændring").toLowerCase())}</span>
-          <span class="sl-row-meta">${since ? `siden ${since} · ` : ""}${until ? `auto ${until}` : "uden udløb"}</span></div>`;
+          <span class="sl-row-text">${this._esc(r.name)} · ${this._esc((this._overrideSourceName(r.override_source) ?? this._t("why.manual_change")).toLowerCase())}</span>
+          <span class="sl-row-meta">${since ? this._t("sl.since", { time: since }) : ""}${until ? this._t("sl.auto_at", { time: until }) : this._t("sl.no_expiry_short")}</span></div>`;
       }).join("")}</div>`);
     }
 
     const issues = this._activeIssues().filter(i => i.severity !== "info");
-    sections.push(`<div class="sl-sec"><div class="sl-sec-title">Advarsler</div>${issues.length ? issues.map(i => `
+    sections.push(`<div class="sl-sec"><div class="sl-sec-title">${this._t("sl.sec_warnings")}</div>${issues.length ? issues.map(i => `
       <div class="sl-row sev-${i.severity}${i.snoozed ? " snoozed" : ""}">
         <span class="sl-row-icon">${this._esc(i.icon ?? "!")}</span>
-        <span class="sl-row-text">${this._esc(i.message)}</span>
+        <span class="sl-row-text">${this._esc(this._issueText(i))}</span>
         ${i.snoozed
-          ? `<span class="sl-row-meta">skjult til ${this._hhmm(i.snoozed_until) ?? ""}</span><button class="sl-btn small" data-sl-act="unsnooze" data-sl-id="${this._esc(i.id)}">Vis</button>`
-          : (i.severity === "warning" && i.id ? `<button class="sl-btn small" data-sl-act="snooze" data-sl-id="${this._esc(i.id)}">Skjul 1 t</button>` : "")}
-      </div>`).join("") : `<div class="sl-empty">Ingen advarsler 🎉</div>`}</div>`);
+          ? `<span class="sl-row-meta">${this._t("sl.hidden_until", { time: this._hhmm(i.snoozed_until) ?? "" })}</span><button class="sl-btn small" data-sl-act="unsnooze" data-sl-id="${this._esc(i.id)}">${this._t("sl.show")}</button>`
+          : (i.severity === "warning" && i.id ? `<button class="sl-btn small" data-sl-act="snooze" data-sl-id="${this._esc(i.id)}">${this._t("sl.hide_1h")}</button>` : "")}
+      </div>`).join("") : `<div class="sl-empty">${this._t("sl.no_warnings")}</div>`}</div>`);
 
-    sections.push(`<div class="sl-sec"><div class="sl-sec-title">Hvorfor — rum for rum <span class="sl-sec-hint">klik for detaljer</span></div>${rooms.map(r => {
+    sections.push(`<div class="sl-sec"><div class="sl-sec-title">${this._t("sl.sec_why")} <span class="sl-sec-hint">${this._t("sl.click_details")}</span></div>${rooms.map(r => {
       const why = this._roomWhy(r);
       const open = this._slWhyOpen?.has(r.name);
       return `<div class="sl-why tone-${why.tone}${open ? " open" : ""}" data-sl-why="${this._esc(r.name)}" role="button" tabindex="0" aria-expanded="${open}">
@@ -2862,9 +2945,9 @@ class HeatManagerPanel extends HTMLElement {
     }).join("")}</div>`);
 
     const events = (this._slEvents ?? []).slice(0, 5);
-    sections.push(`<div class="sl-sec"><div class="sl-sec-title">Seneste</div>${events.length ? events.map(e => `
-      <div class="sl-row"><span class="sl-row-meta sl-time">${this._esc(e.time ?? "")}</span><span class="sl-row-text">${this._esc(e.description ?? "")}</span></div>`).join("")
-      : `<div class="sl-empty">${this._slEventsLoading ? "Henter…" : "Ingen hændelser endnu"}</div>`}</div>`);
+    sections.push(`<div class="sl-sec"><div class="sl-sec-title">${this._t("sl.sec_latest")}</div>${events.length ? events.map(e => `
+      <div class="sl-row"><span class="sl-row-meta sl-time">${this._esc(e.time ?? "")}</span><span class="sl-row-text">${this._esc(this._eventText(e))}</span></div>`).join("")
+      : `<div class="sl-empty">${this._t(this._slEventsLoading ? "sl.fetching" : "sl.no_events")}</div>`}</div>`);
 
     return sections.join("");
   }
@@ -2924,13 +3007,13 @@ class HeatManagerPanel extends HTMLElement {
         }
         if (act === "extend") {
           const res = await this._hass.callWS({ type: "heat_manager/extend_overrides", minutes: 60 });
-          this._showToast(res?.rooms_extended?.length ? "Manuel styring forlænget med 1 time" : "Intet at forlænge", "success");
+          this._showToast(this._t(res?.rooms_extended?.length ? "toast.extended" : "toast.nothing_to_extend"), "success");
         } else if (act === "snooze" || act === "unsnooze") {
           await this._hass.callWS({ type: "heat_manager/snooze_issue", issue_id: id, minutes: act === "snooze" ? 60 : 0 });
-          this._showToast(act === "snooze" ? "Skjult i 1 time" : "Vises igen", "success");
+          this._showToast(this._t(act === "snooze" ? "toast.snoozed" : "toast.unsnoozed"), "success");
         }
       } catch (err) {
-        this._showToast("Det lykkedes ikke — prøv igen", "error");
+        this._showToast(this._t("toast.try_again"), "error");
       }
       this._load();
       return;
@@ -3029,9 +3112,9 @@ class HeatManagerPanel extends HTMLElement {
     try {
       const res = await this._hass.callWS({ type: "heat_manager/release_overrides" });
       const n = res?.rooms_released?.length ?? 0;
-      this._showToast(n ? `${n} rum tilbage på automatik` : "Alle rum kører allerede automatisk", "success");
+      this._showToast(n ? this._t("toast.released", { count: n }) : this._t("toast.already_auto"), "success");
     } catch (e) {
-      this._showToast("Kunne ikke sætte rummene tilbage på automatik", "error");
+      this._showToast(this._t("toast.release_failed"), "error");
     }
     this._load();
   }
@@ -3072,7 +3155,7 @@ class HeatManagerPanel extends HTMLElement {
     // fully closed one until the state pill actually flipped to
     // "Vindue åbent". Only shown for that in-between case.
     const windowPendingBadge = room.windows_open && state !== "window_open"
-      ? `<div class="room-window-pending-badge" title="Vindue fysisk åbent — venter på forsinkelse før varmen slås fra">🪟 venter</div>`
+      ? `<div class="room-window-pending-badge" title="${this._t("room_card.window_pending_title")}">🪟 ${this._t("room_card.window_pending")}</div>`
       : "";
     // 2026-09-07 audit fix (5.2 follow-up): humidity/CO2 were already in the
     // payload (used by the Rum-detaljer tab) but never shown on the
@@ -3086,13 +3169,13 @@ class HeatManagerPanel extends HTMLElement {
     // 2026-09-07 audit fix (5.3): mold-risk badge (see websocket.py comment
     // at the mold_risk field for the algorithm).
     const moldBadge = room.mold_risk
-      ? `<div class="room-mold-badge" title="Høj fugt tæt på dugpunktet — risiko for skimmelvækst">⚠️ Skimmelrisiko</div>`
+      ? `<div class="room-mold-badge" title="${this._t("room_card.mold_title")}">⚠️ ${this._t("room_card.mold")}</div>`
       : "";
     // 2026-09-14 (punkt 4) — combined per-room health score, only shown
     // when it's below 100 so a fully healthy room stays badge-free.
-    const healthColor = room.health_label === "dårlig" ? "var(--red)" : room.health_label === "ok" ? "var(--amber)" : "var(--sub)";
+    const healthColor = this._healthColor(room.health_label);
     const healthBadge = (room.health_score != null && room.health_score < 100)
-      ? `<div class="room-health-badge" style="color:${healthColor}" title="Sundhedsscore — kombinerer batteri, skimmelrisiko, utilgængelige enheder og opvarmningsafvigelse">🩺 ${Math.round(room.health_score)}%</div>`
+      ? `<div class="room-health-badge" style="color:${healthColor}" title="${this._t("health.title")}">🩺 ${Math.round(room.health_score)}%</div>`
       : "";
     // 2026-09-07 audit fix (5.6/5.9): sync-mode, schedule and multi-TRV were
     // already in the payload (Rum-detaljer tab, config-only fields) but
@@ -3100,13 +3183,13 @@ class HeatManagerPanel extends HTMLElement {
     // don't push the valve/blocking badges further down the card.
     const metaBadges = [];
     if (room.sync_mode && room.sync_mode !== "disabled") {
-      metaBadges.push(`<span class="room-meta-badge" title="Synkroniseringstilstand">🔄 ${this._esc(this._syncModeLabel(room.sync_mode))}</span>`);
+      metaBadges.push(`<span class="room-meta-badge" title="${this._t("room_card.sync_title")}">🔄 ${this._esc(this._syncModeLabel(room.sync_mode))}</span>`);
     }
     if (room.schedule_entity) {
-      metaBadges.push(`<span class="room-meta-badge" title="Schedule-entity konfigureret">🗓 Schedule</span>`);
+      metaBadges.push(`<span class="room-meta-badge" title="${this._t("room_card.schedule_title")}">🗓 ${this._t("room_card.schedule")}</span>`);
     }
     if (room.trv_count > 1) {
-      metaBadges.push(`<span class="room-meta-badge" title="Antal ventiler i rummet">🔧 ${room.trv_count} ventiler</span>`);
+      metaBadges.push(`<span class="room-meta-badge" title="${this._t("room_card.valves_title")}">🔧 ${this._t("room_card.valves", { count: room.trv_count })}</span>`);
     }
     const metaRow = metaBadges.length ? `<div class="room-meta-row">${metaBadges.join("")}</div>` : "";
     // 2026-09-11 (monitoring-only rooms): a room with no TRV at all (e.g.
@@ -3121,21 +3204,21 @@ class HeatManagerPanel extends HTMLElement {
       ? `<div class="room-temps">
            <div class="room-temp-box">
              <div class="room-temp-val">${tempStr}</div>
-             <div class="room-temp-lbl">I rummet</div>
+             <div class="room-temp-lbl">${this._t("room_card.in_room")}</div>
            </div>
            <div class="room-temp-box">
              <div class="room-temp-val">${setpt ?? "–"}</div>
-             <div class="room-temp-lbl">Mål nu</div>
+             <div class="room-temp-lbl">${this._t("room_card.target_now")}</div>
            </div>
            <div class="room-temp-box">
              <div class="room-temp-val" style="${battColor ? `color:${battColor}` : ""}">${battStr}</div>
-             <div class="room-temp-lbl">Batteri</div>
+             <div class="room-temp-lbl">${this._t("room_card.battery")}</div>
            </div>
          </div>`
       : `<div class="room-temps" style="grid-template-columns:1fr">
            <div class="room-temp-box">
              <div class="room-temp-val">${tempStr}</div>
-             <div class="room-temp-lbl">I rummet</div>
+             <div class="room-temp-lbl">${this._t("room_card.in_room")}</div>
            </div>
          </div>`;
     return `
@@ -3164,30 +3247,30 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   _roomsGridHTML(rooms) {
-    if (!rooms?.length) return `<div class="empty">Ingen rum konfigureret</div>`;
+    if (!rooms?.length) return `<div class="empty">${this._t("overview.no_rooms")}</div>`;
     return `<div class="rooms-grid">${rooms.map(r => this._roomCardHTML(r)).join("")}</div>`;
   }
 
   _personsInnerHTML() {
     const persons = this._data?.persons ?? [];
-    if (!persons.length) return `<div class="empty">Ingen personer konfigureret</div>`;
+    if (!persons.length) return `<div class="empty">${this._t("persons.none")}</div>`;
     return persons.map(p => {
       const isHome  = p.state === "home";
       const noTrack = p.tracking === false;
       const initials = (p.name ?? "?").substring(0,2).toUpperCase();
       const avCls    = noTrack ? "av-none" : isHome ? "av-home" : "av-away";
       const stColor  = noTrack ? "var(--sub)" : isHome ? "#fed7aa" : "var(--sub)";
-      const stTxt    = noTrack ? "Følger huset" : isHome ? "Hjemme" : "Ikke hjemme";
+      const stTxt    = this._t(noTrack ? "persons.follows_house" : isHome ? "persons.home" : "persons.not_home");
       return `
         <div class="person-row">
           <div class="avatar ${avCls}">${initials}</div>
           <div>
             <div class="person-name">${this._esc(p.name ?? "")}</div>
-            ${noTrack ? `<div class="person-note">Ingen tracking</div>` : ""}
+            ${noTrack ? `<div class="person-note">${this._t("persons.no_tracking")}</div>` : ""}
           </div>
           <div class="person-right">
             <div class="person-state" style="color:${stColor}">${stTxt}</div>
-            ${p.since ? `<div class="person-since">siden ${this._esc(p.since)}</div>` : ""}
+            ${p.since ? `<div class="person-since">${this._t("persons.since", { time: this._esc(p.since) })}</div>` : ""}
           </div>
         </div>`;
     }).join("");
@@ -3205,9 +3288,10 @@ class HeatManagerPanel extends HTMLElement {
     // "Slukket" badge below gave no clue *why*. Label only the two reasons
     // that actually fire (see AutoOffReason in const.py); "none" needs no
     // label since isOff is already false whenever it applies.
-    const reasonLabel = { season: "sæson", temperature: "temperatur" }[d?.auto_off_reason] ?? null;
-    const calMap = { winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår" };
-    const calLabel = calMap[d?.calendar_season] ?? "–";
+    const reasonLabel = ["season", "temperature"].includes(d?.auto_off_reason)
+      ? this._t(`auto_off.reason_${d.auto_off_reason}`) : null;
+    const calLabel = ["winter", "spring", "summer", "autumn"].includes(d?.calendar_season)
+      ? this._t(`season.${d.calendar_season}`) : "–";
     // v0.3.9 fix: effective_season is dormant/waking/active, not a calendar
     // season — previously looked up in calMap and always showed "–".
     const eff      = this._effSeasonInfo(d?.effective_season);
@@ -3215,33 +3299,40 @@ class HeatManagerPanel extends HTMLElement {
     // v0.70.0: why the season is (not) "Opvågning" — the indoor wake sensor
     // AND the outdoor minimum both have to be met (SeasonEngine.wake_check).
     const wc = d?.wake_check;
-    const fmtC = (v) => (v == null ? "–" : String(v).replace(".", ",") + " °C");
+    const fmtC = (v) => (v == null ? "–" : String(v).replace(".", this._t("common.decimal_sep")) + " °C");
     const wakeLine = wc
-      ? `Inde ${fmtC(wc.indoor)} ${wc.indoor >= wc.threshold ? "≥" : "<"} ${fmtC(wc.threshold)} · ude ${fmtC(wc.outdoor)} ${wc.outdoor == null || wc.outdoor >= wc.min_outdoor ? "≥" : "<"} ${fmtC(wc.min_outdoor)}`
+      ? this._t("auto_off.wake_line", {
+          indoor: fmtC(wc.indoor),
+          cmp_in: wc.indoor >= wc.threshold ? "≥" : "<",
+          threshold: fmtC(wc.threshold),
+          outdoor: fmtC(wc.outdoor),
+          cmp_out: wc.outdoor == null || wc.outdoor >= wc.min_outdoor ? "≥" : "<",
+          min_outdoor: fmtC(wc.min_outdoor),
+        })
       : "";
     return `
       <div class="section-box-header">
-        <div class="section-box-title">Auto-off status</div>
+        <div class="section-box-title">${this._t("auto_off.title")}</div>
         <div class="section-box-badge" style="background:${isOff?"rgba(239,68,68,0.15)":"rgba(249,115,22,0.15)"};color:${isOff?"#ef4444":"#f97316"}">
-          ${isOff ? "Slukket" + (reasonLabel ? ` (${reasonLabel})` : "") : "Aktiv"}
+          ${isOff ? (reasonLabel ? this._t("auto_off.off_reason", { reason: reasonLabel }) : this._t("auto_off.off")) : this._t("auto_off.active")}
         </div>
       </div>
       <div class="autooff-grid">
         <div class="aocard">
-          <div class="aocard-lbl">Kalender-sæson</div>
+          <div class="aocard-lbl">${this._t("auto_off.calendar_season")}</div>
           <div class="aocard-val">${calLabel}</div>
         </div>
         <div class="aocard">
-          <div class="aocard-lbl">Effektiv sæson</div>
+          <div class="aocard-lbl">${this._t("auto_off.effective_season")}</div>
           <div class="aocard-val">${eff.icon} ${eff.label}</div>
           ${wakeLine ? `<div class="aocard-lbl" style="margin-top:4px;text-transform:none;letter-spacing:0">${this._esc(wakeLine)}</div>` : ""}
         </div>
         <div class="aocard">
-          <div class="aocard-lbl">Udetemperatur</div>
-          <div class="aocard-val">${otemp} / ${d?.auto_off_threshold ?? 18}°C grænse</div>
+          <div class="aocard-lbl">${this._t("auto_off.outdoor")}</div>
+          <div class="aocard-val">${this._t("auto_off.outdoor_value", { temp: otemp, threshold: d?.auto_off_threshold ?? 18 })}</div>
         </div>
         <div class="aocard">
-          <div class="aocard-lbl">Dage over grænse</div>
+          <div class="aocard-lbl">${this._t("auto_off.days_above")}</div>
           <div class="aocard-val">${d?.auto_off_days ?? 0} / ${d?.auto_off_days_required ?? 5}</div>
         </div>
       </div>`;
@@ -3257,14 +3348,14 @@ class HeatManagerPanel extends HTMLElement {
       ? all
       : all.filter(e => (e.type ?? "normal") === this._historyFilter);
     if (!events.length) {
-      return `<div class="empty">${all.length ? "Ingen hændelser af denne type" : "Ingen hændelser endnu"}</div>`;
+      return `<div class="empty">${this._t(all.length ? "history.no_events_type" : "history.no_events")}</div>`;
     }
     return events.slice(0, 25).map(e => `
       <div class="hist-row">
         <div class="hist-dot" style="background:${this._eventTypeInfo(e.type ?? "normal").color}"></div>
         <div class="hist-time">${this._esc(e.time ?? "")}</div>
-        <div class="hist-desc">${this._esc(e.description ?? "")}</div>
-        <div class="hist-reason">${this._esc(e.reason ?? "")}</div>
+        <div class="hist-desc">${this._esc(this._eventText(e))}</div>
+        <div class="hist-reason">${this._esc(this._eventReason(e))}</div>
       </div>`).join("");
   }
 
@@ -3309,39 +3400,39 @@ class HeatManagerPanel extends HTMLElement {
 
       <div class="section-box">
         <div class="section-box-header">
-          <div class="section-box-title">Rum</div>
+          <div class="section-box-title">${this._t("overview.rooms")}</div>
         </div>
         <div class="qs-grid">
           <div class="qs-card" style="--c:var(--amber)">
             <div class="qs-card" style="position:absolute;inset:0;border-radius:12px;background:linear-gradient(135deg,rgba(249,115,22,0.08) 0%,transparent 100%);pointer-events:none"></div>
             <div class="qs-icon">🔥</div>
             <div class="qs-value" data-qs="qs-active" style="color:var(--amber)">${active}</div>
-            <div class="qs-label">Aktiv</div>
+            <div class="qs-label">${this._t("overview.qs_active")}</div>
           </div>
           <div class="qs-card">
             <div class="qs-icon">🏃</div>
             <div class="qs-value" data-qs="qs-away" style="color:var(--sub)">${away}</div>
-            <div class="qs-label">Fraværende</div>
+            <div class="qs-label">${this._t("overview.qs_away")}</div>
           </div>
           <div class="qs-card">
             <div class="qs-icon">🛋️</div>
             <div class="qs-value" data-qs="qs-passive" style="color:var(--sub)">${passive}</div>
-            <div class="qs-label">Passiv</div>
+            <div class="qs-label">${this._t("overview.qs_passive")}</div>
           </div>
           <div class="qs-card" ${winOpenTitle ? `title="${this._esc(winOpenTitle)}"` : ""}>
             <div class="qs-icon">🪟</div>
             <div class="qs-value" data-qs="qs-window" style="color:${winOpen > 0 ? "var(--red)" : "var(--sub)"}">${winOpen}</div>
-            <div class="qs-label">Vindue åbent</div>
+            <div class="qs-label">${this._t("overview.qs_window")}</div>
           </div>
           <div class="qs-card" ${doorsOpenTitle ? `title="${this._esc(doorsOpenTitle)}"` : ""}>
             <div class="qs-icon">🚪</div>
             <div class="qs-value" data-qs="qs-doors" style="color:${openDoors.length > 0 ? "var(--red)" : "var(--sub)"}">${openDoors.length}</div>
-            <div class="qs-label">Åbne døre</div>
+            <div class="qs-label">${this._t("overview.qs_doors")}</div>
           </div>
           <div class="qs-card">
             <div class="qs-icon">❄️</div>
             <div class="qs-value" data-qs="qs-preheat" style="color:var(--teal)">${rooms.filter(r => r.state === "pre_heat").length}</div>
-            <div class="qs-label">Forvarmning</div>
+            <div class="qs-label">${this._t("overview.qs_preheat")}</div>
           </div>
         </div>
         <div style="padding: 0 16px 14px;">
@@ -3351,7 +3442,7 @@ class HeatManagerPanel extends HTMLElement {
 
       <div class="section-box">
         <div class="section-box-header">
-          <div class="section-box-title">Tilstedeværelse</div>
+          <div class="section-box-title">${this._t("overview.presence")}</div>
         </div>
         ${this._personsHTML()}
       </div>
@@ -3375,7 +3466,7 @@ class HeatManagerPanel extends HTMLElement {
     // ── Header ────────────────────────────────────────────────────────────
     const trvBadge = room.trv_type
       ? this._trvBadgeHTML(room.trv_type, room.netatmo_backend)
-      : `<span class="rd-badge-sensor">Kun sensorer</span>`;
+      : `<span class="rd-badge-sensor">${this._t("rd.sensors_only")}</span>`;
     const boostBadge = room.boost_active
       ? `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(168,85,247,0.15);color:#c084fc;margin-left:4px">⚡ BOOST</span>`
       : "";
@@ -3385,7 +3476,7 @@ class HeatManagerPanel extends HTMLElement {
     const overrideInfo = this._overrideInfoText(room);
     const unavailableList = room.unavailable_entities ?? [];
     const unavailableHTML = unavailableList.length
-      ? `<div class="rd-warn" title="${esc(unavailableList.join(", "))}">⚠ ${unavailableList.length} ${unavailableList.length > 1 ? "enheder svarer" : "enhed svarer"} ikke: ${esc(unavailableList.join(", "))}</div>`
+      ? `<div class="rd-warn" title="${esc(unavailableList.join(", "))}">${this._t(unavailableList.length > 1 ? "rd.unavailable_many" : "rd.unavailable_one", { count: unavailableList.length, list: esc(unavailableList.join(", ")) })}</div>`
       : "";
 
     // Small building blocks.
@@ -3403,23 +3494,23 @@ class HeatManagerPanel extends HTMLElement {
       </div>`;
 
     // ── Temperatur ────────────────────────────────────────────────────────
-    const roomTempDesc = "Rummets faktiske temperatur — fra ekstern temperatursensor, hvis rummet har en, ellers fra ventilens egen måling.";
-    const targetDesc = "Den temperatur Heat Manager styrer efter lige nu: komforttemperaturen efter skema, offset, natsænkning og fravær.";
-    const sentDesc = "Det sætpunkt PID'en sender til ventilen lige nu. Kan ligge over målet, mens rummet stadig er koldt. Vises kun i normal, automatisk drift.";
-    const radiatorDesc = "Ventilens egen måling. Den sidder på radiatoren og viser typisk 1-3°C mere end rummet.";
+    const roomTempDesc = this._t("rd.room_temp_desc");
+    const targetDesc = this._t("rd.target_desc");
+    const sentDesc = this._t("rd.sent_desc");
+    const radiatorDesc = this._t("rd.radiator_desc");
     const setpt     = this._roomSetpoint(room);
     const trvTemp   = hasTrv ? this._climateTemp(room.climate_entity) : null;
-    const comfortSub = room.comfort_temp != null ? `komfort ${Math.round(room.comfort_temp * 10) / 10}°C` : "";
+    const comfortSub = room.comfort_temp != null ? this._t("rd.comfort_sub", { temp: Math.round(room.comfort_temp * 10) / 10 }) : "";
     const tempHTML = hasTrv
-      ? `${section("Temperatur")}
+      ? `${section(this._t("rd.sec_temperature"))}
          <div class="rd-grid">
-           ${stat("I rummet", fmtT(room.current_temp), "", roomTempDesc)}
-           ${stat("Mål nu", setpt ?? "–", comfortSub, targetDesc)}
-           ${stat("Sendt til ventil", fmtT(room.trv_setpoint), room.trv_setpoint != null ? "PID-sætpunkt" : "ikke i auto", sentDesc)}
-           ${stat("Ved radiatoren", trvTemp ?? "–", "ventilens måling", radiatorDesc)}
+           ${stat(this._t("rd.in_room"), fmtT(room.current_temp), "", roomTempDesc)}
+           ${stat(this._t("rd.target_now"), setpt ?? "–", comfortSub, targetDesc)}
+           ${stat(this._t("rd.sent_to_valve"), fmtT(room.trv_setpoint), this._t(room.trv_setpoint != null ? "rd.pid_setpoint" : "rd.not_in_auto"), sentDesc)}
+           ${stat(this._t("rd.at_radiator"), trvTemp ?? "–", this._t("rd.valve_reading"), radiatorDesc)}
          </div>`
-      : `${section("Temperatur")}
-         <div class="rd-grid" style="max-width:220px">${stat("I rummet", fmtT(room.current_temp), "", roomTempDesc)}</div>`;
+      : `${section(this._t("rd.sec_temperature"))}
+         <div class="rd-grid" style="max-width:220px">${stat(this._t("rd.in_room"), fmtT(room.current_temp), "", roomTempDesc)}</div>`;
 
     // ── Ventil ────────────────────────────────────────────────────────────
     let valveHTML = "";
@@ -3428,7 +3519,7 @@ class HeatManagerPanel extends HTMLElement {
       const isHeat = valve != null && valve > 0;
       const valveBar = valve != null
         ? `<div class="rd-row">
-             <span class="rd-row-l">Åbning</span>
+             <span class="rd-row-l">${this._t("rd.opening")}</span>
              <div class="rd-bar"><div style="width:${valve}%;background:${isHeat ? "#f97316" : "#475569"}"></div></div>
              <span class="rd-row-v" style="min-width:42px;text-align:right;color:${isHeat ? "#f97316" : "var(--sub)"}">${valve}%${isHeat ? " 🔥" : ""}</span>
            </div>`
@@ -3438,11 +3529,11 @@ class HeatManagerPanel extends HTMLElement {
       const calib = room.calibration_offset != null
         ? `${room.calibration_offset >= 0 ? "+" : ""}${room.calibration_offset.toFixed(1)}°C`
         : null;
-      valveHTML = `${section("Ventil")}
+      valveHTML = `${section(this._t("rd.sec_valve"))}
         ${valveBar}
-        ${room.pid_power != null ? row("Varmebehov (PID)", `${Math.round(room.pid_power)}%`, "", "Hvor meget varme PID-regulatoren beder om lige nu, 0-100%.") : ""}
-        ${calib ? row("Kalibrering", calib) : ""}
-        ${battery != null ? row("Batteri", `${battery}%`, batteryColor) : ""}
+        ${room.pid_power != null ? row(this._t("rd.heat_demand"), `${Math.round(room.pid_power)}%`, "", this._t("rd.heat_demand_desc")) : ""}
+        ${calib ? row(this._t("rd.calibration"), calib) : ""}
+        ${battery != null ? row(this._t("rd.battery"), `${battery}%`, batteryColor) : ""}
         ${this._netatmoRowsHTML(room, row)}`;
     }
 
@@ -3450,32 +3541,32 @@ class HeatManagerPanel extends HTMLElement {
     const doors = (this._data?.doors ?? []).filter(d => d.room_a === room.name || d.room_b === room.name);
     const doorRows = doors.map(d => {
       const other = d.room_a === room.name ? d.room_b : d.room_a;
-      const value = d.available === false ? "utilgængelig" : (d.is_open ? "Åben" : "Lukket");
-      return row(`Dør til ${esc(other)}`, value, d.is_open ? "color:var(--amber)" : "");
+      const value = this._t(d.available === false ? "rd.door_unavailable" : (d.is_open ? "rd.open" : "rd.closed"));
+      return row(this._t("rd.door_to", { room: esc(other) }), value, d.is_open ? "color:var(--amber)" : "");
     }).join("");
     const climateRows = [
-      room.humidity != null ? row("Luftfugtighed", `${Math.round(room.humidity * 10) / 10}%`) : "",
-      room.co2 != null ? row("CO₂", `${Math.round(room.co2)} ppm`) : "",
-      room.lux != null ? row("Lys", `${Math.round(room.lux)} lux`) : "",
-      room.window_duration_today != null ? row("Vindue åbent i dag", `${room.window_duration_today} min`) : "",
+      room.humidity != null ? row(this._t("rd.humidity"), `${Math.round(room.humidity * 10) / 10}%`) : "",
+      room.co2 != null ? row(this._t("rd.co2"), `${Math.round(room.co2)} ppm`) : "",
+      room.lux != null ? row(this._t("rd.light"), `${Math.round(room.lux)} lux`) : "",
+      room.window_duration_today != null ? row(this._t("rd.window_today"), `${room.window_duration_today} min`) : "",
       doorRows,
-      room.has_heated_doors ? row("Yderdør", room.heated_door_open ? "Åben" : "Lukket", room.heated_door_open ? "color:var(--amber)" : "") : "",
+      room.has_heated_doors ? row(this._t("rd.outer_door"), this._t(room.heated_door_open ? "rd.open" : "rd.closed"), room.heated_door_open ? "color:var(--amber)" : "") : "",
     ].join("");
-    const climateHTML = climateRows.trim() ? `${section("Indeklima")}${climateRows}` : "";
+    const climateHTML = climateRows.trim() ? `${section(this._t("rd.sec_climate"))}${climateRows}` : "";
 
     // ── Rummets indstillinger ─────────────────────────────────────────────
     // Inline editing of the room's comfort temperature (ws_update_room_config).
     // v0.67.0: the per-room "away temp" is gone — it was really the PID/setback
     // floor and is now the global "Laveste rumtemperatur" in Indstillinger.
-    const comfortDesc = "Den temperatur rummet skal have, når nogen er hjemme. Natsænkning og offset trækkes fra denne, men aldrig under laveste rumtemperatur (Indstillinger).";
-    const settingsHTML = hasTrv ? `${section("Rummets indstillinger")}
+    const comfortDesc = this._t("rd.comfort_desc");
+    const settingsHTML = hasTrv ? `${section(this._t("rd.sec_settings"))}
          <div class="room-cfg-edit" data-room="${roomName}">
            <div class="rd-row">
-             <span class="rd-row-l">Komforttemperatur${this._infoIcon(comfortDesc)}</span>
+             <span class="rd-row-l">${this._t("rd.comfort")}${this._infoIcon(comfortDesc)}</span>
              <input class="cfg-edit-input room-cfg-input" type="number" min="15" max="26" step="0.5"
                value="${esc(room.comfort_temp ?? "")}" data-field="comfort_temp">
              <span class="rd-unit">°C</span>
-             <button class="cfg-save-btn" data-action="save-room-cfg" data-room="${roomName}">Gem</button>
+             <button class="cfg-save-btn" data-action="save-room-cfg" data-room="${roomName}">${this._t("common.save")}</button>
              <span class="cfg-save-ok room-cfg-ok">✔</span>
            </div>
          </div>` : "";
@@ -3483,30 +3574,30 @@ class HeatManagerPanel extends HTMLElement {
     // ── Midlertidig ændring ───────────────────────────────────────────────
     const manualHTML = (hasTrv && this._manualControlEnabled) ? `
       <div class="room-manual" data-room="${roomName}">
-        <div class="rd-sec" style="margin-top:0">Midlertidig ændring</div>
+        <div class="rd-sec" style="margin-top:0">${this._t("rd.sec_temporary")}</div>
         <div class="room-manual-row">
-          <span class="room-manual-lbl">Temperatur</span>
+          <span class="room-manual-lbl">${this._t("rd.temperature")}</span>
           <input class="room-manual-slider" type="range" min="10" max="28" step="0.5"
             value="${setpt ? parseFloat(setpt) : 20}"
             data-room="${roomName}">
           <span class="room-manual-val">${setpt ? parseFloat(setpt) : 20}°C</span>
         </div>
         <div class="room-manual-row" style="margin-top:6px">
-          <span class="room-manual-lbl">Varighed</span>
+          <span class="room-manual-lbl">${this._t("rd.duration")}</span>
           <select class="room-manual-dur" data-room="${roomName}">
-            <option value="30">30 min</option>
-            <option value="60" selected>1 time</option>
-            <option value="120">2 timer</option>
-            <option value="0">Indtil videre</option>
+            <option value="30">${this._t("ctrl.dur_30m")}</option>
+            <option value="60" selected>${this._t("ctrl.dur_1h")}</option>
+            <option value="120">${this._t("ctrl.dur_2h")}</option>
+            <option value="0">${this._t("rd.until_further")}</option>
           </select>
-          <button class="room-manual-send" data-room="${roomName}">Sæt</button>
+          <button class="room-manual-send" data-room="${roomName}">${this._t("rooms.set")}</button>
         </div>
         <div class="room-manual-row" style="margin-top:6px">
           <span class="room-manual-lbl"></span>
           <button class="room-manual-reset" data-room="${roomName}"
-            title="Fjern den midlertidige ændring og følg skemaet igen">↺ Tilbage til automatik</button>
+            title="${this._t("rd.reset_title")}">↺ ${this._t("rooms.back_to_auto")}</button>
           <button class="room-manual-force" data-room="${roomName}"
-            title="Tving rummet til at varme nu, uanset tilstedeværelse og vinduer (heat_manager.force_room_on)">⚡ Tving varme til</button>
+            title="${this._t("rd.force_title")}">⚡ ${this._t("rooms.force_on")}</button>
         </div>
       </div>` : "";
 
@@ -3519,21 +3610,21 @@ class HeatManagerPanel extends HTMLElement {
     const roomOffset   = room.offset ?? 0;
     const groupingHTML = (hasTrv && trvCount > 1) ? `
       <div class="room-grouping" data-room="${roomName}">
-        <div class="rd-sec" style="margin-top:0">Ventilgruppe</div>
+        <div class="rd-sec" style="margin-top:0">${this._t("rd.sec_valve_group")}</div>
         <div class="room-group-row">
-          <span class="room-group-lbl">🔗 ${trvCount} ventiler</span>
+          <span class="room-group-lbl">🔗 ${this._t("rd.valves", { count: trvCount })}</span>
           <button class="toggle-btn room-group-toggle${groupEnabled ? " active" : ""}"
             data-action="toggle-room-group" data-room="${roomName}">
-            ${groupEnabled ? "Grupperet" : "Frigivet"}
+            ${this._t(groupEnabled ? "rd.grouped" : "rd.released")}
           </button>
         </div>
         <div class="room-offset-row" style="margin-top:8px">
-          <span class="room-offset-label">Offset</span>
+          <span class="room-offset-label">${this._t("rd.offset")}</span>
           <input class="room-offset-slider" type="range" min="-5" max="5" step="0.5"
             value="${roomOffset}" data-room="${roomName}">
           <span class="room-offset-val" data-room="${roomName}">${(roomOffset >= 0 ? "+" : "") + roomOffset.toFixed(1)}°C</span>
         </div>
-        ${!groupEnabled ? `<div style="font-size:10px;color:var(--sub);margin-top:6px;line-height:1.5">De ekstra ventiler styres ikke af Heat Manager lige nu — kun den primære ventil følger skemaet.</div>` : ""}
+        ${!groupEnabled ? `<div style="font-size:10px;color:var(--sub);margin-top:6px;line-height:1.5">${this._t("rd.released_note")}</div>` : ""}
       </div>` : "";
 
     // ── Collapsed summary (v0.67.1) ───────────────────────────────────────
@@ -3542,20 +3633,21 @@ class HeatManagerPanel extends HTMLElement {
     const summaryParts = [];
     if (room.current_temp != null) {
       summaryParts.push(hasTrv && setpt
-        ? `<span><b>${fmtT(room.current_temp)}</b>&nbsp;→ mål ${setpt}</span>`
+        ? `<span><b>${fmtT(room.current_temp)}</b>&nbsp;→ ${this._t("rd.sum_target", { temp: setpt })}</span>`
         : `<b>${fmtT(room.current_temp)}</b>`);
     }
     if (hasTrv && room.valve_position != null) {
       const v = Math.round(room.valve_position);
-      summaryParts.push(v > 0 ? `<span style="color:#f97316">ventil ${v}%</span>` : `ventil ${v}%`);
+      const vt = this._t("rd.sum_valve", { value: v });
+      summaryParts.push(v > 0 ? `<span style="color:#f97316">${vt}</span>` : vt);
     }
-    if (room.humidity != null) summaryParts.push(`fugt ${Math.round(room.humidity)}%`);
+    if (room.humidity != null) summaryParts.push(this._t("rd.sum_humidity", { value: Math.round(room.humidity) }));
     if (room.co2 != null) summaryParts.push(`CO₂ ${Math.round(room.co2)} ppm`);
     if (doors.some(d => d.is_open) || room.heated_door_open) {
-      summaryParts.push(`<span style="color:var(--amber)">dør åben</span>`);
+      summaryParts.push(`<span style="color:var(--amber)">${this._t("rd.sum_door_open")}</span>`);
     }
     if (hasTrv && room.battery_level != null && room.battery_level <= 30) {
-      summaryParts.push(`<span style="color:var(--amber)">batteri ${Math.round(room.battery_level)}%</span>`);
+      summaryParts.push(`<span style="color:var(--amber)">${this._t("rd.sum_battery", { value: Math.round(room.battery_level) })}</span>`);
     }
     const expanded = this._expandedRooms.has(room.name);
 
@@ -3564,7 +3656,7 @@ class HeatManagerPanel extends HTMLElement {
         <div style="padding:12px 16px">
           <div class="rd-head" data-action="toggle-room" data-room="${roomName}"
             role="button" tabindex="0" aria-expanded="${expanded}"
-            title="${expanded ? "Fold sammen" : "Vis detaljer"}">
+            title="${this._t(expanded ? "rd.collapse" : "rd.show_details")}">
             <div style="display:flex;align-items:center;gap:6px;min-width:0">
               <span class="rd-chevron" aria-hidden="true">›</span>
               <span style="font-size:14px;font-weight:600">${roomName}</span>
@@ -3613,7 +3705,7 @@ class HeatManagerPanel extends HTMLElement {
     row.classList.toggle("expanded", expanded);
     const head = row.querySelector(".rd-head");
     head?.setAttribute("aria-expanded", String(expanded));
-    head?.setAttribute("title", expanded ? "Fold sammen" : "Vis detaljer");
+    head?.setAttribute("title", this._t(expanded ? "rd.collapse" : "rd.show_details"));
     if (expanded) this._expandedRooms.add(name); else this._expandedRooms.delete(name);
   }
 
@@ -3622,12 +3714,12 @@ class HeatManagerPanel extends HTMLElement {
     if (!btn) return;
     const rows = [...this.shadowRoot.querySelectorAll(".room-detail-row")];
     const allOpen = rows.length > 0 && rows.every(r => r.classList.contains("expanded"));
-    btn.textContent = allOpen ? "Fold alle sammen" : "Fold alle ud";
+    btn.textContent = this._t(allOpen ? "rd.collapse_all" : "rd.expand_all");
     btn.dataset.mode = allOpen ? "collapse" : "expand";
   }
 
   // v0.66.0: Netatmo's own view of the room as plain Danish rows — who
-  // controls it ("Følger tidsplan «Vinter»", "Manuel til 18:30"), whether it
+  // controls it ("Following schedule «Winter»", "Manual until 18:30"), whether it
   // is heating, and Netatmo's own setpoint with a written-out warning when
   // it differs from Heat Manager's target. Only for rooms with a Netatmo
   // cloud entity (all cloud_* fields are null otherwise).
@@ -3635,18 +3727,19 @@ class HeatManagerPanel extends HTMLElement {
     const modeLabel = this._netatmoModeLabel(room);
     const sched = room.cloud_selected_schedule;
     const parts = [];
-    if (modeLabel === "tidsplan") {
-      parts.push(sched ? `Følger tidsplan «${this._esc(sched)}»` : "Følger tidsplan");
+    const mode = room.cloud_setpoint_mode;
+    if (mode === "schedule" || mode === "home") {
+      parts.push(sched ? this._t("rd.follows_schedule_named", { schedule: this._esc(sched) }) : this._t("rd.follows_schedule"));
     } else if (modeLabel) {
       parts.push(this._esc(modeLabel.charAt(0).toUpperCase() + modeLabel.slice(1)));
     } else if (room.cloud_preset_mode) {
-      parts.push(`Forvalg: ${this._esc(room.cloud_preset_mode)}${sched ? ` («${this._esc(sched)}»)` : ""}`);
+      parts.push(this._t("rd.preset", { preset: this._esc(room.cloud_preset_mode) }) + (sched ? ` («${this._esc(sched)}»)` : ""));
     } else if (sched) {
-      parts.push(`Tidsplan «${this._esc(sched)}»`);
+      parts.push(this._t("rd.schedule_named", { schedule: this._esc(sched) }));
     }
     const action = room.cloud_hvac_action;
     if (action) {
-      parts.push(({ heating: "varmer", idle: "varmer ikke", off: "slukket" })[action] ?? this._esc(action));
+      parts.push(["heating", "idle", "off"].includes(action) ? this._t(`rd.hvac_${action}`) : this._esc(action));
     }
     let html = parts.length ? row("Netatmo", parts.join(" · "), "color:var(--text)") : "";
     if (room.cloud_temperature != null) {
@@ -3656,13 +3749,13 @@ class HeatManagerPanel extends HTMLElement {
       // PID operation as a mismatch.
       const cloud = Math.round(room.cloud_temperature * 10) / 10;
       const ref = room.trv_setpoint ?? room.target_temp;
-      const refLabel = room.trv_setpoint != null ? "har sendt" : "vil have";
       const diverges = ref != null && Math.abs(room.cloud_temperature - ref) >= 0.5;
-      html += row("Sætpunkt i Netatmo", `${cloud}°C`, diverges ? "color:var(--amber)" : "",
-        "Det sætpunkt Netatmo selv viser for rummet — ikke nødvendigvis det Heat Manager vil have.");
+      html += row(this._t("rd.netatmo_setpoint"), `${cloud}°C`, diverges ? "color:var(--amber)" : "",
+        this._t("rd.netatmo_setpoint_desc"));
       if (diverges) {
         const refVal = Math.round(ref * 10) / 10;
-        html += `<div class="rd-note">⚠ Netatmo står på ${cloud}°C, Heat Manager ${refLabel} ${refVal}°C.</div>`;
+        const key = room.trv_setpoint != null ? "rd.netatmo_diverge_sent" : "rd.netatmo_diverge_wants";
+        html += `<div class="rd-note">${this._t(key, { cloud, ref: refVal })}</div>`;
       }
     }
     return html;
@@ -3684,27 +3777,27 @@ class HeatManagerPanel extends HTMLElement {
     return `
       <div class="section-box">
         <div class="section-box-header">
-          <div class="section-box-title">Alle rum — midlertidig ændring</div>
+          <div class="section-box-title">${this._t("rd.all_rooms_temporary")}</div>
         </div>
         <div class="room-manual" style="padding:12px 16px">
           <div class="room-manual-row">
-            <span class="room-manual-lbl">Temperatur</span>
+            <span class="room-manual-lbl">${this._t("rd.temperature")}</span>
             <input class="room-manual-slider global-manual-slider" type="range" min="10" max="28" step="0.5" value="20">
             <span class="room-manual-val global-manual-val">20°C</span>
           </div>
           <div class="room-manual-row" style="margin-top:6px">
-            <span class="room-manual-lbl">Varighed</span>
+            <span class="room-manual-lbl">${this._t("rd.duration")}</span>
             <select class="room-manual-dur global-manual-dur">
-              <option value="30">30 min</option>
-              <option value="60" selected>1 time</option>
-              <option value="120">2 timer</option>
-              <option value="0">Indtil videre</option>
+              <option value="30">${this._t("ctrl.dur_30m")}</option>
+              <option value="60" selected>${this._t("ctrl.dur_1h")}</option>
+              <option value="120">${this._t("ctrl.dur_2h")}</option>
+              <option value="0">${this._t("rd.until_further")}</option>
             </select>
-            <button class="room-manual-send global-manual-send" id="global-manual-send">Sæt i alle rum</button>
-            <button class="room-manual-reset global-manual-reset" id="global-manual-reset">↺ Alle tilbage til automatik</button>
+            <button class="room-manual-send global-manual-send" id="global-manual-send">${this._t("rooms.set_all")}</button>
+            <button class="room-manual-reset global-manual-reset" id="global-manual-reset">↺ ${this._t("rooms.all_back_to_auto")}</button>
           </div>
           <div style="font-size:10px;color:var(--sub);margin-top:6px">
-            Sætter ${controllable} rum med ventil til samme temperatur — rum med kun sensorer springes over.
+            ${this._t("rd.global_note", { count: controllable })}
           </div>
         </div>
       </div>`;
@@ -3717,34 +3810,34 @@ class HeatManagerPanel extends HTMLElement {
       ${this._globalManualHTML()}
       <div class="section-box">
         <div class="section-box-header">
-          <div class="section-box-title">Rum — detaljer</div>
+          <div class="section-box-title">${this._t("rd.title")}</div>
           <div style="display:flex;align-items:center;gap:8px">
-            <button class="rd-fold-all" id="rooms-fold-all" type="button">Fold alle ud</button>
+            <button class="rd-fold-all" id="rooms-fold-all" type="button">${this._t("rd.expand_all")}</button>
             <div class="section-box-badge rooms-detail-badge" style="background:rgba(249,115,22,0.15);color:var(--amber)">
-              ${heatingCount} / ${rooms.length} varmer
+              ${this._t("rooms.heating_badge", { heating: heatingCount, total: rooms.length })}
             </div>
           </div>
         </div>
         <div class="rooms-detail-container">
           ${rooms.length
             ? rooms.map(r => this._roomDetailRowHTML(r)).join("")
-            : `<div class="empty">Ingen rum konfigureret</div>`}
+            : `<div class="empty">${this._t("overview.no_rooms")}</div>`}
         </div>
       </div>`;
   }
 
   _historyTabHTML() {
     const tsText = this._historyFetchedAt
-      ? `Opdateret kl. ${String(this._historyFetchedAt.getHours()).padStart(2,"0")}:${String(this._historyFetchedAt.getMinutes()).padStart(2,"0")}`
+      ? this._t("history.updated_at", { time: `${String(this._historyFetchedAt.getHours()).padStart(2,"0")}:${String(this._historyFetchedAt.getMinutes()).padStart(2,"0")}` })
       : "";
     return `
       <div class="section-box">
         <div class="section-box-header">
-          <div class="section-box-title">Hændelseslog</div>
+          <div class="section-box-title">${this._t("history.title")}</div>
           <span id="hist-fetched-at" style="font-size:10px;color:var(--sub);margin-left:auto;margin-right:8px">${tsText}</span>
           <button class="section-box-badge" data-action="refresh-history"
             style="background:rgba(14,165,233,0.12);color:var(--teal);border:none;cursor:pointer;padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">
-            ↻ 7 dage
+            ↻ ${this._t("history.days_7")}
           </button>
         </div>
         <div id="hist-filter-row" class="hist-filter-row">${this._historyFilterChipsHTML()}</div>
@@ -3769,13 +3862,12 @@ class HeatManagerPanel extends HTMLElement {
   // One generic save-field/toggle-field click handler in _attachEvents()
   // handles every row these produce — see planning/heat_manager_fase2_spec.
   _cfgNumberRow(label, field, value, { min, max, step, unit = "", desc = "", cast = "float" } = {}) {
-    // 2026-09-19 (ønske: konsekvent beskrivelses-stil): var før en (i)-hover-
-    // ikon (_infoIcon) — skjult indtil man aktivt hoverede/tappede den, i
-    // modstrid med _cfgToggleRow's altid-synlige beskrivelse lige under
-    // label'et. Nu samme mønster begge steder: beskrivelsen står direkte
-    // under label-rækken, aldrig skjult. Gælder alle kald af denne funktion
-    // på tværs af alle 14 sektioner i Konfiguration — én ændring her slår
-    // igennem overalt, ingen af de øvrige kaldesteder skal røres.
+    // 2026-09-19 (consistent description style): this used to be an (i)
+    // hover icon (_infoIcon) — hidden until hovered/tapped, unlike
+    // _cfgToggleRow's always-visible description under the label. Now the
+    // same pattern in both: the description sits directly under the label
+    // row, never hidden. Applies to every call across all 14 Settings
+    // sections — one change here, no call site needs touching.
     return `
       <div class="cfg-edit-row-wrap">
         <div class="cfg-edit-row">
@@ -3784,7 +3876,7 @@ class HeatManagerPanel extends HTMLElement {
             id="cfg-${field}-input" min="${min}" max="${max}" step="${step}"
             value="${this._esc(value)}">
           ${unit ? `<span class="cfg-edit-label" style="flex-shrink:0">${this._esc(unit)}</span>` : ""}
-          <button class="cfg-save-btn" data-action="save-field" data-field="${field}" data-cast="${cast}">Gem</button>
+          <button class="cfg-save-btn" data-action="save-field" data-field="${field}" data-cast="${cast}">${this._t("common.save")}</button>
           <span class="cfg-save-ok" id="cfg-${field}-ok">✔</span>
         </div>
         ${desc ? `<div class="cfg-edit-desc">${this._esc(desc)}</div>` : ""}
@@ -3793,24 +3885,21 @@ class HeatManagerPanel extends HTMLElement {
 
   // v0.67.7: which alarm states put the house in away. Toggle chips; each
   // click saves the whole list (heat_manager/update_config alarm_away_states).
-  static get ALARM_STATE_LABELS() {
-    return {
-      armed_away: "Armeret væk",
-      armed_vacation: "Armeret ferie",
-      armed_night: "Armeret nat",
-      armed_home: "Armeret hjemme",
-      armed_custom_bypass: "Armeret brugerdefineret",
-    };
+  static get ALARM_STATES() {
+    return ["armed_away", "armed_vacation", "armed_night", "armed_home", "armed_custom_bypass"];
+  }
+
+  _alarmStateLabel(state) {
+    return this.constructor.ALARM_STATES.includes(state) ? this._t(`alarm.${state}`) : state;
   }
 
   _alarmStatesHTML(states) {
     const active = new Set(states ?? ["armed_away"]);
-    const labels = this.constructor.ALARM_STATE_LABELS;
     return `
       <div class="cfg-edit-row-wrap" style="padding:4px 0 10px">
-        <div class="cfg-edit-desc" style="margin-bottom:6px">Slukker varmen (fravær) ved:</div>
+        <div class="cfg-edit-desc" style="margin-bottom:6px">${this._t("alarm.turns_off_at")}</div>
         <div class="alarm-state-chips">
-          ${Object.entries(labels).map(([key, label]) => `
+          ${this.constructor.ALARM_STATES.map((key) => [key, this._alarmStateLabel(key)]).map(([key, label]) => `
             <button type="button" class="toggle-btn alarm-state-chip${active.has(key) ? " active" : ""}"
               data-action="toggle-alarm-state" data-state="${key}"
               aria-pressed="${active.has(key)}">${label}</button>`).join("")}
@@ -3819,13 +3908,12 @@ class HeatManagerPanel extends HTMLElement {
   }
 
   _alarmFooterText(states) {
-    const labels = this.constructor.ALARM_STATE_LABELS;
-    const list = (states ?? ["armed_away"]).map(s => labels[s] ?? s);
+    const list = (states ?? ["armed_away"]).map(s => this._alarmStateLabel(s));
     const strong = (t) => `<strong style="color:var(--text)">${this._esc(t)}</strong>`;
     if (!list.length) {
-      return "Ingen alarmtilstand er valgt — alarmen sætter ikke huset i fravær.";
+      return this._t("alarm.none_selected");
     }
-    return `Når alarmen går i ${list.map(strong).join(" eller ")}, aktiveres fraværsmodus øjeblikkeligt uden grace period. Ved frakoblet eller en anden armeret tilstand genoptages opvarmningen, når nogen er hjemme.`;
+    return this._t("alarm.footer", { states: list.map(strong).join(this._t("alarm.or")) });
   }
 
   // v0.67.0: Netatmo's home-level away temperature (NET-TRV number on the
@@ -3838,28 +3926,28 @@ class HeatManagerPanel extends HTMLElement {
       return `
       <div class="cfg-edit-row-wrap">
         <div class="cfg-edit-row">
-          <span class="cfg-edit-label" style="flex:0 0 150px">Fraværstemperatur</span>
-          <span class="cfg-edit-label">Styres i Netatmo-appen</span>
+          <span class="cfg-edit-label" style="flex:0 0 150px">${this._t("away.label")}</span>
+          <span class="cfg-edit-label">${this._t("away.in_app")}</span>
         </div>
-        <div class="cfg-edit-desc">Med NET-TRV kan den sættes herfra. Den bruges af alle Netatmo-ventiler, når huset er tomt.</div>
+        <div class="cfg-edit-desc">${this._t("away.in_app_desc")}</div>
       </div>`;
     }
     const low = a.value != null && minRoomTemp != null && a.value < minRoomTemp;
-    const sched = a.schedule ? ` Gemmes på Netatmo-tidsplanen «${this._esc(a.schedule)}».` : "";
+    const sched = a.schedule ? this._t("away.schedule", { schedule: this._esc(a.schedule) }) : "";
     return `
       <div class="cfg-edit-row-wrap">
         <div class="cfg-edit-row">
-          <span class="cfg-edit-label" style="flex:0 0 150px">Fraværstemperatur</span>
+          <span class="cfg-edit-label" style="flex:0 0 150px">${this._t("away.label")}</span>
           <input class="cfg-edit-input" type="number" id="cfg-netatmo-away-input"
             min="${a.min ?? 7}" max="${a.max ?? 30}" step="${a.step ?? 0.5}"
             value="${a.value ?? ""}">
           <span class="cfg-edit-label" style="flex-shrink:0">°C</span>
           <button class="cfg-save-btn" data-action="save-netatmo-away"
-            data-entity="${this._esc(a.entity_id)}">Gem</button>
+            data-entity="${this._esc(a.entity_id)}">${this._t("common.save")}</button>
           <span class="cfg-save-ok" id="cfg-netatmo-away-ok">✔</span>
         </div>
-        <div class="cfg-edit-desc">Netatmos egen fraværstemperatur — den alle ventiler går til, når huset er tomt. Samme værdi som i Netatmo-appen.${sched}</div>
-        ${low ? `<div class="cfg-edit-desc" style="color:var(--amber)">⚠ Fraværstemperaturen (${a.value} °C) er lavere end laveste rumtemperatur (${minRoomTemp} °C). Rummene kan blive koldere end minimum, når huset er tomt.</div>` : ""}
+        <div class="cfg-edit-desc">${this._t("away.desc", { schedule: sched })}</div>
+        ${low ? `<div class="cfg-edit-desc" style="color:var(--amber)">${this._t("away.too_low", { away: a.value, min: minRoomTemp })}</div>` : ""}
       </div>`;
   }
 
@@ -3894,7 +3982,7 @@ class HeatManagerPanel extends HTMLElement {
           ${desc ? `<div style="font-size:11px;color:var(--sub);margin-top:2px;line-height:1.4">${this._esc(desc)}</div>` : ""}
         </div>
         <button class="toggle-btn${value ? " active" : ""}" style="flex-shrink:0" data-action="toggle-field" data-field="${field}">
-          ${value ? "Slå fra" : "Slå til"}
+          ${this._t(value ? "common.turn_off" : "common.turn_on")}
         </button>
       </div>`;
   }
@@ -3902,33 +3990,33 @@ class HeatManagerPanel extends HTMLElement {
   _configTabHTML() {
     const d   = this._data?.config ?? {};
     const cfg = [
-      ["Weather entity",      d.weather_entity           ?? "–"],
-      ["Outdoor temp sensor", d.outdoor_temp_sensor      ?? "–"],
+      [this._t("cfg.weather_entity"),      d.weather_entity           ?? "–"],
+      [this._t("cfg.outdoor_temp_sensor"), d.outdoor_temp_sensor      ?? "–"],
     ];
     return `
       <div class="config-grid">
       <div class="${this._cfgSectionClass('global')}" data-section-id="global">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Global konfiguration</div>
+          <div class="section-box-title">${this._t("cfg.sec.global.title")}</div>
         </div>
         ${cfg.map(([k,v]) =>
           `<div class="cfg-row"><span class="cfg-k">${k}</span><span class="cfg-v">${this._esc(v)}</span></div>`
         ).join("")}
-        <div class="section-box-footer">Vejr-entiteten leverer udetemperatur til sæson, vejrkompensation, auto-off og nat-sætpunkt. Sættes under opsætningen — kan ikke redigeres herfra.</div>
+        <div class="section-box-footer">${this._t("cfg.sec.global.footer")}</div>
       </div>
 
       <div class="${this._cfgSectionClass('alarm')}" data-section-id="alarm">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Alarmtavle</div>
+          <div class="section-box-title">${this._t("cfg.sec.alarm.title")}</div>
           <div class="section-box-badge" style="background:rgba(249,115,22,0.12);color:var(--amber)">
-            ${this._cfgStatusDot(!!d.alarm_panel)}${d.alarm_panel ? 'Konfigureret' : 'Ikke sat'}
+            ${this._cfgStatusDot(!!d.alarm_panel)}${this._t(d.alarm_panel ? "common.configured" : "common.not_set")}
           </div>
         </div>
         <div class="cfg-edit-row" style="padding-top:12px">
           <input class="cfg-edit-input" id="cfg-alarm-input"
-            placeholder="alarm_control_panel.mit_alarm"
+            placeholder="alarm_control_panel.my_alarm"
             value="${this._esc(d.alarm_panel ?? '')}">
-          <button class="cfg-save-btn" data-action="save-alarm">Gem</button>
+          <button class="cfg-save-btn" data-action="save-alarm">${this._t("common.save")}</button>
           <span class="cfg-save-ok" id="cfg-alarm-ok">✔</span>
         </div>
         ${this._alarmStatesHTML(d.alarm_away_states)}
@@ -3937,323 +4025,320 @@ class HeatManagerPanel extends HTMLElement {
 
       <div class="${this._cfgSectionClass('manual_trv')}" data-section-id="manual_trv">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Manuel TRV-kontrol</div>
+          <div class="section-box-title">${this._t("cfg.sec.manual_trv.title")}</div>
           <div class="section-box-badge" style="background:${this._manualControlEnabled?'rgba(99,102,241,0.15)':'rgba(71,85,105,0.15)'};color:${this._manualControlEnabled?'#818cf8':'var(--sub)'}">
-            ${this._cfgStatusDot(this._manualControlEnabled)}${this._manualControlEnabled ? 'Aktiv' : 'Inaktiv'}
+            ${this._cfgStatusDot(this._manualControlEnabled)}${this._t(this._manualControlEnabled ? "common.active" : "common.inactive")}
           </div>
         </div>
         <div style="padding:14px 16px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
             <div>
-              <div style="font-size:13px;font-weight:600;margin-bottom:4px">Vis manuel temperatur-kontrol i Rum-fanen</div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:4px">${this._t("cfg.manual_trv.label")}</div>
               <div style="font-size:12px;color:var(--sub);line-height:1.5">
-                Tilføjer en slider og Send-knap per rum — sæt en midlertidig temperatur direkte fra panelet.
+                ${this._t("cfg.manual_trv.desc")}
               </div>
             </div>
             <button class="toggle-btn${this._manualControlEnabled?' active':''}"
               style="flex-shrink:0" data-action="toggle-manual-control">
-              ${this._manualControlEnabled ? 'Slå fra' : 'Slå til'}
+              ${this._t(this._manualControlEnabled ? "common.turn_off" : "common.turn_on")}
             </button>
           </div>
         </div>
-        <div class="section-box-footer">Viser en ekstra kontrol i Rum-fanen til at sætte en midlertidig temperatur direkte på én eller alle ventiler — uden om skema og PID. Til hurtige justeringer.</div>
+        <div class="section-box-footer">${this._t("cfg.sec.manual_trv.footer")}</div>
       </div>
 
-      <!-- Fase 2, del 1 (2026-09-13) — "Indstillinger": driftsparametre der
-           før kun kunne ændres via options-flow'ets klik-igennem-dialog,
-           flyttet hertil med samme live-gem-mønster som Alarmtavle ovenfor.
-           Options-flow'en beholder de samme felter uændret (fallback for
-           førstegangsopsætning) — se
+      <!-- Phase 2, part 1 (2026-09-13) — "Settings": operating parameters
+           that could previously only be changed through the options flow's
+           click-through dialog, moved here with the same live-save pattern
+           as the alarm board above. The options flow keeps the same fields
+           unchanged (fallback for first-time setup) — see
            planning/heat_manager_fase2_spec_2026-09-11.md, "Del 1". -->
 
       <div class="${this._cfgSectionClass('pid')}" data-section-id="pid">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">PID-regulator</div>
+          <div class="section-box-title">${this._t("cfg.sec.pid.title")}</div>
           <div class="section-box-badge" data-badge-field="pid_enabled" style="background:${d.pid_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.pid_enabled ? "#818cf8" : "var(--sub)"}">
-            ${this._cfgStatusDot(!!d.pid_enabled)}${d.pid_enabled ? "Aktiv" : "Inaktiv"}
+            ${this._cfgStatusDot(!!d.pid_enabled)}${this._t(d.pid_enabled ? "common.active" : "common.inactive")}
           </div>
         </div>
-        ${this._cfgToggleRow("PID-regulering aktiveret", "pid_enabled", !!d.pid_enabled)}
-        ${this._cfgNumberRow("Kp", "pid_kp", d.pid_kp ?? "", {
+        ${this._cfgToggleRow(this._t("cfg.pid_enabled.label"), "pid_enabled", !!d.pid_enabled)}
+        ${this._cfgNumberRow(this._t("cfg.pid_kp.label"), "pid_kp", d.pid_kp ?? "", {
           min: 0, max: 5, step: 0.05, cast: "float",
-          desc: "Hvor kraftigt effekten reagerer på den aktuelle temperaturafvigelse. Højere værdi = hurtigere, men mere ustabil regulering.",
+          desc: this._t("cfg.pid_kp.desc"),
         })}
-        ${this._cfgNumberRow("Ki", "pid_ki", d.pid_ki ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.pid_ki.label"), "pid_ki", d.pid_ki ?? "", {
           min: 0, max: 0.5, step: 0.01, cast: "float",
-          desc: "Retter en vedvarende, langsom afvigelse over tid. Hold lav — for høj værdi giver overshoot.",
+          desc: this._t("cfg.pid_ki.desc"),
         })}
-        ${this._cfgNumberRow("Kd", "pid_kd", d.pid_kd ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.pid_kd.label"), "pid_kd", d.pid_kd ?? "", {
           min: 0, max: 2, step: 0.05, cast: "float",
-          desc: "Reagerer på hvor hurtigt temperaturen ændrer sig. Sjældent nødvendig, da TRV'er har flere minutters egen forsinkelse.",
+          desc: this._t("cfg.pid_kd.desc"),
         })}
-        ${this._cfgNumberRow("Setpoint-margin", "pid_setpoint_margin", d.pid_setpoint_margin ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.pid_setpoint_margin.label"), "pid_setpoint_margin", d.pid_setpoint_margin ?? "", {
           min: 0.5, max: 6.0, step: 0.5, unit: "°C", cast: "float",
-          desc: "Loft for hvor mange grader OVER rummets eget mål en TRV må bedes om at gå, uanset trv_max. Sænk for tættere styring, hæv hvis opvarmningen føles for langsom.",
+          desc: this._t("cfg.pid_setpoint_margin.desc"),
         })}
-        <div class="section-box-footer">PID-regulatoren styrer, hvor meget effekt hvert rum beder sine TRV'er om, ud fra afvigelsen mellem rummets aktuelle temperatur og målet.</div>
+        <div class="section-box-footer">${this._t("cfg.sec.pid.footer")}</div>
       </div>
 
-      <!-- 2026-09-13 (architekturgennemgang #5) — vejrkompensationskurven
-           (udetemperatur → proaktivt effektbidrag oven i PID'en) fandtes
-           allerede som en fast, altid-aktiv konstant. Nu konfigurerbar, med
-           default = de tidligere hardkodede værdier, så eksisterende
-           installationer opfører sig uændret indtil felterne rent faktisk
-           redigeres her. -->
+      <!-- 2026-09-13 (architecture review #5) — the weather compensation
+           curve (outdoor temperature → proactive power on top of the PID)
+           already existed as a fixed, always-on constant. Now configurable,
+           with defaults = the previously hard-coded values, so existing
+           installations behave unchanged until the fields are edited here. -->
       <div class="${this._cfgSectionClass('weather_comp')}" data-section-id="weather_comp">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Vejrkompensation</div>
+          <div class="section-box-title">${this._t("cfg.sec.weather_comp.title")}</div>
           <div class="section-box-badge" data-badge-field="weather_compensation_enabled" style="background:${d.weather_compensation_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.weather_compensation_enabled ? "#818cf8" : "var(--sub)"}">
-            ${this._cfgStatusDot(!!d.weather_compensation_enabled)}${d.weather_compensation_enabled ? "Aktiv" : "Inaktiv"}
+            ${this._cfgStatusDot(!!d.weather_compensation_enabled)}${this._t(d.weather_compensation_enabled ? "common.active" : "common.inactive")}
           </div>
         </div>
-        ${this._cfgToggleRow("Vejrkompensation aktiveret", "weather_compensation_enabled", !!d.weather_compensation_enabled)}
-        ${this._cfgNumberRow("Referenceudetemperatur", "ff_reference_outdoor_temp", d.ff_reference_outdoor_temp ?? "", {
+        ${this._cfgToggleRow(this._t("cfg.weather_compensation_enabled.label"), "weather_compensation_enabled", !!d.weather_compensation_enabled)}
+        ${this._cfgNumberRow(this._t("cfg.ff_reference_outdoor_temp.label"), "ff_reference_outdoor_temp", d.ff_reference_outdoor_temp ?? "", {
           min: -10, max: 22, step: 0.5, unit: "°C", cast: "float",
-          desc: "Udetemperatur ved/over hvilken vejrkompensationen bidrager med 0.",
+          desc: this._t("cfg.ff_reference_outdoor_temp.desc"),
         })}
-        ${this._cfgNumberRow("Vægt", "ff_weight", d.ff_weight ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.ff_weight.label"), "ff_weight", d.ff_weight ?? "", {
           min: 0, max: 0.1, step: 0.005, cast: "float",
-          desc: "Ekstra effektandel tilføjet pr. °C udetemperaturen er under referencen.",
+          desc: this._t("cfg.ff_weight.desc"),
         })}
-        ${this._cfgNumberRow("Maksimalt bidrag", "ff_max_contribution", d.ff_max_contribution ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.ff_max_contribution.label"), "ff_max_contribution", d.ff_max_contribution ?? "", {
           min: 0, max: 0.6, step: 0.05, cast: "float",
-          desc: "Loft — vejrkompensation alene tilføjer aldrig mere end denne andel af effekten.",
+          desc: this._t("cfg.ff_max_contribution.desc"),
         })}
-        <div class="section-box-footer">Tilføjer et proaktivt effektbidrag baseret på udetemperaturen, oven i PID'ens reaktive korrektion — en klassisk "varmekurve".</div>
+        <div class="section-box-footer">${this._t("cfg.sec.weather_comp.footer")}</div>
       </div>
 
-      <!-- 2026-09-14 (punkt 7) — solindfald: reducerer PID-effekten pr. rum
-           når sol.sol (sun.sun) er over horisonten og rummets lux-sensor
-           (konfigureres pr. rum under "Rum & klimaentiteter"/rediger rum)
-           viser lys. Genbruger de samme generiske toggle/number-rækker
-           (og dermed den samme gem-logik) som Vejrkompensation ovenfor. -->
+      <!-- 2026-09-14 (item 7) — solar gain: reduces the PID power per room
+           while sun.sun is above the horizon and the room's lux sensor
+           (configured per room when editing the room) shows light. Reuses
+           the same generic toggle/number rows (and so the same save logic)
+           as Weather compensation above. -->
       <div class="${this._cfgSectionClass('solar_gain')}" data-section-id="solar_gain">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Solindfald</div>
+          <div class="section-box-title">${this._t("cfg.sec.solar_gain.title")}</div>
           <div class="section-box-badge" data-badge-field="solar_gain_enabled" style="background:${d.solar_gain_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.solar_gain_enabled ? "#818cf8" : "var(--sub)"}">
-            ${this._cfgStatusDot(!!d.solar_gain_enabled)}${d.solar_gain_enabled ? "Aktiv" : "Inaktiv"}
+            ${this._cfgStatusDot(!!d.solar_gain_enabled)}${this._t(d.solar_gain_enabled ? "common.active" : "common.inactive")}
           </div>
         </div>
-        ${this._cfgToggleRow("Solindfald aktiveret", "solar_gain_enabled", !!d.solar_gain_enabled)}
-        ${this._cfgNumberRow("Lux-grænse", "solar_gain_lux_threshold", d.solar_gain_lux_threshold ?? "", {
+        ${this._cfgToggleRow(this._t("cfg.solar_gain_enabled.label"), "solar_gain_enabled", !!d.solar_gain_enabled)}
+        ${this._cfgNumberRow(this._t("cfg.solar_gain_lux_threshold.label"), "solar_gain_lux_threshold", d.solar_gain_lux_threshold ?? "", {
           min: 500, max: 30000, step: 500, unit: "lux", cast: "float",
-          desc: "Lux-niveau, hvorover rummet regnes for at få reel sol lige nu.",
+          desc: this._t("cfg.solar_gain_lux_threshold.desc"),
         })}
-        ${this._cfgNumberRow("Vægt", "solar_gain_weight", d.solar_gain_weight ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.solar_gain_weight.label"), "solar_gain_weight", d.solar_gain_weight ?? "", {
           min: 0, max: 0.5, step: 0.01, cast: "float",
-          desc: "Hvor meget effekten reduceres pr. gang rummets lux overstiger grænsen.",
+          desc: this._t("cfg.solar_gain_weight.desc"),
         })}
-        ${this._cfgNumberRow("Maksimal reduktion", "solar_gain_max_reduction", d.solar_gain_max_reduction ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.solar_gain_max_reduction.label"), "solar_gain_max_reduction", d.solar_gain_max_reduction ?? "", {
           min: 0, max: 0.8, step: 0.05, cast: "float",
-          desc: "Loft — solindfald alene fjerner aldrig mere end denne andel af effekten.",
+          desc: this._t("cfg.solar_gain_max_reduction.desc"),
         })}
-        <div class="section-box-footer">Reducerer PID-effekten i rum med lux-sensor, mens solen er oppe og sensoren viser lys — direkte sol kræver mindre varme fra TRV'en.</div>
+        <div class="section-box-footer">${this._t("cfg.sec.solar_gain.footer")}</div>
       </div>
 
       <div class="${this._cfgSectionClass('door_heat_share')}" data-section-id="door_heat_share">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Dør-varmedeling</div>
+          <div class="section-box-title">${this._t("cfg.sec.door_heat_share.title")}</div>
           <div class="section-box-badge" data-badge-field="door_heat_share_enabled" style="background:${d.door_heat_share_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.door_heat_share_enabled ? "#818cf8" : "var(--sub)"}">
-            ${this._cfgStatusDot(!!d.door_heat_share_enabled)}${d.door_heat_share_enabled ? "Aktiv" : "Inaktiv"}
+            ${this._cfgStatusDot(!!d.door_heat_share_enabled)}${this._t(d.door_heat_share_enabled ? "common.active" : "common.inactive")}
           </div>
         </div>
-        ${this._cfgToggleRow("Dør-varmedeling aktiveret", "door_heat_share_enabled", !!d.door_heat_share_enabled)}
-        ${this._cfgNumberRow("Naborums minimumseffekt", "door_heat_share_min_neighbor_power", d.door_heat_share_min_neighbor_power ?? "", {
+        ${this._cfgToggleRow(this._t("cfg.door_heat_share_enabled.label"), "door_heat_share_enabled", !!d.door_heat_share_enabled)}
+        ${this._cfgNumberRow(this._t("cfg.door_heat_share_min_neighbor_power.label"), "door_heat_share_min_neighbor_power", d.door_heat_share_min_neighbor_power ?? "", {
           min: 0, max: 1.0, step: 0.05, cast: "float",
-          desc: "Naborummets egen PID-effekt skal være mindst dette, før dets varme tæller som reelt leveret lige nu.",
+          desc: this._t("cfg.door_heat_share_min_neighbor_power.desc"),
         })}
-        ${this._cfgNumberRow("Minimum temperaturforskel", "door_heat_share_min_temp_diff", d.door_heat_share_min_temp_diff ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.door_heat_share_min_temp_diff.label"), "door_heat_share_min_temp_diff", d.door_heat_share_min_temp_diff ?? "", {
           min: 0.5, max: 6.0, step: 0.5, unit: "°C", cast: "float",
-          desc: "Hvor meget varmere naborummet mindst skal være, før nogen reduktion sker.",
+          desc: this._t("cfg.door_heat_share_min_temp_diff.desc"),
         })}
-        ${this._cfgNumberRow("Vægt", "door_heat_share_weight", d.door_heat_share_weight ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.door_heat_share_weight.label"), "door_heat_share_weight", d.door_heat_share_weight ?? "", {
           min: 0, max: 0.5, step: 0.01, cast: "float",
-          desc: "Hvor meget effekten reduceres pr. grad temperaturforskellen overstiger grænsen.",
+          desc: this._t("cfg.door_heat_share_weight.desc"),
         })}
-        ${this._cfgNumberRow("Maksimal reduktion", "door_heat_share_max_reduction", d.door_heat_share_max_reduction ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.door_heat_share_max_reduction.label"), "door_heat_share_max_reduction", d.door_heat_share_max_reduction ?? "", {
           min: 0, max: 0.8, step: 0.05, cast: "float",
-          desc: "Loft — dør-varmedeling alene fjerner aldrig mere end denne andel af effekten.",
+          desc: this._t("cfg.door_heat_share_max_reduction.desc"),
         })}
-        <div class="section-box-footer">Reducerer PID-effekten, når en åben indendørs dør fører til et varmere naborum, der selv varmer aktivt. Ændrer aldrig rummets mål — kun effekten.</div>
+        <div class="section-box-footer">${this._t("cfg.sec.door_heat_share.footer")}</div>
       </div>
 
       <div class="${this._cfgSectionClass('boost')}" data-section-id="boost">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Boost — standardværdier</div>
+          <div class="section-box-title">${this._t("cfg.sec.boost.title")}</div>
         </div>
-        ${this._cfgNumberRow("Standardtemperatur", "boost_default_temp", d.boost_default_temp ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.boost_default_temp.label"), "boost_default_temp", d.boost_default_temp ?? "", {
           min: 15, max: 32, step: 0.5, unit: "°C", cast: "float",
-          desc: "Temperaturen rummet sættes til, når Boost startes uden selv at angive en anden.",
+          desc: this._t("cfg.boost_default_temp.desc"),
         })}
-        ${this._cfgNumberRow("Standardvarighed", "boost_default_minutes", d.boost_default_minutes ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.boost_default_minutes.label"), "boost_default_minutes", d.boost_default_minutes ?? "", {
           min: 1, max: 240, step: 1, unit: "min", cast: "float",
-          desc: "Hvor længe Boost varer, når det startes uden selv at angive en anden varighed.",
+          desc: this._t("cfg.boost_default_minutes.desc"),
         })}
-        <div class="section-box-footer">Bruges af Boost-knappen og <span style="font-family:'DM Mono',monospace">heat_manager.boost_start</span>, når intet andet angives eksplicit.</div>
+        <div class="section-box-footer">${this._t("cfg.sec.boost.footer", { service: `<span style="font-family:'DM Mono',monospace">heat_manager.boost_start</span>` })}</div>
       </div>
 
       <div class="${this._cfgSectionClass('temp_limits')}" data-section-id="temp_limits">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Temperaturgrænser</div>
+          <div class="section-box-title">${this._t("cfg.sec.temp_limits.title")}</div>
         </div>
-        ${this._cfgNumberRow("Laveste rumtemperatur", "min_room_temp", d.min_room_temp ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.min_room_temp.label"), "min_room_temp", d.min_room_temp ?? "", {
           min: 5, max: 22, step: 0.5, unit: "°C", cast: "float",
-          desc: "Gælder alle rum. PID'en sender aldrig et lavere sætpunkt til en ventil, og natsænkningen går aldrig under denne. Standard 17 °C — et almindeligt minimum mod skimmel.",
+          desc: this._t("cfg.min_room_temp.desc"),
         })}
         ${this._awayTempRowHTML(d.min_room_temp)}
-        <div class="section-box-footer">Laveste rumtemperatur styrer Heat Manager selv. Fraværstemperaturen er Netatmos egen og bruges, når huset er tomt.</div>
+        <div class="section-box-footer">${this._t("cfg.sec.temp_limits.footer")}</div>
       </div>
 
       <div class="${this._cfgSectionClass('window')}" data-section-id="window">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Vindue</div>
+          <div class="section-box-title">${this._t("cfg.sec.window.title")}</div>
         </div>
-        ${this._cfgNumberRow("Forsinkelse før sluk", "window_delay_default_min", d.window_delay_default_min ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.window_delay_default_min.label"), "window_delay_default_min", d.window_delay_default_min ?? "", {
           min: 0, max: 60, step: 1, unit: "min", cast: "int",
-          desc: "Hvor længe et vindue skal være åbent, før varmen reelt slås fra. Gælder alle rum. Sættes automatisk ned ved kraftig vind eller regn.",
+          desc: this._t("cfg.window_delay_default_min.desc"),
         })}
-        ${this._cfgNumberRow("Sluk-temperatur", "window_off_temp", d.window_off_temp ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.window_off_temp.label"), "window_off_temp", d.window_off_temp ?? "", {
           min: 5, max: 20, step: 0.5, unit: "°C", cast: "float",
-          desc: "Temperaturen der sendes til rummets ventil, når varmen slås fra pga. åbent vindue. Gælder kun mens vinduet er åbent og er uafhængig af laveste rumtemperatur.",
+          desc: this._t("cfg.window_off_temp.desc"),
         })}
-        ${this._cfgNumberRow("Advarsel efter", "window_warning_min", d.window_warning_min ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.window_warning_min.label"), "window_warning_min", d.window_warning_min ?? "", {
           min: 5, max: 180, step: 5, unit: "min", cast: "int",
-          desc: "Hvor længe et vindue skal have været åbent, før du får en ekstra påmindelse om at det stadig er åbent — påvirker ikke selve sluk-funktionen ovenfor.",
+          desc: this._t("cfg.window_warning_min.desc"),
         })}
-        ${this._cfgToggleRow("Notifikation ved åbent vindue", "notify_windows", !!d.notify_windows, "Send en notifikation når et vindue åbnes eller lukkes.")}
-        ${this._cfgToggleRow("30-minutters-advarsel", "notify_window_warning_30", !!d.notify_window_warning_30, "Send en ekstra påmindelse hvis vinduet stadig er åbent efter tiden angivet i «Advarsel efter» ovenfor.")}
-        <div class="section-box-footer">Styrer hvornår og hvordan varmen slås fra, når et vindue står åbent — og hvornår du får besked om det.</div>
+        ${this._cfgToggleRow(this._t("cfg.notify_windows.label"), "notify_windows", !!d.notify_windows, this._t("cfg.notify_windows.desc"))}
+        ${this._cfgToggleRow(this._t("cfg.notify_window_warning_30.label"), "notify_window_warning_30", !!d.notify_window_warning_30, this._t("cfg.notify_window_warning_30.desc"))}
+        <div class="section-box-footer">${this._t("cfg.sec.window.footer")}</div>
       </div>
 
       <div class="${this._cfgSectionClass('night_setback')}" data-section-id="night_setback">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Nat-sætpunkt</div>
+          <div class="section-box-title">${this._t("cfg.sec.night_setback.title")}</div>
           <div class="section-box-badge" data-badge-field="night_setback_enabled" style="background:${d.night_setback_enabled ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)"};color:${d.night_setback_enabled ? "#818cf8" : "var(--sub)"}">
-            ${this._cfgStatusDot(!!d.night_setback_enabled)}${d.night_setback_enabled ? "Aktiv" : "Inaktiv"}
+            ${this._cfgStatusDot(!!d.night_setback_enabled)}${this._t(d.night_setback_enabled ? "common.active" : "common.inactive")}
           </div>
         </div>
-        ${this._cfgToggleRow("Nat-sætpunkt aktiveret", "night_setback_enabled", !!d.night_setback_enabled)}
-        ${this._cfgNumberRow("Temperatur (sænkning)", "night_setback_temp", d.night_setback_temp ?? "", {
+        ${this._cfgToggleRow(this._t("cfg.night_setback_enabled.label"), "night_setback_enabled", !!d.night_setback_enabled)}
+        ${this._cfgNumberRow(this._t("cfg.night_setback_temp.label"), "night_setback_temp", d.night_setback_temp ?? "", {
           min: 0.5, max: 5.0, step: 0.5, unit: "°C", cast: "float",
-          desc: "Antal grader der trækkes fra måltemperaturen i nat-perioden. Går aldrig under laveste rumtemperatur (Temperaturgrænser).",
+          desc: this._t("cfg.night_setback_temp.desc"),
         })}
-        ${this._cfgNumberRow("Start time", "night_start_hour", d.night_start_hour ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.night_start_hour.label"), "night_start_hour", d.night_start_hour ?? "", {
           min: 18, max: 23, step: 1, unit: "h", cast: "int",
-          desc: "Klokkeslæt (lokal tid) hvor nat-sænkningen begynder.",
+          desc: this._t("cfg.night_start_hour.desc"),
         })}
-        ${this._cfgNumberRow("Slut time", "night_end_hour", d.night_end_hour ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.night_end_hour.label"), "night_end_hour", d.night_end_hour ?? "", {
           min: 4, max: 10, step: 1, unit: "h", cast: "int",
-          desc: "Klokkeslæt (lokal tid) hvor rummet igen varmer til fuld måltemperatur.",
+          desc: this._t("cfg.night_end_hour.desc"),
         })}
-        <div class="section-box-footer">Sænker rummenes måltemperatur automatisk i nat-perioden og hæver den igen om morgenen.</div>
+        <div class="section-box-footer">${this._t("cfg.sec.night_setback.footer")}</div>
       </div>
 
       <div class="${this._cfgSectionClass('grace')}" data-section-id="grace">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Grace-perioder</div>
+          <div class="section-box-title">${this._t("cfg.sec.grace.title")}</div>
         </div>
-        ${this._cfgNumberRow("Dag", "grace_day_min", d.grace_day_min ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.grace_day_min.label"), "grace_day_min", d.grace_day_min ?? "", {
           min: 5, max: 120, step: 5, unit: "min", cast: "int",
-          desc: "Hvor længe der ventes, efter alle er gået, før huset om dagen sættes på fraværstemperatur.",
+          desc: this._t("cfg.grace_day_min.desc"),
         })}
-        ${this._cfgNumberRow("Nat", "grace_night_min", d.grace_night_min ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.grace_night_min.label"), "grace_night_min", d.grace_night_min ?? "", {
           min: 5, max: 60, step: 5, unit: "min", cast: "int",
-          desc: "Samme ventetid, men om natten — typisk kortere, da man sjældent forlader huset midt om natten uden grund.",
+          desc: this._t("cfg.grace_night_min.desc"),
         })}
-        <div class="section-box-footer">Hvor længe Heat Manager venter, efter alle er gået hjemmefra, før et rum rent faktisk sættes på fraværstemperatur — så en kort tur ud til bilen ikke udløser unødig nedkøling.</div>
+        <div class="section-box-footer">${this._t("cfg.sec.grace.footer")}</div>
       </div>
 
       <div class="${this._cfgSectionClass('auto_off')}" data-section-id="auto_off">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Auto-off ved mildt vejr</div>
+          <div class="section-box-title">${this._t("cfg.sec.auto_off.title")}</div>
         </div>
-        ${this._cfgNumberRow("Temperaturgrænse", "auto_off_temp_threshold", d.auto_off_temp_threshold ?? "", {
+        ${this._cfgNumberRow(this._t("cfg.auto_off_temp_threshold.label"), "auto_off_temp_threshold", d.auto_off_temp_threshold ?? "", {
           min: 10, max: 30, step: 1, unit: "°C", cast: "float",
-          desc: "Udetemperatur hvorover en dag tæller med i rækken af milde dage nedenfor.",
+          desc: this._t("cfg.auto_off_temp_threshold.desc"),
         })}
-        ${this._cfgNumberRow("Dage i træk", "auto_off_temp_days", d.auto_off_temp_days ?? "", {
-          min: 1, max: 14, step: 1, unit: "dage", cast: "int",
-          desc: "Antal sammenhængende dage over temperaturgrænsen, før hele huset automatisk slukkes for sæsonen.",
+        ${this._cfgNumberRow(this._t("cfg.auto_off_temp_days.label"), "auto_off_temp_days", d.auto_off_temp_days ?? "", {
+          min: 1, max: 14, step: 1, unit: this._t("cfg.unit_days"), cast: "int",
+          desc: this._t("cfg.auto_off_temp_days.desc"),
         })}
-        <div class="section-box-footer">Slukker automatisk hele huset for sæsonen, hvis udetemperaturen holder sig over grænsen i det angivne antal dage i træk — typisk relevant i overgangen til forår/sommer.</div>
+        <div class="section-box-footer">${this._t("cfg.sec.auto_off.footer")}</div>
       </div>
 
       <div class="${this._cfgSectionClass('notifications')}" data-section-id="notifications">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Notifikationer</div>
+          <div class="section-box-title">${this._t("cfg.sec.notifications.title")}</div>
         </div>
         <div style="display:grid;grid-template-columns:1fr${d.house_voice_enabled ? ' 1fr' : ''};gap:0">
 
-          <!-- Venstre: Push-notifikationer -->
+          <!-- Left: push notifications -->
           <div style="padding:14px 16px 16px;${d.house_voice_enabled ? 'border-right:1px solid var(--div)' : ''}">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
               <div style="width:30px;height:30px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">📱</div>
               <div>
-                <div style="font-size:13px;font-weight:600;color:var(--text)">Push-notifikationer</div>
-                <div style="font-size:11px;color:var(--sub);margin-top:1px">${d.notify_service ? '<span style="color:#10b981">● Konfigureret</span>' : '<span style="color:var(--sub)">● Ikke sat</span>'}</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text)">${this._t("cfg.push.title")}</div>
+                <div style="font-size:11px;color:var(--sub);margin-top:1px">${d.notify_service ? `<span style="color:#10b981">● ${this._t("common.configured")}</span>` : `<span style="color:var(--sub)">● ${this._t("common.not_set")}</span>`}</div>
               </div>
             </div>
             <div style="font-size:11px;color:var(--sub);line-height:1.6;margin-bottom:12px">
-              Sendes ved: vindue åbnet/lukket, fraværsmodus,
-              ankomst, preheat og ventilbeskyttelse.
+              ${this._t("cfg.push.desc")}
             </div>
             <div style="display:flex;align-items:center;gap:6px">
               <input class="cfg-edit-input" id="cfg-notify-input" style="flex:1;min-width:0"
-                placeholder="notify.mobile_app_min_telefon"
+                placeholder="notify.mobile_app_my_phone"
                 value="${this._esc(d.notify_service ?? '')}">
-              <button class="cfg-save-btn" data-action="save-notify">Gem</button>
+              <button class="cfg-save-btn" data-action="save-notify">${this._t("common.save")}</button>
               <span class="cfg-save-ok" id="cfg-notify-ok">✔</span>
             </div>
             <div style="margin-top:4px">
-              ${this._cfgToggleRow("Tilstedeværelse/fravær", "notify_presence", !!d.notify_presence, "Send en notifikation når nogen kommer hjem, eller alle går.")}
-              ${this._cfgToggleRow("Forvarmning", "notify_preheat", !!d.notify_preheat, "Send en notifikation når forvarmning starter forud for en persons hjemkomst.")}
-              ${this._cfgToggleRow("Skimmelrisiko", "notify_mold_risk", !!d.notify_mold_risk, "Send en notifikation når høj luftfugtighed tæt på dugpunktet registreres i et rum.")}
-              ${this._cfgToggleRow("Eskalér langvarige problemer", "notify_issue_escalation", !!d.notify_issue_escalation, "Send én notifikation når et statuscenter-problem har stået på uafbrudt i mindst så mange minutter som angivet nedenfor.")}
-              ${this._cfgNumberRow("Eskalér efter", "issue_escalation_minutes", d.issue_escalation_minutes ?? "", {
+              ${this._cfgToggleRow(this._t("cfg.notify_presence.label"), "notify_presence", !!d.notify_presence, this._t("cfg.notify_presence.desc"))}
+              ${this._cfgToggleRow(this._t("cfg.notify_preheat.label"), "notify_preheat", !!d.notify_preheat, this._t("cfg.notify_preheat.desc"))}
+              ${this._cfgToggleRow(this._t("cfg.notify_mold_risk.label"), "notify_mold_risk", !!d.notify_mold_risk, this._t("cfg.notify_mold_risk.desc"))}
+              ${this._cfgToggleRow(this._t("cfg.notify_issue_escalation.label"), "notify_issue_escalation", !!d.notify_issue_escalation, this._t("cfg.notify_issue_escalation.desc"))}
+              ${this._cfgNumberRow(this._t("cfg.issue_escalation_minutes.label"), "issue_escalation_minutes", d.issue_escalation_minutes ?? "", {
                 min: 10, max: 360, step: 10, unit: "min", cast: "int",
-                desc: "Et statuscenter-problem (skimmel, åbent vindue, langsom opvarmning m.fl.) der har stået på uafbrudt i så mange minutter, sender én push-notifikation.",
+                desc: this._t("cfg.issue_escalation_minutes.desc"),
               })}
             </div>
           </div>
 
-          <!-- Højre: House Voice (kun hvis aktiveret) -->
+          <!-- Right: House Voice (only when enabled) -->
           ${d.house_voice_enabled ? `
           <div style="padding:14px 16px 16px">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
               <div style="width:30px;height:30px;background:linear-gradient(135deg,#14b8a6,#34d399);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">🔊</div>
               <div>
                 <div style="font-size:13px;font-weight:600;color:var(--text)">House Voice</div>
-                <div style="font-size:11px;margin-top:1px"><span style="color:#14b8a6">● Aktiv</span></div>
+                <div style="font-size:11px;margin-top:1px"><span style="color:#14b8a6">● ${this._t("common.active")}</span></div>
               </div>
             </div>
             <div style="font-size:11px;color:var(--sub);line-height:1.6;margin-bottom:12px">
-              Talemeddelelser ved: controller pause/sluk
-              og sæsonskift sommer/vinter.
+              ${this._t("cfg.voice.desc")}
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:6px">
-              <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.1);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">⏸ Pause</span>
-              <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.1);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">⏹ Sluk</span>
-              <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.1);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">☀ Sommer</span>
-              <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.1);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">❄ Vinter</span>
+              <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.1);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">⏸ ${this._t("cfg.voice.pause")}</span>
+              <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.1);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">⏹ ${this._t("cfg.voice.off")}</span>
+              <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.1);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">☀ ${this._t("cfg.voice.summer")}</span>
+              <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:rgba(20,184,166,0.1);color:#14b8a6;border:1px solid rgba(20,184,166,0.2)">❄ ${this._t("cfg.voice.winter")}</span>
             </div>
           </div>` : ''}
 
         </div>
-        <div class="section-box-footer">Vælg hvilke hændelser der sender en push-notifikation via Home Assistants notify-tjeneste, og/eller en talt meddelelse via House Voice, hvis den er installeret.</div>
+        <div class="section-box-footer">${this._t("cfg.sec.notifications.footer")}</div>
       </div>
 
       <div class="${this._cfgSectionClass('rooms_summary')}" data-section-id="rooms_summary">
         <div class="section-box-header collapsible" data-action="toggle-section">
-          <div class="section-box-title">Rum &amp; klimaentiteter</div>
+          <div class="section-box-title">${this._t("cfg.sec.rooms_summary.title")}</div>
         </div>
         ${(this._data?.rooms ?? []).map(r => {
           // v0.9.0: read-only summary of the optional per-room engines —
           // configure these via the config-flow wizard (reconfigure flow),
           // not from this panel.
           const extras = [];
-          if (r.calibration_entity) extras.push("🎚 Kalibrering");
-          if (r.sync_mode && r.sync_mode !== "disabled") extras.push(`🔄 Sync: ${this._syncModeLabel(r.sync_mode)}`);
-          if (r.schedule_entity) extras.push("🗓 Schedule");
+          if (r.calibration_entity) extras.push("🎚 " + this._t("cfg.rooms.calibration"));
+          if (r.sync_mode && r.sync_mode !== "disabled") extras.push("🔄 " + this._t("cfg.rooms.sync", { mode: this._syncModeLabel(r.sync_mode) }));
+          if (r.schedule_entity) extras.push("🗓 " + this._t("room_card.schedule"));
           return `<div class="cfg-row">
             <span class="cfg-k">${this._esc(r.name)}</span>
             <span class="cfg-v" style="color:${this._stateColor(r.state ?? "normal")}">${this._esc(r.climate_entity ?? "–")}</span>
@@ -4261,8 +4346,8 @@ class HeatManagerPanel extends HTMLElement {
             <span class="cfg-k"></span>
             <span class="cfg-v" style="font-size:11px;font-weight:400;color:var(--sub)">${this._esc(extras.join(" · "))}</span>
           </div>` : "");
-        }).join("") || `<div class="empty">Ingen rum</div>`}
-        <div class="section-box-footer">Skrivebeskyttet oversigt over hvert rums klimaentitet og valgfrie ekstrafunktioner. Ændres via Home Assistants rekonfigurering af integrationen.</div>
+        }).join("") || `<div class="empty">${this._t("cfg.rooms.none")}</div>`}
+        <div class="section-box-footer">${this._t("cfg.sec.rooms_summary.footer")}</div>
       </div>
       </div>`;
   }
@@ -4318,15 +4403,13 @@ class HeatManagerPanel extends HTMLElement {
     const root = this.shadowRoot;
     root.querySelectorAll(".tab").forEach(btn => btn.addEventListener("click", () => {
       this._tab = btn.dataset.tab;
-      // 2026-09-19 (ønske: alle 14 sektioner altid ens når man lander på
-      // siden): fold-tilstand blev tidligere husket på ubestemt tid (se
-      // v0.57.1) — nyttigt så en gemning ikke klapper den sektion man lige
-      // sad i, men det betød også at en sektion åbnet for lang tid siden
-      // stod åben igen, hver gang man kom tilbage til fanen, og så anderledes
-      // ud end resten. Nulstilles nu hver gang man klikker IND på
-      // Konfiguration — alle 14 starter garanteret sammenfoldet og ens ved
-      // hvert besøg, mens en sektion stadig får lov at blive stående åben
-      // så længe man rent faktisk er i gang med at redigere i den.
+      // 2026-09-19 (all 14 sections should look the same when you land on
+      // the page): the fold state used to be remembered indefinitely (see
+      // v0.57.1) — handy so a save doesn't collapse the section you are in,
+      // but it also meant a section opened long ago was open again every
+      // time you came back, looking different from the rest. Now reset each
+      // time the Settings tab is entered — all 14 start collapsed, while a
+      // section you are editing stays open until you leave the tab.
       if (this._tab === "config") this._expandedConfigSections.clear();
       if (this._tab === "history" && !this._history) this._loadHistory().then(() => this._scheduleRender());
       else this._scheduleRender();
@@ -4343,17 +4426,17 @@ class HeatManagerPanel extends HTMLElement {
     // .value is patched, never replaced).
     root.querySelector(".ctrl-season-select")?.addEventListener("change", async (e) => {
       const option = e.target.value;
-      const seasonLabel = ({ winter:"Vinter", spring:"Forår", summer:"Sommer", autumn:"Efterår", auto:"Auto" })[option] ?? option;
+      const seasonLabel = ["auto", "winter", "spring", "summer", "autumn"].includes(option) ? this._t(`season.${option}`) : option;
       if (!this._seasonEntityId) {
-        this._showToast("Sæson-entity ikke fundet", "error");
+        this._showToast(this._t("toast.season_entity_missing"), "error");
         return;
       }
       try {
         await this._hass.callService("select", "select_option", { entity_id: this._seasonEntityId, option });
         if (this._data) this._data.season_mode = option;
-        this._showToast(`Sæson sat til ${seasonLabel}`, "success");
+        this._showToast(this._t("toast.season_set", { season: seasonLabel }), "success");
       } catch (err) {
-        this._showToast("Kunne ikke skifte sæson", "error");
+        this._showToast(this._t("toast.season_failed"), "error");
       }
     });
     root.querySelector("[data-action='on']"    )?.addEventListener("click", () => this._setController("on"));
@@ -4366,13 +4449,13 @@ class HeatManagerPanel extends HTMLElement {
       if (btn.dataset.confirmOff === "1") {
         clearTimeout(this._offConfirmTimer);
         delete btn.dataset.confirmOff;
-        btn.textContent = btn.dataset.offOrigLabel || "❄️ Sluk";
+        btn.textContent = btn.dataset.offOrigLabel || "❄️ " + this._t("ctrl.btn_off");
         this._setController("off");
         return;
       }
       btn.dataset.offOrigLabel = btn.dataset.offOrigLabel || btn.textContent;
       btn.dataset.confirmOff = "1";
-      btn.textContent = "Tryk igen for at slukke";
+      btn.textContent = this._t("ctrl.btn_off_confirm");
       this._offConfirmTimer = setTimeout(() => {
         delete btn.dataset.confirmOff;
         btn.textContent = btn.dataset.offOrigLabel;
@@ -4408,13 +4491,13 @@ class HeatManagerPanel extends HTMLElement {
         }
         this._patchControllerHero();
         this._startBoostCountdown();
-        this._showToast(isActive ? "Boost deaktiveret" : "Boost aktiveret", "success"); // v0.3.9
+        this._showToast(this._t(isActive ? "toast.boost_off" : "toast.boost_on"), "success"); // v0.3.9
         // Refresh data so room cards update
         setTimeout(() => this._load(), 300);
       } catch (e) {
         btn.style.opacity = "0.4";
         setTimeout(() => { btn.style.opacity = ""; }, 800);
-        this._showToast("Kunne ikke ændre boost-tilstand", "error"); // v0.3.9
+        this._showToast(this._t("toast.boost_failed"), "error"); // v0.3.9
         console.info("[HeatManager] boost WS failed:", e);
       }
     });
@@ -4437,7 +4520,7 @@ class HeatManagerPanel extends HTMLElement {
       } catch (e) {
         this._manualControlEnabled = !newVal;   // revert — save failed
         this._scheduleRender();
-        this._showToast("Kunne ikke gemme Manuel TRV-kontrol", "error");
+        this._showToast(this._t("toast.save_manual_trv_failed"), "error");
         console.error("Heat Manager: save manual_trv_control failed", e);
       }
     });
@@ -4504,7 +4587,7 @@ class HeatManagerPanel extends HTMLElement {
           setTimeout(() => ok.classList.remove("visible"), 2500);
         }
       } catch(e) {
-        this._showToast("Kunne ikke gemme alarm-panel", "error"); // v0.3.9
+        this._showToast(this._t("toast.save_alarm_failed"), "error"); // v0.3.9
         console.error("Heat Manager: save alarm failed", e);
       }
       btn.disabled = false;
@@ -4524,7 +4607,7 @@ class HeatManagerPanel extends HTMLElement {
           if (footer) footer.innerHTML = this._alarmFooterText(states);
         } catch (e) {
           chip.classList.toggle("active"); // revert
-          this._showToast("Kunne ikke gemme alarmtilstande", "error");
+          this._showToast(this._t("toast.save_alarm_states_failed"), "error");
           console.error("Heat Manager: save alarm states failed", e);
         }
         chips.forEach(c => { c.disabled = false; });
@@ -4548,7 +4631,7 @@ class HeatManagerPanel extends HTMLElement {
           setTimeout(() => ok.classList.remove("visible"), 2500);
         }
       } catch(e) {
-        this._showToast("Kunne ikke gemme notify-service", "error"); // v0.3.9
+        this._showToast(this._t("toast.save_notify_failed"), "error"); // v0.3.9
         console.error("Heat Manager: save notify failed", e);
       }
       btn.disabled = false;
@@ -4567,7 +4650,7 @@ class HeatManagerPanel extends HTMLElement {
         const ok    = root.querySelector("#cfg-netatmo-away-ok");
         const value = parseFloat(input?.value ?? "");
         if (!entityId || Number.isNaN(value)) {
-          this._showToast("Ugyldig værdi", "error");
+          this._showToast(this._t("common.invalid_value"), "error");
           return;
         }
         btn.disabled = true;
@@ -4577,7 +4660,7 @@ class HeatManagerPanel extends HTMLElement {
           ok?.classList.add("visible");
           setTimeout(() => ok?.classList.remove("visible"), 2500);
         } catch (e) {
-          this._showToast("Kunne ikke gemme fraværstemperaturen i Netatmo", "error");
+          this._showToast(this._t("toast.save_away_failed"), "error");
           console.error("Heat Manager: set Netatmo away temperature failed", e);
         }
         btn.disabled = false;
@@ -4593,7 +4676,7 @@ class HeatManagerPanel extends HTMLElement {
         if (!input) return;
         const raw   = cast === "int" ? parseInt(input.value, 10) : parseFloat(input.value);
         if (Number.isNaN(raw)) {
-          this._showToast("Ugyldig værdi", "error");
+          this._showToast(this._t("common.invalid_value"), "error");
           return;
         }
         btn.disabled = true;
@@ -4608,7 +4691,7 @@ class HeatManagerPanel extends HTMLElement {
             setTimeout(() => ok?.classList.remove("visible"), 2500);
           }
         } catch (e) {
-          this._showToast(`Kunne ikke gemme ${field}`, "error");
+          this._showToast(this._t("toast.save_field_failed", { field }), "error");
           console.error(`Heat Manager: save ${field} failed`, e);
         }
         btn.disabled = false;
@@ -4639,7 +4722,7 @@ class HeatManagerPanel extends HTMLElement {
         const newVal  = !current;
 
         const applyVisual = (on) => {
-          btn.textContent = on ? "Slå fra" : "Slå til";
+          btn.textContent = this._t(on ? "common.turn_off" : "common.turn_on");
           btn.classList.toggle("active", on);
           const badge = btn.closest(".section-box")?.querySelector(
             `[data-badge-field="${field}"]`
@@ -4647,7 +4730,7 @@ class HeatManagerPanel extends HTMLElement {
           if (badge) {
             badge.style.background = on ? "rgba(99,102,241,0.15)" : "rgba(71,85,105,0.15)";
             badge.style.color = on ? "#818cf8" : "var(--sub)";
-            badge.innerHTML = `${this._cfgStatusDot(on)}${on ? "Aktiv" : "Inaktiv"}`;
+            badge.innerHTML = `${this._cfgStatusDot(on)}${this._t(on ? "common.active" : "common.inactive")}`;
           }
         };
 
@@ -4661,7 +4744,7 @@ class HeatManagerPanel extends HTMLElement {
         } catch (e) {
           if (this._data?.config) this._data.config[field] = current; // revert
           applyVisual(current);
-          this._showToast(`Kunne ikke gemme ${field}`, "error");
+          this._showToast(this._t("toast.save_field_failed", { field }), "error");
           console.error(`Heat Manager: save ${field} failed`, e);
         }
       });

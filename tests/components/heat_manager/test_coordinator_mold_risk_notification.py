@@ -21,6 +21,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from _texts import english_text
 
 from custom_components.heat_manager.const import (
     CONF_HUMIDITY_SENSOR,
@@ -43,6 +44,7 @@ def _make_coordinator(config: dict, rooms: list[dict]) -> MagicMock:
     """Minimal coordinator mock with only the two methods under test bound
     to the real implementation."""
     coord = MagicMock()
+    coord.text = english_text
     coord.config = config
     coord.rooms = rooms
     coord._mold_risk_state = {}
@@ -85,7 +87,7 @@ async def test_notification_sent_on_risk_edge():
     assert "Kælder" in args[2]["message"]
     assert args[2]["title"] == "Heat Manager"
     assert kwargs == {"blocking": True}
-    assert coord.log_event.call_count == 1
+    assert coord.log_message.call_count == 1
     assert coord._mold_risk_state["Kælder"] is True
 
 

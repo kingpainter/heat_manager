@@ -6,6 +6,7 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from _texts import english_text
 
 from custom_components.heat_manager.const import (
     CONF_TRVS,
@@ -20,6 +21,7 @@ from custom_components.heat_manager.migrations import migrate_room_to_trvs
 
 def _make_coordinator(rooms=None, someone_home=True, config=None):
     coordinator = MagicMock()
+    coordinator.text = english_text
     coordinator.hass = MagicMock()
     coordinator.hass.services.async_call = AsyncMock()
 

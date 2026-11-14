@@ -114,7 +114,8 @@ def test_all_rooms_unavailable_is_critical():
 
     assert len(issues) == 1
     assert issues[0]["severity"] == "critical"
-    assert "alle rum" in issues[0]["message"]
+    assert "all rooms" in issues[0]["message"]
+    assert issues[0]["key"] == "cloud_down"
 
 
 def test_some_rooms_unavailable_is_warning_and_names_rooms():
@@ -159,7 +160,9 @@ def test_stale_room_is_warning():
 
     assert len(issues) == 1
     assert issues[0]["severity"] == "warning"
-    assert "opdateret" in issues[0]["message"]
+    assert "not updated" in issues[0]["message"]
+    assert issues[0]["key"] == "cloud_stale"
+    assert issues[0]["params"] == {"rooms": "Bathroom"}
 
 
 def test_fresh_room_reports_no_cloud_issue():

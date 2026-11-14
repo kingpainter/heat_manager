@@ -96,7 +96,7 @@ async def test_single_trv_room_exercises_and_restores():
         "entity_id": "climate.kitchen",
         "temperature": 19.5,
     }
-    coordinator.log_event.assert_called_once()
+    coordinator.log_message.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -111,7 +111,7 @@ async def test_room_with_unavailable_entity_is_skipped():
     await engine._exercise_all_valves()
 
     coordinator.hass.services.async_call.assert_not_awaited()
-    coordinator.log_event.assert_not_called()
+    coordinator.log_message.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -156,8 +156,8 @@ async def test_multi_trv_room_exercises_every_trv_individually():
     entity_ids = {c.args[2]["entity_id"] for c in calls}
     assert entity_ids == {"climate.living_room_homekit", "climate.living_room_trv2"}
     # Room is only logged once even though 2 TRVs were exercised.
-    coordinator.log_event.assert_called_once()
-    assert "Living room" in coordinator.log_event.call_args.args[0]
+    coordinator.log_message.assert_called_once()
+    assert "Living room" in coordinator.log_message.call_args.kwargs["rooms"]
 
 
 @pytest.mark.asyncio
@@ -193,7 +193,7 @@ async def test_multi_trv_room_second_trv_still_exercised_when_first_unavailable(
     calls = coordinator.hass.services.async_call.await_args_list
     assert len(calls) == 2  # only the second TRV
     assert all(c.args[2]["entity_id"] == "climate.living_room_trv2" for c in calls)
-    coordinator.log_event.assert_called_once()
+    coordinator.log_message.assert_called_once()
 
 
 # ── v0.65.0: skip valves that moved within the last week ─────────────────────
@@ -226,5 +226,8 @@ async def test_recently_moved_valve_is_skipped_and_logged():
         for c in coordinator.hass.services.async_call.await_args_list
     }
     assert written == {"climate.bath"}
-    messages = [c.args[0] for c in coordinator.log_event.call_args_list]
-    assert any("skipped" in m and "Kitchen" in m for m in messages)
+    logged = [
+        (c.args[0], c.kwargs.get("rooms", ""))
+        for c in coordinator.log_message.call_args_list
+    ]
+    assert any(k == "valve_exercise_skipped" and "Kitchen" in r for k, r in logged)

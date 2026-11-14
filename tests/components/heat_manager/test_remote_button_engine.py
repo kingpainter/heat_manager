@@ -217,7 +217,7 @@ async def test_temp_up_increases_setpoint_for_every_eligible_room():
     assert len(calls) == 2
     targets = {c.args[1]: c.args[2]["temperature"] for c in calls}
     assert targets == {"climate.living_room": 20.5, "climate.bathroom": 20.5}
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -253,7 +253,7 @@ async def test_temp_up_skips_window_open_room():
     await engine._async_adjust_all_rooms(BUTTON_TEMP_STEP)
 
     coord.async_call_climate_service.assert_not_called()
-    coord.log_event.assert_not_called()
+    coord.log_message.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -325,7 +325,7 @@ async def test_temp_up_clamps_to_max():
     await engine._async_adjust_all_rooms(BUTTON_TEMP_STEP)
 
     coord.async_call_climate_service.assert_not_called()
-    coord.log_event.assert_not_called()
+    coord.log_message.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -361,7 +361,7 @@ async def test_temp_up_fans_out_to_every_trv_in_multi_trv_room():
     assert len(calls) == 2
     entities = {c.args[1] for c in calls}
     assert entities == {"climate.living_room", "climate.living_room_trv2"}
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -414,7 +414,7 @@ async def test_mode_toggle_any_normal_switches_all_eligible_to_override():
     coord.async_set_room_override.assert_awaited_once_with(
         "Living room", True, source="remote"
     )
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -432,7 +432,7 @@ async def test_mode_toggle_all_override_switches_all_back_to_normal():
 
     calls = {c.args for c in coord.async_set_room_override.await_args_list}
     assert calls == {("Living room", False), ("Bathroom", False)}
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -465,7 +465,7 @@ async def test_mode_toggle_no_eligible_rooms_is_noop():
     await engine._async_toggle_all_rooms()
 
     coord.async_set_room_override.assert_not_called()
-    coord.log_event.assert_not_called()
+    coord.log_message.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -706,7 +706,7 @@ async def test_failed_write_reports_nothing_and_stores_no_pending():
 
     await engine._async_adjust_all_rooms(BUTTON_TEMP_STEP)
 
-    coord.log_event.assert_not_called()
+    coord.log_message.assert_not_called()
     coord.set_remote_last_action.assert_not_called()
     assert "Living room" not in engine._pending_setpoints
 

@@ -97,7 +97,7 @@ def test_extend_overrides_pushes_expiry_back():
 
     assert extended == ["Stue"]
     assert coord.room_override_expires_at["Stue"] == original + timedelta(minutes=60)
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
 
 
 def test_extend_overrides_counts_from_now_when_already_past():
@@ -115,7 +115,7 @@ def test_extend_overrides_leaves_permanent_overrides_alone():
 
     assert coord.extend_overrides(60) == []
     assert "Stue" not in coord.room_override_expires_at
-    coord.log_event.assert_not_called()
+    coord.log_message.assert_not_called()
 
 
 def test_extend_overrides_ignores_rooms_no_longer_manual():
@@ -364,7 +364,7 @@ async def test_release_all_clears_pending_and_records_action():
 
     await engine._async_release_all()
 
-    coord.async_release_all_overrides.assert_awaited_once_with(reason="Remote")
+    coord.async_release_all_overrides.assert_awaited_once_with(reason="remote")
     assert "Stue" not in engine._pending_setpoints
     assert coord.set_remote_last_action.call_args.kwargs["action"] == "release"
 

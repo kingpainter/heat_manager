@@ -87,6 +87,7 @@ from ..engine.season_engine import SeasonEngine
 from ..engine.sync_engine import SyncEngine
 from ..engine.valve_protection_engine import ValveProtectionEngine
 from ..engine.window_engine import WindowEngine
+from ..frontend_translations import render
 from ..migrations import migrate_room_to_trvs
 
 _LOGGER = logging.getLogger(__name__)
@@ -113,7 +114,12 @@ class CoordinatorBase(DataUpdateCoordinator[dict[str, Any]]):
     schedule_engine: ScheduleEngine
     remote_button_engine: RemoteButtonEngine
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        texts: dict[str, dict[str, str]] | None = None,
+    ) -> None:
         super().__init__(
             hass,
             _LOGGER,
@@ -121,6 +127,10 @@ class CoordinatorBase(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=SCAN_INTERVAL_SECONDS),
         )
         self.entry = entry
+        # v0.72.0: translated texts per language (frontend/translations,
+        # loaded off the event loop by async_setup_entry()). "en" renders the
+        # stored event log; the system language renders push notifications.
+        self._texts: dict[str, dict[str, str]] = texts or {}
         # Registry ID of the global Heat Manager device (set by
         # async_setup_entry() right after this device is created, before
         # platforms are forwarded). Used by room_device_info() as
@@ -275,6 +285,23 @@ class CoordinatorBase(DataUpdateCoordinator[dict[str, Any]]):
         # for a room with no CONF_SCHEDULE_ENTITY configured, or whose
         # block/event isn't currently active.
         self.schedule_override: dict[str, float] = {}
+
+    # ── Texts (v0.72.0) ──────────────────────────────────────────────────────
+
+    @property
+    def notify_language(self) -> str:
+        """Language for push notifications and repair texts: the Home
+        Assistant system language (English when it has no translation)."""
+        lang = self.hass.config.language or "en"
+        return lang if lang in self._texts else "en"
+
+    def text(self, key: str, language: str | None = None, **params: Any) -> str:
+        """`key` (e.g. "notify.window_open") rendered in `language` — the
+        system language by default — with English for missing strings."""
+        strings = self._texts.get(language or self.notify_language) or self._texts.get(
+            "en", {}
+        )
+        return render(strings, key, params)
 
     @property
     def config(self) -> dict[str, Any]:

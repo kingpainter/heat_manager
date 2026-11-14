@@ -1116,7 +1116,7 @@ async def test_set_room_temp_sets_temperature_and_logs():
         {"entity_id": "climate.bathroom", "temperature": 22.5},
         blocking=True,
     )
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
     result = conn.send_result.call_args[0][1]
     assert result["success"] is True
     assert result["temperature"] == 22.5
@@ -1265,7 +1265,7 @@ async def test_update_config_changed_field_persists_and_logs():
     await ws_update_config(hass, conn, _msg(alarm_panel="alarm_control_panel.house"))
 
     hass.config_entries.async_update_entry.assert_called_once()
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
     result = conn.send_result.call_args[0][1]
     assert result["updated"] is True
     assert result["changed"] == ["alarm_panel"]
@@ -1344,7 +1344,7 @@ async def test_update_config_manual_trv_control_true_persists_and_logs():
         "options"
     ]
     assert persisted_options["manual_trv_control"] is True
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
     result = conn.send_result.call_args[0][1]
     assert result == {"updated": True, "changed": ["manual_trv_control"]}
 
@@ -1583,7 +1583,7 @@ async def test_update_room_config_comfort_temp_persists_and_logs():
         "options"
     ][CONF_ROOMS]
     assert persisted_rooms[0][CONF_COMFORT_TEMP] == 22.5
-    coord.log_event.assert_called_once()
+    coord.log_message.assert_called_once()
     result = conn.send_result.call_args[0][1]
     assert result == {"updated": True, "changed": ["comfort_temp"]}
 

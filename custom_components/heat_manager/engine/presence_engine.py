@@ -262,15 +262,15 @@ class PresenceEngine:
             return
         if not self.coordinator.someone_home():
             await self._set_all_away()
-            self.coordinator.log_event(
-                f"Away mode — nobody home for {minutes} min",
-                "Grace period",
-                "away",
+            self.coordinator.log_message(
+                "away_nobody_home", "away", "grace_period", minutes=minutes
             )
             if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
                 await self._notify(
                     title="Heat Manager",
-                    message=f"Heating off — nobody home for {minutes} min.",
+                    message=self.coordinator.text(
+                        "notify.away_nobody_home", minutes=minutes
+                    ),
                 )
 
     # ── Alarm changes (fixes B4) ──────────────────────────────────────────────
@@ -312,11 +312,11 @@ class PresenceEngine:
             async with self._lock:
                 self._cancel_grace_timer()
             await self._set_all_away()
-            self.coordinator.log_event("Heating off — alarm armed", "Alarm", "away")
+            self.coordinator.log_message("alarm_armed", "away", "alarm")
             if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
                 await self._notify(
                     title="Heat Manager",
-                    message="Heating off — alarm armed.",
+                    message=self.coordinator.text("notify.alarm_armed"),
                 )
 
         elif (
@@ -327,14 +327,12 @@ class PresenceEngine:
             if self.coordinator.any_window_open():
                 await self._notify_windows_blocking_heat()
             else:
-                self.coordinator.log_event(
-                    "Heating resumed — alarm disarmed", "Alarm", "normal"
-                )
+                self.coordinator.log_message("alarm_disarmed", "normal", "alarm")
                 await self._restore_all_schedule()
                 if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
                     await self._notify(
                         title="Heat Manager",
-                        message="Heating resumed — alarm disarmed, someone home.",
+                        message=self.coordinator.text("notify.alarm_disarmed"),
                     )
 
     def _alarm_away_states(self) -> frozenset[str]:
@@ -404,10 +402,8 @@ class PresenceEngine:
                         )
                         self.coordinator.set_room_state(room_name, RoomState.AWAY)
                         if log:
-                            self.coordinator.log_event(
-                                f"Away mode — {room_name} (hvac_mode: off)",
-                                "Presence",
-                                "away",
+                            self.coordinator.log_message(
+                                "away_room_off", "away", "presence", room=room_name
                             )
                     # broad-except-rationale: one entity failing must not abort the others in this loop
                     except Exception as err:  # noqa: BLE001
@@ -429,8 +425,8 @@ class PresenceEngine:
                         home_away_sent = True
                         self.coordinator.set_room_state(room_name, RoomState.AWAY)
                         if log:
-                            self.coordinator.log_event(
-                                f"Away mode — {room_name}", "Presence", "away"
+                            self.coordinator.log_message(
+                                "away_room", "away", "presence", room=room_name
                             )
                     # broad-except-rationale: one entity failing must not abort the others in this loop
                     except Exception as err:  # noqa: BLE001
@@ -550,12 +546,11 @@ class PresenceEngine:
                     any_restored = True
 
             if any_restored and notify:
-                self.coordinator.log_event(
-                    "Heating resumed — welcome home", "Presence", "normal"
-                )
+                self.coordinator.log_message("welcome_home", "normal", "presence")
                 if self.coordinator.config.get(CONF_NOTIFY_PRESENCE, True):
                     await self._notify(
-                        title="Heat Manager", message="Heating resumed — welcome home."
+                        title="Heat Manager",
+                        message=self.coordinator.text("notify.welcome_home"),
                     )
 
     @guarded
@@ -601,19 +596,21 @@ class PresenceEngine:
 
         if any_ok:
             self.coordinator.set_room_state(room_name, RoomState.NORMAL)
-            window_warn = (
-                " (windows still open — may be costly!)"
-                if self.coordinator.any_window_open()
-                else ""
-            )
-            self.coordinator.log_event(
-                f"Heating forced on for {room_name}{window_warn}",
-                "Override",
+            windows_open = self.coordinator.any_window_open()
+            self.coordinator.log_message(
+                "forced_on_windows_open" if windows_open else "forced_on",
                 "override",
+                "override",
+                room=room_name,
             )
             await self._notify(
                 title="Heat Manager",
-                message=f"Heating forced on for {room_name}{window_warn}",
+                message=self.coordinator.text(
+                    "notify.forced_on_windows_open"
+                    if windows_open
+                    else "notify.forced_on",
+                    room=room_name,
+                ),
             )
 
     # ── Notifications ─────────────────────────────────────────────────────────
@@ -623,10 +620,16 @@ class PresenceEngine:
             return
         await self._notify(
             title="Heat Manager",
-            message="Heating not resumed — one or more windows are open.",
+            message=self.coordinator.text("notify.windows_block_heat"),
             actions=[
-                {"action": ACTION_FORCE_HEATING_ON, "title": "Heat anyway"},
-                {"action": ACTION_VIEW_WINDOWS, "title": "Show open windows"},
+                {
+                    "action": ACTION_FORCE_HEATING_ON,
+                    "title": self.coordinator.text("notify.action_heat_anyway"),
+                },
+                {
+                    "action": ACTION_VIEW_WINDOWS,
+                    "title": self.coordinator.text("notify.action_show_windows"),
+                },
                 {"action": ACTION_DISMISS, "title": "OK"},
             ],
         )

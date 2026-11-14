@@ -1,0 +1,875 @@
+{
+  "ack": {
+    "auto": "Automatik slået til igen i {rooms}",
+    "boost": "Boost startet i {rooms}",
+    "down": "Ned",
+    "manual": "Manuel styring slået til i {rooms}",
+    "received": "Fjernbetjening modtaget",
+    "release": "Alle rum tilbage på automatik ({rooms})",
+    "remote_at": "Fjernbetjening · kl. {time}",
+    "rooms": "{count} rum",
+    "skipped": "Sprunget over: {rooms}",
+    "temp_sent": "{delta} modtaget · sendt til {rooms}",
+    "up": "Op"
+  },
+  "alarm": {
+    "armed_away": "Armeret væk",
+    "armed_custom_bypass": "Armeret brugerdefineret",
+    "armed_home": "Armeret hjemme",
+    "armed_night": "Armeret nat",
+    "armed_vacation": "Armeret ferie",
+    "footer": "Når alarmen går i {states}, aktiveres fraværsmodus øjeblikkeligt uden grace period. Ved frakoblet eller en anden armeret tilstand genoptages opvarmningen, når nogen er hjemme.",
+    "none_selected": "Ingen alarmtilstand er valgt — alarmen sætter ikke huset i fravær.",
+    "or": " eller ",
+    "turns_off_at": "Slukker varmen (fravær) ved:"
+  },
+  "auto_off": {
+    "active": "Aktiv",
+    "calendar_season": "Kalender-sæson",
+    "days_above": "Dage over grænse",
+    "effective_season": "Effektiv sæson",
+    "off": "Slukket",
+    "off_reason": "Slukket ({reason})",
+    "outdoor": "Udetemperatur",
+    "outdoor_value": "{temp} / {threshold}°C grænse",
+    "reason_season": "sæson",
+    "reason_temperature": "temperatur",
+    "title": "Auto-off status",
+    "wake_line": "Inde {indoor} {cmp_in} {threshold} · ude {outdoor} {cmp_out} {min_outdoor}"
+  },
+  "away": {
+    "desc": "Netatmos egen fraværstemperatur — den alle ventiler går til, når huset er tomt. Samme værdi som i Netatmo-appen.{schedule}",
+    "in_app": "Styres i Netatmo-appen",
+    "in_app_desc": "Med NET-TRV kan den sættes herfra. Den bruges af alle Netatmo-ventiler, når huset er tomt.",
+    "label": "Fraværstemperatur",
+    "schedule": " Gemmes på Netatmo-tidsplanen «{schedule}».",
+    "too_low": "⚠ Fraværstemperaturen ({away} °C) er lavere end laveste rumtemperatur ({min} °C). Rummene kan blive koldere end minimum, når huset er tomt."
+  },
+  "blocking": {
+    "controller_off": "Controller slukket",
+    "controller_pause": "Controller pause",
+    "presence": "Fraværende",
+    "window": "Vindue åbent"
+  },
+  "card": {
+    "ack": {
+      "auto": "Automatik igen i {count} rum",
+      "boost": "Boost startet i {count} rum",
+      "manual": "Manuel i {count} rum",
+      "release": "Alle rum på automatik",
+      "temp": "{delta} sendt til {count} rum"
+    },
+    "boost_info": "Øger varmen til {temp}°C i alle aktive rum i {minutes} min, derefter restore.",
+    "boost_left": "{time} tilbage",
+    "boost_stop": "Stop boost",
+    "cloud": {
+      "all_down": "Netatmo cloud/gateway nede — alle rum utilgængelige",
+      "some_down": "Netatmo: {count}/{total} rum utilgængelige",
+      "stale": "Netatmo-data {minutes} min forsinket"
+    },
+    "mold": "Skimmel",
+    "netatmo": {
+      "away": "Væk",
+      "hg": "Frostsikring",
+      "manual": "Manuel",
+      "max": "Boost",
+      "off": "Slukket",
+      "until": "{mode} til {time}"
+    },
+    "no_rooms": "Ingen rum konfigureret i kortet",
+    "outdoor": "{temp} ude",
+    "pause_in": "Pause i",
+    "press_again": "Tryk igen",
+    "rooms_count": "{count} rum",
+    "sensors": "Sensorer",
+    "sl": {
+      "auto_in": "auto om {duration}",
+      "boost": "Boost · {duration} tilbage",
+      "manual": "Manuel i {count} rum · {expiry}",
+      "nothing_else": "Intet andet at bemærke",
+      "off": "Varmen er slukket",
+      "ok": "Alt kører automatisk",
+      "pause": "Pause · {duration} tilbage"
+    },
+    "state_manual_icon": "Manuel {icon}",
+    "toast": {
+      "already_auto": "Alt kører allerede automatisk",
+      "boost_start_failed": "Kunne ikke starte boost",
+      "boost_stop_failed": "Kunne ikke stoppe boost"
+    },
+    "unknown_room": "Ukendt rum",
+    "unknown_room_title": "Rummet findes ikke i Heat Manager — tjek room_name/climate_entity i kortets YAML",
+    "valve_offline": "Ventil offline",
+    "valve_offline_title": "Rummets ventil (klimaentitet) svarer ikke"
+  },
+  "cfg": {
+    "auto_off_temp_days": {
+      "desc": "Antal sammenhængende dage over temperaturgrænsen, før hele huset automatisk slukkes for sæsonen.",
+      "label": "Dage i træk"
+    },
+    "auto_off_temp_threshold": {
+      "desc": "Udetemperatur hvorover en dag tæller med i rækken af milde dage nedenfor.",
+      "label": "Temperaturgrænse"
+    },
+    "boost_default_minutes": {
+      "desc": "Hvor længe Boost varer, når det startes uden selv at angive en anden varighed.",
+      "label": "Standardvarighed"
+    },
+    "boost_default_temp": {
+      "desc": "Temperaturen rummet sættes til, når Boost startes uden selv at angive en anden.",
+      "label": "Standardtemperatur"
+    },
+    "door_heat_share_enabled": {
+      "label": "Dør-varmedeling aktiveret"
+    },
+    "door_heat_share_max_reduction": {
+      "desc": "Loft — dør-varmedeling alene fjerner aldrig mere end denne andel af effekten.",
+      "label": "Maksimal reduktion"
+    },
+    "door_heat_share_min_neighbor_power": {
+      "desc": "Naborummets egen PID-effekt skal være mindst dette, før dets varme tæller som reelt leveret lige nu.",
+      "label": "Naborums minimumseffekt"
+    },
+    "door_heat_share_min_temp_diff": {
+      "desc": "Hvor meget varmere naborummet mindst skal være, før nogen reduktion sker.",
+      "label": "Minimum temperaturforskel"
+    },
+    "door_heat_share_weight": {
+      "desc": "Hvor meget effekten reduceres pr. grad temperaturforskellen overstiger grænsen.",
+      "label": "Vægt"
+    },
+    "ff_max_contribution": {
+      "desc": "Loft — vejrkompensation alene tilføjer aldrig mere end denne andel af effekten.",
+      "label": "Maksimalt bidrag"
+    },
+    "ff_reference_outdoor_temp": {
+      "desc": "Udetemperatur ved/over hvilken vejrkompensationen bidrager med 0.",
+      "label": "Referenceudetemperatur"
+    },
+    "ff_weight": {
+      "desc": "Ekstra effektandel tilføjet pr. °C udetemperaturen er under referencen.",
+      "label": "Vægt"
+    },
+    "grace_day_min": {
+      "desc": "Hvor længe der ventes, efter alle er gået, før huset om dagen sættes på fraværstemperatur.",
+      "label": "Dag"
+    },
+    "grace_night_min": {
+      "desc": "Samme ventetid, men om natten — typisk kortere, da man sjældent forlader huset midt om natten uden grund.",
+      "label": "Nat"
+    },
+    "issue_escalation_minutes": {
+      "desc": "Et statuscenter-problem (skimmel, åbent vindue, langsom opvarmning m.fl.) der har stået på uafbrudt i så mange minutter, sender én push-notifikation.",
+      "label": "Eskalér efter"
+    },
+    "manual_trv": {
+      "desc": "Tilføjer en slider og Send-knap per rum — sæt en midlertidig temperatur direkte fra panelet.",
+      "label": "Vis manuel temperatur-kontrol i Rum-fanen"
+    },
+    "min_room_temp": {
+      "desc": "Gælder alle rum. PID'en sender aldrig et lavere sætpunkt til en ventil, og natsænkningen går aldrig under denne. Standard 17 °C — et almindeligt minimum mod skimmel.",
+      "label": "Laveste rumtemperatur"
+    },
+    "night_end_hour": {
+      "desc": "Klokkeslæt (lokal tid) hvor rummet igen varmer til fuld måltemperatur.",
+      "label": "Slut time"
+    },
+    "night_setback_enabled": {
+      "label": "Nat-sætpunkt aktiveret"
+    },
+    "night_setback_temp": {
+      "desc": "Antal grader der trækkes fra måltemperaturen i nat-perioden. Går aldrig under laveste rumtemperatur (Temperaturgrænser).",
+      "label": "Temperatur (sænkning)"
+    },
+    "night_start_hour": {
+      "desc": "Klokkeslæt (lokal tid) hvor nat-sænkningen begynder.",
+      "label": "Start time"
+    },
+    "notify_issue_escalation": {
+      "desc": "Send én notifikation når et statuscenter-problem har stået på uafbrudt i mindst så mange minutter som angivet nedenfor.",
+      "label": "Eskalér langvarige problemer"
+    },
+    "notify_mold_risk": {
+      "desc": "Send en notifikation når høj luftfugtighed tæt på dugpunktet registreres i et rum.",
+      "label": "Skimmelrisiko"
+    },
+    "notify_preheat": {
+      "desc": "Send en notifikation når forvarmning starter forud for en persons hjemkomst.",
+      "label": "Forvarmning"
+    },
+    "notify_presence": {
+      "desc": "Send en notifikation når nogen kommer hjem, eller alle går.",
+      "label": "Tilstedeværelse/fravær"
+    },
+    "notify_window_warning_30": {
+      "desc": "Send en ekstra påmindelse hvis vinduet stadig er åbent efter tiden angivet i «Advarsel efter» ovenfor.",
+      "label": "30-minutters-advarsel"
+    },
+    "notify_windows": {
+      "desc": "Send en notifikation når et vindue åbnes eller lukkes.",
+      "label": "Notifikation ved åbent vindue"
+    },
+    "outdoor_temp_sensor": "Udetemperatursensor",
+    "pid_enabled": {
+      "label": "PID-regulering aktiveret"
+    },
+    "pid_kd": {
+      "desc": "Reagerer på hvor hurtigt temperaturen ændrer sig. Sjældent nødvendig, da TRV'er har flere minutters egen forsinkelse.",
+      "label": "Kd"
+    },
+    "pid_ki": {
+      "desc": "Retter en vedvarende, langsom afvigelse over tid. Hold lav — for høj værdi giver overshoot.",
+      "label": "Ki"
+    },
+    "pid_kp": {
+      "desc": "Hvor kraftigt effekten reagerer på den aktuelle temperaturafvigelse. Højere værdi = hurtigere, men mere ustabil regulering.",
+      "label": "Kp"
+    },
+    "pid_setpoint_margin": {
+      "desc": "Loft for hvor mange grader OVER rummets eget mål en TRV må bedes om at gå, uanset trv_max. Sænk for tættere styring, hæv hvis opvarmningen føles for langsom.",
+      "label": "Setpoint-margin"
+    },
+    "push": {
+      "desc": "Sendes ved: vindue åbnet/lukket, fraværsmodus, ankomst, preheat og ventilbeskyttelse.",
+      "title": "Push-notifikationer"
+    },
+    "rooms": {
+      "calibration": "Kalibrering",
+      "none": "Ingen rum",
+      "sync": "Sync: {mode}"
+    },
+    "sec": {
+      "alarm": {
+        "title": "Alarmtavle"
+      },
+      "auto_off": {
+        "footer": "Slukker automatisk hele huset for sæsonen, hvis udetemperaturen holder sig over grænsen i det angivne antal dage i træk — typisk relevant i overgangen til forår/sommer.",
+        "title": "Auto-off ved mildt vejr"
+      },
+      "boost": {
+        "footer": "Bruges af Boost-knappen og {service}, når intet andet angives eksplicit.",
+        "title": "Boost — standardværdier"
+      },
+      "door_heat_share": {
+        "footer": "Reducerer PID-effekten, når en åben indendørs dør fører til et varmere naborum, der selv varmer aktivt. Ændrer aldrig rummets mål — kun effekten.",
+        "title": "Dør-varmedeling"
+      },
+      "global": {
+        "footer": "Vejr-entiteten leverer udetemperatur til sæson, vejrkompensation, auto-off og nat-sætpunkt. Sættes under opsætningen — kan ikke redigeres herfra.",
+        "title": "Global konfiguration"
+      },
+      "grace": {
+        "footer": "Hvor længe Heat Manager venter, efter alle er gået hjemmefra, før et rum rent faktisk sættes på fraværstemperatur — så en kort tur ud til bilen ikke udløser unødig nedkøling.",
+        "title": "Grace-perioder"
+      },
+      "manual_trv": {
+        "footer": "Viser en ekstra kontrol i Rum-fanen til at sætte en midlertidig temperatur direkte på én eller alle ventiler — uden om skema og PID. Til hurtige justeringer.",
+        "title": "Manuel TRV-kontrol"
+      },
+      "night_setback": {
+        "footer": "Sænker rummenes måltemperatur automatisk i nat-perioden og hæver den igen om morgenen.",
+        "title": "Nat-sætpunkt"
+      },
+      "notifications": {
+        "footer": "Vælg hvilke hændelser der sender en push-notifikation via Home Assistants notify-tjeneste, og/eller en talt meddelelse via House Voice, hvis den er installeret.",
+        "title": "Notifikationer"
+      },
+      "pid": {
+        "footer": "PID-regulatoren styrer, hvor meget effekt hvert rum beder sine TRV'er om, ud fra afvigelsen mellem rummets aktuelle temperatur og målet.",
+        "title": "PID-regulator"
+      },
+      "rooms_summary": {
+        "footer": "Skrivebeskyttet oversigt over hvert rums klimaentitet og valgfrie ekstrafunktioner. Ændres via Home Assistants rekonfigurering af integrationen.",
+        "title": "Rum & klimaentiteter"
+      },
+      "solar_gain": {
+        "footer": "Reducerer PID-effekten i rum med lux-sensor, mens solen er oppe og sensoren viser lys — direkte sol kræver mindre varme fra TRV'en.",
+        "title": "Solindfald"
+      },
+      "temp_limits": {
+        "footer": "Laveste rumtemperatur styrer Heat Manager selv. Fraværstemperaturen er Netatmos egen og bruges, når huset er tomt.",
+        "title": "Temperaturgrænser"
+      },
+      "weather_comp": {
+        "footer": "Tilføjer et proaktivt effektbidrag baseret på udetemperaturen, oven i PID'ens reaktive korrektion — en klassisk \"varmekurve\".",
+        "title": "Vejrkompensation"
+      },
+      "window": {
+        "footer": "Styrer hvornår og hvordan varmen slås fra, når et vindue står åbent — og hvornår du får besked om det.",
+        "title": "Vindue"
+      }
+    },
+    "solar_gain_enabled": {
+      "label": "Solindfald aktiveret"
+    },
+    "solar_gain_lux_threshold": {
+      "desc": "Lux-niveau, hvorover rummet regnes for at få reel sol lige nu.",
+      "label": "Lux-grænse"
+    },
+    "solar_gain_max_reduction": {
+      "desc": "Loft — solindfald alene fjerner aldrig mere end denne andel af effekten.",
+      "label": "Maksimal reduktion"
+    },
+    "solar_gain_weight": {
+      "desc": "Hvor meget effekten reduceres pr. gang rummets lux overstiger grænsen.",
+      "label": "Vægt"
+    },
+    "unit_days": "dage",
+    "voice": {
+      "desc": "Talemeddelelser ved: controller pause/sluk og sæsonskift sommer/vinter.",
+      "off": "Sluk",
+      "pause": "Pause",
+      "summer": "Sommer",
+      "winter": "Vinter"
+    },
+    "weather_compensation_enabled": {
+      "label": "Vejrkompensation aktiveret"
+    },
+    "weather_entity": "Vejr-entitet",
+    "window_delay_default_min": {
+      "desc": "Hvor længe et vindue skal være åbent, før varmen reelt slås fra. Gælder alle rum. Sættes automatisk ned ved kraftig vind eller regn.",
+      "label": "Forsinkelse før sluk"
+    },
+    "window_off_temp": {
+      "desc": "Temperaturen der sendes til rummets ventil, når varmen slås fra pga. åbent vindue. Gælder kun mens vinduet er åbent og er uafhængig af laveste rumtemperatur.",
+      "label": "Sluk-temperatur"
+    },
+    "window_warning_min": {
+      "desc": "Hvor længe et vindue skal have været åbent, før du får en ekstra påmindelse om at det stadig er åbent — påvirker ikke selve sluk-funktionen ovenfor.",
+      "label": "Advarsel efter"
+    }
+  },
+  "common": {
+    "active": "Aktiv",
+    "close_message": "Luk besked",
+    "configured": "Konfigureret",
+    "decimal_sep": ",",
+    "inactive": "Inaktiv",
+    "invalid_value": "Ugyldig værdi",
+    "loading": "Indlæser Heat Manager…",
+    "not_set": "Ikke sat",
+    "refresh": "Opdater",
+    "save": "Gem",
+    "turn_off": "Slå fra",
+    "turn_on": "Slå til"
+  },
+  "conn": {
+    "last_ok": " — sidst OK kl. {time}",
+    "lost": "Ingen forbindelse til Heat Manager{since}",
+    "no_answer": " — intet svar modtaget endnu"
+  },
+  "ctrl": {
+    "boost_minutes": "Boost ({minutes} min)",
+    "boost_title": "Boost — varm op hurtigt",
+    "btn_off": "Sluk",
+    "btn_off_confirm": "Tryk igen for at slukke",
+    "btn_on": "Tænd",
+    "btn_pause": "Pause",
+    "dur_1h": "1 time",
+    "dur_2h": "2 timer",
+    "dur_30m": "30 min",
+    "dur_4h": "4 timer",
+    "dur_tomorrow": "Til i morgen",
+    "netatmo_mixed": "Blandet",
+    "outdoor": "Ude",
+    "pause_duration": "Pause varighed",
+    "pause_left": "Pause — {minutes} min tilbage",
+    "resume_now": "Genoptag nu",
+    "rooms_configured": "{count} rum konfigureret",
+    "season": "Sæson",
+    "season_title": "Skift sæsontilstand manuelt — Auto lader Heat Manager selv styre skiftet",
+    "section": "Controller",
+    "status": "Status",
+    "title": {
+      "off": "Slukket",
+      "on": "Varme aktiv",
+      "pause": "Pause"
+    }
+  },
+  "dur": {
+    "h": "{h} t",
+    "h_m": "{h} t {m} min",
+    "m": "{m} min",
+    "under_1m": "under 1 min"
+  },
+  "editor": {
+    "add_room": "+ Tilføj rum",
+    "boost": "Boost-indstillinger",
+    "boost_minutes": "Boost-varighed (min)",
+    "boost_temp": "Boost-temperatur (°C)",
+    "climate": "Klimaenhed",
+    "climate_hint": "Bruges til at vise aktuel temperatur",
+    "delete": "Slet",
+    "global": "Globale indstillinger",
+    "no_rooms": "Ingen rum endnu — klik \"+ Tilføj rum\"",
+    "room_n": "Rum {n}",
+    "room_name": "Rumnavn (matcher Heat Manager config)",
+    "room_name_placeholder": "f.eks. Køkken",
+    "rooms": "Rum",
+    "weather": "Vejr-entitet (til ude-temperatur i header)"
+  },
+  "eff_season": {
+    "active": "Aktiv",
+    "dormant": "Dvale",
+    "waking": "Opvågning"
+  },
+  "event": {
+    "alarm_armed": "Varmen slukket — alarmen er slået til",
+    "alarm_disarmed": "Varmen genoptaget — alarmen er slået fra",
+    "away_nobody_home": "Fraværstilstand — ingen hjemme i {minutes} min",
+    "away_room": "Fraværstilstand — {room}",
+    "away_room_off": "Fraværstilstand — {room} (hvac_mode: off)",
+    "boost_started": "Boost aktiveret — {rooms}",
+    "boost_started_none": "Boost aktiveret — ingen rum klar til boost",
+    "boost_stopped": "Boost deaktiveret",
+    "config_updated": "Indstillinger opdateret: {fields}",
+    "door_closed": "Dør lukket: {door}",
+    "door_closed_away": "Dør lukket i {room} — ingen hjemme, forbliver i fravær",
+    "door_closed_between": "Dør lukket mellem {room_a} og {room_b}",
+    "door_closed_monitoring": "Dør lukket i {room} (ingen ventil — kun overvågning)",
+    "door_closed_resumed": "Dør lukket i {room} — varmen genoptaget",
+    "door_open_heating": "Dør åben i {room} — varme sat til {temp}°C (via {via})",
+    "door_open_minutes": "Dør åben i {minutes} min i {room}",
+    "door_open_monitoring": "Dør åben i {room} (ingen ventil — kun overvågning)",
+    "door_opened": "Dør åbnet: {door}",
+    "door_opened_between": "Dør åbnet mellem {room_a} og {room_b}",
+    "forced_on": "Varme tvunget til i {room}",
+    "forced_on_windows_open": "Varme tvunget til i {room} (vinduer stadig åbne — kan blive dyrt!)",
+    "group_off": "Gruppe fra — {room} (ekstra TRV'er frigivet)",
+    "group_on": "Gruppe til — {room} (alle TRV'er styres igen)",
+    "mold_risk": "Skimmelrisiko — {room} ({rh}% RF, {temp}°C)",
+    "netatmo_preset_set": "Netatmo-forvalg for {room} sat til {preset}",
+    "offset_set": "Offset ({room}) sat til {offset}°C",
+    "override_expired": "{room}: manuel styring udløbet — tidsplan gendannet",
+    "override_extended": "Manuel styring forlænget med {minutes} min — {rooms}",
+    "override_off": "Override fra — {room} går tilbage til normal",
+    "override_on": "Override til — {room}",
+    "override_released": "Manuel styring ophævet — {rooms}",
+    "remote_auto": "Fjernbetjening: skiftet til automatik — {rooms}",
+    "remote_boost": "Fjernbetjening: boost — {rooms}",
+    "remote_manual": "Fjernbetjening: skiftet til manuel — {rooms}",
+    "remote_release": "Fjernbetjening: alle rum tilbage på automatik — {rooms}",
+    "remote_temp": "Fjernbetjening: {delta}°C — {rooms}",
+    "room_config_updated": "{room}: {fields} opdateret",
+    "room_schedule_restored": "{room}: tidsplan gendannet",
+    "room_temp_set": "{room}: {temp}°C (indtil videre)",
+    "room_temp_set_for": "{room}: {temp}°C ({minutes} min)",
+    "season_mode_set": "Sæsontilstand sat til {season}",
+    "sync_accepted": "Manuel ændring accepteret — {room} ({temp}°C)",
+    "sync_reverted": "Manuel ændring afvist — {room} tilbage til {temp}°C",
+    "valve_exercise_done": "Ventilmotionering gennemført — {rooms}",
+    "valve_exercise_skipped": "Ventilmotionering sprunget over (bevæget for nylig) — {rooms}",
+    "welcome_home": "Varmen genoptaget — velkommen hjem",
+    "window_closed_away": "Vindue lukket i {room} — ingen hjemme, forbliver i fravær",
+    "window_closed_monitoring": "Vindue lukket i {room} (ingen ventil — kun overvågning)",
+    "window_closed_resumed": "Vindue lukket i {room} — varmen genoptaget",
+    "window_open_heating": "Vindue åbent i {room} — varme sat til {temp}°C (via {via})",
+    "window_open_minutes": "Vindue åbent i {minutes} min i {room}",
+    "window_open_monitoring": "Vindue åbent i {room} (ingen ventil — kun overvågning)"
+  },
+  "event_type": {
+    "all": "Alle",
+    "away": "Fravær",
+    "boost": "Boost",
+    "door": "Dør",
+    "manual": "Manuel",
+    "normal": "Normal",
+    "override": "Override",
+    "window_open": "Vindue"
+  },
+  "header": {
+    "version_title": "Heat Manager-integrationens version"
+  },
+  "health": {
+    "good": "god",
+    "ok": "ok",
+    "poor": "dårlig",
+    "title": "Sundhedsscore — kombinerer batteri, skimmelrisiko, utilgængelige enheder og opvarmningsafvigelse"
+  },
+  "history": {
+    "days_7": "7 dage",
+    "no_events": "Ingen hændelser endnu",
+    "no_events_type": "Ingen hændelser af denne type",
+    "title": "Hændelseslog",
+    "updated_at": "Opdateret kl. {time}"
+  },
+  "issue": {
+    "battery_low": "Lavt batteri: {rooms}",
+    "boost": "Boost aktivt — {minutes} min tilbage",
+    "boost_rooms": "Boost aktivt ({rooms}) — {minutes} min tilbage",
+    "cloud_down": "Netatmo cloud/gateway nede — alle rum utilgængelige",
+    "cloud_stale": "Netatmo-data ikke opdateret i 10+ min: {rooms}",
+    "cloud_unavailable": "Netatmo utilgængelig: {rooms}",
+    "entities_unavailable_many": "{count} rum har utilgængelige sensorer/enheder ({total} i alt): {rooms}",
+    "entities_unavailable_one": "{room}: {count} sensor(er)/enhed(er) utilgængelig(e)",
+    "heatup_anomaly_many": "{count} rum varmer langsommere end normalt — muligvis fastsiddende ventil: {rooms}",
+    "heatup_anomaly_one": "{room}: varmer langsommere end normalt — muligvis fastsiddende ventil",
+    "mold_risk_many": "Skimmelrisiko ({count} rum): {rooms}",
+    "mold_risk_one": "Skimmelrisiko — {room}",
+    "pid_needs_homekit": "PID kræver HomeKit — følger Netatmo-tidsplanen: {rooms}",
+    "remote_action": "{description}",
+    "remote_action_rooms": "{description} — {rooms}",
+    "valve_offline": "Ventil offline: {rooms}",
+    "webhook_down": "Netatmo-realtid (webhook) nede — opdateres hvert minut",
+    "window_open_many": "Vindue åbent ({count} rum): {rooms}",
+    "window_open_one": "Vindue åbent — {room}"
+  },
+  "netatmo_mode": {
+    "away": "væk",
+    "hg": "frostsikring",
+    "manual": "manuel",
+    "max": "boost",
+    "off": "slukket",
+    "schedule": "tidsplan",
+    "until": "{mode} til {time}"
+  },
+  "notify": {
+    "action_heat_anyway": "Varm alligevel",
+    "action_show_windows": "Vis åbne vinduer",
+    "alarm_armed": "Varmen er slukket — alarmen er slået til.",
+    "alarm_disarmed": "Varmen er genoptaget — alarmen er slået fra, og nogen er hjemme.",
+    "away_nobody_home": "Varmen er slukket — ingen hjemme i {minutes} min.",
+    "ctx_co2_heat_loss": "  (CO₂: {ppm} ppm — varmetab)",
+    "ctx_co2_ventilation": "  (CO₂: {ppm} ppm — udluftning)",
+    "ctx_rain": "  (🌧️ {mm} mm — regn: varmetab)",
+    "ctx_wind": "  (💨 {speed} m/s — vind: varmetab)",
+    "door_closed": "Dør lukket — {room}",
+    "door_closed_resumed": "Dør lukket — {room} varmer igen{context}",
+    "door_open": "Dør åben — {room}",
+    "door_open_set": "Dør åben — {room} sat til {temp}°C{context}",
+    "door_still_open": "Dør stadig åben i {room} ({minutes} min) — varmen holdes nede{context}",
+    "escalation": "{message} (aktiv i {minutes}+ min)",
+    "forced_on": "Varme tvunget til i {room}",
+    "forced_on_windows_open": "Varme tvunget til i {room} (vinduer stadig åbne — kan blive dyrt!)",
+    "mold_risk": "Skimmelrisiko — {room} ({rh}% RF, {temp}°C)",
+    "override_stuck": "{room}: har stået på manuel styring i lang tid",
+    "preheat_started": "Forvarmning startet — {person} er snart hjemme. Rum: {rooms}",
+    "valve_exercise_done": "Ventilbeskyttelse: {count} rum gennemkørt ({rooms})",
+    "welcome_home": "Varmen er genoptaget — velkommen hjem.",
+    "window_closed": "Vindue lukket — {room}",
+    "window_closed_resumed": "Vindue lukket — {room} varmer igen{context}",
+    "window_open": "Vindue åbent — {room}",
+    "window_open_set": "Vindue åbent — {room} sat til {temp}°C{context}",
+    "window_still_open": "Vindue stadig åbent i {room} ({minutes} min) — varmen holdes nede{context}",
+    "windows_block_heat": "Varmen er ikke genoptaget — et eller flere vinduer er åbne."
+  },
+  "override_info": {
+    "no_expiry": "uden udløb",
+    "since": "siden {time}",
+    "until": "auto igen kl. {time}"
+  },
+  "overview": {
+    "no_rooms": "Ingen rum konfigureret",
+    "presence": "Tilstedeværelse",
+    "qs_active": "Aktiv",
+    "qs_away": "Fraværende",
+    "qs_doors": "Åbne døre",
+    "qs_passive": "Passiv",
+    "qs_preheat": "Forvarmning",
+    "qs_window": "Vindue åbent",
+    "rooms": "Rum"
+  },
+  "persons": {
+    "follows_house": "Følger huset",
+    "home": "Hjemme",
+    "no_tracking": "Ingen tracking",
+    "none": "Ingen personer konfigureret",
+    "not_home": "Ikke hjemme",
+    "since": "siden {time}"
+  },
+  "rd": {
+    "all_rooms_temporary": "Alle rum — midlertidig ændring",
+    "at_radiator": "Ved radiatoren",
+    "battery": "Batteri",
+    "calibration": "Kalibrering",
+    "closed": "Lukket",
+    "co2": "CO₂",
+    "collapse": "Fold sammen",
+    "collapse_all": "Fold alle sammen",
+    "comfort": "Komforttemperatur",
+    "comfort_desc": "Den temperatur rummet skal have, når nogen er hjemme. Natsænkning og offset trækkes fra denne, men aldrig under laveste rumtemperatur (Indstillinger).",
+    "comfort_sub": "komfort {temp}°C",
+    "door_to": "Dør til {room}",
+    "door_unavailable": "utilgængelig",
+    "duration": "Varighed",
+    "expand_all": "Fold alle ud",
+    "follows_schedule": "Følger tidsplan",
+    "follows_schedule_named": "Følger tidsplan «{schedule}»",
+    "force_title": "Tving rummet til at varme nu, uanset tilstedeværelse og vinduer (heat_manager.force_room_on)",
+    "global_note": "Sætter {count} rum med ventil til samme temperatur — rum med kun sensorer springes over.",
+    "grouped": "Grupperet",
+    "heat_demand": "Varmebehov (PID)",
+    "heat_demand_desc": "Hvor meget varme PID-regulatoren beder om lige nu, 0-100%.",
+    "humidity": "Luftfugtighed",
+    "hvac_heating": "varmer",
+    "hvac_idle": "varmer ikke",
+    "hvac_off": "slukket",
+    "in_room": "I rummet",
+    "light": "Lys",
+    "netatmo_diverge_sent": "⚠ Netatmo står på {cloud}°C, Heat Manager har sendt {ref}°C.",
+    "netatmo_diverge_wants": "⚠ Netatmo står på {cloud}°C, Heat Manager vil have {ref}°C.",
+    "netatmo_setpoint": "Sætpunkt i Netatmo",
+    "netatmo_setpoint_desc": "Det sætpunkt Netatmo selv viser for rummet — ikke nødvendigvis det Heat Manager vil have.",
+    "not_in_auto": "ikke i auto",
+    "offset": "Offset",
+    "open": "Åben",
+    "opening": "Åbning",
+    "outer_door": "Yderdør",
+    "pid_setpoint": "PID-sætpunkt",
+    "preset": "Forvalg: {preset}",
+    "radiator_desc": "Ventilens egen måling. Den sidder på radiatoren og viser typisk 1-3°C mere end rummet.",
+    "released": "Frigivet",
+    "released_note": "De ekstra ventiler styres ikke af Heat Manager lige nu — kun den primære ventil følger skemaet.",
+    "reset_title": "Fjern den midlertidige ændring og følg skemaet igen",
+    "room_temp_desc": "Rummets faktiske temperatur — fra ekstern temperatursensor, hvis rummet har en, ellers fra ventilens egen måling.",
+    "schedule_named": "Tidsplan «{schedule}»",
+    "sec_climate": "Indeklima",
+    "sec_settings": "Rummets indstillinger",
+    "sec_temperature": "Temperatur",
+    "sec_temporary": "Midlertidig ændring",
+    "sec_valve": "Ventil",
+    "sec_valve_group": "Ventilgruppe",
+    "sensors_only": "Kun sensorer",
+    "sent_desc": "Det sætpunkt PID'en sender til ventilen lige nu. Kan ligge over målet, mens rummet stadig er koldt. Vises kun i normal, automatisk drift.",
+    "sent_to_valve": "Sendt til ventil",
+    "show_details": "Vis detaljer",
+    "sum_battery": "batteri {value}%",
+    "sum_door_open": "dør åben",
+    "sum_humidity": "fugt {value}%",
+    "sum_target": "mål {temp}",
+    "sum_valve": "ventil {value}%",
+    "target_desc": "Den temperatur Heat Manager styrer efter lige nu: komforttemperaturen efter skema, offset, natsænkning og fravær.",
+    "target_now": "Mål nu",
+    "temperature": "Temperatur",
+    "title": "Rum — detaljer",
+    "unavailable_many": "⚠ {count} enheder svarer ikke: {list}",
+    "unavailable_one": "⚠ {count} enhed svarer ikke: {list}",
+    "until_further": "Indtil videre",
+    "valve_reading": "ventilens måling",
+    "valves": "{count} ventiler",
+    "window_today": "Vindue åbent i dag"
+  },
+  "reason": {
+    "alarm": "Alarm",
+    "auto": "Automatik",
+    "door": "Dør",
+    "grace_period": "Grace-periode",
+    "group": "Gruppe",
+    "manual": "Manuel",
+    "mold_risk": "Skimmelrisiko",
+    "override": "Override",
+    "panel": "Panel",
+    "presence": "Tilstedeværelse",
+    "remote": "Fjernbetjening",
+    "sync_lock": "synk-tilstand: lås",
+    "sync_mirror": "synk-tilstand: spejl",
+    "valve_protection": "Ventilbeskyttelse",
+    "window": "Vindue",
+    "window_warning": "Vindues-advarsel"
+  },
+  "room_card": {
+    "battery": "Batteri",
+    "in_room": "I rummet",
+    "mold": "Skimmelrisiko",
+    "mold_title": "Høj fugt tæt på dugpunktet — risiko for skimmelvækst",
+    "schedule": "Schedule",
+    "schedule_title": "Schedule-entity konfigureret",
+    "sync_title": "Synkroniseringstilstand",
+    "target_now": "Mål nu",
+    "valves": "{count} ventiler",
+    "valves_title": "Antal ventiler i rummet",
+    "window_pending": "venter",
+    "window_pending_title": "Vindue fysisk åbent — venter på forsinkelse før varmen slås fra"
+  },
+  "rooms": {
+    "all_back_to_auto": "Alle tilbage til automatik",
+    "back_to_auto": "Tilbage til automatik",
+    "error": "Fejl",
+    "force_failed": "{room}: kunne ikke tvinge varme til",
+    "force_on": "Tving varme til",
+    "group_entity_missing": "{room}: kunne ikke finde gruppe-entity",
+    "group_failed": "{room}: kunne ikke ændre gruppering",
+    "heating_badge": "{heating} / {total} varmer",
+    "no_valve_rooms": "Ingen rum med ventil at sætte",
+    "offset_entity_missing": "{room}: kunne ikke finde offset-entity",
+    "offset_failed": "{room}: kunne ikke sætte offset",
+    "reset_all_ok": "{ok} rum tilbage til automatik",
+    "reset_all_partial": "{ok}/{total} rum gendannet — fejlede: {failed}",
+    "reset_failed": "{room}: kunne ikke gå tilbage til automatik",
+    "save_failed": "{room}: kunne ikke gemme rummets indstillinger",
+    "sending": "Sender {done}/{total}…",
+    "sent": "Sendt",
+    "set": "Sæt",
+    "set_all": "Sæt i alle rum",
+    "set_all_ok": "{ok} rum sat til {temp}°C",
+    "set_all_partial": "{ok}/{total} rum sat til {temp}°C — fejlede: {failed}",
+    "set_failed": "{room}: kunne ikke sætte temperatur"
+  },
+  "season": {
+    "auto": "Auto",
+    "autumn": "Efterår",
+    "spring": "Forår",
+    "summer": "Sommer",
+    "winter": "Vinter"
+  },
+  "sheet": {
+    "auto_again": "automatik igen kl. {time}",
+    "back_to_auto": "{room}: tilbage til automatik",
+    "blocked_by": "Blokeret af",
+    "close": "Luk",
+    "deviates": "⚠ Afviger",
+    "door": "Dør",
+    "enter_temp": "Angiv en temperatur",
+    "extra_valves": "Ekstra ventiler følger gruppen",
+    "group_failed": "Kunne ikke ændre gruppering",
+    "health": "Sundhed",
+    "heating": "Opvarmning",
+    "hm_sent": "Heat Manager har sendt {temp}",
+    "hm_wants": "Heat Manager vil have {temp}",
+    "manual_control": "Manuel styring",
+    "no_data": "Ingen yderligere data for dette rum",
+    "rate_door_closed": "lukket {rate}°C/t",
+    "rate_door_open": "dør åben {rate}°C/t",
+    "reset_failed": "Kunne ikke gå tilbage til automatik",
+    "send_failed": "Kunne ikke sende temperatur",
+    "status": "Status",
+    "sync": "Sync",
+    "temp_set": "{room}: {temp}°C sat",
+    "valve_group": "Ventilgruppe ({count} ventiler)",
+    "valves_in_room": "Ventiler i rummet"
+  },
+  "sl": {
+    "and": " og ",
+    "auto_at": "auto {time}",
+    "auto_in": "{count} · auto igen om {duration}",
+    "auto_now": "Auto nu",
+    "boost_left": "Boost aktivt · {duration} tilbage",
+    "click_details": "klik for detaljer",
+    "cloud_tip": "Rum med lokal (HomeKit/Zigbee) styring kører videre",
+    "entities_tip": "Se rummets sensorer under Rum-fanen",
+    "fetching": "Henter…",
+    "forecast": "{room} når {temp} ca. kl. {time}",
+    "heatup_tip": "Tjek at ventilen ikke sidder fast",
+    "hidden_until": "skjult til {time}",
+    "hide_1h": "Skjul 1 t",
+    "manual_all": "Manuel i alle rum",
+    "manual_some": "Manuel i {count} af {total} rum",
+    "message_n_of": "Besked {n} af {total}",
+    "mold_tip": "Luft ud i 5–10 min og hold temperaturen jævn",
+    "night_in": "Natsænkning om {duration}",
+    "night_until": "Natsænkning til kl. {time}",
+    "no_events": "Ingen hændelser endnu",
+    "no_expiry": "{count} · uden udløb",
+    "no_expiry_short": "uden udløb",
+    "no_warnings": "Ingen advarsler 🎉",
+    "off_sub": "Tænd under Controller for at starte automatikken igen",
+    "off_title": "Varmen er slukket for hele huset",
+    "ok_all_on_target": "Alt kører automatisk · alle rum er på mål",
+    "ok_heating": "Alt kører automatisk · {count} rum varmer op",
+    "outdoor": "Ude {temp}",
+    "pause_sub": "Fortsætter af sig selv bagefter",
+    "pause_title": "Varmen er sat på pause",
+    "pause_title_left": "Varmen er sat på pause · {duration} tilbage",
+    "plus_1h": "+1 time",
+    "rain": "regn",
+    "sec_control": "Styring",
+    "sec_latest": "Seneste",
+    "sec_warnings": "Advarsler",
+    "sec_why": "Hvorfor — rum for rum",
+    "set_via": "sat via {sources}",
+    "set_via_at": "sat via {sources} kl. {time}",
+    "show": "Vis",
+    "since": "siden {time} · ",
+    "wind": "blæst",
+    "window_lowered_in": "Varmen er sænket i {rooms}",
+    "window_will_lower": "Varmen sænkes, hvis det bliver ved"
+  },
+  "source": {
+    "panel": "Panel",
+    "remote": "Fjernbetjening",
+    "switch": "Kontakt",
+    "trv": "Ventil"
+  },
+  "state": {
+    "away": "Fraværende",
+    "normal": "Auto",
+    "override": "Manuel",
+    "override_with_source": "Manuel · {source}",
+    "pre_heat": "Forvarmning",
+    "window_open": "Vindue åbent"
+  },
+  "state_word": {
+    "away": "fraværende",
+    "pre_heat": "forvarmning",
+    "window_open": "vindue åbent"
+  },
+  "sync_mode": {
+    "disabled": "Deaktiveret",
+    "lock": "Lås",
+    "mirror": "Spejl"
+  },
+  "tabs": {
+    "config": "Konfiguration",
+    "history": "Historik",
+    "overview": "Oversigt",
+    "rooms": "Rum"
+  },
+  "toast": {
+    "already_auto": "Alle rum kører allerede automatisk",
+    "boost_failed": "Kunne ikke ændre boost-tilstand",
+    "boost_off": "Boost deaktiveret",
+    "boost_on": "Boost aktiveret",
+    "controller_failed": "Kunne ikke ændre varme-tilstand",
+    "extended": "Manuel styring forlænget med 1 time",
+    "fetch_failed": "Kunne ikke hente status fra Heat Manager — viser sidst kendte data",
+    "nothing_to_extend": "Intet at forlænge",
+    "pause_failed": "Kunne ikke sætte pause",
+    "release_failed": "Kunne ikke sætte rummene tilbage på automatik",
+    "released": "{count} rum tilbage på automatik",
+    "resume_failed": "Kunne ikke genoptage varmestyring",
+    "save_alarm_failed": "Kunne ikke gemme alarm-panel",
+    "save_alarm_states_failed": "Kunne ikke gemme alarmtilstande",
+    "save_away_failed": "Kunne ikke gemme fraværstemperaturen i Netatmo",
+    "save_field_failed": "Kunne ikke gemme {field}",
+    "save_manual_trv_failed": "Kunne ikke gemme Manuel TRV-kontrol",
+    "save_notify_failed": "Kunne ikke gemme notify-service",
+    "season_entity_missing": "Sæson-entity ikke fundet",
+    "season_failed": "Kunne ikke skifte sæson",
+    "season_set": "Sæson sat til {season}",
+    "snoozed": "Skjult i 1 time",
+    "try_again": "Det lykkedes ikke — prøv igen",
+    "unsnoozed": "Vises igen"
+  },
+  "why": {
+    "above_long": "Rummet er varmere end målet, så der varmes ikke lige nu. {facts}",
+    "above_short": "Over mål ({temps}) — radiatoren holder igen",
+    "away_long": "Alle er væk, så rummet holdes på fraværstemperatur. Det varmes op igen, når nogen kommer hjem. {facts}",
+    "away_short": "Fraværstemperatur — ingen hjemme",
+    "boost_long": "Boost er aktivt og stopper af sig selv. {facts}",
+    "boost_short": "Boost — kører på boost-temperatur",
+    "eta": " · ca. kl. {time}",
+    "fact_pid": "PID {value}%",
+    "fact_room": "rum {temp}",
+    "fact_target": "mål {temp}",
+    "fact_valve": "ventil {value}%",
+    "heating_long": "Rummet er under målet, så radiatoren åbner. {facts}",
+    "heating_short": "Varmer op: {temps}{eta}",
+    "manual_change": "manuel ændring",
+    "manual_long": "Automatikken styrer ikke rummet lige nu, fordi det er sat manuelt via {source}. {expiry} {facts}",
+    "manual_long_forever": "Det bliver manuelt, indtil nogen sætter det tilbage.",
+    "manual_long_until": "Det går selv tilbage til automatik kl. {time}.",
+    "manual_short": "Manuel via {source} — {expiry}",
+    "off_long": "Controlleren står på Sluk. {facts}",
+    "off_short": "Varmen er slukket for hele huset",
+    "on_target_long": "Rummet holder sin temperatur. {facts}",
+    "on_target_short": "På mål: {temp}",
+    "pause_long": "Controlleren står på Pause og fortsætter af sig selv. {facts}",
+    "pause_short": "Hele huset er på pause",
+    "preheat_long": "Rummet varmes op før ankomst ud fra rejsetiden hjem. {facts}",
+    "preheat_short": "Forvarmer — nogen er på vej hjem",
+    "sensors_long": "Rummet har ingen termostat i Heat Manager, så det måles kun.",
+    "sensors_short": "Kun måling — ingen radiator styres her",
+    "window_long": "Et vindue er åbent, så varmen er sænket. Den kommer igen, når vinduet har været lukket i den indstillede forsinkelse. {facts}",
+    "window_short": "Varmen sænket — vindue åbent"
+  }
+}

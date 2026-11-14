@@ -4,6 +4,7 @@ Heat Manager — WebSocket API
 Registers WS commands used by the sidebar panel:
   heat_manager/get_state    → full state snapshot
   heat_manager/get_history  → event log for the last N days
+  heat_manager/get_translations → panel/card strings for one language
 
 Event log reads from coordinator._event_log (deque, newest first).
 
@@ -112,6 +113,7 @@ from .const import (
     SOLAR_GAIN_WEIGHT,
     RoomState,
 )
+from .frontend_translations import load_translations
 from .panel import _get_version
 from .websocket_payload import build_state_payload
 
@@ -339,10 +341,8 @@ async def ws_set_room_temp(
                     await coordinator.async_release_netatmo_room(entity_id)
                 if write_entity is None:
                     write_entity = entity_id
-            coordinator.log_event(
-                f"{room_name}: schedule gendannet",
-                reason="manuel panel",
-                event_type="manual",
+            coordinator.log_message(
+                "room_schedule_restored", "manual", "panel", room=room_name
             )
             _LOGGER.info("Room '%s' restored to schedule", room_name)
         else:
@@ -371,11 +371,19 @@ async def ws_set_room_temp(
                 if write_entity is None:
                     write_entity = entity_id
             dur_label = f"{duration} min" if duration > 0 else "permanent"
-            coordinator.log_event(
-                f"{room_name}: {temp}\u00b0C ({dur_label})",
-                reason="manuel panel",
-                event_type="manual",
-            )
+            if duration > 0:
+                coordinator.log_message(
+                    "room_temp_set_for",
+                    "manual",
+                    "panel",
+                    room=room_name,
+                    temp=temp,
+                    minutes=duration,
+                )
+            else:
+                coordinator.log_message(
+                    "room_temp_set", "manual", "panel", room=room_name, temp=temp
+                )
             _LOGGER.info(
                 "Room '%s' set to %.1f\u00b0C for %s via %s",
                 room_name,
@@ -430,6 +438,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_release_overrides)
     websocket_api.async_register_command(hass, ws_extend_overrides)
     websocket_api.async_register_command(hass, ws_snooze_issue)
+    websocket_api.async_register_command(hass, ws_get_translations)
     _LOGGER.debug("WebSocket commands registered")
 
 
@@ -464,6 +473,33 @@ async def ws_get_state(
     connection.send_result(
         msg["id"], build_state_payload(hass, entry, integration_version)
     )
+
+
+# ── heat_manager/get_translations ─────────────────────────────────────────────
+
+
+@websocket_api.websocket_command(
+    {
+        probatio.Required("type"): "heat_manager/get_translations",
+        probatio.Optional("language"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_get_translations(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return the panel/card strings for one language (v0.71.0).
+
+    English is the default; a missing language or missing keys fall back to
+    English (see frontend_translations.load_translations). Does not need a
+    loaded config entry, so the panel can show translated errors too.
+    """
+    language, resources = await hass.async_add_executor_job(
+        load_translations, msg.get("language")
+    )
+    connection.send_result(msg["id"], {"language": language, "resources": resources})
 
 
 # ── heat_manager/get_history ──────────────────────────────────────────────────
@@ -705,7 +741,9 @@ async def ws_update_config(
     _LOGGER.info("Heat Manager config updated via panel: %s", changed)
 
     coordinator = entry.runtime_data
-    coordinator.log_event(f"Config updated: {', '.join(changed)}", "Panel", "normal")
+    coordinator.log_message(
+        "config_updated", "normal", "panel", fields=", ".join(changed)
+    )
 
     connection.send_result(msg["id"], {"updated": True, "changed": changed})
 
@@ -795,10 +833,12 @@ async def ws_update_room_config(
     hass.config_entries.async_update_entry(entry, options=current_options)
     _LOGGER.info("Room '%s' config updated via panel: %s", room_name, changed)
 
-    coordinator.log_event(
-        f"{room_name}: {', '.join(changed)} updated",
-        reason="manuel panel",
-        event_type="normal",
+    coordinator.log_message(
+        "room_config_updated",
+        "normal",
+        "panel",
+        room=room_name,
+        fields=", ".join(changed),
     )
 
     connection.send_result(msg["id"], {"updated": True, "changed": changed})
