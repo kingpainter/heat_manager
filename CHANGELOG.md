@@ -9,6 +9,20 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.72.1] — 2026-11-14
+
+### Fixed
+- **English labels were missing in the room setup and one repair.**
+  Home Assistant reads only `translations/<language>.json` for a custom
+  integration, and `translations/en.json` lacked 14 texts that
+  `strings.json` had: the "Show as door instead of window" and "Doors to a
+  heated area" fields (with descriptions) in the add/edit room steps, and
+  the title and description of the "persistent issue" repair. English users
+  saw raw field names and an untitled repair; Danish was complete.
+  `translations/en.json` is now an exact copy of `strings.json`, and a new
+  test fails if they drift apart or if a language file misses a key or a
+  placeholder.
+
 ## [0.72.0] — 2026-11-14
 
 ### Added

@@ -53,7 +53,7 @@
           "wind_speed_sensor": "Local wind speed sensor (m/s). Above 6 m/s, the window open-delay is shortened so heat loss is caught faster in blustery weather.",
           "window_delay_default_min": "How long a window must be open before Heat Manager actually turns off the heat in that room. Applies to every room \u2014 shortened automatically in strong wind or rain. Replaces the old per-room field, which was never editable from the panel.",
           "window_off_temp": "The setpoint sent to a room's TRV once its window-open delay has passed. Deliberately independent of the lowest room temperature, which floors the PID's own idle output and the night setback.",
-          "min_room_temp": "Floor for every room: the PID never sends a lower setpoint to a valve, and the night setback never goes below it. Default 17 °C, a common minimum against mould. Not the away temperature, which Netatmo itself holds (shown in the panel's settings).",
+          "min_room_temp": "Floor for every room: the PID never sends a lower setpoint to a valve, and the night setback never goes below it. Default 17 \u00b0C, a common minimum against mould. Not the away temperature, which Netatmo itself holds (shown in the panel's settings).",
           "night_setback_enabled": "When enabled, the PID target temperature is reduced by the setback value during the configured night hours. Uses the existing night start/end hours.",
           "night_setback_temp": "Degrees Celsius subtracted from the room's target temperature during night hours. The setpoint will not go below the lowest room temperature.",
           "house_voice_enabled": "Requires the House Voice integration to be installed. When enabled, Heat Manager will announce events such as boost activation, season changes, and controller state changes.",
@@ -77,6 +77,8 @@
         "data": {
           "room_name": "Room name",
           "window_sensors": "Window / door sensors",
+          "door_styled_sensors": "Show as door instead of window (cosmetic)",
+          "heated_door_sensors": "Doors to a heated area (no heat cutoff)",
           "window_delay_min": "Window open delay (minutes) \u2014 unused, see global settings",
           "comfort_temp": "Target temperature",
           "co2_sensor": "CO\u2082 sensor (optional)",
@@ -88,6 +90,8 @@
           "trv_window_detection": "Use the valve's own open-window detection"
         },
         "data_description": {
+          "door_styled_sensors": "Optional subset of the Window / door sensors above that should be labelled and logged as a door instead of a window \u2014 purely cosmetic, the exact same grace period / off-temperature / 30-minute warning behaviour applies either way (e.g. a balcony door still loses heat like a window). A sensor must ALSO be selected above in Window / door sensors for this to have any effect \u2014 selecting it ONLY here does nothing.",
+          "heated_door_sensors": "A SEPARATE list from Window / door sensors above \u2014 exterior doors leading to a heated/enclosed space (e.g. a front door onto a heated stairwell), not the outside air. These get NO heat-suppression behaviour at all: no grace period, no off-temperature, no warning \u2014 visibility and event log only. Do not add a sensor here INSTEAD of Window / door sensors if you want opening it to actually reduce heating.",
           "window_delay_min": "No longer read since v0.33.0 \u2014 every room's window open-delay now uses the single global setting instead (Season & global settings step). Left here only so a value already saved for this room isn't silently discarded; safe to ignore.",
           "comfort_temp": "PID target temperature for this room \u2014 authoritative for every TRV type, Netatmo included. Default 20\u00b0C.",
           "co2_sensor": "Used for context-aware window notifications. When CO\u2082 is high, an open window is described as ventilation rather than heat loss.",
@@ -245,7 +249,7 @@
           "wind_speed_sensor": "Local wind speed sensor (m/s). Above 6 m/s, the window open-delay is shortened so heat loss is caught faster in blustery weather.",
           "window_delay_default_min": "How long a window must be open before Heat Manager actually turns off the heat in that room. Applies to every room \u2014 shortened automatically in strong wind or rain. Replaces the old per-room field, which was never editable from the panel.",
           "window_off_temp": "The setpoint sent to a room's TRV once its window-open delay has passed. Deliberately independent of the lowest room temperature, which floors the PID's own idle output and the night setback.",
-          "min_room_temp": "Floor for every room: the PID never sends a lower setpoint to a valve, and the night setback never goes below it. Default 17 °C, a common minimum against mould. Not the away temperature, which Netatmo itself holds (shown in the panel's settings).",
+          "min_room_temp": "Floor for every room: the PID never sends a lower setpoint to a valve, and the night setback never goes below it. Default 17 \u00b0C, a common minimum against mould. Not the away temperature, which Netatmo itself holds (shown in the panel's settings).",
           "night_setback_enabled": "When enabled, the PID target temperature is reduced by the setback value during the configured night hours. Uses the existing night start/end hours.",
           "night_setback_temp": "Degrees Celsius subtracted from the room's target temperature during night hours. The setpoint will not go below the lowest room temperature.",
           "house_voice_enabled": "Requires the House Voice integration to be installed. When enabled, Heat Manager will announce events such as boost activation, season changes, and controller state changes.",
@@ -275,6 +279,8 @@
         "data": {
           "room_name": "Room name",
           "window_sensors": "Window / door sensors",
+          "door_styled_sensors": "Show as door instead of window (cosmetic)",
+          "heated_door_sensors": "Doors to a heated area (no heat cutoff)",
           "window_delay_min": "Window open delay (minutes) \u2014 unused, see global settings",
           "comfort_temp": "Target temperature",
           "co2_sensor": "CO\u2082 sensor (optional)",
@@ -286,6 +292,8 @@
           "trv_window_detection": "Use the valve's own open-window detection"
         },
         "data_description": {
+          "door_styled_sensors": "Optional subset of the Window / door sensors above that should be labelled and logged as a door instead of a window \u2014 purely cosmetic, the exact same grace period / off-temperature / 30-minute warning behaviour applies either way (e.g. a balcony door still loses heat like a window). A sensor must ALSO be selected above in Window / door sensors for this to have any effect \u2014 selecting it ONLY here does nothing.",
+          "heated_door_sensors": "A SEPARATE list from Window / door sensors above \u2014 exterior doors leading to a heated/enclosed space (e.g. a front door onto a heated stairwell), not the outside air. These get NO heat-suppression behaviour at all: no grace period, no off-temperature, no warning \u2014 visibility and event log only. Do not add a sensor here INSTEAD of Window / door sensors if you want opening it to actually reduce heating.",
           "window_delay_min": "No longer read since v0.33.0 \u2014 every room's window open-delay now uses the single global setting instead (Season & global settings step). Left here only so a value already saved for this room isn't silently discarded; safe to ignore.",
           "comfort_temp": "PID target temperature for this room \u2014 authoritative for every TRV type, Netatmo included. Default 20\u00b0C.",
           "co2_sensor": "Used for context-aware window notifications. When CO\u2082 is high, an open window is described as ventilation rather than heat loss.",
@@ -303,6 +311,8 @@
         "data": {
           "room_name": "Room name",
           "window_sensors": "Window / door sensors",
+          "door_styled_sensors": "Show as door instead of window (cosmetic)",
+          "heated_door_sensors": "Doors to a heated area (no heat cutoff)",
           "window_delay_min": "Window open delay (minutes) \u2014 unused, see global settings",
           "comfort_temp": "Target temperature",
           "co2_sensor": "CO\u2082 sensor (optional)",
@@ -314,6 +324,8 @@
           "trv_window_detection": "Use the valve's own open-window detection"
         },
         "data_description": {
+          "door_styled_sensors": "Optional subset of the Window / door sensors above that should be labelled and logged as a door instead of a window \u2014 purely cosmetic, the exact same grace period / off-temperature / 30-minute warning behaviour applies either way (e.g. a balcony door still loses heat like a window). A sensor must ALSO be selected above in Window / door sensors for this to have any effect \u2014 selecting it ONLY here does nothing.",
+          "heated_door_sensors": "A SEPARATE list from Window / door sensors above \u2014 exterior doors leading to a heated/enclosed space (e.g. a front door onto a heated stairwell), not the outside air. These get NO heat-suppression behaviour at all: no grace period, no off-temperature, no warning \u2014 visibility and event log only. Do not add a sensor here INSTEAD of Window / door sensors if you want opening it to actually reduce heating.",
           "window_delay_min": "No longer read since v0.33.0 \u2014 every room's window open-delay now uses the single global setting instead (Season & global settings step). Left here only so a value already saved for this room isn't silently discarded; safe to ignore.",
           "comfort_temp": "PID target temperature for this room \u2014 authoritative for every TRV type, Netatmo included. Default 20\u00b0C.",
           "co2_sensor": "Used for context-aware window notifications. When CO\u2082 is high, an open window is described as ventilation rather than heat loss.",
@@ -543,6 +555,10 @@
     "missing_climate_entity": {
       "title": "Heat Manager: climate entity missing for room {room_name}",
       "description": "The climate entity `{climate_id}` configured for room **{room_name}** does not exist in Home Assistant. Heat Manager cannot control heating for this room until the entity is available.\n\nTo resolve: check that the integration providing `{climate_id}` is loaded and the entity ID is correct. Reload Heat Manager once the entity is available."
+    },
+    "persistent_issue": {
+      "title": "Heat Manager: {message}",
+      "description": "{message}\n\nThis has been continuously active for at least {duration_min} minutes. It will clear automatically once the underlying condition resolves."
     },
     "netatmo_backend_missing": {
       "title": "Heat Manager: chosen Netatmo integration is not installed",
